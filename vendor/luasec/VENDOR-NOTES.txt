@@ -1,0 +1,3 @@
+LuaSec 1.3.2 (upstream lunarmodules/luasec, commit 989ee5f)
+Cloned for static linking. Compiled against bundled luasocket headers (ABI-identical to vendor/luasocket) and linked with vendor/openssl + luasocket_static.
+C modules preloaded: ssl.core/context/x509/config. Lua glue embedded: ssl (ssl.lua), ssl.https (https.lua).

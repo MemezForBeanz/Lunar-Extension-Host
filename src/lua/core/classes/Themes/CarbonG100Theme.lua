@@ -1,0 +1,12 @@
+--- Carbon G100 theme — IBM Carbon Design System "Gray 100" explicit variant (placeholder).
+--
+-- This file is reserved for a stand-alone Carbon G100 theme that sits alongside
+-- (rather than replacing) the `"classic_dark"` theme. When populated, it should
+-- subclass `core.classes.Themes.Theme`, set `id = "carbon_g100"` and
+-- `label = "Carbon G100"`, build a Carbon Gray 100 palette, and delegate
+-- `rules()` to `carbon_rules.build(self:palette())`.
+--
+-- `ThemeManager` will auto-discover this module once a valid `Theme` subclass
+-- is returned from it.
+--
+-- @classmod core.classes.Themes.CarbonG100Theme

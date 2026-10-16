@@ -1,0 +1,11 @@
+--- Carbon G90 theme — IBM Carbon Design System "Gray 90" dark variant (placeholder).
+--
+-- This file is reserved for a Carbon G90 theme. When populated, it should
+-- subclass `core.classes.Themes.Theme`, set `id = "carbon_g90"` and
+-- `label = "Carbon G90"`, build a Carbon Gray 90 palette, and delegate
+-- `rules()` to `carbon_rules.build(self:palette())`.
+--
+-- `ThemeManager` will auto-discover this module once a valid `Theme` subclass
+-- is returned from it.
+--
+-- @classmod core.classes.Themes.CarbonG90Theme

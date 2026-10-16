@@ -1,0 +1,69 @@
+{
+    // F5 debugs the dev build under gdb (C side: crashes, native modules, IUP).
+    // Needs the "C/C++" extension (ms-vscode.cpptools).
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Lunar (dev) - gdb",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/win/bin/LunarExtensionHost.exe",
+            "cwd": "${workspaceFolder}/build/win/bin",
+            "environment": [
+                { "name": "PATH", "value": "C:\\msys64\\mingw64\\bin;${env:PATH}" },
+                { "name": "LUNAR_REPO", "value": "${workspaceFolder}" }
+            ],
+            "MIMode": "gdb",
+            "miDebuggerPath": "C:/msys64/mingw64/bin/gdb.exe",
+            "preLaunchTask": "Build (dev)",
+            "stopAtEntry": false,
+            "externalConsole": false
+        },
+        {
+            "name": "Lunar (dev) with an org pack - gdb",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/win/bin/LunarExtensionHost.exe",
+            "cwd": "${workspaceFolder}/build/win/bin",
+            "environment": [
+                { "name": "PATH", "value": "C:\\msys64\\mingw64\\bin;${env:PATH}" },
+                { "name": "LUNAR_PROFILE_DIR", "value": "${input:orgPacksDir}" },
+                { "name": "LUNAR_PROFILE", "value": "${input:orgPack}" }
+            ],
+            "MIMode": "gdb",
+            "miDebuggerPath": "C:/msys64/mingw64/bin/gdb.exe",
+            "preLaunchTask": "Build (dev)"
+        },
+        {
+            "name": "CLI harness: current Lua file - gdb",
+            "detail": "Runs the open .lua script in LunarExtensionHostCLI (console host with the native modules).",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/win/bin/LunarExtensionHostCLI.exe",
+            "args": ["${file}"],
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                { "name": "LUA_PATH", "value": "src/lua/?.lua;vendor/luarocks-tree/share/lua/5.1/?.lua;;" },
+                { "name": "LUNAR_REPO", "value": "${workspaceFolder}" }
+            ],
+            "MIMode": "gdb",
+            "miDebuggerPath": "C:/msys64/mingw64/bin/gdb.exe",
+            "externalConsole": false,
+            "preLaunchTask": "Build (dev)"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "orgPacksDir",
+            "type": "promptString",
+            "description": "Folder holding org packs (each a subfolder with profile.json)",
+            "default": "${workspaceFolder}/../lunar-orgpacks"
+        },
+        {
+            "id": "orgPack",
+            "type": "promptString",
+            "description": "Pack id to select (empty: match by the machine's DNS domain)",
+            "default": ""
+        }
+    ]
+}

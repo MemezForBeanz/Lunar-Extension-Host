@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <!-- DPI awareness only. We deliberately do NOT redeclare the Common-Controls
+       dependency or an assemblyIdentity here: IUP's static libraries already embed
+       a Common-Controls v6 manifest, and duplicating it produced a side-by-side
+       (SxS) configuration conflict that stopped the exe from launching.
+
+       Declaring Per-Monitor-V2 awareness is the fix for the laptop clipping: without
+       any manifest the process ran DPI-unaware, so Windows bitmap-stretched the whole
+       window on scaled displays and pushed the bottom status bar past the visible work
+       area (worst when maximized or dragged from a differently-scaled monitor).
+
+       Two blocks so each OS uses the strongest mode it understands:
+         * Windows 10 1607+ reads dpiAwareness (SMI/2016) -> PerMonitorV2.
+         * Older Windows reads dpiAware (SMI/2005); "True/PM" = system + per-monitor v1. -->
+  <asmv3:application xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
+    <asmv3:windowsSettings>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2, PerMonitor, System</dpiAwareness>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">True/PM</dpiAware>
+    </asmv3:windowsSettings>
+  </asmv3:application>
+</assembly>

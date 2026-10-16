@@ -1,0 +1,12 @@
+--- Carbon G10 theme — IBM Carbon Design System "Gray 10" explicit variant (placeholder).
+--
+-- This file is reserved for a stand-alone Carbon G10 theme that sits alongside
+-- (rather than replacing) the `"classic"` theme. When populated, it should
+-- subclass `core.classes.Themes.Theme`, set `id = "carbon_g10"` and
+-- `label = "Carbon G10"`, build a Carbon Gray 10 palette, and delegate
+-- `rules()` to `carbon_rules.build(self:palette())`.
+--
+-- `ThemeManager` will auto-discover this module once a valid `Theme` subclass
+-- is returned from it.
+--
+-- @classmod core.classes.Themes.CarbonG10Theme

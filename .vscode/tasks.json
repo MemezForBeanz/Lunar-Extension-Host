@@ -1,0 +1,136 @@
+{
+    // Ctrl+Shift+B builds (dev). "Tasks: Run Task" lists the rest; "Tasks: Run Test
+    // Task" runs the busted suite. Every task finds MSYS2 tools via the PATH below.
+    "version": "2.0.0",
+    "options": {
+        "shell": { "executable": "powershell.exe", "args": ["-NoProfile", "-Command"] },
+        "env": {
+            "PATH": "C:\\msys64\\mingw64\\bin;${env:PATH}",
+            "LUNAR_REPO": "${workspaceFolder}"
+        }
+    },
+    "tasks": [
+        {
+            "label": "Build (dev)",
+            "type": "shell",
+            "command": "cmake --preset dev; if ($?) { cmake --build --preset dev }",
+            "group": { "kind": "build", "isDefault": true },
+            "problemMatcher": "$gcc",
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            "label": "Build (release)",
+            "type": "shell",
+            "command": "cmake --preset release; if ($?) { cmake --build --preset release }",
+            "group": "build",
+            "problemMatcher": "$gcc",
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            "label": "Run Lunar (dev)",
+            "type": "process",
+            "command": "${workspaceFolder}/build/win/bin/LunarExtensionHost.exe",
+            "options": { "cwd": "${workspaceFolder}/build/win/bin" },
+            "dependsOn": "Build (dev)",
+            "problemMatcher": []
+        },
+        {
+            "label": "Run Lunar (dev, no build)",
+            "type": "process",
+            "command": "${workspaceFolder}/build/win/bin/LunarExtensionHost.exe",
+            "options": { "cwd": "${workspaceFolder}/build/win/bin" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Run Lunar with an org pack (dev)",
+            "detail": "Loads org packs from a folder (LUNAR_PROFILE_DIR) and selects one by id (LUNAR_PROFILE; empty = match by DNS domain). Dev builds only.",
+            "type": "process",
+            "command": "${workspaceFolder}/build/win/bin/LunarExtensionHost.exe",
+            "options": {
+                "cwd": "${workspaceFolder}/build/win/bin",
+                "env": {
+                    "LUNAR_PROFILE_DIR": "${input:orgPacksDir}",
+                    "LUNAR_PROFILE": "${input:orgPack}"
+                }
+            },
+            "dependsOn": "Build (dev)",
+            "problemMatcher": []
+        },
+        {
+            "label": "Run Lunar (release)",
+            "type": "process",
+            "command": "${workspaceFolder}/build/rel/bin/LunarExtensionHost.exe",
+            "options": { "cwd": "${workspaceFolder}/build/rel/bin" },
+            "dependsOn": "Build (release)",
+            "problemMatcher": []
+        },
+        {
+            "label": "Test (busted)",
+            "type": "shell",
+            "command": "powershell -NoProfile -File scripts/test.ps1",
+            "group": { "kind": "test", "isDefault": true },
+            "problemMatcher": []
+        },
+        {
+            "label": "Lint (luacheck)",
+            "type": "shell",
+            "command": "powershell -NoProfile -File scripts/lint.ps1",
+            "problemMatcher": {
+                "owner": "luacheck",
+                "fileLocation": ["relative", "${workspaceFolder}"],
+                "pattern": {
+                    "regexp": "^\\s*(.+?):(\\d+):(\\d+): (.*)$",
+                    "file": 1, "line": 2, "column": 3, "message": 4
+                }
+            }
+        },
+        {
+            "label": "Docs check (ldoc)",
+            "type": "shell",
+            "command": "powershell -NoProfile -File scripts/docs.ps1 -OutDir dist/docs-ci -Check",
+            "problemMatcher": []
+        },
+        {
+            "label": "Check all (test + lint + docs)",
+            "dependsOrder": "sequence",
+            "dependsOn": ["Test (busted)", "Lint (luacheck)", "Docs check (ldoc)"],
+            "problemMatcher": []
+        },
+        {
+            "label": "Harness: process contract",
+            "detail": "End-to-end check of the native process module against spec/fixtures/fake_engine.py.",
+            "type": "shell",
+            "command": "$env:LUA_PATH='src/lua/?.lua;vendor/luarocks-tree/share/lua/5.1/?.lua;;'; build/win/bin/LunarExtensionHostCLI.exe scripts/process_check.lua C:/msys64/mingw64/bin/python.exe",
+            "dependsOn": "Build (dev)",
+            "problemMatcher": []
+        },
+        {
+            "label": "Harness: motion",
+            "detail": "Native motion layer against a real window (exits when done).",
+            "type": "shell",
+            "command": "$p = Start-Process build/win/bin/LunarExtensionHost.exe -ArgumentList \"`\"${workspaceFolder}/scripts/motion_check.lua`\"\",'--batch' -WorkingDirectory build/win/bin -RedirectStandardOutput \"$env:TEMP/motion_check.out\" -PassThru -Wait; Get-Content \"$env:TEMP/motion_check.out\"",
+            "dependsOn": "Build (dev)",
+            "problemMatcher": []
+        },
+        {
+            "label": "Clean (both build trees)",
+            "type": "shell",
+            "command": "Remove-Item -Recurse -Force build/win, build/rel -ErrorAction SilentlyContinue",
+            "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "orgPacksDir",
+            "type": "promptString",
+            "description": "Folder holding org packs (each a subfolder with profile.json)",
+            "default": "${workspaceFolder}/../lunar-orgpacks"
+        },
+        {
+            "id": "orgPack",
+            "type": "promptString",
+            "description": "Pack id to select (empty: match by the machine's DNS domain)",
+            "default": ""
+        }
+    ]
+}

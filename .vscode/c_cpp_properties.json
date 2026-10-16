@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "name": "Win32",
+            "configurationProvider": "ms-vscode.cmake-tools",
+            "compilerPath": "C:/msys64/mingw64/bin/gcc.exe",
+            "compileCommands": "${workspaceFolder}/build/win/compile_commands.json",
+            "includePath": [
+                "${workspaceFolder}/src",
+                "${workspaceFolder}/include",
+                "${workspaceFolder}/vendor/luajit/include",
+                "${workspaceFolder}/vendor/iup/include",
+                "${workspaceFolder}/vendor"
+            ],
+            "defines": [
+                "_DEBUG",
+                "UNICODE",
+                "_UNICODE"
+            ],
+            "intelliSenseMode": "windows-gcc-x64"
+        }
+    ],
+    "version": 4
+}

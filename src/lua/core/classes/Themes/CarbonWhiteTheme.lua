@@ -1,0 +1,11 @@
+--- Carbon White theme — IBM Carbon Design System "White" palette (placeholder).
+--
+-- This file is reserved for a Carbon White theme implementation. When populated,
+-- it should subclass `core.classes.Themes.Theme`, set `id = "carbon_white"` and
+-- `label = "Carbon White"`, build a Carbon White palette, and delegate
+-- `rules()` to `carbon_rules.build(self:palette())`.
+--
+-- `ThemeManager` will auto-discover this module once a valid `Theme` subclass
+-- is returned from it.
+--
+-- @classmod core.classes.Themes.CarbonWhiteTheme

@@ -1,0 +1,1115 @@
+diff --git a/src/iup_dlglist.c b/src/iup_dlglist.c
+index 1e22c2b..211b3d3 100644
+--- a/src/iup_dlglist.c
++++ b/src/iup_dlglist.c
+@@ -113,25 +113,22 @@ IUP_SDK_API int iupDlgListVisibleCount(void)
+ 
+ void iupDlgListDestroyAll(void)
+ {
+-  int i, count = 0;
+-  Ihandle** ih_array = (Ihandle**)malloc(idlg_count * sizeof(Ihandle*));
+-  Idiallst *list;
+-  for (list = idlglist; list; list = list->next)
++  /* Lunar fork: upstream snapshotted every dialog into an array and then tested
++     each entry with iupObjectCheck before destroying it. Destroying one dialog
++     can destroy others (a dropbutton destroys its drop dialog), so later entries
++     were already freed, and iupObjectCheck on freed memory is not reliable: a
++     reused block passed the check and was destroyed twice (heap corruption on
++     every app exit). Instead, always destroy whatever is currently first in the
++     live list. A dialog removes itself from the list as it is destroyed
++     (iDialogDestroyMethod), and the explicit remove below guarantees progress
++     even for an entry that did not. */
++  while (idlglist)
+   {
+-    if (iupObjectCheck(list->ih))
+-    {
+-      ih_array[count] = list->ih;
+-      count++;
+-    }
++    Ihandle* ih = idlglist->ih;
++    if (iupObjectCheck(ih))
++      IupDestroy(ih);
++    iupDlgListRemove(ih);  /* no-op when the destroy already removed it */
+   }
+-
+-  for (i = 0; i < count; i++)
+-  {
+-    if (iupObjectCheck(ih_array[i]))
+-      IupDestroy(ih_array[i]);   /* this will also destroy the list eventually */
+-  }
+-
+-  free(ih_array);
+ }
+ 
+ IUP_SDK_API void iupDlgListDestroySelected(const char* name, void* value)
+diff --git a/src/iup_draw.c b/src/iup_draw.c
+index 31d5852..3fe4f4a 100644
+--- a/src/iup_draw.c
++++ b/src/iup_draw.c
+@@ -22,6 +22,16 @@
+ #include "iup_assert.h"
+ #include "iup_image.h"
+ 
++#ifdef _WIN32
++/* Lunar fork: anti-aliased rounded/gradient primitives implemented in the Windows GDI
++ * backend (iupwin_draw_gdi.c). They render via GDI+ for smooth corners and a real
++ * gradient brush; each returns 1 when it handled the draw, 0 to fall back to scanlines. */
++IUP_SDK_API int iupdrvDrawFlatRoundBox(IdrawCanvas* dc, int x1, int y1, int x2, int y2,
++                                       int radius, long color1, long color2, int has_gradient, int vertical);
++IUP_SDK_API int iupdrvDrawFlatRoundBorder(IdrawCanvas* dc, int x1, int y1, int x2, int y2,
++                                          int radius, int border_width, long color);
++#endif
++
+ 
+ 
+ IUP_API void IupDrawBegin(Ihandle* ih)
+@@ -628,6 +638,231 @@ IUP_SDK_API void iupFlatDrawBox(IdrawCanvas* dc, int xmin, int xmax, int ymin, i
+   iupdrvDrawRectangle(dc, xmin, ymin, xmax, ymax, color, IUP_DRAW_FILL, 1);
+ }
+ 
++/* ==== Lunar fork additions: rounded-corner + gradient flat drawing =================== *
++ * All additive (new symbols only) so the prebuilt satellite archives stay ABI-safe.
++ * A scanline technique is used so a single cross-platform implementation covers every
++ * driver backend (WDL/Direct2D, GDI, GTK, X11) via the existing iupdrv primitives.    */
++
++/* Horizontal inset (in x) of a rounded rectangle boundary at scan row y. Returns how
++ * far the filled span must shrink on each side so the row fits inside the corner arc. */
++static int iFlatRoundInsetX(int y, int ymin, int ymax, int radius)
++{
++  double d = -1.0;
++  int yct = ymin + radius;
++  int ycb = ymax - radius;
++  if (radius <= 0)
++    return 0;
++  if (y < yct)
++    d = (double)(yct - y);
++  else if (y > ycb)
++    d = (double)(y - ycb);
++  if (d < 0.0)
++    return 0;
++  if (d > radius)
++    d = radius;
++  return (int)((double)radius - sqrt((double)radius * radius - d * d) + 0.5);
++}
++
++/* Vertical inset (in y) at scan column x. Mirror of iFlatRoundInsetX for top/bottom. */
++static int iFlatRoundInsetY(int x, int xmin, int xmax, int radius)
++{
++  double d = -1.0;
++  int xcl = xmin + radius;
++  int xcr = xmax - radius;
++  if (radius <= 0)
++    return 0;
++  if (x < xcl)
++    d = (double)(xcl - x);
++  else if (x > xcr)
++    d = (double)(x - xcr);
++  if (d < 0.0)
++    return 0;
++  if (d > radius)
++    d = radius;
++  return (int)((double)radius - sqrt((double)radius * radius - d * d) + 0.5);
++}
++
++static int iFlatClampRadius(int radius, int xmin, int xmax, int ymin, int ymax)
++{
++  int w = xmax - xmin;
++  int h = ymax - ymin;
++  int rmax = ((w < h) ? w : h) / 2;
++  if (radius < 0) radius = 0;
++  if (radius > rmax) radius = rmax;
++  return radius;
++}
++
++static long iFlatLerpColor(long c1, long c2, double t)
++{
++  unsigned char r = (unsigned char)(iupDrawRed(c1)   + (int)((iupDrawRed(c2)   - iupDrawRed(c1))   * t + 0.5));
++  unsigned char g = (unsigned char)(iupDrawGreen(c1) + (int)((iupDrawGreen(c2) - iupDrawGreen(c1)) * t + 0.5));
++  unsigned char b = (unsigned char)(iupDrawBlue(c1)  + (int)((iupDrawBlue(c2)  - iupDrawBlue(c1))  * t + 0.5));
++  unsigned char a = (unsigned char)(iupDrawAlpha(c1) + (int)((iupDrawAlpha(c2) - iupDrawAlpha(c1)) * t + 0.5));
++  return iupDrawColor(r, g, b, a);
++}
++
++/* Filled rounded rectangle with an optional 2-color gradient.
++ * - color2 NULL/empty => solid color1.
++ * - radius <= 0        => square corners.
++ * - vertical != 0      => gradient runs top->bottom, else left->right.                 */
++IUP_SDK_API void iupFlatDrawGradientBox(IdrawCanvas* dc, int xmin, int xmax, int ymin, int ymax,
++                                        int radius, const char* color1, const char* color2,
++                                        int vertical, const char* bgcolor, int active)
++{
++  long c1, c2;
++  int has_gradient;
++
++  if (!color1 || xmin == xmax || ymin == ymax)
++    return;
++
++  iupDrawCheckSwapCoord(xmin, xmax);
++  iupDrawCheckSwapCoord(ymin, ymax);
++
++  radius = iFlatClampRadius(radius, xmin, xmax, ymin, ymax);
++
++  c1 = iupDrawStrToColor(color1, 0);
++  has_gradient = (color2 && color2[0] != 0);
++  c2 = has_gradient ? iupDrawStrToColor(color2, c1) : c1;
++  if (!active)
++  {
++    c1 = iFlatDrawColorMakeInactive(c1, bgcolor);
++    c2 = iFlatDrawColorMakeInactive(c2, bgcolor);
++  }
++
++  /* fast path: solid fill, square corners */
++  if (!has_gradient && radius == 0)
++  {
++    iupdrvDrawRectangle(dc, xmin, ymin, xmax, ymax, c1, IUP_DRAW_FILL, 1);
++    return;
++  }
++
++#ifdef _WIN32
++  /* Prefer the GDI+ anti-aliased renderer for smooth corners + seamless gradient. */
++  if (iupdrvDrawFlatRoundBox(dc, xmin, ymin, xmax, ymax, radius, c1, c2, has_gradient, vertical))
++    return;
++#endif
++
++  if (vertical)
++  {
++    int y;
++    int span = ymax - ymin;
++    for (y = ymin; y <= ymax; y++)
++    {
++      int inset = iFlatRoundInsetX(y, ymin, ymax, radius);
++      long color = has_gradient ? iFlatLerpColor(c1, c2, (double)(y - ymin) / (double)span) : c1;
++      int x1 = xmin + inset;
++      int x2 = xmax - inset;
++      if (x2 >= x1)
++        iupdrvDrawRectangle(dc, x1, y, x2, y, color, IUP_DRAW_FILL, 1);
++    }
++  }
++  else
++  {
++    int x;
++    int span = xmax - xmin;
++    for (x = xmin; x <= xmax; x++)
++    {
++      int inset = iFlatRoundInsetY(x, xmin, xmax, radius);
++      long color = has_gradient ? iFlatLerpColor(c1, c2, (double)(x - xmin) / (double)span) : c1;
++      int y1 = ymin + inset;
++      int y2 = ymax - inset;
++      if (y2 >= y1)
++        iupdrvDrawRectangle(dc, x, y1, x, y2, color, IUP_DRAW_FILL, 1);
++    }
++  }
++}
++
++/* Filled rounded rectangle, solid color. Convenience wrapper over the gradient box. */
++IUP_SDK_API void iupFlatDrawRoundBox(IdrawCanvas* dc, int xmin, int xmax, int ymin, int ymax,
++                                     int radius, const char* fgcolor, const char* bgcolor, int active)
++{
++  iupFlatDrawGradientBox(dc, xmin, xmax, ymin, ymax, radius, fgcolor, NULL, 1, bgcolor, active);
++}
++
++/* Rounded-rectangle border. Scans rows (left/right + corners) and columns (top/bottom +
++ * corners); the union is a complete outline that exactly matches iupFlatDrawRoundBox.   */
++IUP_SDK_API void iupFlatDrawRoundBorder(IdrawCanvas* dc, int xmin, int xmax, int ymin, int ymax,
++                                        int radius, int border_width, const char* fgcolor,
++                                        const char* bgcolor, int active)
++{
++  long color;
++  int bw, y, x;
++
++  if (!fgcolor || border_width == 0 || xmin == xmax || ymin == ymax)
++    return;
++
++  iupDrawCheckSwapCoord(xmin, xmax);
++  iupDrawCheckSwapCoord(ymin, ymax);
++
++  radius = iFlatClampRadius(radius, xmin, xmax, ymin, ymax);
++  if (radius == 0)
++  {
++    iupFlatDrawBorder(dc, xmin, xmax, ymin, ymax, border_width, fgcolor, bgcolor, active);
++    return;
++  }
++
++  color = iupDrawStrToColor(fgcolor, 0);
++  if (!active)
++    color = iFlatDrawColorMakeInactive(color, bgcolor);
++
++  bw = border_width;
++  if (bw < 1) bw = 1;
++
++#ifdef _WIN32
++  /* Prefer the GDI+ anti-aliased stroke so the rounded border matches the AA fill. */
++  if (iupdrvDrawFlatRoundBorder(dc, xmin, ymin, xmax, ymax, radius, bw, color))
++    return;
++#endif
++
++  /* left + right sides and the left/right halves of the corner arcs */
++  for (y = ymin; y <= ymax; y++)
++  {
++    int inset = iFlatRoundInsetX(y, ymin, ymax, radius);
++    int lx = xmin + inset;
++    int rx = xmax - inset;
++    iupdrvDrawRectangle(dc, lx, y, lx + bw - 1, y, color, IUP_DRAW_FILL, 1);
++    iupdrvDrawRectangle(dc, rx - bw + 1, y, rx, y, color, IUP_DRAW_FILL, 1);
++  }
++
++  /* top + bottom sides and the top/bottom halves of the corner arcs */
++  for (x = xmin; x <= xmax; x++)
++  {
++    int inset = iFlatRoundInsetY(x, xmin, xmax, radius);
++    int ty = ymin + inset;
++    int by = ymax - inset;
++    iupdrvDrawRectangle(dc, x, ty, x, ty + bw - 1, color, IUP_DRAW_FILL, 1);
++    iupdrvDrawRectangle(dc, x, by - bw + 1, x, by, color, IUP_DRAW_FILL, 1);
++  }
++}
++
++/* Attribute-aware background fill for flat controls: honors CORNERRADIUS, GRADIENTCOLOR
++ * and GRADIENTDIRECTION on ih, falling back to the plain box when neither is set. */
++IUP_SDK_API void iupFlatDrawBoxAttrib(Ihandle* ih, IdrawCanvas* dc, int xmin, int xmax, int ymin, int ymax,
++                                      const char* fillcolor, const char* bgcolor, int active)
++{
++  int radius = ih ? iupAttribGetInt(ih, "CORNERRADIUS") : 0;
++  char* grad = ih ? iupAttribGetStr(ih, "GRADIENTCOLOR") : NULL;
++  int vertical = 1;
++  char* dir = ih ? iupAttribGetStr(ih, "GRADIENTDIRECTION") : NULL;
++  if (dir && iupStrEqualNoCase(dir, "HORIZONTAL"))
++    vertical = 0;
++  if (radius > 0 || (grad && grad[0] != 0))
++    iupFlatDrawGradientBox(dc, xmin, xmax, ymin, ymax, radius, fillcolor, grad, vertical, bgcolor, active);
++  else
++    iupFlatDrawBox(dc, xmin, xmax, ymin, ymax, fillcolor, bgcolor, active);
++}
++
++/* Attribute-aware border for flat controls: honors CORNERRADIUS on ih. */
++IUP_SDK_API void iupFlatDrawBorderAttrib(Ihandle* ih, IdrawCanvas* dc, int xmin, int xmax, int ymin, int ymax,
++                                         int border_width, const char* color, const char* bgcolor, int active)
++{
++  int radius = ih ? iupAttribGetInt(ih, "CORNERRADIUS") : 0;
++  if (radius > 0)
++    iupFlatDrawRoundBorder(dc, xmin, xmax, ymin, ymax, radius, border_width, color, bgcolor, active);
++  else
++    iupFlatDrawBorder(dc, xmin, xmax, ymin, ymax, border_width, color, bgcolor, active);
++}
++
+ static void iFlatDrawText(IdrawCanvas* dc, int x, int y, int w, int h, const char* str, const char* font, int text_flags, double text_orientation, const char* fgcolor, const char* bgcolor, int active)
+ {
+   long color;
+diff --git a/src/iup_draw.h b/src/iup_draw.h
+index 677c810..9829475 100644
+--- a/src/iup_draw.h
++++ b/src/iup_draw.h
+@@ -71,6 +71,13 @@ IUP_SDK_API void iupFlatDrawBorder(IdrawCanvas* dc, int xmin, int xmax, int ymin
+ 
+ IUP_SDK_API void iupFlatDrawBox(IdrawCanvas* dc, int xmin, int xmax, int ymin, int ymax, const char* color, const char* bgcolor, int active);
+ 
++/* Lunar fork additions: rounded-corner + gradient flat drawing (additive, ABI-safe). */
++IUP_SDK_API void iupFlatDrawGradientBox(IdrawCanvas* dc, int xmin, int xmax, int ymin, int ymax, int radius, const char* color1, const char* color2, int vertical, const char* bgcolor, int active);
++IUP_SDK_API void iupFlatDrawRoundBox(IdrawCanvas* dc, int xmin, int xmax, int ymin, int ymax, int radius, const char* fgcolor, const char* bgcolor, int active);
++IUP_SDK_API void iupFlatDrawRoundBorder(IdrawCanvas* dc, int xmin, int xmax, int ymin, int ymax, int radius, int border_width, const char* fgcolor, const char* bgcolor, int active);
++IUP_SDK_API void iupFlatDrawBoxAttrib(Ihandle* ih, IdrawCanvas* dc, int xmin, int xmax, int ymin, int ymax, const char* fillcolor, const char* bgcolor, int active);
++IUP_SDK_API void iupFlatDrawBorderAttrib(Ihandle* ih, IdrawCanvas* dc, int xmin, int xmax, int ymin, int ymax, int border_width, const char* color, const char* bgcolor, int active);
++
+ IUP_SDK_API void iupFlatDrawGetIconSize(Ihandle* ih, int img_position, int spacing, int horiz_padding, int vert_padding,
+                             const char* imagename, const char* title, int *w, int *h, double text_orientation);
+ IUP_SDK_API void iupFlatDrawIcon(Ihandle* ih, IdrawCanvas* dc, int icon_x, int icon_y, int icon_width, int icon_height,
+diff --git a/src/iup_dropbutton.c b/src/iup_dropbutton.c
+index e828595..fe09cc5 100644
+--- a/src/iup_dropbutton.c
++++ b/src/iup_dropbutton.c
+@@ -166,9 +166,9 @@ static int iDropButtonRedraw_CB(Ihandle* ih)
+     }
+     else
+     {
+-      iupFlatDrawBorder(dc, 0, ih->currentwidth - 1,
+-                            0, ih->currentheight - 1,
+-                            border_width, bordercolor, bgcolor_button, active);
++      iupFlatDrawBorderAttrib(ih, dc, 0, ih->currentwidth - 1,
++                                      0, ih->currentheight - 1,
++                                      border_width, bordercolor, bgcolor_button, active);
+     }
+   }
+ 
+@@ -200,9 +200,9 @@ static int iDropButtonRedraw_CB(Ihandle* ih)
+                          bgcolor_arrow, NULL, 1);  /* background is always active */
+     }
+     else
+-      iupFlatDrawBox(dc, border_width, ih->currentwidth - 1 - border_width,
+-                         border_width, ih->currentheight - 1 - border_width,
+-                         bgcolor_button, NULL, 1);  /* background is always active */
++      iupFlatDrawBoxAttrib(ih, dc, border_width, ih->currentwidth - 1 - border_width,
++                                   border_width, ih->currentheight - 1 - border_width,
++                                   bgcolor_button, NULL, 1);  /* background is always active */
+   }
+ 
+   /* reserve space for focus feedback (after background draw) */
+@@ -782,6 +782,20 @@ static int iDropButtonDialogKeyEscCB(Ihandle* dlg)
+   return IUP_DEFAULT;
+ }
+ 
++/* Lunar fork: the drop dialog is a top-level dialog, so IupClose's
++   iupDlgListDestroyAll can free it BEFORE the dropbutton that owns it. Upstream
++   then had the owner's destroy method test the dangling pointer with
++   iupObjectCheck, which reads freed memory and, when that memory still looks like
++   a handle, destroys it a second time (heap corruption on every app exit).
++   Instead, the dialog clears its owner's pointer as it is destroyed. */
++static int iDropButtonDialogDestroyCB(Ihandle* dlg)
++{
++  Ihandle* ih = (Ihandle*)iupAttribGet(dlg, "_IUP_DROPBUTTON_OWNER");
++  if (ih && ih->data && ih->data->dropdialog == dlg)
++    ih->data->dropdialog = NULL;
++  return IUP_DEFAULT;
++}
++
+ static Ihandle* iDropButtonCreateDropDialog(Ihandle* ih)
+ {
+   Ihandle* dlg = IupDialog(NULL);
+@@ -798,6 +812,9 @@ static Ihandle* iDropButtonCreateDropDialog(Ihandle* ih)
+   IupSetCallback(dlg, "FOCUS_CB", (Icallback)iDropButtonDialogFocusCB);
+   IupSetCallback(dlg, "K_ESC", (Icallback)iDropButtonDialogKeyEscCB);
+ 
++  iupAttribSet(dlg, "_IUP_DROPBUTTON_OWNER", (char*)ih);
++  IupSetCallback(dlg, "DESTROY_CB", (Icallback)iDropButtonDialogDestroyCB);
++
+   return dlg;
+ }
+ 
+@@ -850,7 +867,9 @@ static int iDropButtonCreateMethod(Ihandle* ih, void** params)
+ 
+ static void iDropButtonDestroyMethod(Ihandle* ih)
+ {
+-  if (iupObjectCheck(ih->data->dropdialog))  /* the dialog can be destroyed during the destroy of the list of dialogs */
++  /* NULL when the dialog was already destroyed by the dialog list (see
++     iDropButtonDialogDestroyCB), so this never touches a freed handle. */
++  if (ih->data->dropdialog)
+     IupDestroy(ih->data->dropdialog);
+ }
+ 
+@@ -942,6 +961,10 @@ Iclass* iupDropButtonNewClass(void)
+   iupClassRegisterAttribute(ic, "BORDERWIDTH", iDropButtonGetBorderWidthAttrib, iDropButtonSetBorderWidthAttrib, IUPAF_SAMEASSYSTEM, "1", IUPAF_NOT_MAPPED);  /* inheritable */
+   iupClassRegisterAttribute(ic, "FGCOLOR", NULL, NULL, "DLGFGCOLOR", NULL, IUPAF_DEFAULT);  /* force the new default value */
+   iupClassRegisterAttribute(ic, "BGCOLOR", iDropButtonGetBgColorAttrib, iDropButtonSetAttribPostRedraw, IUPAF_SAMEASSYSTEM, "DLGBGCOLOR", IUPAF_NOT_MAPPED | IUPAF_NO_SAVE);
++  /* Lunar fork: rounded corners + gradient background */
++  iupClassRegisterAttribute(ic, "CORNERRADIUS", NULL, iDropButtonSetAttribPostRedraw, NULL, NULL, IUPAF_NOT_MAPPED);
++  iupClassRegisterAttribute(ic, "GRADIENTCOLOR", NULL, iDropButtonSetAttribPostRedraw, NULL, NULL, IUPAF_NOT_MAPPED);
++  iupClassRegisterAttribute(ic, "GRADIENTDIRECTION", NULL, iDropButtonSetAttribPostRedraw, NULL, "VERTICAL", IUPAF_NOT_MAPPED);
+   iupClassRegisterAttribute(ic, "HLCOLOR", NULL, NULL, NULL, NULL, IUPAF_DEFAULT);  /* inheritable */
+   iupClassRegisterAttribute(ic, "PSCOLOR", NULL, NULL, NULL, NULL, IUPAF_DEFAULT);  /* inheritable */
+   iupClassRegisterAttribute(ic, "TEXTHLCOLOR", NULL, NULL, NULL, NULL, IUPAF_DEFAULT);  /* inheritable */
+diff --git a/src/iup_flatbutton.c b/src/iup_flatbutton.c
+index 1f09fda..f9599f5 100644
+--- a/src/iup_flatbutton.c
++++ b/src/iup_flatbutton.c
+@@ -125,7 +125,7 @@ static int iFlatButtonRedraw_CB(Ihandle* ih)
+         bordercolor = hlcolor;
+     }
+ 
+-    iupFlatDrawBorder(dc, 0, ih->currentwidth - 1, 
++    iupFlatDrawBorderAttrib(ih, dc, 0, ih->currentwidth - 1, 
+                           0, ih->currentheight - 1, 
+                           border_width, bordercolor, bgcolor, active);
+   }
+@@ -146,7 +146,7 @@ static int iFlatButtonRedraw_CB(Ihandle* ih)
+       iupdrvDrawImage(dc, draw_image, make_inactive, bgcolor, border_width, border_width, -1, -1);
+   }
+   else
+-    iupFlatDrawBox(dc, border_width, ih->currentwidth - 1 - border_width,
++    iupFlatDrawBoxAttrib(ih, dc, border_width, ih->currentwidth - 1 - border_width,
+                        border_width, ih->currentheight - 1 - border_width,
+                        bgcolor, NULL, 1);  /* background is always active */
+ 
+@@ -757,6 +757,11 @@ Iclass* iupFlatButtonNewClass(void)
+   iupClassRegisterAttribute(ic, "TEXTHLCOLOR", NULL, NULL, NULL, NULL, IUPAF_DEFAULT);  /* inheritable */
+   iupClassRegisterAttribute(ic, "TEXTPSCOLOR", NULL, NULL, NULL, NULL, IUPAF_DEFAULT);  /* inheritable */
+ 
++  /* Lunar fork: rounded corners + gradient background */
++  iupClassRegisterAttribute(ic, "CORNERRADIUS", NULL, iFlatButtonSetAttribPostRedraw, NULL, NULL, IUPAF_NOT_MAPPED);
++  iupClassRegisterAttribute(ic, "GRADIENTCOLOR", NULL, iFlatButtonSetAttribPostRedraw, NULL, NULL, IUPAF_NOT_MAPPED);
++  iupClassRegisterAttribute(ic, "GRADIENTDIRECTION", NULL, iFlatButtonSetAttribPostRedraw, NULL, "VERTICAL", IUPAF_NOT_MAPPED);
++
+   iupClassRegisterAttribute(ic, "IMAGE", NULL, NULL, NULL, NULL, IUPAF_IHANDLENAME | IUPAF_NO_DEFAULTVALUE | IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "IMAGEPRESS", NULL, NULL, NULL, NULL, IUPAF_IHANDLENAME | IUPAF_NO_DEFAULTVALUE | IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "IMAGEHIGHLIGHT", NULL, NULL, NULL, NULL, IUPAF_IHANDLENAME | IUPAF_NO_DEFAULTVALUE | IUPAF_NO_INHERIT);
+diff --git a/src/iup_flatframe.c b/src/iup_flatframe.c
+index 84ac4a7..441d54d 100644
+--- a/src/iup_flatframe.c
++++ b/src/iup_flatframe.c
+@@ -65,9 +65,14 @@ static int iFlatFrameRedraw_CB(Ihandle* ih)
+   if (!backcolor)
+     backcolor = iupBaseNativeParentGetBgColorAttrib(ih);
+ 
++  /* fill the whole rectangle with the color behind the element first, so the
++     corner notches left by a rounded background/border show the parent color
++     instead of the uninitialized (black) bitmap */
++  iupDrawParentBackground(dc, ih);
++
+   /* draw background */
+-  iupFlatDrawBox(dc, 0, ih->currentwidth - 1,
+-                 0, ih->currentheight - 1, backcolor, NULL, 1);  /* background is always active */
++  iupFlatDrawBoxAttrib(ih, dc, 0, ih->currentwidth - 1,
++                       0, ih->currentheight - 1, backcolor, NULL, 1);  /* background is always active */
+ 
+   iFlatFrameGetTitleSize(ih, frame, &title_w, &title_h);
+ 
+@@ -80,9 +85,9 @@ static int iFlatFrameRedraw_CB(Ihandle* ih)
+     if (frame == 2 && title_h)
+       frame_top = frame_width + title_h/2;
+ 
+-    iupFlatDrawBorder(dc, 0,         ih->currentwidth - 1,
+-                          frame_top, ih->currentheight - 1,
+-                          frame_width, frame_color, NULL, active);
++    iupFlatDrawBorderAttrib(ih, dc, 0,         ih->currentwidth - 1,
++                                    frame_top, ih->currentheight - 1,
++                                    frame_width, frame_color, NULL, active);
+   }
+   else
+     frame_width = 0;
+@@ -269,6 +274,10 @@ Iclass* iupFlatFrameNewClass(void)
+ 
+   iupClassRegisterAttribute(ic, "FRAME", NULL, NULL, IUPAF_SAMEASSYSTEM, "YES", IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "FRAMECOLOR", NULL, NULL, IUPAF_SAMEASSYSTEM, "160 160 160", IUPAF_NO_INHERIT);
++  /* Lunar fork: rounded corners + gradient background */
++  iupClassRegisterAttribute(ic, "CORNERRADIUS", NULL, iFlatFrameSetAttribPostRedraw, NULL, NULL, IUPAF_NOT_MAPPED);
++  iupClassRegisterAttribute(ic, "GRADIENTCOLOR", NULL, iFlatFrameSetAttribPostRedraw, NULL, NULL, IUPAF_NOT_MAPPED);
++  iupClassRegisterAttribute(ic, "GRADIENTDIRECTION", NULL, iFlatFrameSetAttribPostRedraw, NULL, "VERTICAL", IUPAF_NOT_MAPPED);
+   iupClassRegisterAttribute(ic, "FRAMEWIDTH", NULL, NULL, IUPAF_SAMEASSYSTEM, "1", IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "FRAMESPACE", NULL, NULL, IUPAF_SAMEASSYSTEM, "2", IUPAF_NO_INHERIT);
+ 
+diff --git a/src/iup_flatlabel.c b/src/iup_flatlabel.c
+index 14d6799..708cf9f 100644
+--- a/src/iup_flatlabel.c
++++ b/src/iup_flatlabel.c
+@@ -69,9 +69,9 @@ static int iFlatLabelRedraw_CB(Ihandle* ih)
+       iupdrvDrawImage(dc, draw_image, make_inactive, bgcolor, 0, 0, -1, -1);
+   }
+   else
+-    iupFlatDrawBox(dc, 0, ih->currentwidth - 1,
+-                           0, ih->currentheight - 1,
+-                           bgcolor, NULL, 1);  /* background is always active */
++    iupFlatDrawBoxAttrib(ih, dc, 0, ih->currentwidth - 1,
++                                 0, ih->currentheight - 1,
++                                 bgcolor, NULL, 1);  /* background is always active */
+ 
+   draw_image = iupFlatGetImageName(ih, "IMAGE", image, 0, 0, active, &make_inactive);
+   iupFlatDrawIcon(ih, dc, 0, 0,
+@@ -252,6 +252,10 @@ Iclass* iupFlatLabelNewClass(void)
+   /* Overwrite Visual */
+   iupClassRegisterAttribute(ic, "ACTIVE", iupBaseGetActiveAttrib, iupFlatSetActiveAttrib, IUPAF_SAMEASSYSTEM, "YES", IUPAF_DEFAULT);
+   iupClassRegisterAttribute(ic, "BGCOLOR", iupBaseNativeParentGetBgColorAttrib, NULL, IUPAF_SAMEASSYSTEM, "DLGBGCOLOR", IUPAF_NO_SAVE);
++  /* Lunar fork: rounded corners + gradient background */
++  iupClassRegisterAttribute(ic, "CORNERRADIUS", NULL, iFlatLabelSetAttribPostRedraw, NULL, NULL, IUPAF_NOT_MAPPED);
++  iupClassRegisterAttribute(ic, "GRADIENTCOLOR", NULL, iFlatLabelSetAttribPostRedraw, NULL, NULL, IUPAF_NOT_MAPPED);
++  iupClassRegisterAttribute(ic, "GRADIENTDIRECTION", NULL, iFlatLabelSetAttribPostRedraw, NULL, "VERTICAL", IUPAF_NOT_MAPPED);
+ 
+   /* Special */
+   iupClassRegisterAttribute(ic, "TITLE", NULL, iFlatLabelSetAttribPostRedraw, NULL, NULL, IUPAF_NO_DEFAULTVALUE | IUPAF_NO_INHERIT);
+diff --git a/src/iup_flatscrollbar.c b/src/iup_flatscrollbar.c
+index c527028..6a4392e 100644
+--- a/src/iup_flatscrollbar.c
++++ b/src/iup_flatscrollbar.c
+@@ -177,6 +177,39 @@ static int iFlatScrollBarMoveHandler(int size, int arrow_size, int max, int d, i
+ /*************************************************************************/
+ 
+ 
++/* Lunar fork addition: draw the scrollbar handle (thumb) with optional rounded corners
++   and an optional gradient, so themed flat scrollbars match the rest of the gradient +
++   rounded flat UI. The three attributes live on the scrollbar's PARENT (the flatlist /
++   flatscrollbox / flattext that hosts the flat scrollbar), consistent with the existing
++   SB_FORECOLOR / SB_BACKCOLOR convention:
++     SB_CORNERRADIUS     - thumb corner radius in pixels (0 = square, default)
++     SB_GRADIENTCOLOR    - second gradient stop; first stop is the live thumb color
++                           (which already reflects hover/press). Empty = no gradient.
++     SB_GRADIENTDIRECTION- "VERTICAL" (default) or "HORIZONTAL"
++   Falls back to the original square iupFlatDrawBox when neither is set, so non-themed
++   scrollbars render exactly as before. */
++static void iFlatScrollBarDrawThumb(Ihandle* sb_ih, IdrawCanvas* dc, int xmin, int xmax, int ymin, int ymax,
++                                    const char* fgcolor, const char* bgcolor, int active)
++{
++  Ihandle* parent = sb_ih->parent;
++  int radius = iupAttribGetInt(parent, "SB_CORNERRADIUS");
++  char* grad = iupAttribGetStr(parent, "SB_GRADIENTCOLOR");
++
++  if (grad && grad[0] && fgcolor)
++  {
++    int vertical = 1;
++    char* dir = iupAttribGetStr(parent, "SB_GRADIENTDIRECTION");
++    if (dir && iupStrEqualNoCase(dir, "HORIZONTAL"))
++      vertical = 0;
++    iupFlatDrawGradientBox(dc, xmin, xmax, ymin, ymax, radius, fgcolor, grad, vertical, bgcolor, active);
++  }
++  else if (radius > 0)
++    iupFlatDrawRoundBox(dc, xmin, xmax, ymin, ymax, radius, fgcolor, bgcolor, active);
++  else
++    iupFlatDrawBox(dc, xmin, xmax, ymin, ymax, fgcolor, bgcolor, active);
++}
++
++
+ static void iFlatScrollBarDrawVertical(Ihandle* sb_vert, IdrawCanvas* dc, int active, const char* fgcolor, const char* bgcolor, int pressed,
+                                        int highlight, int ymax, int dy, int sb_size, int has_horiz_scroll)
+ {
+@@ -254,7 +287,7 @@ static void iFlatScrollBarDrawVertical(Ihandle* sb_vert, IdrawCanvas* dc, int ac
+ 
+   /* draw handler */
+   if (iFlatScrollBarCalcHandler(height, arrow_size, ymax, dy, sb_size, posy, &pos1, &pos2))
+-    iupFlatDrawBox(dc, 2, sb_size - 1 - 2, pos1, pos2, fgcolor_drag, bgcolor, active);
++    iFlatScrollBarDrawThumb(sb_vert, dc, 2, sb_size - 1 - 2, pos1, pos2, fgcolor_drag, bgcolor, active);
+ }
+ 
+ static void iFlatScrollBarDrawHorizontal(Ihandle* sb_horiz, IdrawCanvas* dc, int active, const char* fgcolor, const char* bgcolor, int pressed,
+@@ -334,7 +367,7 @@ static void iFlatScrollBarDrawHorizontal(Ihandle* sb_horiz, IdrawCanvas* dc, int
+ 
+   /* draw handler */
+   if (iFlatScrollBarCalcHandler(width, arrow_size, xmax, dx, sb_size, posx, &pos1, &pos2))
+-    iupFlatDrawBox(dc, pos1, pos2, 2, sb_size - 1 - 2, fgcolor_drag, bgcolor, active);
++    iFlatScrollBarDrawThumb(sb_horiz, dc, pos1, pos2, 2, sb_size - 1 - 2, fgcolor_drag, bgcolor, active);
+ }
+ 
+ static int iFlatScrollBarAction_CB(Ihandle* sb_ih)
+@@ -1255,6 +1288,10 @@ IUP_SDK_API void iupFlatScrollBarRegister(Iclass* ic)
+   iupClassRegisterAttribute(ic, "SB_BACKCOLOR", NULL, NULL, NULL, NULL, IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "SB_HIGHCOLOR", NULL, NULL, IUPAF_SAMEASSYSTEM, "132 132 132", IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "SB_PRESSCOLOR", NULL, NULL, IUPAF_SAMEASSYSTEM, "96 96 96", IUPAF_NO_INHERIT);
++  /* Lunar fork additions: rounded + gradient flat-scrollbar thumb (see iFlatScrollBarDrawThumb). */
++  iupClassRegisterAttribute(ic, "SB_CORNERRADIUS", NULL, NULL, IUPAF_SAMEASSYSTEM, "0", IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "SB_GRADIENTCOLOR", NULL, NULL, NULL, NULL, IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "SB_GRADIENTDIRECTION", NULL, NULL, IUPAF_SAMEASSYSTEM, "VERTICAL", IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "SHOWARROWS", NULL, NULL, IUPAF_SAMEASSYSTEM, "Yes", IUPAF_NO_INHERIT);
+ 
+   iupClassRegisterAttribute(ic, "ARROWIMAGES", NULL, NULL, NULL, NULL, IUPAF_NO_INHERIT);
+diff --git a/src/iup_flatscrollbox.c b/src/iup_flatscrollbox.c
+index c8d987d..d91a70f 100644
+--- a/src/iup_flatscrollbox.c
++++ b/src/iup_flatscrollbox.c
+@@ -23,9 +23,29 @@
+ #include "iup_drvdraw.h"
+ #include "iup_draw.h"
+ #include "iup_childtree.h"
++#include "iup_drvfont.h"
+ #include "iup_flatscrollbar.h"
+ 
+ 
++/* Lunar fork: NATIVETEXTSCROLL mode lets a themed IupFlatScrollBox drive a native
++   multiline IupText child's own (virtualized) scrolling via EM_LINESCROLL, so large
++   read-only logs keep native virtualization + text selection + jump-to-line while
++   showing the flat, gradient/rounded themed scrollbar instead of the native Win32 bar.
++   Returns 1 when this scrollbox is in that mode with a native text child. */
++static int iFlatScrollBoxNativeTextMode(Ihandle* ih, Ihandle* child)
++{
++  return child && iupAttribGetBoolean(ih, "NATIVETEXTSCROLL") && IupClassMatch(child, "text");
++}
++
++static int iFlatScrollBoxNativeLineHeight(Ihandle* child)
++{
++  int liney = 0;
++  iupdrvFontGetCharSize(child, NULL, &liney);
++  if (liney < 1) liney = 1;
++  return liney;
++}
++
++
+ static Ihandle* iFlatScrollBoxGetChild(Ihandle *ih)
+ {
+   /* ih->firstchild is vertical scrollbar */
+@@ -44,6 +64,26 @@ static void iFlatScrollBoxUpdateChildPos(Ihandle *ih, Ihandle* child)
+   if (iupAttribGetBoolean(ih, "SHOWFLOATING"))
+     sb_size = 0;
+ 
++  if (iFlatScrollBoxNativeTextMode(ih, child))
++  {
++    /* Native mode: keep the EDIT pinned at the top-left (sized to the viewport by
++       iFlatScrollBoxSetChildrenCurrentSizeMethod) and translate POSY into the EDIT's
++       own line scroll. A re-entrancy guard stops the resulting scroll from bouncing
++       back into POSY. */
++    int liney = iupAttribGetInt(child, "_IUPFLATSCROLLLINEY");
++    if (liney < 1) liney = 1;
++
++    iupBaseSetPosition(child, 0, 0);
++
++    if (!iupAttribGet(ih, "_IUPFLATSCROLL_APPLYING"))
++    {
++      iupAttribSet(ih, "_IUPFLATSCROLL_APPLYING", "1");
++      IupSetInt(child, "FIRSTVISIBLELINE", (posy / liney) + 1);  /* 1-based */
++      iupAttribSet(ih, "_IUPFLATSCROLL_APPLYING", NULL);
++    }
++    return;
++  }
++
+   /* Native container, position is reset */
+   x = 0;
+   y = 0;
+@@ -319,6 +359,39 @@ static void iFlatScrollBoxSetChildrenCurrentSizeMethod(Ihandle* ih, int shrink)
+     int sb_vert = sb & IUP_SB_VERT;
+     int sb_horiz = sb & IUP_SB_HORIZ;
+ 
++    if (iFlatScrollBoxNativeTextMode(ih, child))
++    {
++      /* Native mode: the EDIT stays at viewport size and scrolls its own content.
++         Virtual height comes from the line count so the flat thumb is proportional;
++         horizontal flat scrolling is not driven in this mode (long lines clip like the
++         other themed vertical-only output boxes). Markers let the EDIT redirect its
++         mouse wheel back through the flat scrollbar (see iupwin_text.c). */
++      int sb_size = iupAttribGetBoolean(ih, "SHOWFLOATING") ? 0 : iupAttribGetInt(ih, "SCROLLBARSIZE");
++      int liney = iFlatScrollBoxNativeLineHeight(child);
++      int linecount = IupGetInt(child, "LINECOUNT");
++      int content_h;
++      if (linecount < 1) linecount = 1;
++      content_h = linecount * liney;
++
++      w = ih->currentwidth;
++      if (sb_vert) w -= sb_size;   /* inset so the flat thumb never covers text */
++      if (w < 0) w = 0;
++      h = ih->currentheight;
++
++      iupBaseSetCurrentSize(child, w, h, shrink);
++
++      iupAttribSetInt(child, "_IUPFLATSCROLLLINEY", liney);
++      iupAttribSet(child, "_IUPFLATSCROLLHOST", "1");
++
++      iupAttribSet(ih, "XMAX", "0");
++      iupAttribSetInt(ih, "YMAX", content_h);
++      IupSetAttribute(ih, "DX", "0");
++      IupSetInt(ih, "DY", h);   /* visible viewport height; DY < YMAX -> thumb + scroll */
++
++      iupFlatScrollBarSetChildrenCurrentSize(ih, shrink);
++      return;
++    }
++
+     /* If child is greater than scrollbox area, use child natural size,
+        else use current scrollbox size;
+        So this will let the child be greater than the scrollbox,
+@@ -400,6 +473,23 @@ static void iFlatScrollBoxSetChildrenPositionMethod(Ihandle* ih, int x, int y)
+ /******************************************************************************/
+ 
+ 
++/* Lunar fork: recompute POSY from the native EDIT child's current first visible line
++   so the flat thumb tracks a programmatic jump (e.g. SCROLLTO to a failure line).
++   Called from Lua after moving the caret/scroll of a NATIVETEXTSCROLL child. */
++static int iFlatScrollBoxSetSyncFromChildAttrib(Ihandle* ih, const char* value)
++{
++  Ihandle* child = iFlatScrollBoxGetChild(ih);
++  if (iFlatScrollBoxNativeTextMode(ih, child))
++  {
++    int liney = iupAttribGetInt(child, "_IUPFLATSCROLLLINEY");
++    int first = IupGetInt(child, "FIRSTVISIBLELINE");  /* 1-based */
++    if (liney < 1) liney = 1;
++    IupSetInt(ih, "POSY", (first - 1) * liney);  /* redraws bar; re-apply is idempotent */
++  }
++  (void)value;
++  return 0;
++}
++
+ static int iFlatScrollBoxCreateMethod(Ihandle* ih, void** params)
+ {
+   /* must be first */
+@@ -482,6 +572,11 @@ Iclass* iupFlatScrollBoxNewClass(void)
+   iupClassRegisterAttribute(ic, "CANVASBOX", NULL, NULL, NULL, NULL, IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "LAYOUTDRAG", NULL, NULL, IUPAF_SAMEASSYSTEM, "YES", IUPAF_NO_INHERIT);
+ 
++  /* Lunar fork: themed flat scrollbar over a native multiline IupText child (keeps native
++     virtualization + selection + jump-to-line, no native Win32 scrollbar). */
++  iupClassRegisterAttribute(ic, "NATIVETEXTSCROLL", NULL, NULL, NULL, NULL, IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "SYNCFROMCHILD", NULL, iFlatScrollBoxSetSyncFromChildAttrib, NULL, NULL, IUPAF_WRITEONLY | IUPAF_NO_INHERIT);
++
+   /* Flat Scrollbar */
+   iupFlatScrollBarRegister(ic);
+ 
+diff --git a/src/iup_flattoggle.c b/src/iup_flattoggle.c
+index 16c85d9..086e56a 100644
+--- a/src/iup_flattoggle.c
++++ b/src/iup_flattoggle.c
+@@ -149,9 +149,9 @@ static int iFlatToggleRedraw_CB(Ihandle* ih)
+         bordercolor = hlcolor;
+     }
+ 
+-    iupFlatDrawBorder(dc, 0, ih->currentwidth - 1,
+-                          0, ih->currentheight - 1,
+-                          border_width, bordercolor, bgcolor, active);
++    iupFlatDrawBorderAttrib(ih, dc, 0, ih->currentwidth - 1,
++                                    0, ih->currentheight - 1,
++                                    border_width, bordercolor, bgcolor, active);
+   }
+ 
+   /* simulate pressed when selected and has images (but colors and borders are not included) */
+@@ -170,9 +170,9 @@ static int iFlatToggleRedraw_CB(Ihandle* ih)
+       iupdrvDrawImage(dc, draw_image, make_inactive, bgcolor, border_width, border_width, -1, -1);
+   }
+   else 
+-    iupFlatDrawBox(dc, border_width, ih->currentwidth - 1 - border_width,
+-                       border_width, ih->currentheight - 1 - border_width,
+-                       bgcolor, NULL, 1);  /* background is always active */
++    iupFlatDrawBoxAttrib(ih, dc, border_width, ih->currentwidth - 1 - border_width,
++                                 border_width, ih->currentheight - 1 - border_width,
++                                 bgcolor, NULL, 1);  /* background is always active */
+ 
+   /* reserve space for focus feedback (after background draw) */
+   if (iupAttribGetBoolean(ih, "CANFOCUS") && focus_feedback)
+@@ -883,6 +883,10 @@ Iclass* iupFlatToggleNewClass(void)
+   iupClassRegisterAttribute(ic, "BORDERWIDTH", iFlatToggleGetBorderWidthAttrib, iFlatToggleSetBorderWidthAttrib, IUPAF_SAMEASSYSTEM, "1", IUPAF_NOT_MAPPED);  /* inheritable */
+   iupClassRegisterAttribute(ic, "FGCOLOR", NULL, NULL, "DLGFGCOLOR", NULL, IUPAF_DEFAULT);  /* force the new default value */
+   iupClassRegisterAttribute(ic, "BGCOLOR", iFlatToggleGetBgColorAttrib, iFlatToggleSetAttribPostRedraw, IUPAF_SAMEASSYSTEM, "DLGBGCOLOR", IUPAF_NO_SAVE);
++  /* Lunar fork: rounded corners + gradient background */
++  iupClassRegisterAttribute(ic, "CORNERRADIUS", NULL, iFlatToggleSetAttribPostRedraw, NULL, NULL, IUPAF_NOT_MAPPED);
++  iupClassRegisterAttribute(ic, "GRADIENTCOLOR", NULL, iFlatToggleSetAttribPostRedraw, NULL, NULL, IUPAF_NOT_MAPPED);
++  iupClassRegisterAttribute(ic, "GRADIENTDIRECTION", NULL, iFlatToggleSetAttribPostRedraw, NULL, "VERTICAL", IUPAF_NOT_MAPPED);
+   iupClassRegisterAttribute(ic, "HLCOLOR", NULL, NULL, NULL, NULL, IUPAF_DEFAULT);  /* inheritable */
+   iupClassRegisterAttribute(ic, "PSCOLOR", NULL, NULL, NULL, NULL, IUPAF_DEFAULT);  /* inheritable */
+   iupClassRegisterAttribute(ic, "TEXTHLCOLOR", NULL, NULL, NULL, NULL, IUPAF_DEFAULT);  /* inheritable */
+diff --git a/src/iup_gauge.c b/src/iup_gauge.c
+index bb5bd03..b2941bf 100644
+--- a/src/iup_gauge.c
++++ b/src/iup_gauge.c
+@@ -125,6 +125,52 @@ static int iGaugeRedraw_CB(Ihandle* ih)
+ 
+   IupDrawParentBackground(ih);
+ 
++  /* Lunar fork addition: rounded flat gauge. When CORNERRADIUS>0 on a flat, horizontal,
++     non-dashed gauge, render the track, progress fill and border with the anti-aliased
++     rounded primitives so progress bars match the rest of the rounded flat UI. Falls
++     through to the original square rendering otherwise (radius 0 default => unchanged). */
++  {
++    int radius = iupAttribGetInt(ih, "CORNERRADIUS");
++    if (radius > 0 && ih->data->flat && ih->data->orientation == IGAUGE_HORIZONTAL && !ih->data->dashed)
++    {
++      IdrawCanvas* dc = (IdrawCanvas*)iupAttribGet(ih, "_IUP_DRAW_DC");
++      char* flatcolor_str = iupAttribGetStr(ih, "FLATCOLOR");
++      char* fgcolor_str = iupAttribGetStr(ih, "FGCOLOR");
++      char* bg_str = iupAttribGetStr(ih, "BGCOLOR");
++      int active = iupdrvIsActive(ih);
++      int mid;
++
++      if (!bg_str)
++        bg_str = iupBaseNativeParentGetBgColorAttrib(ih);
++
++      xstart = ih->data->horiz_padding + border;
++      ystart = ih->data->vert_padding + border;
++      xend = w - 1 - (ih->data->horiz_padding + border);
++      yend = h - 1 - (ih->data->vert_padding + border);
++
++      /* rounded track background */
++      if (backcolor)
++        iupFlatDrawRoundBox(dc, xstart, xend, ystart, yend, radius, backcolor, bg_str, active);
++
++      /* rounded progress fill */
++      mid = xstart + iupRound((xend - xstart + 1) * (ih->data->value - ih->data->vmin) / (ih->data->vmax - ih->data->vmin));
++      if (ih->data->value != ih->data->vmin)
++      {
++        int inner_r = (radius > 1) ? radius - 1 : radius;
++        iupFlatDrawRoundBox(dc, xstart, mid, ystart, yend, inner_r, fgcolor_str, bg_str, active);
++      }
++
++      /* rounded border on top */
++      iupFlatDrawRoundBorder(dc, 0, w - 1, 0, h - 1, radius, border, flatcolor_str, bg_str, active);
++
++      if (ih->data->show_text)
++        iGaugeDrawText(ih, mid, w, h, fgcolor);
++
++      IupDrawEnd(ih);
++      return IUP_DEFAULT;
++    }
++  }
++
+   /* draw border */
+   if (ih->data->flat)
+   {
+@@ -475,6 +521,8 @@ Iclass* iupGaugeNewClass(void)
+   iupClassRegisterAttribute(ic, "FLATCOLOR", NULL, iGaugeSetFlatColorAttrib, IUPAF_SAMEASSYSTEM, "160 160 160", IUPAF_NOT_MAPPED);
+   iupClassRegisterAttribute(ic, "ORIENTATION", iGaugeGetOrientationAttrib, iGaugeSetOrientationAttrib, IUPAF_SAMEASSYSTEM, "HORIZONTAL", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "BACKCOLOR", NULL, NULL, NULL, NULL, IUPAF_NO_INHERIT);
++  /* Lunar fork addition: rounded-corner gauge (honored for the flat gauge in iGaugeRedraw_CB). */
++  iupClassRegisterAttribute(ic, "CORNERRADIUS", NULL, NULL, IUPAF_SAMEASSYSTEM, "0", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
+ 
+   /* Overwrite IupCanvas Attributes */
+   iupClassRegisterAttribute(ic, "ACTIVE", iupBaseGetActiveAttrib, iGaugeSetActiveAttrib, IUPAF_SAMEASSYSTEM, "YES", IUPAF_DEFAULT);
+diff --git a/src/iup_text.c b/src/iup_text.c
+index cd49897..6d7c2e9 100644
+--- a/src/iup_text.c
++++ b/src/iup_text.c
+@@ -416,7 +416,16 @@ static int iTextSetMultilineAttrib(Ihandle* ih, const char* value)
+   if (iupStrBoolean(value))
+   {
+     ih->data->is_multiline = 1;
+-    ih->data->sb = IUP_SB_HORIZ | IUP_SB_VERT;  /* reset SCROLLBAR to YES */
++    /* Lunar fork fix: only default the scrollbars to YES when the application has NOT
++       explicitly set SCROLLBAR. IUP applies the attributes of a control's creation
++       table in an undefined order, so MULTILINE may be processed AFTER SCROLLBAR.
++       The original unconditional reset here clobbered an explicit SCROLLBAR=NO,
++       silently re-enabling the native Win32 scrollbars (WS_VSCROLL|WS_HSCROLL) that
++       ignore the flat/themed scrollbox. The _IUP_TEXT_SCROLLBAR_SET marker (set by
++       iTextSetScrollbarAttrib) records an explicit request so it survives regardless
++       of attribute order. */
++    if (!iupAttribGet(ih, "_IUP_TEXT_SCROLLBAR_SET"))
++      ih->data->sb = IUP_SB_HORIZ | IUP_SB_VERT;  /* reset SCROLLBAR to YES */
+     iupAttribSet(ih, "_IUP_MULTILINE_TEXT", "1");
+   }
+   else
+@@ -450,9 +459,16 @@ static char* iTextGetAppendNewlineAttrib(Ihandle* ih)
+ static int iTextSetScrollbarAttrib(Ihandle* ih, const char* value)
+ {
+   /* valid only before map */
+-  if (ih->handle || !ih->data->is_multiline)
++  if (ih->handle)
+     return 0;
+ 
++  /* Lunar fork fix: do NOT gate on ih->data->is_multiline. IUP applies a control's
++     creation-table attributes in an undefined order, so SCROLLBAR may be processed
++     BEFORE MULTILINE. The original !is_multiline guard silently dropped an explicit
++     SCROLLBAR set before MULTILINE, letting iTextSetMultilineAttrib default the
++     native scrollbars back on. We record the explicit request so MULTILINE will not
++     clobber it. For single-line controls sb is ignored at creation, so setting it
++     here is harmless. */
+   if (!value)
+     value = "YES";    /* default, if multiline, is YES */
+ 
+@@ -465,6 +481,7 @@ static int iTextSetScrollbarAttrib(Ihandle* ih, const char* value)
+   else
+     ih->data->sb = IUP_SB_NONE;
+ 
++  iupAttribSet(ih, "_IUP_TEXT_SCROLLBAR_SET", "1");
+   return 0;
+ }
+ 
+diff --git a/src/win/iupwin_draw_gdi.c b/src/win/iupwin_draw_gdi.c
+index 8cf5068..3cf4053 100644
+--- a/src/win/iupwin_draw_gdi.c
++++ b/src/win/iupwin_draw_gdi.c
+@@ -305,6 +305,141 @@ static void iwinDrawRectangleSimAA(IdrawCanvas* dc, int x1, int y1, int x2, int
+   gdix_vtable->fn_DeleteGraphics(graphics);
+ }
+ 
++/* ===== Lunar fork: GDI+ anti-aliased rounded-corner + gradient rendering ============= *
++ * The generic scanline path in iup_draw.c produces aliased (stair-stepped) corners and
++ * can leave seams inside a gradient. When the pure-GDI backend is active (no Direct2D)
++ * we render the flat-control background/border through GDI+ instead: a true rounded-rect
++ * path with AntiAlias smoothing, filled by a solid or linear-gradient brush. Each returns
++ * 1 when it handled the draw, or 0 so the caller falls back to the scanline version.    */
++
++static void iGdixAddRoundRectPath(dummy_GpPath* path, float x, float y, float w, float h, float r)
++{
++  float d = r * 2.0f;
++  gdix_vtable->fn_StartPathFigure(path);
++  if (r <= 0.0f)
++  {
++    gdix_vtable->fn_AddPathLine(path, x,     y,     x + w, y);
++    gdix_vtable->fn_AddPathLine(path, x + w, y,     x + w, y + h);
++    gdix_vtable->fn_AddPathLine(path, x + w, y + h, x,     y + h);
++  }
++  else
++  {
++    gdix_vtable->fn_AddPathArc(path, x,         y,         d, d, 180.0f, 90.0f);  /* top-left     */
++    gdix_vtable->fn_AddPathArc(path, x + w - d, y,         d, d, 270.0f, 90.0f);  /* top-right    */
++    gdix_vtable->fn_AddPathArc(path, x + w - d, y + h - d, d, d,   0.0f, 90.0f);  /* bottom-right */
++    gdix_vtable->fn_AddPathArc(path, x,         y + h - d, d, d,  90.0f, 90.0f);  /* bottom-left  */
++  }
++  gdix_vtable->fn_ClosePathFigure(path);
++}
++
++IUP_SDK_API int iupdrvDrawFlatRoundBox(IdrawCanvas* dc, int x1, int y1, int x2, int y2,
++                                       int radius, long color1, long color2, int has_gradient, int vertical)
++{
++  dummy_GpGraphics* graphics = NULL;
++  dummy_GpPath* path = NULL;
++  dummy_GpBrush* brush = NULL;
++  float fx, fy, fw, fh, fr;
++
++  if (dc->wdl_gc) return 0;       /* Direct2D active: let the caller's scanline path run */
++  if (!gdix_enabled()) return 0;  /* GDI+ unavailable */
++
++  iupDrawCheckSwapCoord(x1, x2);
++  iupDrawCheckSwapCoord(y1, y2);
++
++  fw = (float)(x2 - x1 + 1);
++  fh = (float)(y2 - y1 + 1);
++  if (fw <= 0.0f || fh <= 0.0f) return 1;
++  fx = (float)x1;
++  fy = (float)y1;
++  fr = (float)radius;
++  if (fr < 0.0f) fr = 0.0f;
++  if (fr > fw / 2.0f) fr = fw / 2.0f;
++  if (fr > fh / 2.0f) fr = fh / 2.0f;
++
++  if (gdix_vtable->fn_CreateFromHDC(dc->hBitmapDC, &graphics) != 0 || !graphics) return 0;
++  gdix_vtable->fn_SetSmoothingMode(graphics, dummy_SmoothingModeAntiAlias);
++
++  if (gdix_vtable->fn_CreatePath(dummy_FillModeWinding, &path) != 0 || !path)
++  {
++    gdix_vtable->fn_DeleteGraphics(graphics);
++    return 0;
++  }
++  iGdixAddRoundRectPath(path, fx, fy, fw, fh, fr);
++
++  if (has_gradient)
++  {
++    dummy_GpRectI rect;
++    rect.x = x1; rect.y = y1;
++    rect.w = (int)fw; rect.h = (int)fh;
++    /* LinearGradientMode: 0 = horizontal (left->right), 1 = vertical (top->bottom) */
++    gdix_vtable->fn_CreateLineBrushFromRectI(&rect, iupColor2ARGB(color1), iupColor2ARGB(color2),
++                                             vertical ? 1 : 0, 0, &brush);
++  }
++  else
++    gdix_vtable->fn_CreateSolidFill(iupColor2ARGB(color1), (dummy_GpSolidFill**)&brush);
++
++  if (brush)
++  {
++    gdix_vtable->fn_FillPath(graphics, brush, path);
++    gdix_vtable->fn_DeleteBrush(brush);
++  }
++
++  gdix_vtable->fn_DeletePath(path);
++  gdix_vtable->fn_DeleteGraphics(graphics);
++  return 1;
++}
++
++IUP_SDK_API int iupdrvDrawFlatRoundBorder(IdrawCanvas* dc, int x1, int y1, int x2, int y2,
++                                          int radius, int border_width, long color)
++{
++  dummy_GpGraphics* graphics = NULL;
++  dummy_GpPath* path = NULL;
++  dummy_GpPen* pen = NULL;
++  float fx, fy, fw, fh, fr, bw, half;
++
++  if (dc->wdl_gc) return 0;
++  if (!gdix_enabled()) return 0;
++  if (border_width <= 0) return 1;
++
++  iupDrawCheckSwapCoord(x1, x2);
++  iupDrawCheckSwapCoord(y1, y2);
++
++  bw = (float)border_width;
++  half = bw / 2.0f;
++
++  /* inset the geometry by half the (centered) stroke width so the border stays inside */
++  fx = (float)x1 + half;
++  fy = (float)y1 + half;
++  fw = (float)(x2 - x1 + 1) - bw;
++  fh = (float)(y2 - y1 + 1) - bw;
++  if (fw <= 0.0f || fh <= 0.0f) return 1;
++  fr = (float)radius - half;
++  if (fr < 0.0f) fr = 0.0f;
++  if (fr > fw / 2.0f) fr = fw / 2.0f;
++  if (fr > fh / 2.0f) fr = fh / 2.0f;
++
++  if (gdix_vtable->fn_CreateFromHDC(dc->hBitmapDC, &graphics) != 0 || !graphics) return 0;
++  gdix_vtable->fn_SetSmoothingMode(graphics, dummy_SmoothingModeAntiAlias);
++
++  if (gdix_vtable->fn_CreatePath(dummy_FillModeWinding, &path) != 0 || !path)
++  {
++    gdix_vtable->fn_DeleteGraphics(graphics);
++    return 0;
++  }
++  iGdixAddRoundRectPath(path, fx, fy, fw, fh, fr);
++
++  gdix_vtable->fn_CreatePen1(iupColor2ARGB(color), bw, dummy_UnitPixel, &pen);
++  if (pen)
++  {
++    gdix_vtable->fn_DrawPath(graphics, pen, path);
++    gdix_vtable->fn_DeletePen(pen);
++  }
++
++  gdix_vtable->fn_DeletePath(path);
++  gdix_vtable->fn_DeleteGraphics(graphics);
++  return 1;
++}
++
+ IUP_SDK_API void iupdrvDrawRectangle(IdrawCanvas* dc, int x1, int y1, int x2, int y2, long color, int style, int line_width)
+ {
+   if (dc->wdl_gc)
+diff --git a/src/win/iupwin_text.c b/src/win/iupwin_text.c
+index 0dcf11d..d41a63f 100644
+--- a/src/win/iupwin_text.c
++++ b/src/win/iupwin_text.c
+@@ -966,6 +966,32 @@ static char* winTextGetLineCountAttrib(Ihandle* ih)
+     return "1";
+ }
+ 
++/* Lunar fork: expose the topmost visible line so a themed flat scrollbar (IupFlatScrollBox
++   with NATIVETEXTSCROLL=YES) can mirror and drive the native EDIT's own virtualized scroll
++   without any native Win32 scrollbar. 1-based to match IUP line numbering. */
++static char* winTextGetFirstVisibleLineAttrib(Ihandle* ih)
++{
++  if (ih->data->is_multiline && ih->handle)
++  {
++    int line = (int)SendMessage(ih->handle, EM_GETFIRSTVISIBLELINE, 0, 0L);
++    return iupStrReturnInt(line + 1);
++  }
++  else
++    return "1";
++}
++
++static int winTextSetFirstVisibleLineAttrib(Ihandle* ih, const char* value)
++{
++  int line;
++  if (ih->data->is_multiline && ih->handle && iupStrToInt(value, &line))
++  {
++    int old_line = (int)SendMessage(ih->handle, EM_GETFIRSTVISIBLELINE, 0, 0L);
++    if (line < 1) line = 1;
++    SendMessage(ih->handle, EM_LINESCROLL, 0, (LPARAM)((line - 1) - old_line));
++  }
++  return 0;
++}
++
+ static char* winTextGetLineValueAttrib(Ihandle* ih)
+ {
+   if (ih->data->is_multiline)
+@@ -2032,6 +2058,27 @@ static int winTextMsgProc(Ihandle* ih, UINT msg, WPARAM wp, LPARAM lp, LRESULT *
+       iupwinMouseMove(ih, msg, wp, lp);
+       break;
+     }
++  case WM_MOUSEWHEEL:
++    {
++      /* Lunar fork: when this native EDIT is hosted by a themed flat scrollbar
++         (IupFlatScrollBox NATIVETEXTSCROLL=YES), the scrollbox owns vertical
++         scrolling. Redirect the wheel to the parent's POSY so the flat thumb and
++         the EDIT stay in sync (POSY change drives EM_LINESCROLL via FLATSCROLL_CB),
++         and consume it so the EDIT does not also self-scroll (which would desync). */
++      if (ih->data->is_multiline && iupAttribGet(ih, "_IUPFLATSCROLLHOST") && ih->parent)
++      {
++        int liney = iupAttribGetInt(ih, "_IUPFLATSCROLLLINEY");
++        int delta = (short)HIWORD(wp);
++        int posy;
++        if (liney < 1) liney = 1;
++        posy = IupGetInt(ih->parent, "POSY");
++        posy -= (delta / WHEEL_DELTA) * 3 * liney;  /* ~3 lines per wheel notch */
++        IupSetInt(ih->parent, "POSY", posy);
++        *result = 0;
++        return 1;
++      }
++      break;
++    }
+   case WM_VSCROLL:
+   case WM_HSCROLL:
+     {
+@@ -2333,6 +2380,8 @@ void iupdrvTextInitClass(Iclass* ic)
+   iupClassRegisterAttribute(ic, "SPINVALUE", winTextGetSpinValueAttrib, winTextSetSpinValueAttrib, IUPAF_SAMEASSYSTEM, "0", IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "COUNT", winTextGetCountAttrib, NULL, NULL, NULL, IUPAF_READONLY|IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "LINECOUNT", winTextGetLineCountAttrib, NULL, NULL, NULL, IUPAF_READONLY|IUPAF_NO_INHERIT);
++  /* Lunar fork: read/scroll the first visible line (used by themed flat scrollbar host). */
++  iupClassRegisterAttribute(ic, "FIRSTVISIBLELINE", winTextGetFirstVisibleLineAttrib, winTextSetFirstVisibleLineAttrib, NULL, NULL, IUPAF_NO_INHERIT|IUPAF_NO_SAVE);
+ 
+   /* IupText Windows and GTK only */
+   iupClassRegisterAttribute(ic, "ADDFORMATTAG", NULL, iupTextSetAddFormatTagAttrib, NULL, NULL, IUPAF_IHANDLENAME|IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+diff --git a/src/win/wdl/backend-gdix.c b/src/win/wdl/backend-gdix.c
+index 2374a26..14dd007 100644
+--- a/src/win/wdl/backend-gdix.c
++++ b/src/win/wdl/backend-gdix.c
+@@ -118,6 +118,7 @@ gdix_init(void)
+     GPA(CreateSolidFill, (dummy_ARGB, dummy_GpSolidFill**));
+     GPA(DeleteBrush, (dummy_GpBrush*));
+     GPA(SetSolidFillColor, (dummy_GpSolidFill*, dummy_ARGB));
++    GPA(CreateLineBrushFromRectI, (const dummy_GpRectI*, dummy_ARGB, dummy_ARGB, int, int, dummy_GpBrush**));
+ 
+     /* Pen functions */
+     GPA(CreatePen1, (DWORD, float, dummy_GpUnit, dummy_GpPen**));
+diff --git a/src/win/wdl/backend-gdix.h b/src/win/wdl/backend-gdix.h
+index 597800d..e26c7fe 100644
+--- a/src/win/wdl/backend-gdix.h
++++ b/src/win/wdl/backend-gdix.h
+@@ -79,6 +79,8 @@ struct gdix_vtable_tag {
+     int (WINAPI* fn_CreateSolidFill)(dummy_ARGB, dummy_GpSolidFill**);
+     int (WINAPI* fn_DeleteBrush)(dummy_GpBrush*);
+     int (WINAPI* fn_SetSolidFillColor)(dummy_GpSolidFill*, dummy_ARGB);
++    /* Lunar fork: linear-gradient brush (mode: 0=horizontal, 1=vertical; wrap: 0=tile). */
++    int (WINAPI* fn_CreateLineBrushFromRectI)(const dummy_GpRectI*, dummy_ARGB, dummy_ARGB, int, int, dummy_GpBrush**);
+ 
+     /* Pen functions */
+     int (WINAPI* fn_CreatePen1)(dummy_ARGB, float, dummy_GpUnit, dummy_GpPen**);

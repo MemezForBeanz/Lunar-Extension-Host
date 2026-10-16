@@ -1,0 +1,14 @@
+[
+    {
+        "name": "MinGW64 GCC",
+        "compilers": {
+            "C": "C:/msys64/mingw64/bin/gcc.exe"
+        },
+        "preferredGenerator": {
+            "name": "MinGW Makefiles"
+        },
+        "environmentVariables": {
+            "PATH": "C:/msys64/mingw64/bin;${env:PATH}"
+        }
+    }
+]

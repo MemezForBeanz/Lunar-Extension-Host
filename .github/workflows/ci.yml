@@ -1,0 +1,66 @@
+# Build and check Lunar from a clean checkout: bootstrap the dependencies,
+# build the dev preset, then run the specs, lint and the docs check.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      # The runner image ships MSYS2 at C:\msys64, where the scripts expect it.
+      - name: MSYS2 packages
+        run: |
+          C:\msys64\usr\bin\bash.exe -lc "pacman -S --noconfirm --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-python perl make"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Everything bootstrap.ps1 restores. The key covers every pin and build
+      # script, so a dependency change rebuilds from source.
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/.downloads
+            vendor/luajit
+            vendor/iup
+            vendor/openssl
+            vendor/luarocks-3.13.0-windows-64
+            vendor/luarocks-tree
+          key: deps-${{ runner.os }}-${{ hashFiles('scripts/bootstrap.ps1', 'scripts/build-openssl.ps1', 'scripts/fetch-deps.ps1', 'scripts/lua-env.ps1', '*.rockspec') }}
+
+      - name: Bootstrap
+        run: scripts\bootstrap.ps1 -Dev
+
+      - name: Build
+        run: |
+          $env:PATH = "C:\msys64\mingw64\bin;$env:PATH"
+          cmake --preset dev
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build --preset dev
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test
+        run: scripts\test.ps1
+
+      - name: Lint
+        run: scripts\lint.ps1
+
+      - name: Docs
+        run: scripts\docs.ps1 -Check -OutDir dist\docs-ci

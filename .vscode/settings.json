@@ -1,0 +1,30 @@
+{
+    // CMake Tools: use CMakePresets.json (dev -> build/win, release -> build/rel).
+    "cmake.useCMakePresets": "always",
+    "cmake.configureOnOpen": true,
+    // cmake lives only in MSYS2; cmake.environment doesn't affect where the extension finds it.
+    "cmake.cmakePath": "C:/msys64/mingw64/bin/cmake.exe",
+    "cmake.environment": {
+        "PATH": "C:/msys64/mingw64/bin;${env:PATH}"
+    },
+
+    // C/C++ IntelliSense from the CMake-generated compile_commands.json.
+    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+    "C_Cpp.default.compilerPath": "C:/msys64/mingw64/bin/gcc.exe",
+
+    // Lua language server: LuaJIT, with the host-injected globals.
+    "Lua.runtime.version": "LuaJIT",
+    "Lua.workspace.library": ["${workspaceFolder}/src/lua"],
+    "Lua.diagnostics.globals": ["iup", "LUNAR_EXE_DIR", "LUNAR_EXE_PATH", "LUNAR_PID", "LUNAR_DEV_BUILD"],
+
+    // Tasks and terminals find gcc, cmake, make, python and gdb from MSYS2.
+    "terminal.integrated.env.windows": {
+        "PATH": "C:\\msys64\\mingw64\\bin;${env:PATH}",
+        "LUNAR_REPO": "${workspaceFolder}"
+    },
+
+    "files.exclude": {
+        "build/": true,
+        "dist/": true
+    }
+}

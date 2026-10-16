@@ -1,0 +1,12 @@
+# Line-ending policy.
+#
+# The IUP fork is carried as a patch series applied onto a pristine upstream
+# extract (see iup-fork\README.md). Upstream IUP sources are LF, so the patches
+# must be LF too — `git apply` rejects a CRLF patch against LF sources with
+# "patch does not apply" and the fork build fails outright.
+#
+# Git's Windows installer sets core.autocrlf=true system-wide, so WITHOUT this
+# rule every fresh clone checks the patches out as CRLF and
+# scripts\build-iup-fork.ps1 breaks on a clean machine. Pin them explicitly.
+*.patch text eol=lf
+*.diff text eol=lf

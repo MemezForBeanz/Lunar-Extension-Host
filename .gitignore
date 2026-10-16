@@ -1,0 +1,47 @@
+# Build output
+build/
+
+# Packaged artifacts (scripts/build.ps1 output)
+dist/
+
+# Third-party dependencies. The small source trees CMake compiles are tracked,
+# exactly as Lunar builds them (local fixes included; see vendor/README.md).
+# Everything else in vendor/ is restored by scripts/bootstrap.ps1 from pinned
+# downloads and stays out of Git.
+vendor/*
+!vendor/README.md
+!vendor/subprocess.h
+!vendor/luafilesystem/
+!vendor/lua-cjson/
+!vendor/luasocket/
+!vendor/luasec/
+!vendor/copas/
+!vendor/nanosvg/
+!vendor/certs/
+
+# Generated sources
+src/lua_bundle.h
+src/embedded_images.h
+compile_commands.json
+
+# Python bytecode cache from the build-time generator scripts
+__pycache__/
+
+# Generated LDoc config (scripts/docs.ps1 writes APP_VERSION into a copy of
+# config.ld and removes it again; ignored so a crashed run can't dirty the tree)
+config.generated.ld
+
+# Compiled binaries and objects
+*.exe
+*.dll
+*.o
+*.obj
+*.a
+*.lib
+*.pdb
+
+# Editor and OS cruft
+.vs/
+*.user
+.DS_Store
+Thumbs.db

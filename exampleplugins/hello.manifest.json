@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "hello",
+  "name": "Hello Extension",
+  "version": "1.0",
+  "description": "Sample extension demonstrating host integration points.",
+  "capabilities": [
+    "tabs",
+    "menus",
+    "settings"
+  ],
+  "provides": {
+    "tabs": ["Hello"],
+    "settings": ["Hello Extension"]
+  }
+}

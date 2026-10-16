@@ -1,0 +1,43 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "MinGW Makefiles",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      },
+      "environment": {
+        "PATH": "C:/msys64/mingw64/bin;$penv{PATH}"
+      }
+    },
+    {
+      "name": "dev",
+      "displayName": "Dev (Windows, MinGW)",
+      "description": "Everyday build: loads plugins from the repo, keeps the default Lua paths, debug symbols.",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/win",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "LUNAR_DEV_BUILD": "ON"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release (Windows, MinGW)",
+      "description": "What ships: loads code only from its own folder and trusted org packs.",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/rel",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "LUNAR_DEV_BUILD": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "dev", "configurePreset": "dev", "jobs": 8 },
+    { "name": "release", "configurePreset": "release", "jobs": 8 }
+  ]
+}

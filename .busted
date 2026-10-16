@@ -1,0 +1,26 @@
+-- .busted — configuration for the busted test runner.
+--
+-- Specs live in spec/ and exercise the host's Lua modules. They run
+-- under the vendored LuaJIT 2.1 (vendor\luajit) via scripts\test.ps1 — the same
+-- VM the shipped GUI uses, so a passing suite says something about production.
+-- spec/support/runtime_host.lua enforces that and aborts on any other host.
+--
+-- The lpath/cpath below make require() resolve:
+--   * plugins/<name>/...                         (bundled extensions, if any)
+--   * src/lua/core/*                             (host modules, the code under test)
+--   * the vendored LuaRocks tree                 (pure-Lua + cjson/lfs C rocks)
+-- Paths are relative to the repo root, so run busted from there.
+return {
+	default = {
+		ROOT = { "spec" },
+		helper = "spec/support/runtime_host.lua",
+		lpath = table.concat({
+			"./plugins/?.lua",
+			"./src/lua/?.lua",
+			"./vendor/copas/?.lua",
+			"./vendor/luarocks-tree/share/lua/5.1/?.lua",
+			"./vendor/luarocks-tree/share/lua/5.1/?/init.lua",
+		}, ";"),
+		cpath = "./vendor/luarocks-tree/lib/lua/5.1/?.dll",
+	},
+}
