@@ -4,6 +4,17 @@
 
 Lunar now runs on Linux, and installs the same way on both platforms.
 
+| Download | Use it for |
+|---|---|
+| `Lunar-Setup-1.1.0.exe` | Windows: the installer (choose extensions) |
+| `LunarExtensionHost-1.1.0.msi` | Windows: IT deployment and silent installs (`msiexec /i ... /qn`) |
+| `Lunar-portable-1.1.0.zip` | Windows: run without installing |
+| `Lunar-Setup-1.1.0-x86_64.run` | Linux: the installer (just for you, or for everyone) |
+| `lunar-extension-host_1.1.0_amd64.deb` | Ubuntu, Mint, Debian: `sudo apt install ./<file>` |
+| `Lunar-1.1.0-x86_64.AppImage` | Linux: run without installing |
+
+Check downloads against `SHA256SUMS`.
+
 - **Linux support (X11 and XWayland):** the full app on GTK 3, including interface
   motion: tab transitions, drag feedback, modal entrances and the dimmed page
   behind dialogs. Native Wayland sessions run without motion.
