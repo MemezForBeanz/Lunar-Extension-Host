@@ -108,7 +108,8 @@ local default_fs = {
 		return ok_lfs and lfs.attributes(path, "mode") == "directory"
 	end,
 	-- Is this folder or file changeable by administrators only? Filled in below
-	-- from core.platform; a test fs without it skips the check.
+	-- from core.platform. Without it nothing can be trusted: resolve() then
+	-- ignores every trusted root (test fakes supply their own).
 	secure = nil,
 }
 
@@ -408,7 +409,9 @@ function M.resolve(opts)
 	-- Trusted roots must be admin-only all the way down to each pack; anything a
 	-- non-admin could have written is ignored. Returns true or false plus the reason.
 	local function protected(paths)
-		if not fs.secure then return true end
+		-- No way to check means no trust: a build or platform without the check
+		-- must not treat a folder anyone could have written as policy.
+		if not fs.secure then return false, "this platform cannot check that folders are admin-only" end
 		for _, path in ipairs(paths) do
 			local ok, why = fs.secure(path)
 			if not ok then return false, path .. " is not admin-only (" .. tostring(why) .. ")" end

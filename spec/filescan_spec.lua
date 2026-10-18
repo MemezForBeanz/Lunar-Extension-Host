@@ -1,10 +1,11 @@
 local lfs = require("lfs")
 local filescan = require("core.lib.filescan")
+local path = require("core.platform").path
 
 describe("core.lib.filescan", function()
 	it("walks files with shared depth and file filters", function()
 		-- tree/: a/target.txt and b/target.txt at depth 1, plus one deeper than max_depth.
-		local root = lfs.currentdir() .. [[\spec\fixtures\tree]]
+		local root = path:join(lfs.currentdir(), "spec", "fixtures", "tree")
 		local files = filescan.walk(root, {
 			max_depth = 2,
 			accept_file = function(_, name)

@@ -280,6 +280,27 @@ function ThemeManager:unregisterTheme(id)
 	self:_syncControls()
 end
 
+--- The registered theme with this id, or nil.
+-- @tparam string id
+-- @treturn table|nil
+function ThemeManager:themeById(id)
+	return self._theme_by_id[id]
+end
+
+--- Route the user's theme picks (the Settings selector and the Theme menu)
+-- through `fn(id)` instead of applying them directly. "Match system theme"
+-- (`core.lib.SystemTheme`) uses this to remember a pick per light/dark mode.
+-- @tparam function|nil fn
+function ThemeManager:setChooser(fn)
+	self._chooser = fn
+end
+
+-- A theme the user picked.
+function ThemeManager:_choose(id)
+	if self._chooser then return self._chooser(id) end
+	return self:apply(id)
+end
+
 function ThemeManager:themes()
 	local out = {}
 	for _, t in ipairs(self._themes) do
@@ -1486,17 +1507,10 @@ function ThemeManager:_syncControls()
 		end
 	end
 
-	if self._dropdown then
-		self._applying = true
+	if self._dd then
 		for i, t in ipairs(self._themes) do
-			if t:id() == self._current then
-				iup.SetAttribute(self._dropdown, "VALUE", tostring(i))
-				if self._dropdown_btn then
-					iup.SetAttribute(self._dropdown_btn, "TITLE", t:label())
-				end
-			end
+			if t:id() == self._current then self._dd:setValue(i) end
 		end
-		self._applying = false
 	end
 end
 
@@ -1520,7 +1534,7 @@ function ThemeManager:_menuItem(t)
 		VALUE = (id == self._current) and "ON" or "OFF",
 	})
 	function item:action()
-		mgr:apply(id)
+		mgr:_choose(id)
 		return iup.DEFAULT
 	end
 	self._menu_items[id] = item
@@ -1529,102 +1543,42 @@ end
 
 -- (Re)write the Settings dropdown's entries from the theme list.
 function ThemeManager:_fillDropdown()
-	local list, iup = self._dropdown, self._iup
-	if not list then return end
-	self._applying = true
+	if not self._dd then return end
+	local labels, current = {}, nil
 	for i, t in ipairs(self._themes) do
-		iup.SetAttribute(list, tostring(i), t:label())
+		labels[i] = t:label()
+		if t:id() == self._current then current = i end
 	end
-	iup.SetAttribute(list, tostring(#self._themes + 1), nil)  -- truncate a removed entry
-	iup.SetAttribute(list, "VISIBLELINES", tostring(math.max(1, #self._themes)))
-	self._applying = false
+	self._dd:setItems(labels, current)
 end
 
--- Theme selector for the Settings tab. Built as an IupDropButton (owner-drawn,
--- theme-aware) with an IupFlatList drop child -- the same pattern as the Build
--- Queue repo/family/preset selectors -- instead of a raw native dropdown list, so
--- its border, background and popup follow the active theme.
+-- Theme selector for the Settings tab: a core.ui.FlatDropdown (an owner-drawn
+-- IupDropButton with an IupFlatList drop child) rather than a native dropdown
+-- list, so its border, background and popup follow the active theme.
 function ThemeManager:buildDropdown()
-	local iup = self._iup
+	local FlatDropdown = require("core.ui.FlatDropdown")
 	local mgr = self
-
-	local list = iup.flatlist({
-		READONLY       = "YES",
-		VISIBLECOLUMNS = "14",
-		VISIBLELINES   = tostring(math.max(1, #self._themes)),
-		VALUE          = "1",
-		FONT           = "Segoe UI, 10",
-		FLATSCROLLBAR  = "YES",
-		THEMEROLE      = "dropdown_list",
-	})
-
-	-- Native forked IupDropButton (gradients and rounded corners come from the
-	-- IUP fork).
-	--
-	-- DROPCHILD is set by HANDLE NAME, not by passing the list to the constructor:
-	-- iuplua's dropbutton binding reads its creation argument from `param[0]`
-	-- (srclua5/elem/dropbutton.lua), which a Lua table constructor never populates.
-	local dropname = "themebar_theme_dropchild"
-	iup.SetHandle(dropname, list)
-
-	local btn = iup.dropbutton({
-		TITLE       = "",
-		DROPCHILD   = dropname,
-		FONT        = "Segoe UI, 10",
-		THEMEROLE   = "dropbutton",
-		DROPONARROW = "NO",
-		RASTERSIZE  = "180x",
-	})
-
-	-- Collapse the popup once a theme is picked. VALUECHANGED_CB alone is not
-	-- enough: iup_flatlist fires nothing when the user re-picks the item already
-	-- selected, so the popup would just stay open. FLAT_BUTTON_CB fires on every
-	-- click; closing on RELEASE leaves the press-time selection dispatch intact.
-	-- The attribute is SHOWDROPDOWN -- plain "DROPDOWN" is not a dropbutton
-	-- attribute and setting it is a silent no-op.
-	local press_x, press_y
-	function list:flat_button_cb(button, pressed, x, y)
-		if button ~= iup.BUTTON1 then return iup.DEFAULT end
-		if pressed == 1 then
-			press_x, press_y = x, y
-			return iup.DEFAULT
-		end
-		local moved = (not press_x)
-			or math.abs(x - press_x) > 3 or math.abs(y - press_y) > 3
-		press_x, press_y = nil, nil
-		if moved then return iup.DEFAULT end
-		-- Ignore clicks on the list's own scrollbar.
-		local w = tonumber(tostring(iup.GetAttribute(list, "RASTERSIZE") or ""):match("^(%d+)"))
-		local sb = tonumber(iup.GetAttribute(list, "SCROLLBARSIZE")) or 12
-		if w and x > w - sb - 2 then return iup.DEFAULT end
-		pcall(iup.SetAttribute, btn, "SHOWDROPDOWN", "NO")
-		return iup.DEFAULT
-	end
-
+	local labels, current = {}, nil
 	for i, t in ipairs(self._themes) do
-		iup.SetAttribute(list, tostring(i), t:label())
-		if t:id() == self._current then
-			iup.SetAttribute(list, "VALUE", tostring(i))
-			iup.SetAttribute(btn, "TITLE", t:label())
-		end
+		labels[i] = t:label()
+		if t:id() == self._current then current = i end
 	end
-
-	function list:valuechanged_cb()
-		if mgr._applying then
-			return iup.DEFAULT
-		end
-		local idx = tonumber(iup.GetAttribute(list, "VALUE") or "")
-		local t = idx and mgr._themes[idx]
-		if t then
-			iup.SetAttribute(btn, "TITLE", t:label())
-			mgr:apply(t:id())
-		end
-		return iup.DEFAULT
-	end
-
-	self._dropdown = list
-	self._dropdown_btn = btn
-	return btn
+	local dd = FlatDropdown.new(self._iup, {
+		items = labels,
+		value = current,
+		width = 180,
+		font = "Segoe UI, 10",
+		name = "themebar_theme_dropchild",
+		on_change = function(index)
+			if mgr._applying then return end
+			local t = mgr._themes[index]
+			if t then mgr:_choose(t:id()) end
+		end,
+	})
+	self._dd = dd
+	self._dropdown = dd.list
+	self._dropdown_btn = dd.widget
+	return dd.widget
 end
 
 return ThemeManager

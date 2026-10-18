@@ -1,0 +1,28 @@
+diff --git a/src/iup_flatlist.c b/src/iup_flatlist.c
+--- a/src/iup_flatlist.c
++++ b/src/iup_flatlist.c
+@@ -1313,6 +1313,10 @@
+     /* un-select all */
+     for (i = 0; i < count; i++)
+       items[i].selected = 0;
++    /* Lunar fork: keep the keyboard focus row inside the list, which may have
++       just shrunk (items are truncated before VALUE is cleared). */
++    if (ih->data->focus_pos > count)
++      ih->data->focus_pos = count;
+   }
+   else
+   {
+@@ -1349,6 +1353,13 @@
+ 
+         items[pos - 1].selected = 1;
+         iupAttribSetInt(ih, "_IUPFLATLIST_LASTSELECTED", pos);
++        /* Lunar fork: keyboard navigation starts from the selected item, and the
++           list scrolls to it, as in a native list. Without this the first arrow
++           key after a programmatic VALUE moved from item 1 (or wherever the mouse
++           last was), and a dropdown opened at its old scroll position. */
++        ih->data->focus_pos = pos;
++        if (ih->handle)
++          iFlatListScrollFocusVisible(ih);
+       }
+     }
+   }

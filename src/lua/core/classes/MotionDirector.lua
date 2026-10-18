@@ -426,9 +426,41 @@ function MotionDirector:tick(now)
 	if not ok then
 		self._last_error = err
 	end
+	self:_flushFrameEnd()
 
 	self:_stopTimerIfIdle()
 	return self:activeCount()
+end
+
+--- Run `fn` once at the end of the current frame, after every animation's
+-- `on_frame` -- or right away when no frame is being ticked. The same function
+-- queued several times in one frame runs once. This is how effects that share
+-- one compositor (`core.lib.Compositor:schedule`) present a single frame per tick.
+-- @tparam function fn
+function MotionDirector:atFrameEnd(fn)
+	if not self._ticking then
+		fn()
+		return
+	end
+	local q = self._frame_end
+	if not q then
+		q = { seen = {} }
+		self._frame_end = q
+	end
+	if not q.seen[fn] then
+		q.seen[fn] = true
+		q[#q + 1] = fn
+	end
+end
+
+function MotionDirector:_flushFrameEnd()
+	local q = self._frame_end
+	self._frame_end = nil
+	if not q then return end
+	for _, fn in ipairs(q) do
+		local ok, err = pcall(fn)
+		if not ok then self._last_error = err end
+	end
 end
 
 -- =======================================================================

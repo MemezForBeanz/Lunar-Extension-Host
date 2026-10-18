@@ -5,8 +5,11 @@ local SEP = package.config:sub(1, 1)
 local function P(...) return table.concat({ ... }, SEP) end
 
 -- In-memory filesystem: `files` maps full paths to contents; folders are implied.
+-- Everything in it counts as admin-only (`secure`), which is the permissive path
+-- the real host never gets; specs that test the check replace `secure`.
 local function fake_fs(files)
 	return {
+		secure = function() return true end,
 		read = function(path) return files[path] end,
 		exists = function(path) return files[path] ~= nil end,
 		dirs = function(root)
@@ -183,6 +186,29 @@ describe("OrgProfile.resolve", function()
 		local p, info = resolve({})
 		assert.is_nil(p)
 		assert.are.equal("none", info.reason)
+	end)
+
+	it("trusts nothing when the filesystem can't check for admin-only folders", function()
+		local files = {
+			[P(TRUSTED, "acme", "profile.json")] = profile(ACME),
+			[P(DEV, "globex", "profile.json")] = profile({ id = "globex", name = "Globex",
+				match = { domains = { "globex.example" } } }),
+		}
+		local fs = fake_fs(files)
+		fs.secure = nil
+		local function run(domain)
+			return OrgProfile.resolve({
+				fs = fs, domain = domain, env = function() return nil end,
+				roots = { { dir = TRUSTED, trusted = true }, { dir = DEV, trusted = false } },
+			})
+		end
+		local p, info = run("acme.example")
+		assert.is_nil(p)
+		assert.truthy(table.concat(info.errors, "\n"):find("cannot check that folders are admin-only", 1, true))
+		-- Untrusted dev packs still apply (settings only), as they always did.
+		local q = run("globex.example")
+		assert.are.equal("globex", q.id)
+		assert.is_false(q.trusted)
 	end)
 
 	it("selects by DNS domain on a label boundary only", function()

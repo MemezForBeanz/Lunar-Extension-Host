@@ -18,7 +18,6 @@
 -- iup global is set by iuplua_open() in the C host; capture as local for speed
 local iup = iup
 local lfs = require("lfs")
-local subprocess = require("subprocess")
 
 -- Module search path. A development build (LUNAR_DEV_BUILD, set by the C host from
 -- the CMake option, and actually running inside the repo's build tree) keeps the
@@ -26,9 +25,23 @@ local subprocess = require("subprocess")
 -- An installed build searches only its own folder: neither the current directory
 -- nor LUA_PATH/LUA_CPATH can put a module in front of the shipped ones.
 local DEV_BUILD
+
+-- The folder holding the executable, from the C host. A packaged build that can't
+-- tell (LUNAR_DEV_BUILD == false and no LUNAR_EXE_DIR) stops here: falling back to
+-- the working directory would load code from wherever the app was started. Dev
+-- builds and the CLI/test harness, which don't set the global, use the cwd.
+local function exe_dir_or_fail()
+	if type(LUNAR_EXE_DIR) == "string" and LUNAR_EXE_DIR ~= "" then return LUNAR_EXE_DIR end
+	if LUNAR_DEV_BUILD == false then
+		error("Lunar could not determine the folder it was installed in, so it will not load any code."
+			.. " Reinstall Lunar, or report this with your Windows version.", 0)
+	end
+	return lfs.currentdir()
+end
+
 do
 	local sep = package.config:sub(1, 1)
-	local exe_dir = (type(LUNAR_EXE_DIR) == "string" and LUNAR_EXE_DIR ~= "" and LUNAR_EXE_DIR) or lfs.currentdir()
+	local exe_dir = exe_dir_or_fail()
 	local lua_dir = exe_dir .. sep .. "lua" .. sep
 	-- The repo comes from the build (LUNAR_SOURCE_DIR), not from guessing how deep
 	-- the build tree is; a moved or copied dev exe without its repo runs as installed.
@@ -42,6 +55,13 @@ do
 	end
 end
 
+local platform = require("core.platform")
+local subprocess = platform.is_windows and require("subprocess") or nil
+
+-- Native widget metrics (GTK menu bar and entries) before any window is built:
+-- their sizes feed IUP's layout. A no-op on Windows.
+platform.apply_native_style()
+
 local L = require("core.lib.CarbonLayout")
 local SettingsManager = require("core.classes.SettingsManager")
 local ExtensionMgr = require("core.classes.ExtensionManager")
@@ -51,10 +71,10 @@ local MenuBar = require("core.ui.MenuBar")
 local StatusBar = require("core.ui.StatusBar")
 local UpdateCheck = require("core.ui.UpdateCheck")
 local ThemeManager = require("core.classes.ThemeManager")
+local SystemTheme = require("core.lib.SystemTheme")
 local TabOrder = require("core.classes.TabOrder")
 local TabGroups = require("core.classes.TabGroups")
 local MotionDirector = require("core.classes.MotionDirector")
-local MotionOverlay = require("core.ui.MotionOverlay")
 local Scrim = require("core.ui.Scrim")
 local ModalMotion = require("core.ui.ModalMotion")
 local Toast = require("core.ui.Toast")
@@ -72,7 +92,6 @@ local FeedbackClient = require("core.lib.FeedbackClient")
 local machine = require("core.lib.machine")
 local OrgProfile = require("core.lib.OrgProfile")
 local Updater = require("core.lib.Updater")
-local platform = require("core.platform")
 
 -- =======================================================================
 -- 2. CONSTANTS & GENERIC HOST SERVICES
@@ -98,16 +117,19 @@ end
 
 -- The same in every org: an org shows up as its tool group, not a rename.
 local APP_TITLE = "Lunar Extension Host"
-local APP_VERSION = "1.0.0"
+local APP_VERSION = "1.1.0"
 -- Folder or share holding the update manifest.json, from the update_share
 -- setting once settings load (an org profile supplies it). nil: no update checks.
 local SHARE_ROOT
 
 -- Application install directory: the folder containing the executable, provided by
 -- the C host as the LUNAR_EXE_DIR global. Stable regardless of the process working
--- directory, so bundled resources like plugins/ resolve reliably. Falls back to the
--- cwd for the CLI/dev harness which doesn't set the global.
-local APP_DIR = (LUNAR_EXE_DIR and LUNAR_EXE_DIR ~= "" and LUNAR_EXE_DIR) or lfs.currentdir()
+-- directory, so bundled resources like plugins/ resolve reliably (see exe_dir_or_fail).
+local APP_DIR = exe_dir_or_fail()
+
+-- Linux: GTK takes the window/taskbar icon from a default icon list (Windows uses
+-- the exe's ICON resource). Before any window exists, so all of them get it.
+platform.set_app_icon(platform.path:join(APP_DIR, "assets", "app-icon"))
 
 -- A dev build loads plugins/ straight from the repo, so edits show up without a
 -- rebuild; an installed build loads the copy next to the exe.
@@ -121,7 +143,7 @@ end
 local ICON_DIR = platform.path:join(APP_DIR, "assets", "Icons")
 
 -- Window/taskbar icon: the name of the Win32 ICON RESOURCE in the executable, not
--- an IupImage handle. assets/LunarExtensionHost.rc declares `IUP ICON "lunar.ico"`,
+-- an IupImage handle. assets/Lunar.rc declares `IUP ICON "lunar.ico"`,
 -- so "IUP" is that resource's name.
 --
 -- This has to be a resource name because of how IUP applies the attribute
@@ -140,7 +162,7 @@ local APP_ICON_RESOURCE = "IUP"
 -- survives this process exiting.
 local function launch_update_installer(msi)
 	local exe = (type(LUNAR_EXE_PATH) == "string" and LUNAR_EXE_PATH ~= "" and LUNAR_EXE_PATH)
-		or (APP_DIR .. "\\LunarExtensionHost.exe")
+		or (APP_DIR .. "\\Lunar.exe")
 	local script, err = Updater.relauncher_script({ msi = msi, exe = exe, pid = LUNAR_PID })
 	if not script then return nil, err end
 	local temp_dir = os.getenv("TEMP") or os.getenv("TMP")
@@ -420,10 +442,19 @@ theme_mgr:setMotionDirector(motion_director)
 -- the accordion honours the motion switch and speed like everything else.
 settings_view:setMotion(motion_director)
 
+-- "Match system theme" (core.lib.SystemTheme): the user's theme picks go through
+-- it so that, while matching, a pick is remembered for the current light/dark mode.
+local system_theme = SystemTheme.new({
+	settings = settings_mgr, theme_manager = theme_mgr,
+	system_dark = platform.system_dark, system_dark_probe = platform.system_dark_probe, iup = iup,
+})
+theme_mgr:setChooser(function(id) system_theme:choose(id) end)
+
 -- Appearance settings: theme and motion (core.ui.AppearanceSettings).
 AppearanceSettings.register({
 	iup = iup, settings = settings_mgr, host = host,
 	theme_manager = theme_mgr, motion = motion_director,
+	system_theme = system_theme,
 	org_name = ORG_PROFILE and ORG_PROFILE.name,
 })
 
@@ -594,43 +625,24 @@ local tab_order = TabOrder:new({
 	end,
 })
 
--- The motion surface. Created now rather than earlier because the overlay is a
--- child window of the main dialog, which only exists at this point.
+-- The motion surface. Every effect on the main window draws through the dialog's
+-- compositor (`core.lib.Compositor.forDialog`): one native overlay per dialog, one
+-- present per director tick, however many effects are animating. Each effect owns
+-- its own group in it, so the tab transition, the drag feedback and the scrim
+-- never touch each other's sprites.
 --
--- ONE OVERLAY PER CONSUMER, deliberately. An overlay owns a single frame composer,
--- a single back buffer and a single window; two users sharing one instance means
--- whichever acted last owns the pixels, and the other keeps driving redraws and
--- hides against state that is no longer its own. During a drag both consumers are
--- live at once -- the transition from the press that started the gesture, the drag
--- feedback from the gesture itself -- so sharing one produced exactly that
--- collision, and with it an intermittent hard crash. The windows are created
--- lazily, so the second one costs nothing until it is actually used.
---
--- Both degrade to today's instant behaviour on their own if the overlay turns out
--- to be unusable (no FFI, no HWND, a rejected layered style), so nothing below
+-- The compositor is a child window of the main dialog, so it is made lazily after
+-- the dialog is shown (see `modal_scrim:prepare()` below). Every effect fails
+-- closed to today's instant behaviour if it turns out to be unavailable (no
+-- backend on this platform, or the overlay couldn't be created), so nothing here
 -- needs to check.
-local motion_overlays = {}
-local function make_overlay()
-	local ov = MotionOverlay:new({
-		iup = iup,
-		dialog = dlg,
-		-- host.log is the host's own namespaced application logger. The overlay
-		-- only ever logs once, when it latches itself off, so this records WHY
-		-- animations silently stopped happening on a machine rather than leaving
-		-- it a mystery.
-		log = function(msg) host.log:info(msg) end,
-	})
-	motion_overlays[#motion_overlays + 1] = ov
-	return ov
-end
-
 local tab_transition = TabTransition:new({
 	iup = iup,
+	dialog = dlg,
 	director = motion_director,
-	overlay = make_overlay(),
 	-- Without this the transition failed silently: every reason it can decline to
-	-- animate (no overlay, a capture that came back blank, a press that turned out
-	-- to be a drag) was discarded, so "tab switching has no motion" was
+	-- animate (no compositor, a capture that came back blank, a press that turned
+	-- out to be a drag) was discarded, so "tab switching has no motion" was
 	-- indistinguishable from "tab switching is disabled" from the outside. Each
 	-- distinct reason is logged once -- see TabTransition:_note.
 	log = function(msg) host.log:info(msg) end,
@@ -638,9 +650,10 @@ local tab_transition = TabTransition:new({
 
 tab_order:setMotion(TabDragMotion:new({
 	iup = iup,
+	dialog = dlg,
 	director = motion_director,
-	overlay = make_overlay(),
 	spring_ms = 500,
+	log = function(msg) host.log:info(msg) end,
 }))
 
 -- The scrim that dims the page behind every modal.
@@ -744,21 +757,11 @@ end
 pcall(iup.SetAttribute, dlg, "PLACEMENT", "MAXIMIZED")
 iup.Show(dlg)
 
--- Build the motion overlay windows NOW, while nothing is happening.
---
--- Deferred to here rather than done at construction because the overlays are child
--- windows of the main dialog and need it on screen first. Doing it here rather
--- than lazily is the point: the first animation of a drag would otherwise create
--- and map a native window from inside a mouse-move callback, while the tab strip
--- holds the Win32 mouse capture -- which crashed the process a drag or two into a
--- session. After this, showing an overlay is only a SetWindowPos.
-for _, ov in ipairs(motion_overlays) do
-	pcall(function() ov:prepare() end)
-end
-
--- Same reasoning for the scrim's own window: a modal is very often opened from a
--- menu or button callback, which is exactly the re-entrant context that made
--- creating a native window lazily crash the process above.
+-- Build the dialog's compositor NOW, while nothing is happening. The scrim, the tab
+-- transition and the drag feedback all share it (it is cached per dialog), and the
+-- first animation of a drag or a modal would otherwise create and map a native
+-- window from inside a mouse-move or menu callback -- the re-entrant context that
+-- crashed the process when overlays were made lazily.
 pcall(function() modal_scrim:prepare() end)
 
 -- Now that the window has an HWND, size it for the monitor it opened on (the
@@ -816,7 +819,12 @@ host:_markShown()
 -- Apply the saved theme now that the full widget tree is mapped. The app ships with
 -- the IBM Carbon Design System look; Classic Dark (Carbon Gray 100) is the default
 -- when the user has not yet chosen a theme.
-theme_mgr:apply(settings_mgr:get("theme") or "classic_dark", { skip_save = true })
+-- With "Match system theme" on, the system's mode decides; otherwise (or when the
+-- system can't say) the saved theme.
+if not system_theme:sync(true) then
+	theme_mgr:apply(settings_mgr:get("theme") or "classic_dark", { skip_save = true })
+end
+system_theme:start()
 
 if not settings_mgr:get("welcome_tour_completed")
 	and not settings_mgr:get("welcome_tour_dismissed") then

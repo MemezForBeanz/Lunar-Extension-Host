@@ -119,6 +119,30 @@ function Extension:addTimer(opts)
     return host:addTimer(opts, self)
 end
 
+--- Run a tool as a JSON-lines job owned by this extension (`HostAPI:startJob`).
+-- Unloading the extension cancels the job and ends the tool.
+-- @tparam table opts `core.lib.ProcessJob.start` options
+-- @treturn table|nil the job, or `nil` and why it could not start
+-- @treturn string|nil error
+-- @usage self:startJob({ argv = { engine, "run" }, on_exit = function(res) self:log(res.status) end })
+function Extension:startJob(opts)
+    local host = self._ctx
+    if not host then return nil, "not registered" end
+    return host:startJob(opts, self)
+end
+
+--- Start a process owned by this extension (`HostAPI:spawn`).
+-- Unloading the extension ends the process and everything it started.
+-- @tparam table opts `{ argv, cwd, env, stdin }`
+-- @treturn userdata|nil the process, or `nil` and why it could not start
+-- @treturn string|nil error
+-- @usage local p = self:spawn({ argv = { "git", "status" }, cwd = repo })
+function Extension:spawn(opts)
+    local host = self._ctx
+    if not host then return nil, "not registered" end
+    return host:spawn(opts, self)
+end
+
 --- Run a function once the main window is shown and all widgets are mapped.
 -- @tparam function fn Zero-argument callback to invoke when the window is ready.
 -- @usage self:onReady(function() self:loadData() end)

@@ -1,12 +1,21 @@
 {
     // Ctrl+Shift+B builds (dev). "Tasks: Run Task" lists the rest; "Tasks: Run Test
-    // Task" runs the busted suite. Every task finds MSYS2 tools via the PATH below.
+    // Task" runs the busted suite. On Windows every task finds MSYS2 tools via the
+    // PATH below; on Linux the tasks use the linux-* presets and scripts/dev.sh.
     "version": "2.0.0",
-    "options": {
-        "shell": { "executable": "powershell.exe", "args": ["-NoProfile", "-Command"] },
-        "env": {
-            "PATH": "C:\\msys64\\mingw64\\bin;${env:PATH}",
-            "LUNAR_REPO": "${workspaceFolder}"
+    "windows": {
+        "options": {
+            "shell": { "executable": "powershell.exe", "args": ["-NoProfile", "-Command"] },
+            "env": {
+                "PATH": "C:\\msys64\\mingw64\\bin;${env:PATH}",
+                "LUNAR_REPO": "${workspaceFolder}"
+            }
+        }
+    },
+    "linux": {
+        "options": {
+            "shell": { "executable": "/bin/bash", "args": ["-c"] },
+            "env": { "LUNAR_REPO": "${workspaceFolder}" }
         }
     },
     "tasks": [
@@ -14,6 +23,7 @@
             "label": "Build (dev)",
             "type": "shell",
             "command": "cmake --preset dev; if ($?) { cmake --build --preset dev }",
+            "linux": { "command": "cmake --preset linux-dev && cmake --build --preset linux-dev" },
             "group": { "kind": "build", "isDefault": true },
             "problemMatcher": "$gcc",
             "presentation": { "reveal": "always", "panel": "shared", "clear": true }
@@ -22,6 +32,7 @@
             "label": "Build (release)",
             "type": "shell",
             "command": "cmake --preset release; if ($?) { cmake --build --preset release }",
+            "linux": { "command": "cmake --preset linux-release && cmake --build --preset linux-release" },
             "group": "build",
             "problemMatcher": "$gcc",
             "presentation": { "reveal": "always", "panel": "shared", "clear": true }
@@ -29,28 +40,46 @@
         {
             "label": "Run Lunar (dev)",
             "type": "process",
-            "command": "${workspaceFolder}/build/win/bin/LunarExtensionHost.exe",
+            "command": "${workspaceFolder}/build/win/bin/Lunar.exe",
             "options": { "cwd": "${workspaceFolder}/build/win/bin" },
+            "linux": {
+                "command": "${workspaceFolder}/build/linux/bin/lunar",
+                "options": { "cwd": "${workspaceFolder}/build/linux/bin" }
+            },
             "dependsOn": "Build (dev)",
             "problemMatcher": []
         },
         {
             "label": "Run Lunar (dev, no build)",
             "type": "process",
-            "command": "${workspaceFolder}/build/win/bin/LunarExtensionHost.exe",
+            "command": "${workspaceFolder}/build/win/bin/Lunar.exe",
             "options": { "cwd": "${workspaceFolder}/build/win/bin" },
+            "linux": {
+                "command": "${workspaceFolder}/build/linux/bin/lunar",
+                "options": { "cwd": "${workspaceFolder}/build/linux/bin" }
+            },
             "problemMatcher": []
         },
         {
             "label": "Run Lunar with an org pack (dev)",
             "detail": "Loads org packs from a folder (LUNAR_PROFILE_DIR) and selects one by id (LUNAR_PROFILE; empty = match by DNS domain). Dev builds only.",
             "type": "process",
-            "command": "${workspaceFolder}/build/win/bin/LunarExtensionHost.exe",
+            "command": "${workspaceFolder}/build/win/bin/Lunar.exe",
             "options": {
                 "cwd": "${workspaceFolder}/build/win/bin",
                 "env": {
                     "LUNAR_PROFILE_DIR": "${input:orgPacksDir}",
                     "LUNAR_PROFILE": "${input:orgPack}"
+                }
+            },
+            "linux": {
+                "command": "${workspaceFolder}/build/linux/bin/lunar",
+                "options": {
+                    "cwd": "${workspaceFolder}/build/linux/bin",
+                    "env": {
+                        "LUNAR_PROFILE_DIR": "${input:orgPacksDir}",
+                        "LUNAR_PROFILE": "${input:orgPack}"
+                    }
                 }
             },
             "dependsOn": "Build (dev)",
@@ -59,8 +88,12 @@
         {
             "label": "Run Lunar (release)",
             "type": "process",
-            "command": "${workspaceFolder}/build/rel/bin/LunarExtensionHost.exe",
+            "command": "${workspaceFolder}/build/rel/bin/Lunar.exe",
             "options": { "cwd": "${workspaceFolder}/build/rel/bin" },
+            "linux": {
+                "command": "${workspaceFolder}/build/linux-rel/bin/lunar",
+                "options": { "cwd": "${workspaceFolder}/build/linux-rel/bin" }
+            },
             "dependsOn": "Build (release)",
             "problemMatcher": []
         },
@@ -68,6 +101,7 @@
             "label": "Test (busted)",
             "type": "shell",
             "command": "powershell -NoProfile -File scripts/test.ps1",
+            "linux": { "command": "scripts/dev.sh test" },
             "group": { "kind": "test", "isDefault": true },
             "problemMatcher": []
         },
@@ -75,6 +109,7 @@
             "label": "Lint (luacheck)",
             "type": "shell",
             "command": "powershell -NoProfile -File scripts/lint.ps1",
+            "linux": { "command": "scripts/dev.sh lint" },
             "problemMatcher": {
                 "owner": "luacheck",
                 "fileLocation": ["relative", "${workspaceFolder}"],
@@ -88,6 +123,7 @@
             "label": "Docs check (ldoc)",
             "type": "shell",
             "command": "powershell -NoProfile -File scripts/docs.ps1 -OutDir dist/docs-ci -Check",
+            "linux": { "command": "scripts/dev.sh docs --check --out dist/docs-ci" },
             "problemMatcher": []
         },
         {
@@ -100,22 +136,38 @@
             "label": "Harness: process contract",
             "detail": "End-to-end check of the native process module against spec/fixtures/fake_engine.py.",
             "type": "shell",
-            "command": "$env:LUA_PATH='src/lua/?.lua;vendor/luarocks-tree/share/lua/5.1/?.lua;;'; build/win/bin/LunarExtensionHostCLI.exe scripts/process_check.lua C:/msys64/mingw64/bin/python.exe",
+            "command": "$env:LUA_PATH='src/lua/?.lua;vendor/luarocks-tree/share/lua/5.1/?.lua;;'; build/win/bin/LunarCLI.exe scripts/process_check.lua C:/msys64/mingw64/bin/python.exe",
+            "linux": {
+                "command": "LUA_PATH='src/lua/?.lua;vendor/luarocks-tree/share/lua/5.1/?.lua;vendor/copas/?.lua;;' build/linux/bin/lunar-cli scripts/process_check.lua /usr/bin/python3"
+            },
+            "dependsOn": "Build (dev)",
+            "problemMatcher": []
+        },
+        {
+            "label": "Harness: compositor goldens",
+            "detail": "Renders the golden scenes with the native compositor and an independent Lua reference; they must match byte for byte.",
+            "type": "shell",
+            "command": "$env:LUA_PATH='src/lua/?.lua;spec/support/?.lua;vendor/luarocks-tree/share/lua/5.1/?.lua;;'; build/win/bin/LunarCLI.exe scripts/compositor_check.lua",
+            "linux": {
+                "command": "LUA_PATH='src/lua/?.lua;spec/support/?.lua;vendor/luarocks-tree/share/lua/5.1/?.lua;;' build/linux/bin/lunar-cli scripts/compositor_check.lua"
+            },
             "dependsOn": "Build (dev)",
             "problemMatcher": []
         },
         {
             "label": "Harness: motion",
-            "detail": "Native motion layer against a real window (exits when done).",
+            "detail": "Native motion layer against a real window (exits when done). Windows only until the compositor backends land.",
             "type": "shell",
-            "command": "$p = Start-Process build/win/bin/LunarExtensionHost.exe -ArgumentList \"`\"${workspaceFolder}/scripts/motion_check.lua`\"\",'--batch' -WorkingDirectory build/win/bin -RedirectStandardOutput \"$env:TEMP/motion_check.out\" -PassThru -Wait; Get-Content \"$env:TEMP/motion_check.out\"",
+            "command": "$p = Start-Process build/win/bin/Lunar.exe -ArgumentList \"`\"${workspaceFolder}/scripts/motion_check.lua`\"\",'--batch' -WorkingDirectory build/win/bin -RedirectStandardOutput \"$env:TEMP/motion_check.out\" -PassThru -Wait; Get-Content \"$env:TEMP/motion_check.out\"",
+            "linux": { "command": "echo 'The motion harness needs the Win32 overlay; it runs on Windows only for now.'" },
             "dependsOn": "Build (dev)",
             "problemMatcher": []
         },
         {
-            "label": "Clean (both build trees)",
+            "label": "Clean (build trees)",
             "type": "shell",
             "command": "Remove-Item -Recurse -Force build/win, build/rel -ErrorAction SilentlyContinue",
+            "linux": { "command": "rm -rf build/linux build/linux-rel" },
             "problemMatcher": []
         }
     ],

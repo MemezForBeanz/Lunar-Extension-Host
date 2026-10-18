@@ -36,40 +36,49 @@
 -- the right opacity, and re-running the entrance would pulse the whole page darker
 -- and back for no reason the user could name.
 --
+-- ### How it draws
+--
+-- The dim is one `fill` sprite in the dialog's compositor (`core.lib.Compositor`,
+-- band `Z_SCRIM`) over the cover widget's rectangle, with **passive** input: the
+-- `iup.Popup` behind it already makes the page modal, so the scrim never takes a
+-- click. The fade animates the group's opacity, which the compositor turns into a
+-- constant-alpha layer fade -- no pixel is re-rendered per frame, so a 700 ms
+-- full-window dim costs the same at 4K as at 720p.
+--
 -- ### Failing closed
 --
 -- Everything here is decoration layered on top of a modal that works without it.
--- `core.ui.MotionOverlay` latches itself off if the FFI, the window handle or the
--- layered style is unavailable, and this module simply reports false and does
--- nothing when that happens. The modal still opens; it opens over an undimmed page.
---
--- Not reachable from the busted suite -- it needs a live dialog and a real window
--- handle. `scripts/motion_check.lua` exercises it against the running host.
+-- Where there is no compositor (no native backend on this platform yet, or the
+-- overlay window couldn't be made) this module simply reports false and does
+-- nothing. The modal still opens; it opens over an undimmed page.
 --
 -- @classmod core.ui.Scrim
 
 local class = require("middleclass")
 
-local MotionOverlay = require("core.ui.MotionOverlay")
+local Compositor = require("core.lib.Compositor")
 
 local Scrim = class("Scrim")
 
+local GROUP = "scrim"
+
 -- Carbon's overlay is black. The opacity is a role field rather than a constant
 -- here so a theme can lighten or deepen it in the same place it retimes it.
-local SCRIM_COLOR = "0 0 0"
+local SCRIM_COLOR = 0x000000
 
 --- Create a scrim bound to a host dialog.
 --
 -- `opts` fields:
 --
 --   * `iup` -- the IUP binding (required)
---   * `dialog` -- the main application dialog, used for parenting so the scrim
---     minimises, restores and z-orders with the application
+--   * `dialog` -- the main application dialog, whose compositor draws the dim
 --   * `cover` -- the widget whose area is dimmed. Defaults to `dialog`, but a
 --     caller that wants the title bar left alone should pass the content
 --     container instead -- Carbon dims the page, and the window chrome is not
 --     part of the page.
 --   * `director` -- `core.classes.MotionDirector`
+--   * `compositor` -- optional `fn() -> manager|nil, why`; defaults to
+--     `Compositor.forDialog(iup, dialog)` (tests pass a fake)
 --   * `log` -- optional `fn(msg)` for diagnostics
 --
 -- Construction is cheap and creates no window; see `prepare`.
@@ -81,15 +90,67 @@ function Scrim:initialize(opts)
 	self._dialog   = opts.dialog
 	self._cover    = opts.cover or opts.dialog
 	self._director = opts.director
-
-	self._overlay = MotionOverlay:new({
-		iup    = opts.iup,
-		dialog = opts.dialog,
-		log    = opts.log,
-	})
+	self._log      = opts.log
+	self._get_comp = opts.compositor or function()
+		return Compositor.forDialog(opts.iup, opts.dialog)
+	end
 
 	self._depth = 0
 	self._alpha = 0
+end
+
+-- The dialog's compositor, made on first use; nil (logged once) when there is none.
+function Scrim:_comp()
+	if self._compositor then return self._compositor end
+	if self._unavailable then return nil end
+	local ok, comp, why = pcall(self._get_comp)
+	if not ok or not comp then
+		self._unavailable = true
+		if self._log then
+			pcall(self._log, "scrim: no compositor (" .. tostring(ok and why or comp) .. "); modals open undimmed")
+		end
+		return nil
+	end
+	self._compositor = comp
+	local me = self
+	local function relayout()
+		if me._depth > 0 or me._alpha > 0 then me:_place() end
+	end
+	comp:on("resize", relayout)
+	comp:on("dpi", relayout)
+	return comp
+end
+
+-- Put the dim over the cover widget at the current opacity.
+function Scrim:_place()
+	local comp = self._compositor
+	local r = comp:rect(self._cover)
+	if not r then
+		local g = comp:geometry() or {}
+		r = { x = 0, y = 0, w = g.w or 0, h = g.h or 0 }
+	end
+	comp:set(GROUP, {
+		z = Compositor.Z_SCRIM,
+		opacity = self:_opacity(),
+		sprites = { { kind = "fill", x = r.x, y = r.y, w = r.w, h = r.h, color = SCRIM_COLOR, alpha = 1 } },
+		regions = { { x = r.x, y = r.y, w = r.w, h = r.h, mode = "pass" } },
+	})
+end
+
+-- The current alpha (0-255) as a group opacity.
+function Scrim:_opacity()
+	local a = self._alpha / 255
+	if a < 0 then return 0 elseif a > 1 then return 1 end
+	return a
+end
+
+-- Show the current alpha (at the end of the director's frame, shared with any
+-- other effect animating on this dialog).
+function Scrim:_apply()
+	local comp = self._compositor
+	if not comp then return end
+	comp:setOpacity(GROUP, self:_opacity())
+	comp:schedule(self._director)
 end
 
 --- Point the scrim at a different widget to cover.
@@ -112,17 +173,16 @@ function Scrim:director()
 	return self._director
 end
 
---- Create the overlay window now, ahead of any modal.
+--- Create the compositor's window now, ahead of any modal.
 --
--- Worth doing for the same reason `core.ui.MotionOverlay:prepare` is: creating and
--- mapping a native window from inside an event callback is a genuine re-entrancy
--- hazard, and the first modal of a session would otherwise do exactly that from a
--- menu or button handler.
+-- Creating a native window from inside an event callback is a genuine
+-- re-entrancy hazard, and the first modal of a session would otherwise do exactly
+-- that from a menu or button handler.
 --
--- @treturn boolean true when the window is ready
+-- @treturn boolean true when the compositor is ready
 -- @usage scrim:prepare()   -- once, after the main dialog is shown
 function Scrim:prepare()
-	return self._overlay:prepare()
+	return self:_comp() ~= nil
 end
 
 --- Is the scrim currently dimming anything?
@@ -153,7 +213,8 @@ end
 -- @treturn boolean true when the scrim is up (or already was)
 -- @usage scrim:raise()
 function Scrim:raise()
-	if not self._overlay:available() then return false end
+	local comp = self:_comp()
+	if not comp then return false end
 
 	self._depth = self._depth + 1
 	if self._depth > 1 then
@@ -162,19 +223,18 @@ function Scrim:raise()
 		return true
 	end
 
-	-- Alpha is set to zero BEFORE the window is shown. `show()` raises the window
-	-- to the top of the z-order and paints it immediately, so a window still
-	-- carrying the opacity from its last use would flash a full-strength black
-	-- rectangle over the page for one frame before the animation's first tick
-	-- brought it back down.
-	self._alpha = 0
-	self._overlay:setAlpha(0)
-
-	local shown = self._overlay:show(self._cover, function(o)
-		o:clear(SCRIM_COLOR)
+	-- The first frame goes up at the alpha the fade starts from: zero for a fresh
+	-- raise, or wherever a lift still in flight had got to, so a modal reopened
+	-- mid-fade carries on from the dim on screen instead of flashing.
+	-- commit() reports a failed present as false (it doesn't throw); either way
+	-- nothing reached the screen, so this raise didn't happen.
+	local ok, shown = pcall(function()
+		self:_place()
+		return comp:commit()
 	end)
-	if not shown then
+	if not ok or shown == false then
 		self._depth = self._depth - 1
+		pcall(function() comp:remove(GROUP); comp:commit() end)
 		return false
 	end
 
@@ -202,19 +262,25 @@ function Scrim:lower(role)
 	self._depth = self._depth - 1
 	if self._depth > 0 then return end
 
-	local overlay = self._overlay
 	self:_fade(0, role or "scrim_out", function()
-		-- Hidden only once the fade has actually finished. Hiding on the way out
-		-- would cut the dim rather than lift it, which is the flash this module
-		-- exists to avoid -- just at the other end of the modal's life.
+		-- Removed only once the fade has actually finished. Removing it on the
+		-- way out would cut the dim rather than lift it, which is the flash this
+		-- module exists to avoid -- just at the other end of the modal's life.
 		--
 		-- Guarded on the depth still being zero: a modal that closes and
 		-- immediately opens another (a confirmation chain) can raise the scrim
-		-- again while this fade is in flight, and hiding then would drop the dim
-		-- out from under a modal that is still on screen.
-		if overlay and self._depth == 0 then
-			overlay:hide()
-		end
+		-- again while this fade is in flight, and removing it then would drop
+		-- the dim out from under a modal that is still on screen.
+		if self._depth == 0 then self:_remove() end
+	end)
+end
+
+function Scrim:_remove()
+	local comp = self._compositor
+	if not comp then return end
+	pcall(function()
+		comp:remove(GROUP)
+		comp:schedule(self._director)
 	end)
 end
 
@@ -228,22 +294,20 @@ function Scrim:reset()
 		self._director:cancel({ target = self })
 	end
 	self._alpha = 0
-	pcall(function() self._overlay:setAlpha(0) end)
-	self._overlay:hide()
+	self:_remove()
 end
 
--- Animate the layered window's alpha. The whole scrim is one flat colour, so
--- opacity is the only thing that changes and the layered-window alpha does it
--- without touching a pixel -- there is no per-frame repaint here at all, which is
--- what makes a 700 ms full-window dim free.
+-- Animate the group's opacity. The whole scrim is one flat colour, so opacity is
+-- the only thing that changes and the compositor's layer fade does it without
+-- touching a pixel -- there is no per-frame repaint here at all, which is what
+-- makes a 700 ms full-window dim free.
 function Scrim:_fade(to, role, on_done)
 	local from = self._alpha
-	local overlay = self._overlay
 	local scrim = self
 
 	if not self._director then
 		self._alpha = to
-		overlay:setAlpha(to)
+		self:_apply()
 		if on_done then on_done() end
 		return
 	end
@@ -258,7 +322,7 @@ function Scrim:_fade(to, role, on_done)
 		to       = to,
 		on_frame = function(v)
 			scrim._alpha = v
-			overlay:setAlpha(v)
+			pcall(scrim._apply, scrim)
 		end,
 		on_done  = function()
 			if on_done then on_done() end
@@ -266,10 +330,11 @@ function Scrim:_fade(to, role, on_done)
 	})
 end
 
---- Destroy the overlay window and release every native resource it holds.
+--- Drop the dim and let go of the compositor (it belongs to the dialog and
+-- closes with it).
 function Scrim:destroy()
 	self:reset()
-	self._overlay:destroy()
+	self._compositor = nil
 end
 
 return Scrim

@@ -1,0 +1,23 @@
+diff --git a/src/gtk/iupgtk_menu.c b/src/gtk/iupgtk_menu.c
+--- a/src/gtk/iupgtk_menu.c
++++ b/src/gtk/iupgtk_menu.c
+@@ -93,6 +93,19 @@
+ IUP_SDK_API int iupdrvMenuGetMenuBarSize(Ihandle* ih)
+ {
+   int ch;
++#if GTK_CHECK_VERSION(3, 0, 0)
++  /* Lunar fork: once the menu bar exists, use GTK's own measurement. The
++     font-based estimate below ignores the theme's CSS padding, so under themes
++     that pad the menu bar (Mint-Y, Adwaita at larger text sizes) the bar, which
++     sits inside the client area at (0,0), overlaps the first row of content. */
++  if (ih && ih->handle && GTK_IS_WIDGET(ih->handle))
++  {
++    int natural = 0;
++    gtk_widget_get_preferred_height((GtkWidget*)ih->handle, NULL, &natural);
++    if (natural > 0)
++      return natural;
++  }
++#endif
+   iupdrvFontGetCharSize(ih, NULL, &ch);
+ #ifdef WIN32
+   return 3 + ch + 3;

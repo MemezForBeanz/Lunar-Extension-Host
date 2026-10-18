@@ -408,7 +408,7 @@ these roles in its `motion()` table.
 | `core.lib.MotionEasing` | Cubic-bezier solver, FFI sample table for allocation-free frames |
 | `core.lib.MotionClock` | `QueryPerformanceCounter` monotonic clock; OS reduce-motion probe |
 | `core.classes.MotionDirector` | The scheduler — one timer, every animation, the off-switch, role resolution |
-| `core.ui.MotionOverlay` | Click-through layered window, GDI snapshots, alpha compositing |
+| `core.lib.Compositor` | Per-dialog scene manager over the native overlay: z-banded groups, snapshots, one present per tick (Windows and Linux) |
 | `core.ui.TabTransition` | The sliding page transition |
 | `core.ui.TabDragMotion` | Drag feedback and the group-creation flourish |
 | `core.ui.SettingsView` | The settings accordion |
@@ -426,25 +426,26 @@ A few design points worth knowing if you extend this:
 - **Time-based, not frame-based.** Progress comes from the clock. Under load,
   frames are dropped and the animation still finishes on schedule — rather than
   stretching out exactly when the UI is already busy.
-- **The overlay fails closed.** Snapshot compositing needs FFI, a window handle and
-  a layered window style. If any of that is unavailable the overlay latches itself
-  off and every caller falls back to today's instant behaviour. Losing the
-  animation is the only consequence. Alpha compositing (`msimg32`) is loaded
-  separately again, so a machine without it degrades a cross-fade to a hard cut
-  rather than losing the whole overlay.
+- **The compositor fails closed.** Every effect on the main window draws through the
+  dialog's compositor. Where there is no native backend, or the overlay window can't
+  be created, or a snapshot comes back empty, the effect does nothing and the UI
+  behaves instantly. Losing the animation is the only consequence. Dialog movement
+  (the modal rise) goes through `core.platform.move_window`, which reports false
+  where the platform can't place windows (native Wayland), and the rise is skipped.
 
 ### Testing
 
 `spec/motion_tokens_spec.lua`, `spec/motion_easing_spec.lua`,
 `spec/motion_director_spec.lua` and `spec/motion_roles_spec.lua` cover the pure-Lua
 layers under busted, with IUP faked and the clock injected so timing is
-deterministic. `spec/settings_view_spec.lua` covers the accordion the same way.
+deterministic. The tab transition, drag feedback and scrim run over the real
+`Compositor` manager with a fake backend that records presents. `spec/settings_view_spec.lua` covers the accordion the same way.
 
 The native layer needs a real window, so it has a GUI harness instead:
 
 ```
-build\bin\LunarExtensionHost.exe scripts\motion_check.lua
+build\bin\Lunar.exe scripts\motion_check.lua
 ```
 
-That probes the clock, the FFI easing table, overlay creation, GDI capture
+That probes the clock, the FFI easing table, compositor creation, snapshot capture
 (including a 200-cycle leak check) and a live transition.

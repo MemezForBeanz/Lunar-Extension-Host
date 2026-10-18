@@ -3,6 +3,7 @@
 
 Usage:
   make_icon.py <render dir> <assets dir>
+  make_icon.py --from-ico <assets dir>     (re-extract the Linux PNGs from lunar.ico)
 
 <render dir> holds lunar-<size>.png for every size in SIZES, rendered from the
 SVG at that exact size (scripts/make-icon.ps1 does the rendering with a headless
@@ -12,6 +13,9 @@ Writes, into <assets dir>:
   lunar.ico          every size, as PNG entries (the exe's ICON resource)
   lunar-icon-32.png  the 32 px render (the embedded `lunar_icon_32` image and
                      the docs favicon)
+  app-icon/lunar-<size>.png
+                     the Linux icon set (window icon via GTK, and the hicolor
+                     theme icons the .deb and AppImage install)
 
 The art is black on transparent, which disappears on a dark taskbar. Each size
 gets a thin white halo under the black shapes: invisible on a light background,
@@ -26,6 +30,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from embed_images import png_to_rgba  # noqa: E402
 
 SIZES = [16, 20, 24, 32, 40, 48, 64, 128, 256]
+# The freedesktop hicolor sizes we ship (a subset of SIZES).
+LINUX_SIZES = [16, 24, 32, 48, 64, 128, 256]
 
 
 def add_halo(w, h, rgba, radius):
@@ -75,7 +81,36 @@ def encode_ico(images):
     return header + body
 
 
+def decode_ico(data):
+    """[(size, png bytes)] from an .ico whose entries are PNGs (as encode_ico writes)."""
+    _, kind, count = struct.unpack_from("<HHH", data, 0)
+    if kind != 1:
+        sys.exit("not an icon file")
+    out = []
+    for i in range(count):
+        w, _, _, _, _, _, length, offset = struct.unpack_from("<BBBBHHII", data, 6 + 16 * i)
+        png = data[offset:offset + length]
+        if not png.startswith(b"\x89PNG"):
+            sys.exit("icon entry %d is not PNG data" % i)
+        out.append((w or 256, png))
+    return out
+
+
+def write_linux_icons(images, assets_dir):
+    by_size = dict(images)
+    folder = os.path.join(assets_dir, "app-icon")
+    os.makedirs(folder, exist_ok=True)
+    for size in LINUX_SIZES:
+        with open(os.path.join(folder, "lunar-%d.png" % size), "wb") as f:
+            f.write(by_size[size])
+    print("wrote app-icon/lunar-{%s}.png" % ",".join(str(s) for s in LINUX_SIZES))
+
+
 def main():
+    if len(sys.argv) == 3 and sys.argv[1] == "--from-ico":
+        with open(os.path.join(sys.argv[2], "lunar.ico"), "rb") as f:
+            write_linux_icons(decode_ico(f.read()), sys.argv[2])
+        return
     if len(sys.argv) != 3:
         sys.exit(__doc__)
     render_dir, assets_dir = sys.argv[1], sys.argv[2]
@@ -91,6 +126,7 @@ def main():
     with open(os.path.join(assets_dir, "lunar-icon-32.png"), "wb") as f:
         f.write(dict(images)[32])
     print("wrote lunar.ico (%d sizes) and lunar-icon-32.png" % len(images))
+    write_linux_icons(images, assets_dir)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,40 @@
+/* The app icon; built from lunar-icon.svg by scripts\make-icon.ps1. */
+IUP ICON "lunar.ico"
+
+#include <winuser.h>
+#include <winver.h>
+1 RT_MANIFEST "Lunar.exe.manifest"
+
+/* Version resource. Task Manager's Processes tab and the taskbar show
+ * FileDescription, so the process reads "Lunar" there; Details shows Lunar.exe.
+ * The numbers come from APP_VERSION in src/lua/core/main.lua, via the header
+ * CMake generates from assets/lunar_version.h.in. */
+#include "lunar_version.h"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     LUNAR_VERSION_MAJOR, LUNAR_VERSION_MINOR, LUNAR_VERSION_PATCH, 0
+PRODUCTVERSION  LUNAR_VERSION_MAJOR, LUNAR_VERSION_MINOR, LUNAR_VERSION_PATCH, 0
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName",      "Lunar"
+            VALUE "FileDescription",  "Lunar"
+            VALUE "FileVersion",      LUNAR_VERSION_STR
+            VALUE "InternalName",     "Lunar"
+            VALUE "OriginalFilename", "Lunar.exe"
+            VALUE "ProductName",      "Lunar Extension Host"
+            VALUE "ProductVersion",   LUNAR_VERSION_STR
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

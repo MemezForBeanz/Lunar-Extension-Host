@@ -1,5 +1,9 @@
-# Build and check Lunar from a clean checkout: bootstrap the dependencies,
-# build the dev preset, then run the specs, lint and the docs check.
+# Build and check Lunar from a clean checkout on Windows and Linux: bootstrap
+# the dependencies, build the dev preset, run the specs, lint, the docs check and
+# the native harnesses, then build the installable packages (MSI + portable zip,
+# .deb + AppImage), smoke-test the Linux ones and upload them as artifacts.
+# release.yml reuses this workflow (workflow_call) so a release is built by
+# exactly the steps CI runs.
 name: CI
 
 on:
@@ -7,6 +11,12 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to build (empty means the triggering ref)
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -24,6 +34,8 @@ jobs:
         shell: powershell
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
 
       # The runner image ships MSYS2 at C:\msys64, where the scripts expect it.
       - name: MSYS2 packages
@@ -64,3 +76,199 @@ jobs:
 
       - name: Docs
         run: scripts\docs.ps1 -Check -OutDir dist\docs-ci
+
+      # Native compositor against an independent Lua reference: byte-for-byte.
+      - name: Compositor goldens
+        run: |
+          $env:LUA_PATH = 'src/lua/?.lua;spec/support/?.lua;vendor/luarocks-tree/share/lua/5.1/?.lua;;'
+          $env:LUNAR_REPO = (Get-Location).Path
+          build\win\bin\LunarCLI.exe scripts\compositor_check.lua
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # End-to-end check of the native process module (same as `make harness`).
+      - name: Process harness
+        run: |
+          $env:LUA_PATH = 'src/lua/?.lua;vendor/luarocks-tree/share/lua/5.1/?.lua;;'
+          $env:LUNAR_REPO = (Get-Location).Path
+          build\win\bin\LunarCLI.exe scripts\process_check.lua C:/msys64/mingw64/bin/python.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # WiX is downloaded into build\tools on first use; keep it between runs.
+      - name: Cache WiX
+        uses: actions/cache@v4
+        with:
+          path: build/tools
+          key: wix-${{ runner.os }}-${{ hashFiles('scripts/build.ps1') }}
+
+      # -Mode all builds the release tree (build\rel) and stages the portable zip,
+      # the MSI, the setup .exe (IExpress, wraps the MSI) and release.json under
+      # dist\release-assets. No -Publish* flag:
+      # publishing is the release workflow's job.
+      - name: Package (portable zip + MSI + setup .exe)
+        run: scripts\build.ps1 -Mode all
+
+      - name: Upload Windows packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-packages
+          path: dist/release-assets/*
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      LUAJIT_COMMIT: 2a8e017
+      # Smoke test body: $1 is the program. Runs inside xvfb-run.
+      SMOKE: |
+        err="$(mktemp)"
+        setsid "$@" >/dev/null 2>"$err" &
+        pid=$!
+        sleep 8
+        if kill -0 "$pid" 2>/dev/null; then
+          kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid"
+          sleep 1
+          kill -KILL -- "-$pid" 2>/dev/null || true
+          exit 0
+        fi
+        status=0
+        wait "$pid" || status=$?
+        echo "::error::$1 exited early (status $status); stderr follows"
+        cat "$err"
+        exit 1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build python3 pkg-config \
+            libgtk-3-dev libssl-dev libfontconfig-dev libx11-dev libxext-dev \
+            luarocks git curl ca-certificates xvfb lintian desktop-file-utils \
+            dpkg-dev file xz-utils
+
+      # LuaJIT 2.1 (rolling branch, pinned by commit) installed to /usr/local,
+      # where dev.sh, CMake and build_iup.py look for it. The built source tree is
+      # cached; `make install` is cheap and needs root, so it runs every time.
+      - name: Cache LuaJIT build
+        id: luajit-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/LuaJIT
+          key: luajit-${{ runner.os }}-${{ runner.arch }}-${{ env.LUAJIT_COMMIT }}
+
+      - name: Build LuaJIT
+        if: steps.luajit-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/LuaJIT/LuaJIT ~/LuaJIT
+          git -C ~/LuaJIT checkout "$LUAJIT_COMMIT"
+          make -C ~/LuaJIT -j"$(nproc)"
+
+      - name: Install LuaJIT
+        run: sudo make -C ~/LuaJIT install PREFIX=/usr/local
+
+      - name: Cache rocks and downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/luarocks-tree
+            vendor/.downloads
+          key: deps-linux-${{ env.LUAJIT_COMMIT }}-${{ hashFiles('*.rockspec', 'scripts/dev.sh') }}
+
+      - name: Bootstrap
+        run: scripts/dev.sh bootstrap
+
+      - name: Cache IUP (GTK3)
+        uses: actions/cache@v4
+        with:
+          path: vendor/iup-src-linux
+          key: iup-linux-${{ env.LUAJIT_COMMIT }}-${{ hashFiles('iup-fork/patches/*', 'scripts/build_iup.py') }}
+
+      - name: Build IUP
+        run: python3 -I scripts/build_iup.py
+
+      - name: Build (dev)
+        run: |
+          cmake --preset linux-dev
+          cmake --build --preset linux-dev
+
+      - name: Test
+        run: scripts/dev.sh test
+
+      - name: Lint
+        run: scripts/dev.sh lint
+
+      - name: Docs
+        run: scripts/dev.sh docs --check --out dist/docs-ci
+
+      - name: Compositor goldens
+        env:
+          LUA_PATH: src/lua/?.lua;spec/support/?.lua;vendor/luarocks-tree/share/lua/5.1/?.lua;;
+          LUNAR_REPO: ${{ github.workspace }}
+        run: build/linux/bin/lunar-cli scripts/compositor_check.lua
+
+      - name: Process harness
+        env:
+          LUA_PATH: src/lua/?.lua;vendor/luarocks-tree/share/lua/5.1/?.lua;vendor/copas/?.lua;;
+          LUNAR_REPO: ${{ github.workspace }}
+        run: build/linux/bin/lunar-cli scripts/process_check.lua /usr/bin/python3
+
+      # Packaging only runs once everything above has passed.
+      - name: Build (release)
+        run: |
+          cmake --preset linux-release
+          cmake --build --preset linux-release
+
+      - name: Package (setup .run + .deb + AppImage)
+        run: scripts/package_linux.sh --build-dir build/linux-rel --out dist/linux
+
+      # Start the app under a virtual display; it must still be running after a
+      # few seconds. The app runs in its own process group so the whole group is
+      # killed by PID afterwards, and stderr is shown if it exited early.
+      - name: Smoke test AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        run: |
+          set -euo pipefail
+          appimage="$(ls dist/linux/Lunar-*-x86_64.AppImage)"
+          chmod +x "$appimage"
+          xvfb-run -a bash -c "$SMOKE" _ "$PWD/$appimage"
+          echo "AppImage stayed up."
+
+      # The setup installer, without a window: a per-user install into a throwaway
+      # HOME, the program must start from ~/.local/bin, then uninstall removes it all.
+      - name: Smoke test setup .run
+        run: |
+          set -euo pipefail
+          run="$(ls "$PWD"/dist/linux/Lunar-Setup-*-x86_64.run)"
+          sh "$run" --check
+          export HOME="$(mktemp -d)"
+          sh "$run" --quiet --type user --extensions all
+          test -x "$HOME/.local/bin/lunar"
+          test -f "$HOME/.local/share/applications/lunar.desktop"
+          xvfb-run -a bash -c "$SMOKE" _ "$HOME/.local/bin/lunar"
+          "$HOME/.local/opt/lunar/setup/lunar-cli" "$HOME/.local/opt/lunar/setup/uninstall.lua" --quiet
+          test ! -e "$HOME/.local/opt/lunar"
+          test -z "$(find "$HOME/.local" -type f)"
+          echo "setup .run installed, started and uninstalled."
+
+      - name: Smoke test .deb
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y ./dist/linux/*.deb
+          test -x /usr/bin/lunar
+          xvfb-run -a bash -c "$SMOKE" _ /usr/bin/lunar
+          echo ".deb install stayed up."
+
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            dist/linux/*.run
+            dist/linux/*.deb
+            dist/linux/*.AppImage
+          if-no-files-found: error

@@ -31,7 +31,7 @@ __pycache__/
 # config.ld and removes it again; ignored so a crashed run can't dirty the tree)
 config.generated.ld
 
-# Compiled binaries and objects
+# Compiled binaries and objects (Windows and Linux)
 *.exe
 *.dll
 *.o
@@ -39,6 +39,27 @@ config.generated.ld
 *.a
 *.lib
 *.pdb
+*.so
+*.so.*
+*.d
+
+# Packages (scripts/build.ps1 and scripts/package_linux.sh write them under dist/;
+# these catch strays built elsewhere)
+*.msi
+*.deb
+*.AppImage
+*.zip
+
+# Local tool state
+CMakeUserPresets.json
+.cache/
+.idea/
+*.swp
+*~
+*.log
+luacov.*.out
+.claude/settings.local.json
+.codex/
 
 # Editor and OS cruft
 .vs/

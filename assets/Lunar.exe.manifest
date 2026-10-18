@@ -12,11 +12,26 @@
 
        Two blocks so each OS uses the strongest mode it understands:
          * Windows 10 1607+ reads dpiAwareness (SMI/2016) -> PerMonitorV2.
-         * Older Windows reads dpiAware (SMI/2005); "True/PM" = system + per-monitor v1. -->
+         * Older Windows reads dpiAware (SMI/2005); "True/PM" = system + per-monitor v1.
+
+       activeCodePage UTF-8 (Windows 10 1903+) makes the process's ANSI code page
+       UTF-8, so io.open, lfs and IUP's narrow strings handle any path; the host's
+       own Win32 calls use the wide APIs and convert with CP_UTF8 to match. -->
+  <!-- Supported OS entries. Windows only enables layered CHILD windows (the
+       compositor's overlay, src/c/libs/compositor/win32.c) for executables that
+       declare Windows 8 or later here; without it CreateWindowEx fails. -->
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <supportedOS Id="{4a2f28e3-53b9-4441-ba9c-d69d4a4a6e38}"/>  <!-- Windows 8 -->
+      <supportedOS Id="{1f676c76-80e1-4239-95bb-83d0f6d0da78}"/>  <!-- Windows 8.1 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>  <!-- Windows 10 and 11 -->
+    </application>
+  </compatibility>
   <asmv3:application xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
     <asmv3:windowsSettings>
       <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2, PerMonitor, System</dpiAwareness>
       <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">True/PM</dpiAware>
+      <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
     </asmv3:windowsSettings>
   </asmv3:application>
 </assembly>

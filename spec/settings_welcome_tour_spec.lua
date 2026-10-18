@@ -1,52 +1,27 @@
--- Unique per call: busted reseeds math.random, so a random name alone can hand
--- two tests (or two runs) the same temp folder.
-local __unique_seq = 0
-local function __unique_suffix()
-	__unique_seq = __unique_seq + 1
-	return string.format("%d_%d_%d", os.time(), __unique_seq, math.random(1e9))
-end
-
 local lfs = require("lfs")
 local cjson = require("cjson")
 local SettingsManager = require("core.classes.SettingsManager")
+local box = require("spec.support.config_sandbox")
+local J = box.join
 
 -- What an org profile's legacy_config_dir passes in.
 local LEGACY = { legacy_dir_name = "Old Tool" }
 
--- SettingsManager resolves its file from %APPDATA%, so point APPDATA at a temp
--- dir to exercise real load/save round-trips without touching the user's config.
+-- A fresh per-user config root, optionally seeded with a settings.json, so the
+-- specs exercise real load/save round-trips without touching the user's config.
 local function sandbox(json)
-	local dir = os.getenv("TEMP") .. "\\lunar_settings_spec_" .. __unique_suffix()
-	lfs.mkdir(dir)
-	lfs.mkdir(dir .. "\\Lunar Extension Host")
+	local dir = box.new_root("lunar_settings_spec")
+	box.mkdir(box.app_dir(dir))
 	if json then
-		local f = assert(io.open(dir .. "\\Lunar Extension Host\\settings.json", "w"))
+		local f = assert(io.open(J(box.app_dir(dir), "settings.json"), "w"))
 		f:write(json)
 		f:close()
 	end
-	local prev = os.getenv("APPDATA")
-	return dir, prev
+	return dir
 end
 
 describe("SettingsManager welcome tour flags", function()
-	local saved_appdata
-
-	before_each(function()
-		saved_appdata = os.getenv("APPDATA")
-	end)
-
-	local function with_appdata(dir, fn)
-		-- luajit has no setenv; SettingsManager reads APPDATA at initialize()
-		-- time, so stub os.getenv for the duration of the call.
-		local real = os.getenv
-		os.getenv = function(k)
-			if k == "APPDATA" then return dir end
-			return real(k)
-		end
-		local ok, err = pcall(fn)
-		os.getenv = real
-		if not ok then error(err, 0) end
-	end
+	local with_appdata = box.with_root
 
 	it("round-trips the welcome tour flags through save and load", function()
 		local dir = sandbox(nil)
@@ -99,7 +74,7 @@ describe("SettingsManager welcome tour flags", function()
 		}))
 		with_appdata(dir, function()
 			SettingsManager:new():load()
-			local f = assert(io.open(dir .. "\\Lunar Extension Host\\settings.json", "r"))
+			local f = assert(io.open(J(box.app_dir(dir), "settings.json"), "r"))
 			local written = cjson.decode(f:read("*a"))
 			f:close()
 			assert.is_true(written.welcome_tour_dismissed)
@@ -107,15 +82,14 @@ describe("SettingsManager welcome tour flags", function()
 	end)
 
 	it("copies the org's legacy config folder on first run", function()
-		local dir = os.getenv("TEMP") .. "\\lunar_settings_spec_" .. __unique_suffix()
-		lfs.mkdir(dir)
-		local legacy = dir .. "\\Old Tool"
+		local dir = box.new_root("lunar_settings_spec")
+		local legacy = J(dir, "Old Tool")
 		lfs.mkdir(legacy)
-		lfs.mkdir(legacy .. "\\logparser")
-		local f = assert(io.open(legacy .. "\\settings.json", "w"))
+		lfs.mkdir(J(legacy, "logparser"))
+		local f = assert(io.open(J(legacy, "settings.json"), "w"))
 		f:write(cjson.encode({ theme = "classic", welcome_tour_completed = true }))
 		f:close()
-		f = assert(io.open(legacy .. "\\logparser\\history.jsonl", "w"))
+		f = assert(io.open(J(legacy, "logparser", "history.jsonl"), "w"))
 		f:write("{}\n")
 		f:close()
 
@@ -127,9 +101,9 @@ describe("SettingsManager welcome tour flags", function()
 			assert.are.equal("classic", s:get("theme"))
 			assert.is_true(s:get("welcome_tour_completed"))
 			assert.are.equal("file",
-				lfs.attributes(dir .. "\\Lunar Extension Host\\logparser\\history.jsonl", "mode"))
+				lfs.attributes(J(box.app_dir(dir), "logparser", "history.jsonl"), "mode"))
 			-- The old folder is left in place for the old build to keep using.
-			assert.are.equal("file", lfs.attributes(legacy .. "\\settings.json", "mode"))
+			assert.are.equal("file", lfs.attributes(J(legacy, "settings.json"), "mode"))
 
 			-- Second run: the new folder exists, so nothing is copied again.
 			assert.is_nil(SettingsManager:new(LEGACY).migrated_from)
@@ -137,29 +111,27 @@ describe("SettingsManager welcome tour flags", function()
 	end)
 
 	it("copies nothing when no legacy folder name is given", function()
-		local dir = os.getenv("TEMP") .. "\\lunar_settings_spec_" .. __unique_suffix()
-		lfs.mkdir(dir)
-		lfs.mkdir(dir .. "\\Old Tool")
+		local dir = box.new_root("lunar_settings_spec")
+		lfs.mkdir(J(dir, "Old Tool"))
 		with_appdata(dir, function()
 			local s = SettingsManager:new()
 			assert.is_nil(s.migrated_from)
-			assert.are.equal(dir .. "\\Lunar Extension Host", s:getConfigDir())
+			assert.are.equal(box.app_dir(dir), s:getConfigDir())
 		end)
 	end)
 
 	it("retries the folder copy on the next run after a failed copy", function()
-		local dir = os.getenv("TEMP") .. "\\lunar_settings_spec_" .. __unique_suffix()
-		lfs.mkdir(dir)
-		local legacy = dir .. "\\Old Tool"
+		local dir = box.new_root("lunar_settings_spec")
+		local legacy = J(dir, "Old Tool")
 		lfs.mkdir(legacy)
-		lfs.mkdir(legacy .. "\\history")
-		local f = assert(io.open(legacy .. "\\settings.json", "w"))
+		lfs.mkdir(J(legacy, "history"))
+		local f = assert(io.open(J(legacy, "settings.json"), "w"))
 		f:write(cjson.encode({ theme = "classic" }))
 		f:close()
-		f = assert(io.open(legacy .. "\\history\\runs.jsonl", "w"))
+		f = assert(io.open(J(legacy, "history", "runs.jsonl"), "w"))
 		f:write("{}\n")
 		f:close()
-		local new_dir = dir .. "\\Lunar Extension Host"
+		local new_dir = box.app_dir(dir)
 
 		with_appdata(dir, function()
 			-- Fail the copy of one file, as a locked file or a full disk would.
@@ -180,7 +152,7 @@ describe("SettingsManager welcome tour flags", function()
 			local retry = SettingsManager:new(LEGACY)
 			assert.is_true(retry.migration_complete)
 			assert.are.equal(new_dir, retry:getConfigDir())
-			assert.are.equal("file", lfs.attributes(new_dir .. "\\history\\runs.jsonl", "mode"))
+			assert.are.equal("file", lfs.attributes(J(new_dir, "history", "runs.jsonl"), "mode"))
 		end)
 	end)
 

@@ -30,7 +30,8 @@ local SEP = package.config:sub(1, 1)
 --- The CA bundle shipped next to the executable (`certs/cacert.pem`), or nil.
 -- @treturn string|nil
 function M.bundled_cafile()
-	local dir = (type(LUNAR_EXE_DIR) == "string" and LUNAR_EXE_DIR ~= "") and LUNAR_EXE_DIR or "."
+	local ok, dir = pcall(function() return require("core.platform").exe_dir() end)
+	if not ok then return nil end
 	local path = dir .. SEP .. "certs" .. SEP .. "cacert.pem"
 	local f = io.open(path, "rb")
 	if f then f:close() return path end

@@ -1,0 +1,422 @@
+-- installer.linux: install, upgrade and uninstall into a throwaway home / root.
+
+-- The Linux installer works on POSIX paths and symbolic links; Windows has its own spec.
+if require("core.platform").is_windows then return end
+
+local lfs = require("lfs")
+local linux = require("installer.linux")
+local plan_mod = require("installer.plan")
+local payload = require("spec.support.installer_payload")
+local sandbox = require("spec.support.config_sandbox")
+
+local function install(pl, ids, mode, o)
+	local plan, err = linux.build_plan(pl, ids, mode, o)
+	assert.is_nil(err)
+	local ex = linux.install_executor(plan, { home = o.home, root = o.root, runner = function() return 0 end })
+	local ok, e = ex:run_all()
+	assert.is_nil(e)
+	assert.is_true(ok)
+	return plan, ex
+end
+
+describe("installer.linux", function()
+	local pl, home, root
+	before_each(function()
+		pl = payload.new()
+		home = sandbox.new_root("installer_home")
+		root = sandbox.new_root("installer_root")
+	end)
+	after_each(function()
+		payload.rmtree(pl) payload.rmtree(home) payload.rmtree(root)
+	end)
+
+	it("computes the install locations", function()
+		local u = linux.targets("user", { home = "/home/x" })
+		assert.are.equal("/home/x/.local/opt/lunar", u.app)
+		assert.are.equal("/home/x/.local/bin", u.bin)
+		assert.are.equal("/home/x/.local/share/applications", u.apps)
+		assert.are.equal("/home/x/.local/share/icons", u.icons)
+		local s = linux.targets("system", { root = "/r" })
+		assert.are.equal("/r/opt/lunar", s.app)
+		assert.are.equal("/r/usr/local/bin", s.bin)
+		assert.are.equal("/r/usr/share/applications", s.apps)
+		assert.are.equal("/r/usr/share/icons", s.icons)
+		assert.are.equal("/opt/lunar", linux.targets("system").app)
+	end)
+
+	describe("a per-user install", function()
+		it("copies the app, only the chosen extensions, the launcher, menu entry and icons", function()
+			install(pl, { "alpha" }, "user", { home = home, version = "1.0.0" })
+			local app = home .. "/.local/opt/lunar"
+			assert.are.equal("#!/bin/sh\necho lunar\n", payload.read(app .. "/lunar"))
+			assert.are.equal("pem", payload.read(app .. "/certs/ca.pem"))
+			assert.are.equal("png", payload.read(app .. "/assets/img/logo.png"))
+			assert.is_not_nil(payload.read(app .. "/plugins/alpha/init.lua"))
+			assert.is_not_nil(payload.read(app .. "/plugins/alpha/sub/more.lua"))
+			assert.is_nil(payload.read(app .. "/plugins/beta.lua"))
+			assert.is_nil(payload.read(app .. "/plugins/delta/init.lua"))   -- bad manifest: not installed
+			assert.is_not_nil(payload.read(app .. "/plugins/README.md"))     -- support files always
+			assert.is_not_nil(payload.read(app .. "/plugins/shared/util.lua"))
+			assert.is_not_nil(payload.read(app .. "/setup/root_helper.lua"))
+			assert.is_not_nil(payload.read(app .. "/setup/lua/installer/plan.lua"))
+			assert.are.equal("MIT", payload.read(app .. "/LICENSE"))
+			assert.are.equal(app .. "/lunar", lfs.symlinkattributes(home .. "/.local/bin/lunar", "target"))
+			assert.are.equal(app .. "/lunar-uninstall", lfs.symlinkattributes(home .. "/.local/bin/lunar-uninstall", "target"))
+			for _, s in ipairs({ 16, 256 }) do
+				assert.are.equal("png" .. s, payload.read(home .. "/.local/share/icons/hicolor/" .. s .. "x" .. s .. "/apps/lunar.png"))
+			end
+		end)
+
+		it("writes menu entries that point at the installed program", function()
+			install(pl, {}, "user", { home = home })
+			local app = home .. "/.local/opt/lunar"
+			local d = payload.read(home .. "/.local/share/applications/lunar.desktop")
+			assert.is_truthy(d:find('Exec="' .. app .. '/lunar"', 1, true))
+			assert.is_truthy(d:find("Icon=lunar", 1, true))
+			local u = payload.read(home .. "/.local/share/applications/lunar-uninstall.desktop")
+			assert.is_truthy(u:find("Name=Uninstall Lunar", 1, true))
+			assert.is_truthy(u:find('Exec="' .. app .. '/lunar-uninstall"', 1, true))
+			local script = payload.read(app .. "/lunar-uninstall")
+			assert.is_truthy(script:find("^#!/bin/sh"))
+			assert.is_truthy(script:find("exec '" .. app .. "/lunar' '" .. app .. "/setup/uninstall.lua' \"$@\"", 1, true))
+		end)
+
+		it("quotes awkward paths", function()
+			local odd = home .. "/it's a home"
+			assert(require("core.platform").mkdirs(odd))
+			install(pl, {}, "user", { home = odd })
+			local script = payload.read(odd .. "/.local/opt/lunar/lunar-uninstall")
+			assert.is_truthy(script:find("it'\\''s a home", 1, true))
+		end)
+
+		it("makes the program executable and the rest readable", function()
+			install(pl, {}, "user", { home = home })
+			local app = home .. "/.local/opt/lunar"
+			assert.are.equal("rwxr-xr-x", lfs.attributes(app .. "/lunar", "permissions"))
+			assert.are.equal("rw-r--r--", lfs.attributes(app .. "/certs/ca.pem", "permissions"))
+			assert.are.equal("rwxr-xr-x", lfs.attributes(app .. "/lunar-uninstall", "permissions"))
+			assert.are.equal("rwxr-xr-x", lfs.attributes(app, "permissions"))
+		end)
+
+		it("records exactly what it installed", function()
+			install(pl, { "beta" }, "user", { home = home, version = "1.0.0" })
+			local rec = linux.read_record("user", { home = home })
+			assert.are.equal("user", rec.mode)
+			assert.are.equal("1.0.0", rec.version)
+			assert.are.same({ "beta" }, rec.extensions)
+			assert.are.same({ "alpha", "beta" }, rec.available)
+			local files = {}
+			for _, f in ipairs(rec.files) do files[f] = true end
+			local app = home .. "/.local/opt/lunar"
+			assert.is_true(files[app .. "/lunar"])
+			assert.is_true(files[app .. "/plugins/beta.lua"])
+			assert.is_true(files[app .. "/plugins/beta.manifest.json"])
+			assert.is_nil(files[app .. "/plugins/alpha/init.lua"])
+		end)
+
+		it("runs the cache refresh and keeps going when it fails", function()
+			local plan = assert(linux.build_plan(pl, {}, "user", { home = home }))
+			local ran = {}
+			local ex = linux.install_executor(plan, { home = home, runner = function(argv) ran[#ran + 1] = argv[1] return 1 end })
+			assert.is_true(ex:run_all())
+			-- Only commands that exist here run; whatever ran failed, and was reported.
+			assert.are.equal(#ran, #ex.warnings)
+		end)
+
+		it("reports progress", function()
+			local plan = assert(linux.build_plan(pl, {}, "user", { home = home }))
+			local ex = linux.install_executor(plan, { home = home, runner = function() return 0 end })
+			local f0 = ex:progress()
+			assert.are.equal(0, f0)
+			assert.is_false(ex:step())
+			assert.is_true(ex:progress() > 0)
+			assert.is_true(ex:run_all())
+			assert.are.equal(1, (ex:progress()))
+		end)
+
+		it("fails on an unknown extension", function()
+			local plan, err = linux.build_plan(pl, { "nope" }, "user", { home = home })
+			assert.is_nil(plan)
+			assert.is_truthy(err:find("no such extension"))
+		end)
+
+		it("refuses to replace a program of that name that it didn't install", function()
+			payload.write(home .. "/.local/bin/lunar", "someone else's")
+			local plan = assert(linux.build_plan(pl, {}, "user", { home = home }))
+			local ex = linux.install_executor(plan, { home = home, runner = function() return 0 end })
+			local ok, err = ex:run_all()
+			assert.is_nil(ok)
+			assert.is_truthy(err:find("already exists"))
+			assert.are.equal("someone else's", payload.read(home .. "/.local/bin/lunar"))
+		end)
+
+		it("preserves a link left by something else", function()
+			lfs.mkdir(home .. "/.local") lfs.mkdir(home .. "/.local/bin")
+			lfs.link("/bin/true", home .. "/.local/bin/lunar", true)
+			local plan = assert(linux.build_plan(pl, {}, "user", { home = home }))
+			assert.is_nil(linux.install_executor(plan, { home = home, runner = function() return 0 end }):run_all())
+			assert.are.equal("/bin/true", lfs.symlinkattributes(home .. "/.local/bin/lunar", "target"))
+		end)
+
+		it("refuses a symlinked destination directory", function()
+			local elsewhere = sandbox.new_root("installer_elsewhere")
+			assert(require("core.platform").mkdirs(home .. "/.local"))
+			assert(lfs.link(elsewhere, home .. "/.local/opt", true))
+			local plan = assert(linux.build_plan(pl, {}, "user", { home = home }))
+			local ok = linux.install_executor(plan, { home = home, runner = function() return 0 end }):run_all()
+			assert.is_nil(ok)
+			assert.are.same({}, payload.listing(elsewhere))
+			payload.rmtree(elsewhere)
+		end)
+
+		it("refuses a symlinked temporary file without changing its target", function()
+			local target = home .. "/precious"
+			payload.write(target, "keep")
+			local app = home .. "/.local/opt/lunar"
+			assert(require("core.platform").mkdirs(app))
+			assert(lfs.link(target, app .. "/lunar.lunar-new", true))
+			local plan = assert(linux.build_plan(pl, {}, "user", { home = home }))
+			assert.is_nil(linux.install_executor(plan, { home = home, runner = function() return 0 end }):run_all())
+			assert.are.equal("keep", payload.read(target))
+			local rec = assert(linux.read_record("user", { home = home }))
+			for _, path in ipairs(rec.files) do assert.is_not.equal(app .. "/lunar", path) end
+		end)
+
+		it("never claims an untouched pre-existing file after a failed install", function()
+			local app = home .. "/.local/opt/lunar"
+			payload.write(app .. "/assets/theme.json", "user data")
+			local plan = assert(linux.build_plan(pl, {}, "user", { home = home }))
+			assert.is_nil(linux.install_executor(plan, { home = home, runner = function() return 0 end }):run_all())
+			local rec = assert(linux.read_record("user", { home = home }))
+			for _, path in ipairs(rec.files) do assert.is_not.equal(app .. "/assets/theme.json", path) end
+			assert.are.equal("user data", payload.read(app .. "/assets/theme.json"))
+		end)
+
+		it("won't build a plan from a payload with a link in it", function()
+			lfs.link("/etc/passwd", pl .. "/certs/leak", true)
+			local plan, err = linux.build_plan(pl, {}, "user", { home = home })
+			assert.is_nil(plan)
+			assert.is_truthy(err:find("symbolic link"))
+		end)
+	end)
+
+	describe("upgrading", function()
+		it("drops files and extensions the new install no longer has", function()
+			install(pl, { "alpha", "beta" }, "user", { home = home, version = "1.0.0" })
+			local app = home .. "/.local/opt/lunar"
+			payload.write(app .. "/stale-by-hand.txt", "mine")
+			-- The new payload: no beta, a changed program, a new asset.
+			os.remove(pl .. "/plugins/beta.lua")
+			os.remove(pl .. "/plugins/beta.manifest.json")
+			payload.write(pl .. "/lunar", "new program")
+			payload.write(pl .. "/assets/new.txt", "new")
+			install(pl, { "alpha" }, "user", { home = home, version = "1.1.0" })
+			assert.are.equal("new program", payload.read(app .. "/lunar"))
+			assert.are.equal("new", payload.read(app .. "/assets/new.txt"))
+			assert.is_nil(payload.read(app .. "/plugins/beta.lua"))
+			assert.is_nil(payload.read(app .. "/plugins/beta.manifest.json"))
+			assert.is_not_nil(payload.read(app .. "/plugins/alpha/init.lua"))
+			assert.are.equal("mine", payload.read(app .. "/stale-by-hand.txt"))
+			assert.are.equal("1.1.0", linux.read_record("user", { home = home }).version)
+		end)
+
+		it("removes an extension the user unchecked this time", function()
+			install(pl, { "alpha", "beta" }, "user", { home = home })
+			install(pl, { "alpha" }, "user", { home = home })
+			assert.is_nil(payload.read(home .. "/.local/opt/lunar/plugins/beta.lua"))
+		end)
+
+		it("offers the earlier choice as the default", function()
+			install(pl, { "beta" }, "user", { home = home })
+			local rec = linux.find_install({ home = home })
+			local exts = plan_mod.scan_extensions(pl .. "/plugins", { os = "linux" })
+			assert.are.same({ alpha = false, beta = true }, plan_mod.defaults(exts, rec))
+		end)
+
+		it("replaces a program that is running", function()
+			install(pl, {}, "user", { home = home })
+			local app = home .. "/.local/opt/lunar"
+			local running = io.open(app .. "/lunar", "rb")   -- held open, like a mapped executable
+			payload.write(pl .. "/lunar", "v2")
+			install(pl, {}, "user", { home = home })
+			assert.are.equal("v2", payload.read(app .. "/lunar"))
+			running:close()
+		end)
+
+		it("leaves no temporary files behind", function()
+			install(pl, { "alpha" }, "user", { home = home })
+			install(pl, { "alpha" }, "user", { home = home })
+			for _, p in ipairs(payload.listing(home)) do assert.is_nil(p:find("lunar-new", 1, true), p) end
+		end)
+	end)
+
+	describe("uninstalling", function()
+		local function uninstall(mode, o)
+			local rec = assert(linux.read_record(mode, o))
+			local ex = linux.uninstall_executor(rec, { runner = function() return 0 end })
+			local ok, err = ex:run_all()
+			assert.is_nil(err)
+			assert.is_true(ok)
+		end
+
+		it("removes exactly what was installed", function()
+			payload.write(home .. "/.local/share/applications/other.desktop", "keep")
+			payload.write(home .. "/.local/bin/other", "keep")
+			local before = payload.listing(home)
+			install(pl, { "alpha", "beta" }, "user", { home = home })
+			uninstall("user", { home = home })
+			assert.are.same(before, payload.listing(home))
+		end)
+
+		it("removes the folders it created, down to the empty parents", function()
+			install(pl, {}, "user", { home = home })
+			uninstall("user", { home = home })
+			assert.are.same({}, payload.listing(home))
+		end)
+
+		it("keeps unrecorded cache-named files in desktop integration folders", function()
+			install(pl, {}, "user", { home = home })
+			payload.write(home .. "/.local/share/icons/hicolor/icon-theme.cache", "c")
+			payload.write(home .. "/.local/share/applications/mimeinfo.cache", "c")
+			uninstall("user", { home = home })
+			assert.are.equal("c", payload.read(home .. "/.local/share/icons/hicolor/icon-theme.cache"))
+			assert.are.equal("c", payload.read(home .. "/.local/share/applications/mimeinfo.cache"))
+		end)
+
+		it("keeps a user icon-theme.cache inside an extension directory", function()
+			install(pl, { "alpha" }, "user", { home = home })
+			local path = home .. "/.local/opt/lunar/plugins/alpha/icon-theme.cache"
+			payload.write(path, "mine")
+			uninstall("user", { home = home })
+			assert.are.equal("mine", payload.read(path))
+		end)
+
+		it("refuses to remove through a substituted directory symlink", function()
+			install(pl, { "alpha" }, "user", { home = home })
+			local app = home .. "/.local/opt/lunar"
+			local outside = sandbox.new_root("installer_outside")
+			payload.write(outside .. "/init.lua", "keep")
+			payload.rmtree(app .. "/plugins/alpha")
+			assert(lfs.link(outside, app .. "/plugins/alpha", true))
+			local rec = assert(linux.read_record("user", { home = home }))
+			local ok = linux.uninstall_executor(rec, { runner = function() return 0 end }):run_all()
+			assert.is_nil(ok)
+			assert.are.equal("keep", payload.read(outside .. "/init.lua"))
+			payload.rmtree(outside)
+		end)
+
+		it("removes only generated cache files recorded in the integration dirs", function()
+			local t = linux.targets("user", { home = home })
+			local plan = assert(linux.build_plan(pl, {}, "user", { home = home }))
+			local ex = linux.install_executor(plan, { home = home, runner = function(argv)
+				local dir = argv[#argv]
+				if dir == t.apps then payload.write(dir .. "/mimeinfo.cache", "generated")
+				else payload.write(dir .. "/icon-theme.cache", "generated") end
+				return 0
+			end })
+			assert.is_true(ex:run_all())
+			local rec = assert(linux.read_record("user", { home = home }))
+			assert.is_true(#rec.generated > 0)
+			assert.is_true(linux.uninstall_executor(rec, { runner = function() return 0 end }):run_all())
+			assert.are.same({}, payload.listing(home))
+		end)
+
+		it("keeps a folder that holds something else", function()
+			install(pl, {}, "user", { home = home })
+			payload.write(home .. "/.local/share/applications/other.desktop", "keep")
+			uninstall("user", { home = home })
+			assert.are.same({ ".local/", ".local/share/", ".local/share/applications/", ".local/share/applications/other.desktop" },
+				payload.listing(home))
+		end)
+
+		it("leaves files the user added to the install", function()
+			install(pl, {}, "user", { home = home })
+			local app = home .. "/.local/opt/lunar"
+			payload.write(app .. "/plugins/mine.lua", "mine")
+			uninstall("user", { home = home })
+			assert.are.equal("mine", payload.read(app .. "/plugins/mine.lua"))
+			assert.is_nil(payload.read(app .. "/lunar"))
+			assert.is_nil(linux.read_record("user", { home = home }))
+		end)
+
+		it("refuses a record that names files outside the install", function()
+			install(pl, {}, "user", { home = home })
+			local rec = linux.read_record("user", { home = home })
+			payload.write(home .. "/precious", "keep")
+			rec.files[#rec.files + 1] = home .. "/precious"
+			local ex = linux.uninstall_executor(rec, { runner = function() return 0 end })
+			local ok, err = ex:run_all()
+			assert.is_nil(ok)
+			assert.is_truthy(err:find("refusing"))
+			assert.are.equal("keep", payload.read(home .. "/precious"))
+			rec.files[#rec.files] = home .. "/.local/opt/lunar/../../precious"
+			ex = linux.uninstall_executor(rec, { runner = function() return 0 end })
+			assert.is_nil(ex:run_all())
+			assert.are.equal("keep", payload.read(home .. "/precious"))
+		end)
+
+		it("reports a damaged record", function()
+			local ex = linux.uninstall_executor({ mode = "user" }, {})
+			local ok, err = ex:run_all()
+			assert.is_nil(ok)
+			assert.is_truthy(err:find("damaged"))
+		end)
+	end)
+
+	describe("a system install", function()
+		it("goes under the system locations of the given root", function()
+			install(pl, { "beta" }, "system", { root = root, version = "1.0.0" })
+			assert.is_not_nil(payload.read(root .. "/opt/lunar/lunar"))
+			assert.is_not_nil(payload.read(root .. "/opt/lunar/plugins/beta.lua"))
+			assert.are.equal(root .. "/opt/lunar/lunar", lfs.symlinkattributes(root .. "/usr/local/bin/lunar", "target"))
+			assert.is_not_nil(payload.read(root .. "/usr/share/applications/lunar.desktop"))
+			assert.is_not_nil(payload.read(root .. "/usr/share/icons/hicolor/48x48/apps/lunar.png"))
+			local d = payload.read(root .. "/usr/share/applications/lunar.desktop")
+			assert.is_truthy(d:find('Exec="' .. root .. '/opt/lunar/lunar"', 1, true))
+			assert.are.equal("system", linux.read_record("system", { root = root }).mode)
+		end)
+
+		it("is found as the install to upgrade when there is no per-user one", function()
+			install(pl, {}, "system", { root = root })
+			assert.are.equal("system", linux.find_install({ root = root, home = home }).mode)
+			install(pl, {}, "user", { home = home })
+			assert.are.equal("user", linux.find_install({ root = root, home = home }).mode)
+		end)
+
+		it("uninstalls cleanly", function()
+			install(pl, { "alpha" }, "system", { root = root })
+			local rec = linux.read_record("system", { root = root })
+			local ex = linux.uninstall_executor(rec, { runner = function() return 0 end })
+			assert.is_true(ex:run_all())
+			assert.are.same({}, payload.listing(root))
+		end)
+	end)
+
+	describe("the root helper", function()
+		local function sink() local t = {} return { write = function(_, ...) for _, s in ipairs({ ... }) do t[#t + 1] = s end end, flush = function() end }, t end
+
+		it("rejects bad command lines", function()
+			local out, err = sink()
+			local e = select(1, sink())
+			assert.are.equal(2, linux.helper_main({}, out, e))
+			assert.are.equal(2, linux.helper_main({ "install", "relative/path", "-" }, out, e))
+			assert.are.equal(2, linux.helper_main({ "install" }, out, e))
+			assert.are.equal(2, linux.helper_main({ "rm", "-rf" }, out, e))
+			_ = err
+		end)
+
+		it("won't take an unknown extension", function()
+			local out = sink()
+			local e, etext = sink()
+			assert.are.equal(1, linux.helper_main({ "install", pl, "nope" }, out, e))
+			assert.is_truthy(table.concat(etext):find("no such extension"))
+		end)
+
+		it("parses the progress it prints", function()
+			local f, t = linux.parse_helper_output("STEP 1 4 Creating a\nSTEP 2 4 Installing b\nSTEP 3")
+			assert.are.equal(0.5, f)
+			assert.are.equal("Installing b", t)
+			assert.is_nil((linux.parse_helper_output("")))
+		end)
+	end)
+end)

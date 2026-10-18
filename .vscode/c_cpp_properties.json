@@ -18,6 +18,21 @@
                 "_UNICODE"
             ],
             "intelliSenseMode": "windows-gcc-x64"
+        },
+        {
+            "name": "Linux",
+            "configurationProvider": "ms-vscode.cmake-tools",
+            "compilerPath": "/usr/bin/gcc",
+            "compileCommands": "${workspaceFolder}/build/linux/compile_commands.json",
+            "includePath": [
+                "${workspaceFolder}/src",
+                "${workspaceFolder}/include",
+                "/usr/local/include/luajit-2.1",
+                "${workspaceFolder}/vendor/iup-src-linux/iup/include",
+                "${workspaceFolder}/vendor"
+            ],
+            "defines": [],
+            "intelliSenseMode": "linux-gcc-x64"
         }
     ],
     "version": 4

@@ -3,6 +3,10 @@
 -- Every Win32 call is made through LuaJIT FFI and guarded: if a call or a DLL is
 -- unavailable the function falls back to a safe answer rather than raising.
 --
+-- Strings are UTF-8 on both sides of this module. Calls that take or return a
+-- path use the wide (*W) API and convert with CP_UTF8, and the exe manifest sets
+-- the process code page to UTF-8 so io.open, lfs and IUP read the same strings.
+--
 -- @module core.platform.win32
 
 local M = {}
@@ -23,13 +27,13 @@ cdef({
 	"void CoTaskMemFree(void* pv);",
 	"int WideCharToMultiByte(unsigned int cp, unsigned long flags, const wchar_t* w, int wl, char* mb, int mbl, const char* def, int* used);",
 	"int GetComputerNameExW(int type, wchar_t* buf, unsigned long* size);",
-	"int MoveFileExA(const char* existing, const char* replacement, unsigned long flags);",
+	"int MoveFileExW(const wchar_t* existing, const wchar_t* replacement, unsigned long flags);",
 	"int QueryPerformanceCounter(int64_t *count);",
 	"int QueryPerformanceFrequency(int64_t *freq);",
 	"int SystemParametersInfoA(unsigned int action, unsigned int param, void *data, unsigned int winini);",
 	"unsigned int timeBeginPeriod(unsigned int period);",
 	"unsigned int timeEndPeriod(unsigned int period);",
-	"void* ShellExecuteA(void* hwnd, const char* op, const char* file, const char* params, const char* dir, int show);",
+	"void* ShellExecuteW(void* hwnd, const wchar_t* op, const wchar_t* file, const wchar_t* params, const wchar_t* dir, int show);",
 	"int MultiByteToWideChar(unsigned int cp, unsigned long flags, const char* mb, int mbl, wchar_t* w, int wl);",
 	"unsigned long GetLastError(void);",
 	[[typedef struct {
@@ -63,20 +67,52 @@ local function lib(name)
 	return libs[name] or nil
 end
 
--- Wide string -> the ANSI code page string io.open and lfs expect.
+-- ---------------------------------------------------------------------------
+-- Window placement
+-- ---------------------------------------------------------------------------
+
+cdef({ "int SetWindowPos(void *hwnd, void *after, int x, int y, int cx, int cy, unsigned int flags);" })
+
+local SWP_NOSIZE, SWP_NOZORDER, SWP_NOACTIVATE = 0x0001, 0x0004, 0x0010
+
+--- Move a mapped dialog without resizing, activating or restacking it.
+-- @param iup the IUP binding (unused here)
+-- @param dlg IUP dialog handle
+-- @tparam number x screen x
+-- @tparam number y screen y
+-- @treturn boolean
+function M.move_window(iup, dlg, x, y)
+	if not ffi then return false end
+	local ok_iupffi, IupFFI = pcall(require, "core.classes.IupFFI")
+	if not (ok_iupffi and IupFFI.available) then return false end
+	local user32 = lib("user32")
+	if not user32 then return false end
+	local ok, moved = pcall(function()
+		local p = IupFFI.ptr(dlg)
+		if p == nil then return false end
+		local hwnd = IupFFI.getptr(p, "HWND")
+		if hwnd == nil then return false end
+		return user32.SetWindowPos(hwnd, nil, x, y, 0, 0,
+			SWP_NOSIZE + SWP_NOZORDER + SWP_NOACTIVATE) ~= 0
+	end)
+	return ok and moved or false
+end
+
+-- Wide string -> UTF-8 (the process code page, so io.open and lfs accept it).
+local CP_UTF8 = 65001
 local function narrow(wstr, wlen)
-	local n = ffi.C.WideCharToMultiByte(0, 0, wstr, wlen or -1, nil, 0, nil, nil)
+	local n = ffi.C.WideCharToMultiByte(CP_UTF8, 0, wstr, wlen or -1, nil, 0, nil, nil)
 	if n <= 0 then return nil end
 	local buf = ffi.new("char[?]", n)
-	ffi.C.WideCharToMultiByte(0, 0, wstr, wlen or -1, buf, n, nil, nil)
+	ffi.C.WideCharToMultiByte(CP_UTF8, 0, wstr, wlen or -1, buf, n, nil, nil)
 	return ffi.string(buf, wlen and n or n - 1)
 end
 
 -- UTF-8 -> a NUL-terminated wide string (kept alive by the returned cdata).
 local function widen(s)
-	local n = ffi.C.MultiByteToWideChar(65001, 0, s, #s, nil, 0)
+	local n = ffi.C.MultiByteToWideChar(CP_UTF8, 0, s, #s, nil, 0)
 	local buf = ffi.new("wchar_t[?]", n + 1)
-	if n > 0 then ffi.C.MultiByteToWideChar(65001, 0, s, #s, buf, n) end
+	if n > 0 then ffi.C.MultiByteToWideChar(CP_UTF8, 0, s, #s, buf, n) end
 	return buf
 end
 
@@ -300,7 +336,7 @@ end
 -- WRITE_THROUGH): on failure the old `dst` is untouched.
 function M.replace_file(src, dst)
 	if not ffi then return false end
-	local ok, r = pcall(function() return ffi.C.MoveFileExA(src, dst, 1 + 8) end)
+	local ok, r = pcall(function() return ffi.C.MoveFileExW(widen(src), widen(dst), 1 + 8) end)
 	return ok and r ~= 0
 end
 
@@ -311,8 +347,8 @@ end
 function M.register_font(path)
 	local gdi32 = ffi and lib("gdi32")
 	if not gdi32 then return false, "gdi32 unavailable" end
-	cdef({ "int AddFontResourceExA(const char* name, unsigned long fl, void* res);" })
-	local ok, n = pcall(function() return gdi32.AddFontResourceExA(path, 0x10, nil) end)
+	cdef({ "int AddFontResourceExW(const wchar_t* name, unsigned long fl, void* res);" })
+	local ok, n = pcall(function() return gdi32.AddFontResourceExW(widen(path), 0x10, nil) end)
 	if ok and n > 0 then return true end
 	return false, "could not load font " .. tostring(path)
 end
@@ -348,13 +384,13 @@ function M.admin_only(dir)
 	local kernel32 = ffi and bit and lib("kernel32")
 	if not (advapi32 and kernel32) then return false, "advapi32 unavailable" end
 	cdef({
-		"unsigned long GetNamedSecurityInfoA(const char* name, int type, unsigned long info, void** owner, void** group, void** dacl, void** sacl, void** sd);",
+		"unsigned long GetNamedSecurityInfoW(const wchar_t* name, int type, unsigned long info, void** owner, void** group, void** dacl, void** sacl, void** sd);",
 		"int ConvertSidToStringSidA(void* sid, char** out);",
 		"void* LocalFree(void* mem);",
 		"typedef struct { uint32_t AceCount, AclBytesInUse, AclBytesFree; } LUNAR_ACL_SIZE;",
 		"int GetAclInformation(void* acl, void* info, unsigned long len, int cls);",
 		"int GetAce(void* acl, unsigned long index, void** ace);",
-		"unsigned long GetFileAttributesA(const char* name);",
+		"unsigned long GetFileAttributesW(const wchar_t* name);",
 		"typedef struct { uint8_t AceType; uint8_t AceFlags; uint16_t AceSize; uint32_t Mask; uint32_t SidStart; } LUNAR_ACE;",
 	})
 
@@ -367,14 +403,15 @@ function M.admin_only(dir)
 	end
 
 	-- INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF; FILE_ATTRIBUTE_REPARSE_POINT = 0x400.
-	local attrs = tonumber(kernel32.GetFileAttributesA(dir))
+	local wdir = widen(dir)
+	local attrs = tonumber(kernel32.GetFileAttributesW(wdir))
 	if attrs == 0xFFFFFFFF then return false, "not found" end
 	if bit.band(attrs, 0x400) ~= 0 then return false, "is a link (reparse point)" end
 
 	local owner, dacl, sd = ffi.new("void*[1]"), ffi.new("void*[1]"), ffi.new("void*[1]")
 	-- SE_FILE_OBJECT = 1; OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION.
 	local ok, rc = pcall(function()
-		return advapi32.GetNamedSecurityInfoA(dir, 1, 0x1 + 0x4, owner, nil, dacl, nil, sd)
+		return advapi32.GetNamedSecurityInfoW(wdir, 1, 0x1 + 0x4, owner, nil, dacl, nil, sd)
 	end)
 	if not ok or rc ~= 0 then return false, "cannot read permissions (error " .. tostring(rc) .. ")" end
 
@@ -421,14 +458,146 @@ function M.admin_only(dir)
 	return verdict, why
 end
 
+--- Is Windows in dark mode for apps? Reads AppsUseLightTheme (Settings >
+-- Personalization > Colors > "Choose your app mode"). nil when Windows doesn't
+-- have the setting (before Windows 10 1809) or it can't be read.
+-- @treturn boolean|nil
+function M.system_dark()
+	local advapi32 = advapi()
+	if not advapi32 then return nil end
+	cdef({ "long RegGetValueW(void* hkey, const wchar_t* subkey, const wchar_t* value, unsigned long flags, unsigned long* type, void* data, unsigned long* size);" })
+	-- HKEY_CURRENT_USER is (HKEY)(ULONG_PTR)(LONG)0x80000001: sign-extended on x64.
+	local HKCU = ffi.cast("void*", ffi.cast("intptr_t", -2147483647))
+	local RRF_RT_REG_DWORD = 0x10
+	local data = ffi.new("uint32_t[1]")
+	local size = ffi.new("unsigned long[1]", 4)
+	local ok, rc = pcall(function()
+		return advapi32.RegGetValueW(HKCU,
+			widen("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
+			widen("AppsUseLightTheme"), RRF_RT_REG_DWORD, nil, data, size)
+	end)
+	if not ok or rc ~= 0 then return nil end
+	return data[0] == 0
+end
+
+--- No-op on Windows: the window icon is the exe's ICON resource (`ICON="IUP"`).
+-- @treturn boolean false
+-- @treturn string why
+function M.set_app_icon()
+	return false, "Windows uses the exe's icon resource"
+end
+
+--- Native widget styling is GTK-only; Windows draws its native controls itself.
+-- @treturn boolean false
+-- @treturn string why
+function M.apply_native_style()
+	return false, "not needed on Windows"
+end
+
 --- Open a file, folder or URL with its default application.
 function M.open(target)
 	local shell32 = ffi and lib("shell32")
 	if not shell32 then return false, "shell32 unavailable" end
-	local ok, h = pcall(shell32.ShellExecuteA, nil, "open", target, nil, nil, 1)
+	local ok, h = pcall(shell32.ShellExecuteW, nil, widen("open"), widen(target), nil, nil, 1)
 	-- ShellExecute returns a value > 32 on success.
 	if ok and tonumber(ffi.cast("intptr_t", h)) > 32 then return true end
 	return false, "could not open " .. tostring(target)
+end
+
+
+--- Start the program at `path` detached, so it keeps running after this one exits.
+function M.launch(path)
+	return M.open(path)
+end
+
+-- ---------------------------------------------------------------------------
+-- Elevation and Windows Installer
+-- ---------------------------------------------------------------------------
+
+cdef({
+	[[typedef struct {
+		unsigned long cbSize, fMask; void* hwnd;
+		const wchar_t* lpVerb; const wchar_t* lpFile; const wchar_t* lpParameters; const wchar_t* lpDirectory;
+		int nShow; void* hInstApp; void* lpIDList; const wchar_t* lpClass; void* hkeyClass;
+		unsigned long dwHotKey; void* hIcon; void* hProcess;
+	} LUNAR_SHELLEXECUTEINFOW;]],
+	"int ShellExecuteExW(LUNAR_SHELLEXECUTEINFOW* info);",
+	"unsigned long WaitForSingleObject(void* handle, unsigned long ms);",
+	"int GetExitCodeProcess(void* handle, unsigned long* code);",
+	"int CloseHandle(void* handle);",
+	"unsigned long MsiEnumRelatedProductsW(const wchar_t* upgrade_code, unsigned long reserved, unsigned long index, wchar_t* product);",
+	"int MsiQueryFeatureStateW(const wchar_t* product, const wchar_t* feature);",
+})
+
+-- One argument as CommandLineToArgvW will read it back.
+local function quote_arg(a)
+	a = tostring(a)
+	if a ~= "" and not a:find('[%s"]') then return a end
+	local out = a:gsub('(\\*)"', '%1%1\\"'):gsub("(\\+)$", "%1%1")
+	return '"' .. out .. '"'
+end
+M.quote_arg = quote_arg
+
+--- Run `argv` elevated (a UAC prompt unless the process is already elevated).
+-- Returns a job with `poll()` (the exit code once the program has finished, else
+-- nil), `output()` (always "": an elevated program's output isn't ours) and
+-- `close()`; or nil and why. Declining the prompt gives nil and `"cancelled"`.
+function M.elevate(argv)
+	local shell32 = ffi and lib("shell32")
+	if not shell32 then return nil, "shell32 unavailable" end
+	local params = {}
+	for i = 2, #argv do params[#params + 1] = quote_arg(argv[i]) end
+	local file, args = widen(argv[1]), widen(table.concat(params, " "))
+	local verb = widen("runas")
+	local info = ffi.new("LUNAR_SHELLEXECUTEINFOW")
+	info.cbSize = ffi.sizeof(info)
+	info.fMask = 0x40 + 0x100   -- SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC
+	info.lpVerb, info.lpFile, info.lpParameters = verb, file, args
+	info.nShow = 0
+	if shell32.ShellExecuteExW(info) == 0 then
+		if ffi.C.GetLastError() == 1223 then return nil, "cancelled" end   -- ERROR_CANCELLED
+		return nil, "could not start " .. tostring(argv[1])
+	end
+	local handle, code = info.hProcess, nil
+	return {
+		poll = function()
+			if code ~= nil then return code end
+			if handle == nil then return nil end
+			if ffi.C.WaitForSingleObject(handle, 0) ~= 0 then return nil end
+			local out = ffi.new("unsigned long[1]")
+			ffi.C.GetExitCodeProcess(handle, out)
+			code = tonumber(out[0])
+			ffi.C.CloseHandle(handle)
+			handle = nil
+			return code
+		end,
+		output = function() return "" end,
+		close = function()
+			if handle ~= nil then ffi.C.CloseHandle(handle) handle = nil end
+		end,
+	}
+end
+
+--- Which of `features` (MSI feature ids) are installed locally for the product
+-- family `upgrade_code` (`"{GUID}"`)? Returns `{ [feature] = true }`, or nil when
+-- that product isn't installed (or Windows Installer can't be asked).
+function M.msi_installed_features(upgrade_code, features)
+	local msi = ffi and lib("msi")
+	if not msi then return nil end
+	local product = ffi.new("wchar_t[39]")
+	local ok, rc = pcall(msi.MsiEnumRelatedProductsW, widen(upgrade_code), 0, 0, product)
+	if not ok or rc ~= 0 then return nil end
+	local found = {}
+	for _, feature in ipairs(features) do
+		local okq, state = pcall(msi.MsiQueryFeatureStateW, product, widen(feature))
+		if okq and state == 3 then found[feature] = true end   -- INSTALLSTATE_LOCAL
+	end
+	return found
+end
+
+--- The folder 64-bit programs install under (`%ProgramW6432%`).
+function M.program_files_dir()
+	return env("ProgramW6432") or env("ProgramFiles") or "C:\\Program Files"
 end
 
 -- ---------------------------------------------------------------------------

@@ -10,3 +10,18 @@
 # scripts\build-iup-fork.ps1 breaks on a clean machine. Pin them explicitly.
 *.patch text eol=lf
 *.diff text eol=lf
+
+# Scripts that run on Linux (and in the VM helpers) must stay LF, or bash reads
+# "\r" into every line; PowerShell and batch files are fine either way.
+*.sh text eol=lf
+*.py text eol=lf
+*.desktop text eol=lf
+scripts/packaging/linux/AppRun text eol=lf
+
+# Binary data: never touch line endings. The compositor goldens (.bgra) are raw
+# pixels compared byte for byte.
+*.bgra binary
+*.png binary
+*.ico binary
+*.ttf binary
+*.otf binary

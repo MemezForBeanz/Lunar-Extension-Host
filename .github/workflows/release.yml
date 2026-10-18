@@ -1,0 +1,96 @@
+# Build the release packages and stage a DRAFT GitHub release for review.
+#
+# Push a tag vX.Y.Z (it must equal APP_VERSION in src/lua/core/main.lua), or run
+# the workflow by hand with the tag name. Nothing is published: the draft is
+# published manually once the assets have been checked.
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and attach to a draft release (vX.Y.Z)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
+
+      - name: Tag matches APP_VERSION
+        id: check
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          version="$(sed -n 's/^local[[:space:]]*APP_VERSION[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/lua/core/main.lua | head -n 1)"
+          [[ -n "$version" ]] || { echo "::error::APP_VERSION not found in src/lua/core/main.lua"; exit 1; }
+          if [[ "$TAG" != "v$version" ]]; then
+            echo "::error::Tag $TAG does not match APP_VERSION $version (expected v$version)"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: verify
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ format('refs/tags/{0}', needs.verify.outputs.tag) }}
+
+  draft-release:
+    needs: [verify, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.verify.outputs.tag }}
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '*-packages'
+          path: assets
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: assets
+        run: |
+          ls -l
+          sha256sum -- * | tee SHA256SUMS
+          # sha256sum listed SHA256SUMS itself only if it already existed.
+          sed -i '/ SHA256SUMS$/d' SHA256SUMS
+
+      # Create the draft, or add to a release that already exists for the tag
+      # (re-runs replace same-named assets).
+      - name: Draft release
+        run: |
+          set -euo pipefail
+          if draft="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft -q .isDraft 2>/dev/null)"; then
+            # Never replace the assets of a release that has been published.
+            if [[ "$draft" != "true" ]]; then
+              echo "::error::Release $TAG is already published; refusing to replace its assets"
+              exit 1
+            fi
+            gh release upload "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" assets/* --repo "$GITHUB_REPOSITORY" \
+              --draft --verify-tag --title "Lunar Extension Host $VERSION" --generate-notes
+          fi

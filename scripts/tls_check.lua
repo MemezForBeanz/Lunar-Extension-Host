@@ -7,7 +7,7 @@
 -- forced TLS 1.2, and checks the certificate against the bundled CA list.
 --
 -- Run from the repo root, after a build:
---   build\win\bin\LunarExtensionHostCLI.exe scripts\tls_check.lua <host> [port]
+--   build\win\bin\LunarCLI.exe scripts\tls_check.lua <host> [port]
 
 local lfs = require("lfs")
 local repo = os.getenv("LUNAR_REPO") or lfs.currentdir()
@@ -24,7 +24,7 @@ local ssl    = require("ssl")
 local args = arg or {}
 local HOST, PORT = args[1], tonumber(args[2] or 443)
 if not HOST or not PORT then
-	print("usage: LunarExtensionHostCLI.exe scripts\\tls_check.lua <host> [port]")
+	print("usage: LunarCLI.exe scripts\\tls_check.lua <host> [port]")
 	os.exit(2)
 end
 local CAFILE = repo .. "\\vendor\\certs\\cacert.pem"

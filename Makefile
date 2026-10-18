@@ -25,10 +25,10 @@ release:
 	cmake --preset release && cmake --build --preset release
 
 run: build
-	$(PS) "Start-Process build/win/bin/LunarExtensionHost.exe -WorkingDirectory build/win/bin"
+	$(PS) "Start-Process build/win/bin/Lunar.exe -WorkingDirectory build/win/bin"
 
 run-packs: build
-	$(PS) "$$env:LUNAR_PROFILE_DIR = (Resolve-Path ../lunar-orgpacks).Path; Start-Process build/win/bin/LunarExtensionHost.exe -WorkingDirectory build/win/bin"
+	$(PS) "$$env:LUNAR_PROFILE_DIR = (Resolve-Path ../lunar-orgpacks).Path; Start-Process build/win/bin/Lunar.exe -WorkingDirectory build/win/bin"
 
 test:
 	powershell -NoProfile -File scripts/test.ps1
@@ -42,7 +42,7 @@ docs:
 check: test lint docs
 
 harness: build
-	$(PS) "$$env:LUA_PATH = 'src/lua/?.lua;vendor/luarocks-tree/share/lua/5.1/?.lua;;'; $$env:LUNAR_REPO = (Get-Location).Path; build/win/bin/LunarExtensionHostCLI.exe scripts/process_check.lua C:/msys64/mingw64/bin/python.exe; exit $$LASTEXITCODE"
+	$(PS) "$$env:LUA_PATH = 'src/lua/?.lua;vendor/luarocks-tree/share/lua/5.1/?.lua;;'; $$env:LUNAR_REPO = (Get-Location).Path; build/win/bin/LunarCLI.exe scripts/process_check.lua C:/msys64/mingw64/bin/python.exe; exit $$LASTEXITCODE"
 
 clean:
 	$(PS) "Remove-Item -Recurse -Force build/win, build/rel -ErrorAction SilentlyContinue"

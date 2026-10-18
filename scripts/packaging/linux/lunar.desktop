@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Lunar
+GenericName=Extension Host
+Comment=Desktop host for Lua tool extensions
+Exec=lunar
+Icon=lunar
+Terminal=false
+Categories=Development;
+StartupNotify=true
+StartupWMClass=Lunar

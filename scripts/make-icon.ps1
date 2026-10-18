@@ -4,7 +4,7 @@
 # The SVG embeds PNG layers, which nanosvg and other small renderers can't draw,
 # so each size is rendered by headless Edge (or Chrome) and packed by
 # scripts\make_icon.py. Run it after replacing the SVG, then rebuild so the
-# exe picks up the new ICON resource (assets\LunarExtensionHost.rc).
+# exe picks up the new ICON resource (assets\Lunar.rc).
 #
 # Usage:
 #   scripts\make-icon.ps1

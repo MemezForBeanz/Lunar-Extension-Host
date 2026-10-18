@@ -40,6 +40,14 @@ file = {
 	exclude = {
 		-- Host bootstrap/composition rather than API surface.
 		"src/lua/core/main.lua",
+		-- HostAPI's services are implementation details; the facade owns their LDoc.
+		"src/lua/core/classes/host/Owners.lua",
+		"src/lua/core/classes/host/Secrets.lua",
+		"src/lua/core/classes/host/Network.lua",
+		"src/lua/core/classes/host/Layout.lua",
+		"src/lua/core/classes/host/Routing.lua",
+		"src/lua/core/classes/host/Keys.lua",
+		"src/lua/core/classes/host/Menus.lua",
 		-- Test-only harnesses.
 		"src/lua/core/test/MockBackend.lua",
 		-- Generated/derived theme rule tables carry no public API.
@@ -64,6 +72,7 @@ topics = {
 	"docs/logging.md",
 	"docs/native-services.md",
 	"docs/packaging.md",
+	"docs/trust-model.md",
 	"docs/api-stability.md",
 }
 

@@ -96,7 +96,7 @@ function AddressDialog.show(opts)
 			GAP = L.gap(4),
 		}),
 		TITLE = "Open Lunar Address",
-		-- Win32 ICON RESOURCE name from assets/LunarExtensionHost.rc, so popups
+		-- Win32 ICON RESOURCE name from assets/Lunar.rc, so popups
 		-- carry the app icon in their title bar and Alt-Tab entry too.
 		ICON = "IUP",
 		DIALOGFRAME = "YES",

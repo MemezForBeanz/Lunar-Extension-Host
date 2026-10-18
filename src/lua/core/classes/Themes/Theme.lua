@@ -34,6 +34,7 @@ function Theme:initialize(spec)
     self._id      = spec.id
     self._label   = spec.label
     self._palette = spec.palette or {}
+    self._dark    = spec.dark   -- optional; see isDark
 end
 
 --- Return the theme's stable identifier string (e.g. `"classic_dark"`).
@@ -54,6 +55,19 @@ end
 -- @treturn table The palette table.
 function Theme:palette()
     return self._palette
+end
+
+--- Is this a dark theme? Used by "Match system theme" to pick between the
+-- user's light and dark themes. A theme may say so in its spec (`dark = true`);
+-- otherwise it is decided from the palette's background (`bg`) brightness, so
+-- extension themes need do nothing.
+-- @treturn boolean
+function Theme:isDark()
+    if self._dark ~= nil then return self._dark == true end
+    local bg = self._palette.bg or self._palette.background
+    local r, g, b = tostring(bg or ""):match("^%s*(%d+)%s+(%d+)%s+(%d+)")
+    if not r then return false end
+    return (0.2126 * tonumber(r) + 0.7152 * tonumber(g) + 0.0722 * tonumber(b)) < 128
 end
 
 --- Return `true` if this theme is the Classic (no-override) theme.

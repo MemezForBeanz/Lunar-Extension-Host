@@ -4,20 +4,22 @@
  * Initializes a Lua VM, registers the C backend modules (process,
  * subprocess, lfs, cjson), and runs a Lua script from disk.
  *
- * Usage: LunarExtensionHostCLI <script.lua> [args...]
+ * Usage: LunarCLI <script.lua> [args...]
  *        Defaults to "test_backend.lua" in the exe's directory.
  */
 #include <stdio.h>
 #include <string.h>
-#include <windows.h>
 #include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
 
 /* Backend module openers */
+#ifdef _WIN32
 int luaopen_subprocess(lua_State *L);
+#endif
 int luaopen_process(lua_State *L);
 int luaopen_logscan(lua_State *L);
+int luaopen_compositor(lua_State *L);
 int luaopen_lfs(lua_State *L);
 int luaopen_cjson(lua_State *L);
 int luaopen_socket_core(lua_State *L);
@@ -41,7 +43,7 @@ static void preload(lua_State *L, const char *name, lua_CFunction fn)
 int main(int argc, char **argv)
 {
     if (argc < 2) {
-        fprintf(stderr, "Usage: LunarExtensionHostCLI <script.lua> [args...]\n"
+        fprintf(stderr, "Usage: LunarCLI <script.lua> [args...]\n"
                         "Runs a Lua script with the host's native modules preloaded\n"
                         "(e.g. scripts\\process_check.lua).\n");
         return 2;
@@ -73,9 +75,12 @@ int main(int argc, char **argv)
     }
 
     /* Register backend C modules */
+#ifdef _WIN32
     preload(L, "subprocess",   luaopen_subprocess);
+#endif
     preload(L, "process",      luaopen_process);
     preload(L, "logscan",      luaopen_logscan);
+    preload(L, "compositor",   luaopen_compositor);
     preload(L, "lfs",          luaopen_lfs);
     preload(L, "cjson",        luaopen_cjson);
     preload(L, "socket.core",  luaopen_socket_core);

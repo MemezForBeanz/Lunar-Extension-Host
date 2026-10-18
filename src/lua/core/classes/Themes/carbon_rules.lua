@@ -317,12 +317,14 @@ function M.build(p)
         -- invisible against $layer-01 (#262626) and makes fields look like vague
         -- dark rectangles rather than input targets.
         --
-        -- PADDING adds the vertical room Carbon's 40px ($field-01 / input_height)
-        -- targets require; the horizontal pad is zero so the IUP layout's own
-        -- MARGIN drives horizontal inset, not the control itself.
+        -- No PADDING on single-line text. Windows' single-line edit control
+        -- ignores vertical padding, so the field Lunar has always shipped is the
+        -- native height; GTK honours it, and the same 0x12 made the Settings
+        -- search box a 40px field in a 62px row on Linux. Leaving it off keeps
+        -- Windows exactly as it was and gives Linux the same field.
+        -- Multi-line fields and lists keep FIELD_PAD: they are boxes either way.
         text      = { bg = layer1, fg = p.text, font = p.font,
-                      border = p.borderStrong01 or p.borderStrong or p.border,
-                      padding = FIELD_PAD },
+                      border = p.borderStrong01 or p.borderStrong or p.border },
         multiline = { bg = layer1, fg = p.text, font = p.font,
                       border = p.borderStrong01 or p.borderStrong or p.border,
                       padding = FIELD_PAD },

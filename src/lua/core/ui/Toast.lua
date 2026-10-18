@@ -29,13 +29,13 @@
 --
 -- Window creation may fail in locked-down environments. `Toast.show` wraps every
 -- IUP call in `pcall` and latches `_failed` on the host instance rather than
--- raising into the caller, mirroring `core.ui.MotionOverlay`.
+-- raising into the caller, mirroring `core.lib.Compositor`.
 --
 -- ### Focus and taskbar
 --
 -- IUP `TOOLBOX="YES"` removes the toast from the taskbar and alt-tab. It is
 -- enough on its own: we do not need the WS_EX_NOACTIVATE FFI dance that
--- `MotionOverlay` uses for its click-through overlay, because a toast accepts
+-- the compositor uses for its click-through overlay, because a toast accepts
 -- exactly one kind of interaction (the close button) and TOOLBOX already prevents
 -- it from stealing keyboard focus on show.
 --

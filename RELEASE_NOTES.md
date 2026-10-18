@@ -1,5 +1,41 @@
 # Lunar Extension Host release notes
 
+## 1.1.0
+
+Lunar now runs on Linux, and installs the same way on both platforms.
+
+- **Linux support (X11 and XWayland):** the full app on GTK 3, including interface
+  motion: tab transitions, drag feedback, modal entrances and the dimmed page
+  behind dialogs. Native Wayland sessions run without motion.
+- **Installers:** a graphical setup for Windows (`Lunar-Setup-<version>.exe`) and
+  Linux (`Lunar-Setup-<version>-x86_64.run`) that lets you choose which
+  extensions to install. On Windows it runs the MSI, which is still available on
+  its own for IT and silent installs. Linux also gets a `.deb` and an AppImage.
+- **The app is called Lunar everywhere:** the Windows executable is `Lunar.exe`,
+  Task Manager and the taskbar show "Lunar", and on Linux the `lunar` command shows
+  as "Lunar" with the Lunar icon.
+- **Match system theme:** an Appearance setting that uses your light theme in
+  light mode and your dark theme in dark mode, following Windows and the Linux
+  desktop as they change.
+- **Motion:** the dimmed page behind dialogs, tab transitions and drag feedback are
+  drawn by a new native compositor, which is cheaper and works on both platforms.
+- **Dropdowns** in Settings are drawn by Lunar instead of the system, so they follow
+  the theme; they work with the keyboard like a regular dropdown.
+- **Extensions:** each extension gets its own module namespace, so reloading one
+  picks up changed files and two extensions can't clash over a module name.
+  Processes an extension starts are stopped when it unloads.
+- **Security and robustness:** release builds no longer fall back to the working
+  directory to find their files; an org profile without `fs.secure` is treated as
+  untrusted; teardown finishes even if one extension's cleanup fails; Windows
+  file and path APIs are fully Unicode (UTF-8 throughout). See
+  `docs/trust-model.md`.
+- **Building:** CI builds, tests and packages Windows and Linux on every push, and
+  tagged releases are staged as draft GitHub releases with checksums.
+
+**Updating from 1.0.0:** the update installs normally, but 1.0.0's updater tries to
+reopen the old `LunarExtensionHost.exe` afterwards, which no longer exists. Reopen
+Lunar from the Start menu once; later updates reopen it automatically.
+
 ## 1.0.0
 
 The first public release.

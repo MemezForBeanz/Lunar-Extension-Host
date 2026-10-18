@@ -6,6 +6,7 @@
       "name": "base",
       "hidden": true,
       "generator": "MinGW Makefiles",
+      "cmakeExecutable": "C:/msys64/mingw64/bin/cmake.exe",
       "cacheVariables": {
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       },
@@ -18,6 +19,7 @@
       "displayName": "Dev (Windows, MinGW)",
       "description": "Everyday build: loads plugins from the repo, keeps the default Lua paths, debug symbols.",
       "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
       "binaryDir": "${sourceDir}/build/win",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
@@ -29,7 +31,30 @@
       "displayName": "Release (Windows, MinGW)",
       "description": "What ships: loads code only from its own folder and trusted org packs.",
       "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
       "binaryDir": "${sourceDir}/build/rel",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "LUNAR_DEV_BUILD": "OFF"
+      }
+    },
+    {
+      "name": "linux-dev",
+      "displayName": "Dev (Linux, GTK3)",
+      "generator": "Ninja",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "binaryDir": "${sourceDir}/build/linux",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "LUNAR_DEV_BUILD": "ON"
+      }
+    },
+    {
+      "name": "linux-release",
+      "displayName": "Release (Linux, GTK3)",
+      "generator": "Ninja",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "binaryDir": "${sourceDir}/build/linux-rel",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "LUNAR_DEV_BUILD": "OFF"
@@ -37,7 +62,13 @@
     }
   ],
   "buildPresets": [
-    { "name": "dev", "configurePreset": "dev", "jobs": 8 },
-    { "name": "release", "configurePreset": "release", "jobs": 8 }
+    { "name": "dev", "configurePreset": "dev", "jobs": 8,
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" } },
+    { "name": "release", "configurePreset": "release", "jobs": 8,
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" } },
+    { "name": "linux-dev", "configurePreset": "linux-dev", "jobs": 8,
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" } },
+    { "name": "linux-release", "configurePreset": "linux-release", "jobs": 8,
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" } }
   ]
 }

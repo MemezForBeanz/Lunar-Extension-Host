@@ -3,15 +3,15 @@
 --
 -- The busted suite covers everything that is pure Lua: tokens, easing, and the
 -- director's scheduling semantics. It cannot reach the parts that need a real
--- window -- the layered click-through overlay, GDI snapshot capture, and an actual
+-- window -- the compositor overlay, snapshot capture, and an actual
 -- animated tab transition -- because those require a live IUP dialog and an HWND.
 --
 -- This harness exercises exactly that gap. It opens a small window with two tab
 -- pages and drives the real modules against it.
 --
 -- Run:
---   build\bin\LunarExtensionHost.exe scripts\motion_check.lua           (interactive)
---   build\bin\LunarExtensionHost.exe scripts\motion_check.lua --batch   (exits when done)
+--   build\bin\Lunar.exe scripts\motion_check.lua           (interactive)
+--   build\bin\Lunar.exe scripts\motion_check.lua --batch   (exits when done)
 --
 -- Interactive mode leaves the window open so the transition can be watched; close
 -- it to finish. `--batch` runs the checks and exits with a non-zero status if any
@@ -59,7 +59,7 @@ print("")
 local MotionClock   = require("core.lib.MotionClock")
 local MotionEasing  = require("core.lib.MotionEasing")
 local IupFFI        = require("core.classes.IupFFI")
-local MotionOverlay = require("core.ui.MotionOverlay")
+local Compositor    = require("core.lib.Compositor")
 
 print("Capabilities")
 test("MotionClock has the Win32 high-resolution clock", function()
@@ -79,7 +79,7 @@ test("MotionEasing uses the FFI sample table", function()
 end)
 
 test("IupFFI resolved the IUP entry points", function()
-	assert_true(IupFFI.available, "IupFFI unavailable; the overlay cannot read HDC_WMPAINT")
+	assert_true(IupFFI.available, "IupFFI unavailable; native handles cannot be read")
 end)
 
 test("internal _IUP attributes read back through core.lib.attr", function()
@@ -109,16 +109,11 @@ test("handle identity is stable across repeated calls", function()
 	iup.Destroy(probe)
 end)
 
-test("MotionOverlay reports itself supported", function()
-	assert_true(MotionOverlay.supported(), "overlay unsupported in this process")
+test("the compositor module is supported in this process", function()
+	local native = require("compositor")
+	local ok, why = native.supported()
+	assert_true(ok, "compositor unsupported: " .. tostring(why))
 end)
-
--- Reported rather than asserted: msimg32 is loaded separately from the rest of
--- GDI precisely so a machine without it keeps the overlay and loses only the
--- cross-fade. Printing it turns "the tab transition looks like a cut on this one
--- box" from a mystery into a line of output.
-print(string.format("  Alpha compositing (msimg32): %s",
-	MotionOverlay.blendSupported() and "available" or "UNAVAILABLE (fades become cuts)"))
 
 print("")
 print("System preference")
@@ -161,18 +156,18 @@ iup.Show(dlg)
 iup.Flush()
 
 local director = MotionDirector:new({ iup = iup })
-local overlay  = MotionOverlay:new({ iup = iup, dialog = dlg, log = print })
+local comp, comp_why = Compositor.forDialog(iup, dlg)
 
 print("")
-print("Overlay")
-test("overlay reports available", function()
-	assert_true(overlay:available(), "overlay unavailable against a live dialog")
+print("Compositor")
+test("compositor is available for a live dialog", function()
+	assert_true(comp ~= nil, "no compositor: " .. tostring(comp_why))
 end)
 
-test("resolves a widget screen rectangle", function()
-	local x, y, w, h = overlay:rectOf(tabs)
-	assert_true(x and y and w and h, "no rectangle for the tab strip")
-	assert_true(w > 0 and h > 0, "degenerate rectangle " .. tostring(w) .. "x" .. tostring(h))
+test("resolves a widget rectangle", function()
+	local r = comp:rect(tabs)
+	assert_true(r and r.x and r.y and r.w and r.h, "no rectangle for the tab strip")
+	assert_true(r.w > 0 and r.h > 0, "degenerate rectangle " .. tostring(r.w) .. "x" .. tostring(r.h))
 end)
 
 local snap
@@ -180,14 +175,14 @@ test("captures a page to an offscreen bitmap", function()
 	local pg = iup.GetChild(tabs, 0)
 	assert_true(pg ~= nil, "no page at position 0")
 	local why
-	snap, why = overlay:capture(pg)
+	snap, why = comp:snapshot(pg)
 	assert_true(snap ~= nil, "capture returned nil: " .. tostring(why))
 	assert_true(snap.w > 0 and snap.h > 0,
 		"degenerate snapshot " .. tostring(snap and snap.w) .. "x" .. tostring(snap and snap.h))
 end)
 
 test("captures the tab strip itself", function()
-	local s, why = overlay:capture(tabs)
+	local s, why = comp:snapshot(tabs)
 	assert_true(s ~= nil, "capture returned nil: " .. tostring(why))
 	s:release()
 end)
@@ -196,16 +191,17 @@ test("releases a snapshot without error, and tolerates a double release", functi
 	assert_true(snap ~= nil, "no snapshot to release")
 	snap:release()
 	snap:release()
-	assert_true(snap.released, "snapshot not marked released")
 end)
 
-test("shows and hides without stealing focus", function()
-	local shown = overlay:show(tabs, function(o) o:clear("40 40 40") end)
-	assert_true(shown, "overlay:show failed")
+test("presents and hides a group without stealing focus", function()
+	local r = comp:rect(tabs)
+	comp:set("check", { z = Compositor.Z_TAB, regions = {},
+		sprites = { { kind = "fill", x = r.x, y = r.y, w = r.w, h = r.h, color = 0x282828, alpha = 1 } } })
+	assert_true(comp:commit(), "commit failed: " .. tostring(comp.last_error))
 	iup.Flush()
-	assert_true(overlay:visible(), "overlay reports hidden after show")
-	overlay:hide()
-	assert_true(not overlay:visible(), "overlay still visible after hide")
+	comp:remove("check")
+	comp:commit()
+	iup.Flush()
 end)
 
 test("survives many capture/release cycles without exhausting GDI", function()
@@ -213,7 +209,7 @@ test("survives many capture/release cycles without exhausting GDI", function()
 	-- desktop, so this is the test that matters most in this file.
 	local pg = iup.GetChild(tabs, 0)
 	for i = 1, 200 do
-		local s = overlay:capture(pg)
+		local s = comp:snapshot(pg)
 		if not s then error("capture failed on iteration " .. i) end
 		s:release()
 	end
@@ -225,8 +221,8 @@ end)
 
 local transition = TabTransition:new({
 	iup = iup,
+	dialog = dlg,
 	director = director,
-	overlay = overlay,
 	log = print,
 })
 
@@ -261,7 +257,7 @@ end)
 -- the way a native click does it.
 local TabDragMotion = require("core.ui.TabDragMotion")
 local drag_motion = TabDragMotion:new({
-	iup = iup, director = director, overlay = overlay, spring_ms = 500,
+	iup = iup, dialog = dlg, director = director, spring_ms = 500,
 })
 
 print("")
@@ -319,10 +315,10 @@ iup.Map(i_dlg)
 iup.Show(i_dlg)
 iup.Flush()
 
-local i_overlay = MotionOverlay:new({ iup = iup, dialog = i_dlg, log = print })
+local i_comp = Compositor.forDialog(iup, i_dlg)
 local i_director = MotionDirector:new({ iup = iup })
 local i_transition = TabTransition:new({
-	iup = iup, director = i_director, overlay = i_overlay,
+	iup = iup, dialog = i_dlg, director = i_director,
 })
 
 local switches = 0
@@ -332,7 +328,7 @@ local i_order = TabOrder:new({
 	prompt = function() return "Group" end,
 })
 i_order:setMotion(TabDragMotion:new({
-	iup = iup, director = i_director, overlay = i_overlay, spring_ms = 500,
+	iup = iup, dialog = i_dlg, director = i_director, spring_ms = 500,
 }))
 i_order:setTransition(i_transition)
 
@@ -389,8 +385,9 @@ test("a drag across the strip renders feedback without throwing", function()
 	assert_true(true)
 end)
 
-test("the drag left no overlay on screen", function()
-	assert_true(not i_overlay:visible(), "overlay still visible after the drag ended")
+test("the drag left nothing on screen", function()
+	i_comp:commit()
+	assert_true(not next(i_comp.groups), "a group is still in the compositor after the drag ended")
 end)
 
 test("motion disabled leaves gestures fully functional", function()
@@ -405,7 +402,6 @@ test("motion disabled leaves gestures fully functional", function()
 end)
 
 i_director:shutdown()
-i_overlay:destroy()
 iup.Destroy(i_dlg)
 
 -- ---------------------------------------------------------------------------
@@ -428,7 +424,6 @@ if not batch then
 	iup.MainLoop()
 end
 
-overlay:destroy()
 director:shutdown()
 iup.Destroy(dlg)
 iup.Close()

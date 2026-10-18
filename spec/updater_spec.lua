@@ -31,7 +31,7 @@ end)
 
 describe("Updater.safe_path", function()
 	it("accepts absolute drive and UNC paths", function()
-		assert.is_true(Updater.safe_path("C:\\Program Files\\Lunar Extension Host\\LunarExtensionHost.exe"))
+		assert.is_true(Updater.safe_path("C:\\Program Files\\Lunar Extension Host\\Lunar.exe"))
 		assert.is_true(Updater.safe_path(ROOT .. "\\releases\\1.9.9\\LunarExtensionHost-1.9.9.msi"))
 	end)
 
@@ -84,7 +84,7 @@ end)
 
 describe("Updater.relauncher_script", function()
 	local MSI = ROOT .. "\\releases\\1.9.9\\LunarExtensionHost-1.9.9.msi"
-	local EXE = "C:\\Program Files\\Lunar Extension Host\\LunarExtensionHost.exe"
+	local EXE = "C:\\Program Files\\Lunar Extension Host\\Lunar.exe"
 
 	it("waits for the pid, installs elevated, relaunches and deletes itself", function()
 		local s = assert(Updater.relauncher_script({ msi = MSI, exe = EXE, pid = 1234 }))

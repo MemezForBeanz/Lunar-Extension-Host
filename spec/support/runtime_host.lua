@@ -17,7 +17,8 @@
 local function fail(reason)
 	io.stderr:write("\n[spec] Refusing to run: " .. reason .. "\n")
 	io.stderr:write("[spec] Lunar tests must run on the same VM the app ships on (LuaJIT 2.1).\n")
-	io.stderr:write("[spec] Restore the toolchain with scripts\\fetch-deps.ps1 -Dev and run scripts\\test.ps1.\n\n")
+	io.stderr:write("[spec] Restore the toolchain with scripts\\fetch-deps.ps1 -Dev and run scripts\\test.ps1\n")
+	io.stderr:write("[spec] (Linux: scripts/dev.sh bootstrap, then scripts/dev.sh test).\n\n")
 	os.exit(1)
 end
 
