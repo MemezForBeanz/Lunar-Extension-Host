@@ -40,3 +40,14 @@ local ok_ffi = pcall(require, "ffi")
 if not ok_ffi then
 	fail("LuaJIT is present but the `ffi` library failed to load")
 end
+
+-- The specs drive motion with injected clocks and must not depend on the host's
+-- accessibility settings: CI runners (and some desktops) report "reduce
+-- animations", which would make MotionDirector land every animation instantly.
+-- Specs that need reduced motion configure the director explicitly.
+do
+	local ok_clock, Clock = pcall(require, "core.lib.MotionClock")
+	if ok_clock and type(Clock) == "table" then
+		Clock.systemReducedMotion = function() return false end
+	end
+end
