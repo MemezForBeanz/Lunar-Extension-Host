@@ -63,6 +63,18 @@ jobs:
       TAG: ${{ needs.verify.outputs.tag }}
       VERSION: ${{ needs.verify.outputs.version }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.verify.outputs.tag }}
+          path: src
+
+      # The notes are this version's section of RELEASE_NOTES.md.
+      - name: Release notes
+        run: |
+          awk -v v="## $VERSION" '$0 == v {on=1; next} on && /^## / {exit} on' src/RELEASE_NOTES.md > notes.md
+          if [[ ! -s notes.md ]]; then echo "::error::RELEASE_NOTES.md has no '## $VERSION' section"; exit 1; fi
+          cat notes.md
+
       - name: Download packages
         uses: actions/download-artifact@v4
         with:
@@ -92,5 +104,5 @@ jobs:
             gh release upload "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --clobber
           else
             gh release create "$TAG" assets/* --repo "$GITHUB_REPOSITORY" \
-              --draft --verify-tag --title "Lunar Extension Host $VERSION" --generate-notes
+              --draft --verify-tag --title "Lunar Extension Host $VERSION" --notes-file notes.md
           fi
