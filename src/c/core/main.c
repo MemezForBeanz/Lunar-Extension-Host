@@ -3,7 +3,7 @@
 #include <lualib.h>
 #include <iup.h>
 #include <iuplua.h>
-#include <windows.h>
+#include "host.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -12,10 +12,8 @@ int luaopen_lfs(lua_State *L);
 int luaopen_cjson(lua_State *L);
 int luaopen_socket_core(lua_State *L);
 int luaopen_mime_core(lua_State *L);
-int luaopen_subprocess(lua_State *L);
-int luaopen_process(lua_State *L);
 int luaopen_logscan(lua_State *L);
-int luaopen_winredraw(lua_State *L);
+int luaopen_compositor(lua_State *L);
 int luaopen_iupraw(lua_State *L);
 int luaopen_themeapply(lua_State *L);
 int luaopen_svgicon(lua_State *L);
@@ -46,100 +44,6 @@ static void fatal(const char *msg)
     IupMessage("Lunar Extension Host - Fatal Error", msg);
 }
 
-/* Set the global LUNAR_EXE_DIR to the directory containing this executable.
- * This is stable regardless of the process working directory, so Lua can
- * resolve plugins/ and other bundled resources reliably. */
-static void set_exe_dir_global(lua_State *L)
-{
-    char exe_path[MAX_PATH];
-    DWORD len = GetModuleFileNameA(NULL, exe_path, MAX_PATH);
-    if (len == 0 || len >= MAX_PATH) {
-        lua_pushstring(L, "");
-    } else {
-        char *last_sep = strrchr(exe_path, '\\');
-        if (last_sep) *last_sep = '\0';
-        lua_pushstring(L, exe_path);
-    }
-    lua_setglobal(L, "LUNAR_EXE_DIR");
-}
-
-/* Set the global LUNAR_EXE_PATH to the full path of this executable and LUNAR_PID to
- * this process id. These let the Lua updater relaunch the app after installing
- * an update and wait for this process to exit before touching locked files. */
-static void set_exe_path_globals(lua_State *L)
-{
-    char exe_path[MAX_PATH];
-    DWORD len = GetModuleFileNameA(NULL, exe_path, MAX_PATH);
-    if (len == 0 || len >= MAX_PATH) {
-        lua_pushstring(L, "");
-    } else {
-        lua_pushstring(L, exe_path);
-    }
-    lua_setglobal(L, "LUNAR_EXE_PATH");
-
-    lua_pushinteger(L, (lua_Integer)GetCurrentProcessId());
-    lua_setglobal(L, "LUNAR_PID");
-}
-
-/* Register bundled custom fonts with the OS for this process only, scanning the
- * theme asset tree: assets\\Themes\\<Theme Name>\\... . This supports per-theme fonts
- * without hardcoding file names. */
-static int has_font_extension(const char *filename)
-{
-    const char *ext = strrchr(filename, '.');
-    if (!ext) return 0;
-    return _stricmp(ext, ".otf") == 0 ||
-           _stricmp(ext, ".ttf") == 0 ||
-           _stricmp(ext, ".ttc") == 0;
-}
-
-static void register_fonts_under(const char *dir_path)
-{
-    char search_pattern[MAX_PATH];
-    int n = snprintf(search_pattern, sizeof(search_pattern), "%s\\*", dir_path);
-    if (n < 0 || n >= (int)sizeof(search_pattern)) return;
-
-    WIN32_FIND_DATAA find_data;
-    HANDLE find = FindFirstFileA(search_pattern, &find_data);
-    if (find == INVALID_HANDLE_VALUE) return;
-
-    do {
-        const char *name = find_data.cFileName;
-        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) continue;
-
-        char path[MAX_PATH];
-        int pn = snprintf(path, sizeof(path), "%s\\%s", dir_path, name);
-        if (pn < 0 || pn >= (int)sizeof(path)) continue;
-
-        if (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-            register_fonts_under(path);
-            continue;
-        }
-
-        if (has_font_extension(name)) {
-            AddFontResourceExA(path, FR_PRIVATE, 0);
-        }
-    } while (FindNextFileA(find, &find_data));
-
-    FindClose(find);
-}
-
-static void register_bundled_fonts(void)
-{
-    char exe_path[MAX_PATH];
-    DWORD len = GetModuleFileNameA(NULL, exe_path, MAX_PATH);
-    if (len == 0 || len >= MAX_PATH) return;
-
-    char *last_sep = strrchr(exe_path, '\\');
-    if (last_sep) *last_sep = '\0';
-
-    char themes_root[MAX_PATH];
-    int n = snprintf(themes_root, sizeof(themes_root), "%s\\assets\\Themes", exe_path);
-    if (n < 0 || n >= (int)sizeof(themes_root)) return;
-
-    register_fonts_under(themes_root);
-}
-
 /* Does `path` end in ".lua" (case-insensitively)? Used to decide whether a
  * command-line argument is a script to run in place of the embedded app. */
 static int has_lua_suffix(const char *path)
@@ -168,11 +72,12 @@ static void push_arg_table(lua_State *L, int argc, char **argv)
     lua_setglobal(L, "arg");
 }
 
-/* IUP's libiup.a provides WinMain which calls main() -- define main() here */
+/* IUP's Windows libiup.a provides WinMain which calls main(); POSIX enters here directly. */
 int main(int argc, char **argv)
 {
     /* Make bundled custom fonts available before any UI is created */
-    register_bundled_fonts();
+    host_pre_iup_open();
+    host_register_bundled_fonts();
 
     /* IUP must be opened before any IUP calls (including iuplua_open) */
     IupOpen(NULL, NULL);
@@ -187,8 +92,8 @@ int main(int argc, char **argv)
     luaL_openlibs(L);
 
     /* Expose the executable directory before running the app script */
-    set_exe_dir_global(L);
-    set_exe_path_globals(L);
+    host_set_exe_dir_global(L);
+    host_set_exe_path_globals(L);
 
     /* LUNAR_DEV_BUILD (CMake option, ON for local builds, OFF when packaged)
      * tells main.lua whether it may prefer the repo's plugins/ and keep the
@@ -220,10 +125,9 @@ int main(int argc, char **argv)
     preload(L, "cjson",        luaopen_cjson);
     preload(L, "socket.core",  luaopen_socket_core);
     preload(L, "mime.core",    luaopen_mime_core);
-    preload(L, "subprocess",   luaopen_subprocess);
-    preload(L, "process",      luaopen_process);
+    host_preload_modules(L, preload);
     preload(L, "logscan",      luaopen_logscan);
-    preload(L, "winredraw",    luaopen_winredraw);
+    preload(L, "compositor",   luaopen_compositor);
     preload(L, "iupraw",       luaopen_iupraw);
     preload(L, "themeapply",   luaopen_themeapply);
     preload(L, "svgicon",      luaopen_svgicon);
@@ -235,7 +139,7 @@ int main(int argc, char **argv)
     preload(L, "ssl.x509",     luaopen_ssl_x509);
     preload(L, "ssl.config",   luaopen_ssl_config);
 
-    /* Preload embedded Lua modules (scanner, middleclass, lualibs/*) */
+    /* Preload the embedded Lua modules (core and vendored pure-Lua libraries) */
     preload_lua_modules(L);
 
     /* A .lua path on the command line runs INSTEAD of the embedded application.

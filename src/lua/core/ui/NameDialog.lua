@@ -116,7 +116,7 @@ function NameDialog.show(opts)
 			GAP = L.gap(3),
 		}),
 		TITLE = opts.title or "Name",
-		-- Win32 ICON RESOURCE name from assets/LunarExtensionHost.rc, so popups carry
+		-- Win32 ICON RESOURCE name from assets/Lunar.rc, so popups carry
 		-- the app icon in their title bar and Alt-Tab entry too.
 		ICON = "IUP",
 		RASTERSIZE = "380x150",

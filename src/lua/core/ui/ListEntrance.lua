@@ -26,7 +26,7 @@
 --
 -- IUP has no per-widget opacity. A true fade would require a GDI snapshot per
 -- row, an alpha-blending pass every frame, and a layered-window compositing
--- surface — the same machinery `core.ui.MotionOverlay` uses for page
+-- surface — the machinery `core.ui.TabTransition` uses for page
 -- transitions. That overhead is acceptable for one fullscreen transition; it
 -- is not acceptable for up to forty rows running concurrently.
 --

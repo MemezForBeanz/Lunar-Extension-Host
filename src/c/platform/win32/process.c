@@ -20,7 +20,8 @@
  *    standard handles, not every inheritable handle the host happens to hold.
  *
  * Strings cross this boundary in the active ANSI code page, matching `io.open`
- * and `lfs` today; the platform layer will switch the whole host to UTF-8.
+ * and `lfs`. The exe manifest sets that code page to UTF-8, so in practice they
+ * are UTF-8, like the rest of the host.
  *
  * @module process
  */

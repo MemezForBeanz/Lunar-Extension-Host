@@ -237,7 +237,7 @@ function M.show(opts)
 			GAP = L.gap(3),
 		}),
 		TITLE = "Feedback",
-		-- Win32 ICON RESOURCE name from assets/LunarExtensionHost.rc, so popups
+		-- Win32 ICON RESOURCE name from assets/Lunar.rc, so popups
 		-- carry the app icon in their title bar and Alt-Tab entry too.
 		ICON = "IUP",
 		-- RASTERSIZE (pixels), NOT SIZE. IUP's SIZE is in font-relative dialog

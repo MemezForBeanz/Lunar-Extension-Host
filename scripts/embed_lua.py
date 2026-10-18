@@ -101,6 +101,9 @@ def parse_args(argv):
             print(f"Unknown argument: {argv[i]}", file=sys.stderr)
             sys.exit(1)
 
+    # A directory can be scanned explicitly as well as through a parent scan.
+    # Keep its first occurrence so generated C identifiers remain unique.
+    modules = list(dict.fromkeys(modules))
     return main_lua, output_h, modules
 
 

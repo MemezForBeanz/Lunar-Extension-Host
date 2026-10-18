@@ -401,33 +401,108 @@ describe("ModalMotion.popup() show_cb preservation", function()
 			end
 		end
 
-		-- positionOf returns nil (no real SCREENPOSITION), so the move+animate
-		-- branch is skipped when the position is unavailable — but the latch
-		-- (`animated`) is still set on the first call.  The entrance_count will
-		-- be 0, but the key guarantee is that it is not 2.
+		-- No SCREENPOSITION on this fake dialog, so the move+animate branch is
+		-- skipped -- but the latch (`animated`) is still set on the first call.
+		-- The key guarantee is that the count is never 2.
 		ModalMotion.popup(iup, dlg)
 
-		-- With no SCREENPOSITION, the director is never asked to animate (move()
-		-- returns false because user32/IupFFI are unavailable in busted).
-		-- entrance_count will be 0 either way — the latch would gate further
-		-- calls if the animation path were reachable.
 		assert.is_true(entrance_count <= 1,
 			"show_cb firing a second time must not replay the arrival animation")
 	end)
 end)
 
 -- ============================================================================
--- WHAT CANNOT BE COVERED IN BUSTED
+-- ENTRANCE (platform.move_window)
 -- ============================================================================
 --
--- The entrance animation (rising the dialog into position with SetWindowPos)
--- cannot be verified here: it needs `user32` (FFI + a real HWND) and a
--- SCREENPOSITION string from a mapped IUP dialog.  In busted, positionOf()
--- returns nil and the move+animate block is silently skipped.
---
--- Whether the scrim is stranded when iup.Popup raises is tested above via
--- pcall inspection of the source — it IS properly guarded (pcall + subsequent
--- dismiss).
+-- The rise itself goes through `core.platform.move_window`, which is the only
+-- thing that touches the OS (SetWindowPos / gtk_window_move). Here it is replaced
+-- by a recorder, so the entrance logic -- pre-offset, per-frame move, the one-shot
+-- latch, and failing closed where the platform can't move windows -- runs for real
+-- over a real MotionDirector.
+
+local platform = require("core.platform")
+
+describe("ModalMotion.popup() entrance", function()
+	local real_move, moves, clock, dir, iup, dlg, scrim
+
+	local function setup(move_result)
+		moves = {}
+		platform.move_window = function(_, d, x, y)
+			moves[#moves + 1] = { dlg = d, x = x, y = y }
+			return move_result
+		end
+		clock = { t = 0 }
+		dir = MotionDirector:new({
+			iup   = { DEFAULT = 0, timer = function() return {} end, SetAttribute = function() end },
+			clock = function() return clock.t end,
+		})
+		scrim = make_scrim_stub()
+		scrim._director = dir
+		ModalMotion.setScrim(scrim)
+		iup = make_fake_iup()
+		dlg = make_dlg()
+		iup.SetAttribute(dlg, "SCREENPOSITION", "100,200")
+	end
+
+	before_each(function() real_move = platform.move_window end)
+	after_each(function()
+		platform.move_window = real_move
+		reset_modal_motion()
+	end)
+
+	it("offsets the dialog before the first frame, then rises into place", function()
+		setup(true)
+		iup.Popup = function(d)
+			d:show_cb(0)
+			assert.are.equal(1, #moves)
+			assert.are.same({ x = 100, y = 216 }, { x = moves[1].x, y = moves[1].y })
+			for step = 1, 40 do clock.t = step * 0.02; dir:tick(clock.t) end
+		end
+		ModalMotion.popup(iup, dlg)
+		assert.is_true(#moves > 2, "no per-frame moves")
+		assert.are.equal(200, moves[#moves].y, "the dialog must land at its resting y")
+		for _, m in ipairs(moves) do
+			assert.are.equal(100, m.x)
+			assert.is_true(m.y >= 200 and m.y <= 216)
+			assert.are.equal(dlg, m.dlg)
+		end
+	end)
+
+	it("replays nothing on a second show_cb (minimise/restore)", function()
+		setup(true)
+		iup.Popup = function(d) d:show_cb(0); d:show_cb(0) end
+		ModalMotion.popup(iup, dlg)
+		assert.are.equal(1, #moves)
+	end)
+
+	it("does not animate where the platform can't move windows", function()
+		setup(false)
+		iup.Popup = function(d)
+			d:show_cb(0)
+			assert.are.equal(0, dir:activeCount())
+		end
+		ModalMotion.popup(iup, dlg)
+		assert.are.equal(1, #moves)   -- only the probing move
+	end)
+
+	it("does not animate a dialog with no screen position", function()
+		setup(true)
+		iup.SetAttribute(dlg, "SCREENPOSITION", nil)
+		iup.Popup = function(d) d:show_cb(0) end
+		ModalMotion.popup(iup, dlg)
+		assert.are.equal(0, #moves)
+	end)
+
+	it("never moves the dialog after popup() returns", function()
+		setup(true)
+		iup.Popup = function(d) d:show_cb(0) end
+		ModalMotion.popup(iup, dlg)
+		local n = #moves
+		clock.t = 1; dir:tick(clock.t)
+		assert.are.equal(n, #moves)
+	end)
+end)
 
 -- ============================================================================
 -- ENTRANCE CANCELLATION
@@ -435,7 +510,7 @@ end)
 --
 -- Every call site destroys the dialog on the line after `popup` returns. An
 -- entrance animation still queued against that handle would, on the next tick,
--- reach `move()` -> raw FFI -> `IupGetAttribute(p, "HWND")` on freed memory.
+-- reach `platform.move_window()` -> raw FFI -> `IupGetAttribute(p, "HWND")` on freed memory.
 -- `iupraw_wrap.c` performs no liveness check and the `pcall` inside `move`
 -- cannot catch a fault in C, so this has to be cancelled here rather than
 -- defended against downstream.
@@ -458,7 +533,7 @@ describe("ModalMotion.popup() entrance cancellation", function()
 		ModalMotion.setScrim(scrim)
 
 		-- Stand in for the entrance the real code schedules from SHOW_CB, which
-		-- is unreachable in busted (no user32, no SCREENPOSITION).
+		-- needs a platform that can move windows; the entrance tests above cover it.
 		local frames_after_close = 0
 		local closed = false
 		dir:animate({

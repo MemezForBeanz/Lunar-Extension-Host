@@ -15,16 +15,20 @@
 --
 --   * `<dir>/<name>.lua` — single-file plugin
 --   * `<dir>/<name>/init.lua` — folder plugin (may ship its own modules in
---     subdirectories, required as `"classes.X"`, `"ui.X"`, `"libs.X"` — the
---     manager puts the plugin folder on `package.path` while the plugin loads;
---     native C modules in the plugin root or a `native/` subdir are put on
---     `package.cpath`, so the extension can require its own native module)
+--     subdirectories, required as `"classes.X"`, `"ui.X"`, `"libs.X"`, and native
+--     C modules in the plugin root or a `native/` subdir)
+--
+-- Each extension gets its own `require` and module cache (`core.lib.ExtensionModules`):
+-- its modules resolve from its own folder whenever it requires them, never collide
+-- with another extension's modules of the same name, and are dropped on unload, so
+-- a reload runs the current code.
 --
 -- @classmod core.classes.ExtensionManager
 
 local class = require("middleclass")
 local lfs   = require("lfs")
 local Manifest = require("core.lib.ExtensionManifest")
+local ExtensionModules = require("core.lib.ExtensionModules")
 local platform = require("core.platform")
 local path = platform.path
 
@@ -183,24 +187,15 @@ function ExtensionManager:loadAll(ctx)
                 manifest.id, tostring(entry.source), loaded_from[manifest.id]))
         else
             loaded_from[manifest.id] = entry.source
-            -- Make the plugin's own folder resolvable for require() while it loads, so a
-            -- folder plugin can ship modules in classes/, ui/, libs/ subdirectories, and
-            -- native C modules (.dll / .so) in its root or a native/ subdirectory.
-            local saved_path  = package.path
-            local saved_cpath = package.cpath
-            local sep, lib = platform.sep, platform.lib_ext
-            package.path = entry.dir .. sep .. "?.lua;" ..
-                           entry.dir .. sep .. "?" .. sep .. "init.lua;" ..
-                           saved_path
-            package.cpath = entry.dir .. sep .. "?." .. lib .. ";" ..
-                            entry.dir .. sep .. "native" .. sep .. "?." .. lib .. ";" ..
-                            saved_cpath
+            -- The extension's private require/module cache, rooted at its folder.
+            local modules = ExtensionModules.new(entry.dir)
+            local kept = false
 
-            local loader, lerr = loadfile(entry.path)
+            local loader, lerr = modules:loadfile(entry.path)
             if not loader then
                 report_plugin_error(iup, ctx, entry, "compile", lerr)
             else
-                local ok, ext = pcall(loader)
+                local ok, ext = pcall(modules.track_global, modules, loader)
                 if not ok then
                     report_plugin_error(iup, ctx, entry, "initialization", ext)
                 elseif not (ext and type(ext) == "table" and ext.register) then
@@ -217,7 +212,7 @@ function ExtensionManager:loadAll(ctx)
                         report_plugin_error(iup, ctx, entry, "validation", string.format(
                             "extension returns id '%s' but its manifest declares '%s'",
                             tostring(manifest.id), tostring(reserved_id)))
-                        package.path, package.cpath = saved_path, saved_cpath
+                        modules:unload()
                         goto continue
                     end
                     ext._ctx  = ctx
@@ -226,6 +221,7 @@ function ExtensionManager:loadAll(ctx)
                     -- The extension's own folder, so it can find files it ships
                     -- (an org pack installs extensions outside the app folder).
                     ext.dir   = entry.dir
+                    ext._modules = modules
                     local registered, register_err = true, nil
                     if ctx.registerExtension then
                         registered, register_err = ctx:registerExtension(ext, manifest, entry)
@@ -234,10 +230,11 @@ function ExtensionManager:loadAll(ctx)
                     if not registered then
                         report_plugin_error(iup, ctx, entry, "manifest registration", register_err)
                     else
-                        local rok, rerr = pcall(ext.register, ext, ctx)
+                        local rok, rerr = pcall(modules.track_global, modules, ext.register, ext, ctx)
                         if rok then
                             ext.source = entry.source
                             self.extensions[#self.extensions + 1] = ext
+                            kept = true
                             loaded = loaded + 1
                             -- Surface this extension's version at the top of the Help menu.
                             ctx:addVersionInfo(manifest.name or ext.name, manifest.version or ext.version, ext)
@@ -249,8 +246,8 @@ function ExtensionManager:loadAll(ctx)
                     end
                 end
             end
-            package.path  = saved_path
-            package.cpath = saved_cpath
+            -- A failed extension leaves none of its modules behind.
+            if not kept then modules:unload() end
         end
         ::continue::
     end
@@ -308,6 +305,7 @@ function ExtensionManager:shutdownAll()
     for _, ext in ipairs(self.extensions) do
         if ext.shutdown then pcall(ext.shutdown, ext) end
         if ctx then ctx:removeOwned(ext) end
+        if ext._modules then ext._modules:unload() end
     end
     self.extensions = {}
 

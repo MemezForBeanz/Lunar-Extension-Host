@@ -8,78 +8,33 @@
 -- down when nothing is up) breaks the spatial model Carbon builds the whole
 -- layering story around.
 --
--- Because `core.ui.MotionOverlay` requires FFI + a real HWND, it latches
--- `available()` to false in the busted suite.  We inject a fake overlay into
--- `package.loaded` before requiring Scrim so that tests can toggle availability
--- and observe every branch of the depth-counting, role-selection and failure
--- paths.  The one thing that genuinely cannot be covered without a live window
--- is the GDI alpha path inside MotionOverlay itself — that is documented at the
--- bottom of this file.
+-- The scrim draws through `core.lib.Compositor`. These tests run the real
+-- manager over a fake backend that records what reached the "screen", so the
+-- depth counting, role selection, the layer-fade path and the failure paths are
+-- all observable here. Only the native layered window is left to
+-- `scripts/win32_overlay_probe.lua` and a live run.
 
 local MotionDirector = require("core.classes.MotionDirector")
-
--- ============================================================================
--- FAKE OVERLAY
--- ============================================================================
--- Injects a controllable stand-in for core.ui.MotionOverlay into the require
--- cache before Scrim is loaded.  Scrim calls MotionOverlay:new(), so our fake
--- returns a new instance table each time.
-
-local fake_overlay_meta  -- forward ref, defined below
-
-local function make_fake_overlay(avail)
-	local inst = {
-		_available = avail,
-		_alpha     = nil,
-		_shown     = false,
-		_hidden    = 0,
-		_set_alpha_calls = 0,
-		_show_cb   = nil,  -- the callback Scrim passes to show()
-		_show_result = true,  -- what show() will return
-	}
-	setmetatable(inst, fake_overlay_meta)
-	return inst
-end
-
-fake_overlay_meta = {
-	__index = {
-		available = function(self) return self._available end,
-		prepare   = function(self) return self._available end,
-		setAlpha  = function(self, v)
-			self._set_alpha_calls = self._set_alpha_calls + 1
-			self._alpha = v
-		end,
-		show      = function(self, cover, cb)
-			self._show_cb   = cb
-			if not self._show_result then return false end
-			self._shown = true
-			return true
-		end,
-		hide      = function(self)
-			self._hidden = self._hidden + 1
-			self._shown  = false
-		end,
-		destroy   = function(self) end,
-	}
-}
-
--- The fake class table that Scrim requires as "core.ui.MotionOverlay".
-local FakeOverlayClass = {
-	_last = nil,  -- the most-recently constructed instance
-	_avail = false,
-}
-FakeOverlayClass.__index = FakeOverlayClass
-function FakeOverlayClass:new(opts)
-	local inst = make_fake_overlay(self._avail)
-	self._last = inst
-	return inst
-end
-
--- Install the fake *before* Scrim is loaded so its require("core.ui.MotionOverlay")
--- picks it up.
-package.loaded["core.ui.MotionOverlay"] = FakeOverlayClass
-
+local Compositor = require("core.lib.Compositor")
 local Scrim = require("core.ui.Scrim")
+
+-- A backend that records presents, fades and hides.
+local function fake_backend()
+	local b = { presents = {}, fades = {}, hides = 0, opacity = nil, shown = false,
+		cover = { 10, 20, 300, 200 } }
+	function b:geometry() return { w = 400, h = 300, scale = 1 } end
+	function b:present(scene, regions, opacity)
+		self.presents[#self.presents + 1] = { scene = scene, regions = regions, opacity = opacity }
+		self.opacity, self.shown = opacity, true
+	end
+	function b:fade(opacity)
+		self.fades[#self.fades + 1] = opacity
+		self.opacity = opacity
+	end
+	function b:hide() self.hides = self.hides + 1; self.shown = false end
+	function b:rect() return (table.unpack or unpack)(self.cover) end
+	return b
+end
 
 -- ============================================================================
 -- HELPERS
@@ -111,30 +66,30 @@ local function make_director(opts)
 	return dir, clock, iup
 end
 
--- Build a Scrim whose overlay has controllable availability.
--- Returns scrim, fake_overlay_instance.
+-- Build a Scrim over a fake compositor (or none, with `available = false`).
+-- Returns scrim, backend.
 local function make_scrim(opts)
 	opts = opts or {}
-	-- Toggle the class-level flag so the next :new() builds with this value.
-	FakeOverlayClass._avail = (opts.available ~= false)
-
-	local dir = opts.director  -- may be nil
-
+	local backend = fake_backend()
+	local comp = Compositor.new(backend)
 	local s = Scrim:new({
 		iup      = opts.iup or fake_iup(),
-		director = dir,
+		director = opts.director,
+		compositor = function()
+			if opts.available == false then return nil, "none here" end
+			return comp
+		end,
+		log = opts.log,
 	})
-	-- The overlay instance Scrim just constructed is in FakeOverlayClass._last.
-	local ov = FakeOverlayClass._last
-	return s, ov
+	return s, backend, comp
 end
 
 -- ============================================================================
 -- UNAVAILABLE OVERLAY  (failing-closed path)
 -- ============================================================================
 
-describe("Scrim with unavailable overlay", function()
-	it("raise() returns false when the overlay is not available", function()
+describe("Scrim without a compositor", function()
+	it("raise() returns false when there is no compositor", function()
 		-- Carbon rule: everything here is decoration around a modal that works
 		-- without it.  Scrim must report failure without side-effects.
 		local s = make_scrim({ available = false })
@@ -155,6 +110,15 @@ describe("Scrim with unavailable overlay", function()
 		local s = make_scrim({ available = false })
 		s:raise()
 		assert.is_false(s:visible())
+	end)
+
+	it("logs why once, and prepare() reports false", function()
+		local lines = {}
+		local s = make_scrim({ available = false, log = function(m) lines[#lines + 1] = m end })
+		assert.is_false(s:prepare())
+		s:raise(); s:raise()
+		assert.are.equal(1, #lines)
+		assert.truthy(lines[1]:find("none here", 1, true))
 	end)
 end)
 
@@ -251,18 +215,111 @@ describe("Scrim nested raise animation latch", function()
 end)
 
 -- ============================================================================
--- SHOW() FAILURE: depth not incremented
+-- PRESENT FAILURE: depth not incremented
 -- ============================================================================
 
-describe("Scrim show() failure path", function()
-	it("depth is zero if overlay:show() returns false", function()
-		-- Scrim:raise() increments depth, calls show(), and decrements if show
-		-- fails (Scrim.lua line 177).  Pin that the counter is clean afterwards.
-		local s, ov = make_scrim({ available = true })
-		ov._show_result = false  -- force show() to fail
-		local ok = s:raise()
-		assert.is_false(ok)
+describe("Scrim present failure path", function()
+	it("depth is zero and nothing is left on screen if presenting throws", function()
+		local s, backend = make_scrim({ available = true })
+		function backend:present() error("UpdateLayeredWindow failed") end
+		assert.is_false(s:raise())
 		assert.are.equal(0, s:depth())
+		assert.is_false(backend.shown)
+	end)
+end)
+
+describe("Scrim present that reports failure", function()
+	it("rolls back when present returns false (native failures don't throw)", function()
+		local s, backend = make_scrim({ available = true })
+		local tries = 0
+		function backend:present() tries = tries + 1; return false, "UpdateLayeredWindow failed" end
+		assert.is_false(s:raise())
+		assert.are.equal(0, s:depth())
+		assert.is_false(s:raise())                         -- tried again, not taken as nested
+		assert.are.equal(2, tries)
+	end)
+end)
+
+describe("Scrim lift coalescing", function()
+	it("takes the layer down in the director's frame, sharing its one commit", function()
+		local dir, clock = make_director()
+		local s, backend, comp = make_scrim({ available = true, director = dir })
+		s:raise()
+		clock.t = 1.0; dir:tick()
+		s:lower()
+		-- Another effect on the same dialog animates past the lift's end.
+		dir:animate({ role = "scrim_in", target = "other", from = 0, to = 1, on_frame = function(v)
+			comp:set("other", { z = 10, sprites = { { kind = "fill", x = 0, y = 0, w = 2, h = 2,
+				color = 0, alpha = v } }, regions = {} })
+			comp:schedule(dir)
+		end })
+		local before = #backend.presents + backend.hides
+		clock.t = 1.6; dir:tick()                           -- lift ends this tick
+		assert.are.equal(before + 1, #backend.presents + backend.hides)
+	end)
+end)
+
+-- ============================================================================
+-- WHAT REACHES THE SCREEN
+-- ============================================================================
+
+describe("Scrim drawing", function()
+	it("is one passive black fill over the cover, faded as a layer", function()
+		local dir, clock = make_director()
+		local s, backend = make_scrim({ available = true, director = dir })
+		s:raise()
+		assert.are.equal(1, #backend.presents)
+		local first = backend.presents[1]
+		assert.are.equal(0, first.opacity)           -- never a full-strength first frame
+		assert.are.same({ kind = "fill", x = 10, y = 20, w = 300, h = 200, color = 0, alpha = 1 },
+			first.scene[1])
+		assert.are.equal(1, #first.scene)
+		assert.are.equal("pass", first.regions[1].mode)
+		for t = 1, 20 do clock.t = t * 0.05; dir:tick() end
+		-- The whole entrance is layer fades: no further renders.
+		assert.are.equal(1, #backend.presents)
+		assert.is_true(#backend.fades > 1)
+		assert.is_true(math.abs(backend.opacity - 128 / 255) < 1e-9)
+	end)
+
+	it("lifts by fading, then takes the layer down", function()
+		local dir, clock = make_director()
+		local s, backend = make_scrim({ available = true, director = dir })
+		s:raise()
+		clock.t = 1.0; dir:tick()
+		s:lower()
+		assert.is_true(backend.shown)                 -- not cut on the way out
+		clock.t = 2.0; dir:tick()
+		assert.are.equal(1, backend.hides)
+		assert.is_false(backend.shown)
+	end)
+
+	it("a reopen during the lift carries on from the dim on screen", function()
+		local dir, clock = make_director()
+		local s, backend = make_scrim({ available = true, director = dir })
+		s:raise()
+		clock.t = 1.0; dir:tick()
+		s:lower()
+		clock.t = 1.1; dir:tick()
+		local mid = backend.opacity
+		assert.is_true(mid > 0 and mid < 128 / 255)
+		s:raise()
+		assert.is_true(backend.shown)
+		assert.are.equal(0, backend.hides)
+		clock.t = 3.0; dir:tick()
+		assert.is_true(math.abs(backend.opacity - 128 / 255) < 1e-9)
+		assert.is_true(backend.shown)
+	end)
+
+	it("follows a resize of the dialog", function()
+		local s, backend, comp = make_scrim({ available = true })
+		s:raise()
+		backend.cover = { 0, 0, 500, 400 }
+		function backend:events() self.events = nil; return { { type = "resize" } } end
+		comp:commit()
+		local last = backend.presents[#backend.presents]
+		assert.are.equal(500, last.scene[1].w)
+		assert.is_true(math.abs(last.opacity - 128 / 255) < 1e-9)
 	end)
 end)
 
@@ -369,20 +426,19 @@ describe("Scrim without a director", function()
 	it("raise() completes without raising when no director is attached", function()
 		-- The overlay is available but no director is wired up.  The fade lands
 		-- synchronously — the bar is at its end value when raise() returns.
-		local s, ov = make_scrim({ available = true, director = nil })
+		local s, backend = make_scrim({ available = true, director = nil })
 		local ok = s:raise()
 		assert.is_true(ok)
-		-- The overlay should have received setAlpha with the rest alpha (128 by
-		-- default when no director role is available).
-		assert.are.equal(128, ov._alpha)
+		-- The rest alpha (128 by default when no director role is available).
+		assert.is_true(math.abs(backend.opacity - 128 / 255) < 1e-9)
 	end)
 
 	it("lower() with no director hides the overlay synchronously", function()
-		local s, ov = make_scrim({ available = true, director = nil })
+		local s, backend = make_scrim({ available = true, director = nil })
 		s:raise()
 		s:lower()
-		-- After the synchronous fade-to-zero on_done is called, hide() is invoked.
-		assert.are.equal(1, ov._hidden)
+		-- After the synchronous fade-to-zero the group goes and the layer hides.
+		assert.are.equal(1, backend.hides)
 	end)
 
 	it("reset() does not raise even without a director", function()
@@ -390,22 +446,3 @@ describe("Scrim without a director", function()
 		assert.has_no.errors(function() s:reset() end)
 	end)
 end)
-
--- ============================================================================
--- WHAT CANNOT BE COVERED IN BUSTED
--- ============================================================================
---
--- The following behaviours require `core.ui.MotionOverlay` to actually work —
--- which means FFI, a real HWND, and a valid WS_EX_LAYERED window:
---
---   1. The GDI/alpha path in MotionOverlay:setAlpha().  We verify that Scrim
---      *calls* setAlpha with the right value (via the fake), but whether that
---      value reaches the Win32 layer cannot be observed here.
---
---   2. MotionOverlay:show() geometry: the overlay is sized and positioned to
---      cover a real IUP widget whose HWND must exist.
---
---   3. The prepare() warm-up path: creating and mapping the overlay window
---      before any modal opens (the re-entrancy hazard described in the header).
---
--- These are exercised by scripts/motion_check.lua against the running host.

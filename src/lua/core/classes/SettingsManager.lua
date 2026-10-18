@@ -26,6 +26,11 @@ local SettingsManager = class("SettingsManager")
 -- their own defaults (`get` returns nil for a key nobody set).
 local DEFAULTS = {
     theme               = "classic_dark",
+    -- "Match system theme" (core.lib.SystemTheme): when on, theme_light is shown
+    -- while the OS is in light mode and theme_dark while it is in dark mode.
+    theme_follow_system = false,
+    theme_light         = "classic",
+    theme_dark          = "classic_dark",
     welcome_tour_completed = false,
     welcome_tour_dismissed = false,
     -- Shared backend (feedback; extensions may use it too). Empty in the neutral

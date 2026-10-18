@@ -13,8 +13,11 @@
 --   * `dns_domain()`, `replace_file(src, dst)`, `open(target)`, `admin_only(dir)`,
 --     `register_font(path)`, `mkdirs(dir)`, `lib_ext`
 --
--- Window and rendering services (overlay, redraw batching, window placement)
--- are still Win32-only and arrive with the GTK work.
+--   * `move_window(iup, dlg, x, y)` - move a mapped dialog without resizing,
+--     activating or restacking it
+--
+-- Rendering services (the compositor, redraw batching) live in `core.lib.Compositor`
+-- and the native `compositor` module.
 --
 -- @module core.platform
 
@@ -63,10 +66,15 @@ function M.system_dir()
 	return root and path:join(root, M.APP_DIR_NAME) or nil
 end
 
---- Folder holding the running executable.
+--- Folder holding the running executable (`LUNAR_EXE_DIR` from the C host).
+-- A packaged GUI build that doesn't know it raises an error rather than
+-- returning the working directory; dev builds and the CLI fall back to the cwd.
 -- @treturn string
 function M.exe_dir()
 	if type(LUNAR_EXE_DIR) == "string" and LUNAR_EXE_DIR ~= "" then return LUNAR_EXE_DIR end
+	if LUNAR_DEV_BUILD == false then
+		error("the executable's folder is unknown (LUNAR_EXE_DIR not set)", 2)
+	end
 	local ok, lfs = pcall(require, "lfs")
 	return ok and lfs.currentdir() or "."
 end
@@ -114,5 +122,108 @@ M.network_logout = backend.network_logout
 --- `probe_dir(path)`: `"ok"`, `"denied"`, `"missing"` or `"unreachable"`, for
 -- telling a folder this account may not read from one that isn't there.
 M.probe_dir = backend.probe_dir
+--- `apply_native_style([css])`: bring the toolkit's native widgets (GTK menu bar,
+-- text entries) to the density Lunar's layout expects. Call once after IupOpen,
+-- before building windows. Returns false and why where there is nothing to do.
+M.apply_native_style = backend.apply_native_style
+--- `set_app_icon(dir)`: make lunar-<size>.png in `dir` every window's icon where
+-- the toolkit needs that at runtime (GTK); Windows uses the exe's icon resource.
+M.set_app_icon = backend.set_app_icon
+--- `system_dark()`: true when the OS is in dark mode, false in light mode, nil
+-- when it can't tell (Windows app mode; the desktop's color scheme on Linux).
+M.system_dark = backend.system_dark
+--- `system_dark_probe()`: the same question without blocking, where asking means
+-- running programs (Linux): a probe with `poll() -> done, dark` and `cancel()`.
+-- nil on platforms where `system_dark` is already instant (Windows).
+M.system_dark_probe = backend.system_dark_probe
+--- `move_window(iup, dlg, x, y)`: move a mapped dialog to screen position
+-- `x, y` without resizing, activating or restacking it. True when the window
+-- was asked to move; false where the platform can't (native Wayland, no FFI).
+M.move_window = backend.move_window
+
+-- Directory-relative installer I/O (POSIX). Parent components and opened files
+-- reject symlinks; temporary files use exclusive creation.
+M.secure_mkdir = backend.secure_mkdir
+M.secure_read = backend.secure_read
+M.secure_write = backend.secure_write
+M.secure_remove = backend.secure_remove
+M.secure_symlink = backend.secure_symlink
+M.secure_parent = backend.secure_parent
+
+--- `set_mode(file, mode)`: set a file's permission bits (`tonumber("755", 8)`).
+-- POSIX only; Windows has no such bits and reports success without doing anything.
+-- @treturn boolean
+-- @treturn string|nil Why not.
+function M.set_mode(file, mode)
+	if backend.set_mode then return backend.set_mode(file, mode) end
+	return true
+end
+
+--- `launch(path)`: start the program at `path` detached, so it keeps running
+-- after Lunar exits. Unlike `spawn`, nothing ties its lifetime to ours.
+-- @treturn boolean
+-- @treturn string|nil Why not.
+M.launch = backend.launch
+
+--- Start a program (an argv array, never a shell string) as a background job.
+-- @tparam table argv program and arguments.
+-- @tparam[opt] table opts `cwd`, `env` (see the native `process` module).
+-- @treturn[1] table job with `poll()` (exit code once finished, else nil; also
+--   drains the output), `output()` (the tail of stdout and stderr so far) and
+--   `close()` (ends it if still running).
+-- @treturn[2] nil
+-- @treturn[2] string why it couldn't start.
+function M.spawn(argv, opts)
+	local ok_mod, process = pcall(require, "process")
+	if not ok_mod then return nil, "process module unavailable" end
+	opts = opts or {}
+	local proc, err = process.spawn({ argv = argv, cwd = opts.cwd, env = opts.env })
+	if not proc then return nil, err end
+	local tail = ""
+	local open = { stdout = true, stderr = true }
+	local function drain()
+		for name in pairs(open) do
+			local data = proc:read(name, 8192)
+			if data == nil then open[name] = nil
+			elseif #data > 0 then
+				tail = (tail .. data):sub(-16384)
+			end
+		end
+	end
+	return {
+		poll = function()
+			drain()
+			local code = proc:poll()
+			if code ~= nil then drain() end
+			return code
+		end,
+		output = function() return tail end,
+		close = function() proc:close() end,
+	}
+end
+
+--- Run `argv` with administrator rights (UAC on Windows, polkit's `pkexec` on
+-- Linux). Returns the same kind of job as `spawn`; declining the prompt gives nil
+-- and `"cancelled"`.
+-- @tparam table argv program and arguments.
+function M.elevate(argv)
+	if backend.elevate then return backend.elevate(argv) end
+	-- pkexec exits 126 when the user dismisses the dialog, 127 when not authorized.
+	return M.spawn(backend.elevate_argv(argv))
+end
+
+--- `msi_installed_features(upgrade_code, features)`: Windows Installer features of
+-- the product family that are installed locally, `{ [id] = true }`, or nil when
+-- the product isn't installed (always nil off Windows).
+function M.msi_installed_features(upgrade_code, features)
+	if backend.msi_installed_features then return backend.msi_installed_features(upgrade_code, features) end
+	return nil
+end
+
+--- The folder 64-bit programs install under on Windows; nil elsewhere.
+function M.program_files_dir()
+	if backend.program_files_dir then return backend.program_files_dir() end
+	return nil
+end
 
 return M

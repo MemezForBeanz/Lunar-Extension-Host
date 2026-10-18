@@ -1,13 +1,14 @@
 {
     // F5 debugs the dev build under gdb (C side: crashes, native modules, IUP).
-    // Needs the "C/C++" extension (ms-vscode.cpptools).
+    // Needs the "C/C++" extension (ms-vscode.cpptools). Each configuration has a
+    // "linux" block for the build/linux tree and the system gdb.
     "version": "0.2.0",
     "configurations": [
         {
             "name": "Lunar (dev) - gdb",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/win/bin/LunarExtensionHost.exe",
+            "program": "${workspaceFolder}/build/win/bin/Lunar.exe",
             "cwd": "${workspaceFolder}/build/win/bin",
             "environment": [
                 { "name": "PATH", "value": "C:\\msys64\\mingw64\\bin;${env:PATH}" },
@@ -15,6 +16,12 @@
             ],
             "MIMode": "gdb",
             "miDebuggerPath": "C:/msys64/mingw64/bin/gdb.exe",
+            "linux": {
+                "program": "${workspaceFolder}/build/linux/bin/lunar",
+                "cwd": "${workspaceFolder}/build/linux/bin",
+                "environment": [ { "name": "LUNAR_REPO", "value": "${workspaceFolder}" } ],
+                "miDebuggerPath": "/usr/bin/gdb"
+            },
             "preLaunchTask": "Build (dev)",
             "stopAtEntry": false,
             "externalConsole": false
@@ -23,7 +30,7 @@
             "name": "Lunar (dev) with an org pack - gdb",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/win/bin/LunarExtensionHost.exe",
+            "program": "${workspaceFolder}/build/win/bin/Lunar.exe",
             "cwd": "${workspaceFolder}/build/win/bin",
             "environment": [
                 { "name": "PATH", "value": "C:\\msys64\\mingw64\\bin;${env:PATH}" },
@@ -32,14 +39,23 @@
             ],
             "MIMode": "gdb",
             "miDebuggerPath": "C:/msys64/mingw64/bin/gdb.exe",
+            "linux": {
+                "program": "${workspaceFolder}/build/linux/bin/lunar",
+                "cwd": "${workspaceFolder}/build/linux/bin",
+                "environment": [
+                    { "name": "LUNAR_PROFILE_DIR", "value": "${input:orgPacksDir}" },
+                    { "name": "LUNAR_PROFILE", "value": "${input:orgPack}" }
+                ],
+                "miDebuggerPath": "/usr/bin/gdb"
+            },
             "preLaunchTask": "Build (dev)"
         },
         {
             "name": "CLI harness: current Lua file - gdb",
-            "detail": "Runs the open .lua script in LunarExtensionHostCLI (console host with the native modules).",
+            "detail": "Runs the open .lua script in LunarCLI (console host with the native modules).",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/win/bin/LunarExtensionHostCLI.exe",
+            "program": "${workspaceFolder}/build/win/bin/LunarCLI.exe",
             "args": ["${file}"],
             "cwd": "${workspaceFolder}",
             "environment": [
@@ -48,6 +64,14 @@
             ],
             "MIMode": "gdb",
             "miDebuggerPath": "C:/msys64/mingw64/bin/gdb.exe",
+            "linux": {
+                "program": "${workspaceFolder}/build/linux/bin/lunar-cli",
+                "environment": [
+                    { "name": "LUA_PATH", "value": "src/lua/?.lua;vendor/luarocks-tree/share/lua/5.1/?.lua;vendor/copas/?.lua;;" },
+                    { "name": "LUNAR_REPO", "value": "${workspaceFolder}" }
+                ],
+                "miDebuggerPath": "/usr/bin/gdb"
+            },
             "externalConsole": false,
             "preLaunchTask": "Build (dev)"
         }

@@ -1,0 +1,5 @@
+#!/bin/sh
+# AppImage entry point: run Lunar from the mounted image. The app finds its
+# assets/, certs/ and plugins/ beside the real executable (/proc/self/exe).
+HERE="$(dirname "$(readlink -f "$0")")"
+exec "$HERE/opt/lunar/lunar" "$@"

@@ -9,7 +9,7 @@
  * before inclusion. This is that one place. Everywhere else in the codebase
  * that needs the declarations just includes the headers normally.
  *
- * Because LunarExtensionHost links with -Wl,--export-all-symbols, the resulting
+ * Because Lunar links with -Wl,--export-all-symbols, the resulting
  * nsvgParse/nsvgRasterize/etc. entry points are reachable from LuaJIT's FFI
  * (see src/lua/core/ui/VectorIcon.lua) without any additional Lua<->C glue
  * beyond the tiny image-handoff bridge in svgicon_wrap.c.

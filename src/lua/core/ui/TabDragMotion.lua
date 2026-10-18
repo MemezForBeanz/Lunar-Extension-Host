@@ -46,11 +46,16 @@
 
 local class = require("middleclass")
 
+local Compositor = require("core.lib.Compositor")
 local ThemeReactor = require("core.ui.ThemeReactor")
 
 local TabDragMotion = class("TabDragMotion")
 
 local TAG = "tab-drag"
+
+-- The compositor group this module owns. Its own id, so it shares the Z_TAB band
+-- with `core.ui.TabTransition` without either clobbering the other's sprites.
+local GROUP = "tab-drag"
 
 -- Insertion caret width. Two pixels reads as a deliberate UI element at every DPI;
 -- one pixel disappears on scaled displays.
@@ -59,33 +64,69 @@ local CARET_W = 2
 -- Height of the spring-open countdown bar, drawn at the bottom of the tab band.
 local SPRING_BAR_H = 3
 
+-- "R G B" (the palette's form) as 0xRRGGBB.
+local function rgb(value)
+	local r, g, b = tostring(value):match("(%d+)%s+(%d+)%s+(%d+)")
+	if not r then return 0 end
+	return (tonumber(r) % 256) * 65536 + (tonumber(g) % 256) * 256 + (tonumber(b) % 256)
+end
+
+local function round(v)
+	return math.floor(v + 0.5)
+end
+
 --- Create the drag-motion renderer.
 --
 -- `opts` fields:
 --
 --   * `iup` -- the IUP binding
 --   * `director` -- `core.classes.MotionDirector`
---   * `overlay` -- `core.ui.MotionOverlay`
+--   * `dialog` -- the dialog whose compositor draws the feedback
+--   * `compositor` -- optional `fn() -> manager|nil, why`; defaults to
+--     `Compositor.forDialog(iup, dialog)` (tests pass a fake)
 --   * `spring_ms` -- spring-open delay to visualise, in milliseconds
+--   * `log` -- optional `fn(msg)` for diagnostics
+--
+-- Without a compositor every feedback call does nothing: the drag still works, the
+-- user just gets the cursor shape and no caret.
 --
 -- @tparam table opts construction options (see above)
 function TabDragMotion:initialize(opts)
 	opts = opts or {}
 	self._iup       = opts.iup
 	self._director  = opts.director
-	self._overlay   = opts.overlay
+	self._log       = opts.log
 	self._spring_ms = tonumber(opts.spring_ms) or 500
+	self._get_comp  = opts.compositor or function()
+		return Compositor.forDialog(opts.iup, opts.dialog)
+	end
 
-	self._strip = nil    -- strip the overlay is currently tracking
+	self._strip = nil    -- strip the feedback is currently tracking
 	self._state = nil    -- current visual state
-	self._backdrop = nil -- pixels beneath the overlay, restored each frame
+end
+
+-- The dialog's compositor, made on first use; nil (logged once) when there is none.
+function TabDragMotion:_comp()
+	if self._compositor then return self._compositor end
+	if self._unavailable then return nil end
+	local ok, comp, why = pcall(self._get_comp)
+	if not ok or not comp then
+		self._unavailable = true
+		if self._log then
+			pcall(self._log, "[TabDragMotion] no compositor (" .. tostring(ok and why or comp) .. "); no drag feedback")
+		end
+		return nil
+	end
+	self._compositor = comp
+	local me = self
+	local function relayout() if me._state then me:_render() end end
+	comp:on("resize", relayout)
+	comp:on("dpi", relayout)
+	return comp
 end
 
 function TabDragMotion:_ready()
-	return self._director ~= nil
-		and self._overlay ~= nil
-		and self._director:enabled()
-		and self._overlay:available()
+	return self._director ~= nil and self._director:enabled() and self:_comp() ~= nil
 end
 
 -- Theme colors, read live so a theme switch mid-drag is reflected immediately.
@@ -93,74 +134,52 @@ function TabDragMotion:_colors()
 	local pal = ThemeReactor.palette() or {}
 	local accent = ThemeReactor.pal_get(pal, "accent", "15 98 254")
 	return {
-		accent = accent,
+		accent = rgb(accent),
 		-- The combine highlight is the same accent as the caret so the two read as
 		-- one language, distinguished by shape rather than by hue.
-		fill   = accent,
-		border = ThemeReactor.pal_get(pal, "borderStrong", accent),
+		fill   = rgb(accent),
+		border = rgb(ThemeReactor.pal_get(pal, "borderStrong", accent)),
 	}
 end
 
 -- =======================================================================
--- OVERLAY PLUMBING
+-- COMPOSITOR PLUMBING
 -- =======================================================================
 
--- Bring the overlay up over `strip`, capturing what was underneath first.
---
--- ORDER MATTERS. The backdrop must be captured BEFORE the overlay is shown. The
--- overlay covers the whole strip -- tab band and page -- but only the band carries
--- drag feedback, so every frame has to repaint the rest with the pixels that were
--- there beforehand, or the page disappears behind an opaque rectangle. Capturing
--- after the overlay is up risks photographing the overlay itself, and the result
--- is a feedback loop that smears across the strip as the drag continues.
+-- Track `strip`; false when there is nowhere to draw.
 function TabDragMotion:_attach(strip)
 	if not self:_ready() then return false end
-	if self._strip == strip and self._overlay:visible() then return true end
-
-	self:_releaseBackdrop()
-	self._backdrop = self._overlay:capture(strip)
-	-- No backdrop, no feedback. Showing the overlay anyway would composite the
-	-- caret onto an uncleared back buffer -- a fresh compatible bitmap is all
-	-- zeroes, and a reused one still holds the last frame -- so the strip AND the
-	-- page beneath it would be covered by a black or stale rectangle for the whole
-	-- drag. Every other failure in this subsystem fails closed to "no animation";
-	-- this one would fail to visible corruption of the main window.
-	if not self._backdrop then return false end
-
-	local this = self
-	local ok = self._overlay:show(strip, function(o) this:_compose(o) end)
-	if not ok then
-		self:_releaseBackdrop()
-		return false
-	end
+	if not self._compositor:rect(strip) then return false end
 	self._strip = strip
 	return true
 end
 
-function TabDragMotion:_releaseBackdrop()
-	if self._backdrop then
-		self._backdrop:release()
-		self._backdrop = nil
-	end
+local function fill(sprites, x, y, w, h, color)
+	if w <= 0 or h <= 0 then return end
+	sprites[#sprites + 1] = { kind = "fill", x = x, y = y,
+		w = w, h = h, color = color, alpha = 1 }
 end
 
--- Paint the current state. Runs inside the overlay's back-buffer frame.
-function TabDragMotion:_compose(o)
-	if self._backdrop then
-		o:blit(self._backdrop, 0, 0)
-	end
+local function outline(sprites, x, y, w, h, color, thickness)
+	if w <= 0 or h <= 0 then return end
+	sprites[#sprites + 1] = { kind = "stroke", x = x, y = y,
+		w = w, h = h, thickness = thickness, color = color, alpha = 1 }
+end
 
+-- Sprites for the current state, in strip-local coordinates offset by (ox, oy).
+function TabDragMotion:_sprites(ox, oy, scale)
+	local sprites = {}
 	local st = self._state
-	if not st then return end
+	if not st then return sprites end
 
 	local c = self:_colors()
 
 	if st.kind == "caret" then
-		o:fill(st.x - CARET_W / 2, st.y, CARET_W, st.h, c.accent)
+		fill(sprites, ox + st.x - CARET_W / 2, oy + st.y, CARET_W, st.h, c.accent)
 		-- Small end caps make the caret read as an insertion marker rather than a
 		-- stray divider line.
-		o:fill(st.x - CARET_W * 1.5, st.y, CARET_W * 3, CARET_W, c.accent)
-		o:fill(st.x - CARET_W * 1.5, st.y + st.h - CARET_W, CARET_W * 3, CARET_W, c.accent)
+		fill(sprites, ox + st.x - CARET_W * 1.5, oy + st.y, CARET_W * 3, CARET_W, c.accent)
+		fill(sprites, ox + st.x - CARET_W * 1.5, oy + st.y + st.h - CARET_W, CARET_W * 3, CARET_W, c.accent)
 
 	elseif st.kind == "combine" then
 		-- Scales about the target's centre, so the highlight grows into place
@@ -170,23 +189,50 @@ function TabDragMotion:_compose(o)
 		local h = st.h * k
 		local x = st.x + (st.w - w) / 2
 		local y = st.y + (st.h - h) / 2
-		o:outline(x, y, w, h, c.fill, 2)
+		outline(sprites, ox + x, oy + y, w, h, c.fill, 2)
 
 	elseif st.kind == "merge" then
 		-- The folder-creation flourish: one rectangle contracting from the span of
 		-- both source tabs to the new group tab's own bounds.
-		o:outline(st.x, st.y, st.w, st.h, c.fill, 2)
+		outline(sprites, ox + st.x, oy + st.y, st.w, st.h, c.fill, 2)
 	end
 
 	if st.spring then
 		local s = st.spring
-		o:fill(s.x, s.y + s.h - SPRING_BAR_H, s.w * (s.progress or 0), SPRING_BAR_H, c.accent)
+		fill(sprites, ox + s.x, oy + s.y + s.h - SPRING_BAR_H, s.w * (s.progress or 0), SPRING_BAR_H, c.accent)
 	end
+	-- The compositor rectangle is in device pixels; TabOrder's strip offsets
+	-- remain IUP logical pixels until they are rendered here.
+	for _, sprite in ipairs(sprites) do
+		sprite.x = round(ox + (sprite.x - ox) * scale)
+		sprite.y = round(oy + (sprite.y - oy) * scale)
+		sprite.w = round(sprite.w * scale)
+		sprite.h = round(sprite.h * scale)
+		if sprite.thickness then sprite.thickness = round(sprite.thickness * scale) end
+	end
+	return sprites
+end
+
+-- Put the current state in the compositor and ask for a present (one per director
+-- tick, shared with any other effect on this dialog).
+function TabDragMotion:_render()
+	local comp = self._compositor
+	if not comp then return end
+	local strip = self._strip
+	local r = strip and comp:rect(strip)
+	if not self._state or not r then
+		comp:remove(GROUP)
+	else
+		local geometry = comp:geometry()
+		comp:set(GROUP, { z = Compositor.Z_TAB,
+			sprites = self:_sprites(r.x, r.y, geometry.unit or 1), regions = {} })
+	end
+	comp:schedule(self._director)
 end
 
 function TabDragMotion:_setState(st)
 	self._state = st
-	if self._overlay then self._overlay:redraw() end
+	self:_render()
 end
 
 -- =======================================================================
@@ -226,7 +272,7 @@ function TabDragMotion:showCaret(strip, x, band)
 				local cur = this._state
 				if cur and cur.kind == "caret" then
 					cur.x = v
-					this._overlay:redraw()
+					this:_render()
 				end
 			end,
 		})
@@ -281,7 +327,7 @@ function TabDragMotion:showCombine(strip, x, w, band)
 			local cur = this._state
 			if cur and cur.kind == "combine" then
 				cur.scale = v
-				this._overlay:redraw()
+				this:_render()
 			end
 		end,
 	})
@@ -321,7 +367,7 @@ function TabDragMotion:showSpring(strip, x, w, band)
 			local cur = this._state
 			if cur and cur.spring then
 				cur.spring.progress = v
-				this._overlay:redraw()
+				this:_render()
 			end
 		end,
 	})
@@ -336,7 +382,7 @@ function TabDragMotion:clearSpring()
 	local st = self._state
 	if st and st.spring then
 		st.spring = nil
-		if self._overlay then self._overlay:redraw() end
+		self:_render()
 	end
 end
 
@@ -348,7 +394,7 @@ end
 -- to reserve expressive motion for significant, occasional events.
 --
 -- `done` is always called exactly once, even when motion is disabled or the
--- overlay is unavailable, so callers can rely on it to carry out the real work.
+-- compositor is unavailable, so callers can rely on it to carry out the real work.
 --
 -- @tparam ihandle strip the strip the group is being created in
 -- @tparam table from `{ x, w }` combined span of the two source tabs
@@ -392,7 +438,7 @@ function TabDragMotion:playMerge(strip, from, to, band, done)
 			if cur and cur.kind == "merge" then
 				cur.x = from.x + (to.x - from.x) * v
 				cur.w = from.w + (to.w - from.w) * v
-				this._overlay:redraw()
+				this:_render()
 			end
 		end,
 		on_done  = function()
@@ -402,25 +448,22 @@ function TabDragMotion:playMerge(strip, from, to, band, done)
 	})
 end
 
---- Remove all drag feedback and hide the overlay.
+--- Remove all drag feedback.
 --
 -- Called when a drag ends, is cancelled, or leaves every valid target. Cancels the
 -- module's animations rather than finishing them: a caret sliding toward a target
 -- the user has abandoned should disappear, not complete its journey.
 --
--- Releasing the backdrop here is what makes the merge flourish correct as well as
--- leak-free. `TabOrder` clears on release, so by the time the deferred drop has
--- rebuilt the tree the next `_attach` captures the strip as it looks *after* the
--- group was created -- which is the picture the flourish needs to play over.
+-- Nothing is captured, so there is nothing to release: the feedback is a handful
+-- of sprites over the live strip, removed here.
 --
 -- @usage motion:clear()
 function TabDragMotion:clear()
 	if self._director then
 		self._director:cancel({ tag = TAG })
 	end
-	self:_setState(nil)
-	if self._overlay then self._overlay:hide() end
-	self:_releaseBackdrop()
+	self._state = nil
+	self:_render()
 	self._strip = nil
 end
 

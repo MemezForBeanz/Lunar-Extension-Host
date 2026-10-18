@@ -14,8 +14,8 @@
 -- revealed through a mask, with nothing dimmed.
 --
 -- Tab pages are peers -- the same layer, one replacing another -- so this is a push.
--- Both snapshots move together and the overlay acts as the mask. Dimming, or moving
--- only the new page, would imply a depth relationship that does not exist.
+-- Both snapshots move together and the page's rectangle acts as the mask. Dimming,
+-- or moving only the new page, would imply a depth relationship that does not exist.
 --
 -- ### Why the pages do not travel a full page width
 --
@@ -50,15 +50,22 @@
 --
 -- The real widgets cannot be in two places at once, and IUP offers no way to draw
 -- a page at an offset. So the transition is a picture: capture the outgoing page,
--- let IUP perform the real switch instantly behind the overlay, capture the
--- incoming page, then animate the two bitmaps. When the animation ends the overlay
--- hides and the live widgets -- which have been correctly switched the whole time --
+-- let IUP perform the real switch instantly behind the compositor, capture the
+-- incoming page, then animate the two bitmaps as image sprites in the dialog's
+-- compositor (`core.lib.Compositor`, band `Z_TAB`), clipped to the page's
+-- rectangle. When the animation ends the group is removed and the live widgets -- which have been correctly switched the whole time --
 -- are revealed exactly where the incoming snapshot came to rest.
 --
 -- A consequence worth knowing: the pages are *pictures* during the transition, so
 -- anything that repaints mid-flight (a spinner, a progress bar) is frozen for its
 -- duration. At 150-240 ms that is imperceptible, and it is the reason the duration
 -- is clamped rather than scaled freely with width.
+--
+-- ### Failing closed
+--
+-- No compositor (no native backend, or the overlay couldn't be made), or a capture
+-- that comes back empty, means no animation: the switch happens instantly, exactly
+-- as it did before this module existed. Each reason is logged once.
 --
 -- ### Interruption
 --
@@ -72,6 +79,7 @@
 local class = require("middleclass")
 
 local ThemePalette = require("core.classes.Theme")
+local Compositor = require("core.lib.Compositor")
 
 local TabTransition = class("TabTransition")
 
@@ -79,6 +87,9 @@ local TabTransition = class("TabTransition")
 -- the UI settled (a theme switch, a tab-tree rearrangement) can collapse the
 -- transition without knowing anything about it.
 local TAG = "tab-transition"
+
+-- The compositor group this module owns (the drag feedback has its own).
+local GROUP = "tab-transition"
 
 -- The motion role this module animates under. Its duration, curve, style, travel
 -- fraction and fade flag all come from `core.lib.MotionTokens.ROLES`, as
@@ -115,83 +126,22 @@ local OUTGOING_LEAD = 0.5
 -- cross-fade, which is what made the whole transition read as a quick dissolve.
 local FADE_SPAN = 0.85
 
--- =======================================================================
--- CLIPPED COMPOSITING
--- =======================================================================
---
--- Both pages slide horizontally across a fixed canvas, so on every frame each
--- one is partly off-canvas. These helpers compute the visible intersection once
--- and draw only that, rather than handing GDI a full-page rectangle and relying
--- on it to clip. GDI does clip correctly -- the cost is what differs, and for
--- `AlphaBlend` (a software path) the cost is what makes the transition stutter.
---
--- Vertical extent is never clipped: the pages only ever move along X.
-
--- Visible span of a page whose left edge sits at `x` on a canvas `W` wide.
--- Returns destination X, source X, and width -- or nil when fully off-canvas.
-local function visible_span(x, W)
-	x = math.floor(x + 0.5)
-
-	local dst_x = x
-	local src_x = 0
-	if x < 0 then
-		-- Hanging off the left: skip the hidden columns in the SOURCE and start
-		-- drawing at the canvas edge.
-		src_x = -x
-		dst_x = 0
-	end
-
-	local width = W - src_x
-	if dst_x + width > W then width = W - dst_x end
-	if width <= 0 then return nil end
-
-	return dst_x, src_x, width
+-- Where the pages are drawn: the live page's rectangle in overlay pixels. Both
+-- pages are clipped to it, so a slide never paints over the tab strip or the
+-- window chrome.
+local function content_rect(comp, page, fallback)
+	return comp:rect(page) or fallback
 end
 
-local function blit_clipped(o, snap, x, W, H)
-	local dst_x, src_x, width = visible_span(x, W)
-	if not dst_x then return end
-	o:blit(snap, dst_x, 0, width, H, src_x, 0)
+-- "R G B" as 0xRRGGBB.
+local function rgb(value)
+	local r, g, b = tostring(value):match("(%d+)%s+(%d+)%s+(%d+)")
+	if not r then return 0xffffff end
+	return (tonumber(r) % 256) * 65536 + (tonumber(g) % 256) * 256 + (tonumber(b) % 256)
 end
 
-local function blend_clipped(o, snap, x, W, H, alpha)
-	local dst_x, src_x, width = visible_span(x, W)
-	if not dst_x then return end
-	o:blendBlit(snap, dst_x, 0, alpha, width, H, src_x, 0)
-end
-
--- Paint `color` over the parts of the canvas neither page covers.
---
--- With the shipped geometry this paints NOTHING, and that is the point.
---
--- `travel` is clamped to at most the page width, and the two pages are opaque
--- rectangles of exactly that width moving in opposite directions -- so their
--- union always spans the canvas and there is no backdrop to draw. The composer
--- it replaced filled the entire canvas every frame regardless, which was a
--- full-page `FillRect` whose every pixel was then painted over.
---
--- It is kept as a guard rather than deleted. The invariant it depends on lives
--- in the travel clamping thirty lines away, and if that ever changes -- a theme
--- override, a new `max_travel` interaction, a pane narrower than `MIN_TRAVEL` --
--- the failure mode is uncovered columns showing whatever the back buffer last
--- held, i.e. a ghost of the previous transition. Three comparisons per frame is
--- a fair price for that not being possible.
---
--- The middle band covers the case where the pages do not meet at all; the outer
--- two cover a page hanging off either edge.
-local function fill_uncovered(o, from_x, to_x, W, H, color)
-	local a = math.min(math.floor(from_x + 0.5), math.floor(to_x + 0.5))
-	local b = math.max(math.floor(from_x + 0.5), math.floor(to_x + 0.5))
-
-	local function band(x0, x1)
-		if x0 < 0 then x0 = 0 end
-		if x1 > W then x1 = W end
-		if x1 > x0 then o:fill(x0, 0, x1 - x0, H, color) end
-	end
-
-	band(0, a)          -- left of both pages
-	band(a + W, b)      -- between them, when they do not meet
-	band(b + W, W)      -- right of both pages
+local function round(v)
+	return math.floor(v + 0.5)
 end
 
 --- Create a tab transition controller.
@@ -200,7 +150,9 @@ end
 --
 --   * `iup` -- the IUP binding
 --   * `director` -- `core.classes.MotionDirector`
---   * `overlay` -- `core.ui.MotionOverlay`
+--   * `dialog` -- the dialog whose compositor draws the transition
+--   * `compositor` -- optional `fn() -> manager|nil, why`; defaults to
+--     `Compositor.forDialog(iup, dialog)` (tests pass a fake)
 --   * `log` -- optional `fn(msg)` for diagnostics
 --
 -- @tparam table opts construction options (see above)
@@ -208,8 +160,10 @@ function TabTransition:initialize(opts)
 	opts = opts or {}
 	self._iup      = opts.iup
 	self._director = opts.director
-	self._overlay  = opts.overlay
 	self._log      = opts.log
+	self._get_comp = opts.compositor or function()
+		return Compositor.forDialog(opts.iup, opts.dialog)
+	end
 
 	self._active    = nil   -- in-flight transition state
 	self._armed     = nil   -- outgoing page captured, awaiting the switch
@@ -260,8 +214,7 @@ end
 -- @treturn table `{ label = value }` pairs, all strings.
 -- @usage for k, v in pairs(transition:report()) do print(k, v) end
 function TabTransition:report()
-	local Overlay = require("core.ui.MotionOverlay")
-	local d, o = self._director, self._overlay
+	local d = self._director
 	local function yn(v) return v and "yes" or "NO" end
 	local s = self._stats or {}
 	local function n(k) return tostring(s[k] or 0) end
@@ -274,7 +227,7 @@ function TabTransition:report()
 	--   committed 0  -> TABCHANGE_CB is not reaching TabOrder, or something
 	--                   overwrote the chained callback
 	--   played 0     -> a capture came back nil or zero-sized
-	--   shown 0      -> the overlay window refused to appear
+	--   shown 0      -> the compositor refused the first frame
 	--   frames 0     -> the director never ticked it
 	--   frames > 0   -> it IS running and drawing, and the problem is that the
 	--                   overlay is not visible: Z-order, alpha, or a blank capture
@@ -293,9 +246,7 @@ function TabTransition:report()
 
 	return {
 		["Motion enabled"]        = yn(d and d:enabled()),
-		["Overlay supported"]     = yn(Overlay.supported()),
-		["Overlay available"]     = yn(o and o:available()),
-		["Alpha compositing"]     = yn(Overlay.blendSupported()),
+		["Compositor available"]  = yn(self._compositor ~= nil or (not self._unavailable and self._director ~= nil and self:_comp() ~= nil)),
 		["Transitions suspended"] = yn(self:suspended()),
 		["Last decline"]          = tostring(self._last_decline or "none"),
 		["Count 1 armed"]         = n("armed"),
@@ -320,15 +271,34 @@ function TabTransition:busy()
 	return self._active ~= nil
 end
 
--- Release snapshots and hide the overlay. Safe to call twice.
+-- Release snapshots and take the group off the screen. Safe to call twice.
 function TabTransition:_teardown()
 	local st = self._active
 	self._active = nil
 	if not st then return end
 
-	if self._overlay then self._overlay:hide() end
+	local comp = self._compositor
+	if comp then
+		pcall(function()
+			comp:remove(GROUP)
+			comp:schedule(self._director)
+		end)
+	end
 	if st.from_snap then st.from_snap:release() end
 	if st.to_snap then st.to_snap:release() end
+end
+
+-- The dialog's compositor, made on first use; nil when there is none.
+function TabTransition:_comp()
+	if self._compositor then return self._compositor end
+	if self._unavailable then return nil end
+	local ok, comp, why = pcall(self._get_comp)
+	if not ok or not comp then
+		self._unavailable = tostring(ok and why or comp)
+		return nil
+	end
+	self._compositor = comp
+	return comp
 end
 
 --- Finish any in-flight transition immediately.
@@ -420,17 +390,16 @@ function TabTransition:_ready()
 		self:_declined("tree surgery in progress")
 		return false
 	end
-	local d, o = self._director, self._overlay
+	local d = self._director
 	if d == nil then self:_declined("no motion director"); return false end
-	if o == nil then self:_declined("no overlay"); return false end
 	if not d:enabled() then
 		self:_declined("motion is switched off (setting, or OS reduce-motion)")
 		return false
 	end
-	if not o:available() then
-		-- The single most likely answer: the overlay needs FFI, the iupraw bridge, a window handle and a layered
-		-- window style, and latches itself off permanently if any of that fails.
-		self:_declined("overlay unavailable (FFI, HWND or layered window)")
+	if not self:_comp() then
+		-- The single most likely answer on a platform whose compositor backend
+		-- isn't there, or when the overlay window couldn't be created.
+		self:_declined("no compositor (" .. tostring(self._unavailable) .. ")")
 		return false
 	end
 	return true
@@ -462,14 +431,14 @@ function TabTransition:arm(strip)
 		return
 	end
 
-	local snap, why = self._overlay:capture(page)
+	local snap, why = self._compositor:snapshot(page)
 	if not snap then
 		self:_declined("outgoing capture failed: " .. tostring(why))
 		return
 	end
 
 	self:_count("armed")
-	self._armed = { strip = strip, pos = pos, snap = snap }
+	self._armed = { strip = strip, pos = pos, snap = snap, rect = self._compositor:rect(page) }
 end
 
 --- Animate the switch that has just happened on `strip`.
@@ -523,7 +492,7 @@ function TabTransition:commit(strip)
 	-- Do NOT read VALUEPOS here — see the docstring note above.
 	-- _startPending (1 ms later) verifies that a real navigation happened.
 	self:_count("committed")
-	self._pending = { strip = strip, snap = armed.snap, from_pos = armed.pos }
+	self._pending = { strip = strip, snap = armed.snap, from_pos = armed.pos, rect = armed.rect }
 	self:_scheduleStart()
 	return true
 end
@@ -563,7 +532,7 @@ function TabTransition:_startPending(job)
 		job.snap:release()
 		return
 	end
-	self:_play(job.strip, job.snap, to_page, job.from_pos, to_pos)
+	self:_play(job.strip, job.snap, to_page, job.from_pos, to_pos, job.rect)
 end
 
 -- Drop a capture that was armed, or scheduled but not yet started.
@@ -587,7 +556,7 @@ end
 -- `switch` is invoked between the two captures and **must** perform the actual tab
 -- change. It is always called exactly once, whether or not the animation runs, so
 -- this is safe to wrap around any programmatic switch -- if motion is off, the
--- overlay is unavailable, or a capture fails, the switch still happens and only
+-- compositor is unavailable, or a capture fails, the switch still happens and only
 -- the animation is skipped.
 --
 -- @tparam ihandle strip the `iup.flattabs` whose page is changing
@@ -617,11 +586,13 @@ function TabTransition:run(strip, to_pos, switch)
 		return false
 	end
 
-	local from_snap = self._overlay:capture(from_page)
+	local from_snap, why = self._compositor:snapshot(from_page)
 	if not from_snap then
+		self:_declined("outgoing capture failed: " .. tostring(why))
 		do_switch()
 		return false
 	end
+	local from_rect = self._compositor:rect(from_page)
 
 	do_switch()
 
@@ -631,14 +602,51 @@ function TabTransition:run(strip, to_pos, switch)
 		return false
 	end
 
-	return self:_play(strip, from_snap, to_page, from_pos, actual_pos or to_pos)
+	return self:_play(strip, from_snap, to_page, from_pos, actual_pos or to_pos, from_rect)
+end
+
+-- Compose the pair at `st.progress` into the compositor group.
+--
+-- Every sprite is clipped to the page's rectangle, which is also what crops the
+-- part of each page that has slid out of it, so nothing is hand-clipped here.
+function TabTransition:_frame(st)
+	local t = st.progress
+	local r = st.rect
+	local clip = { x = r.x, y = r.y, w = r.w, h = r.h }
+
+	-- Outgoing page: the opaque base, drifting in the direction of travel.
+	local from_x = st.dir * st.travel * st.lead * t
+
+	-- Incoming page: arrives from the side the new tab sits on, and settles at
+	-- zero. At full travel with the fade off, this sits exactly one page width
+	-- from the outgoing page at every instant -- the rigid Carbon pair.
+	local to_x = -st.dir * st.travel * (1 - t)
+
+	st.from_x, st.to_x = from_x, to_x
+
+	local alpha = 1
+	if st.fade then
+		alpha = t / FADE_SPAN
+		if alpha > 1 then alpha = 1 end
+		if alpha < 0 then alpha = 0 end
+	end
+
+	self._compositor:set(GROUP, {
+		z = Compositor.Z_TAB,
+		regions = {},
+		sprites = {
+			{ kind = "fill", x = r.x, y = r.y, w = r.w, h = r.h, color = st.backdrop, alpha = 1, clip = clip },
+			{ kind = "image", snap = st.from_snap, x = r.x + round(from_x), y = r.y, alpha = 1, clip = clip },
+			{ kind = "image", snap = st.to_snap, x = r.x + round(to_x), y = r.y, alpha = alpha, clip = clip },
+		},
+	})
 end
 
 -- Capture the incoming page and animate the pair.
-function TabTransition:_play(strip, from_snap, to_page, from_pos, to_pos)
-	local overlay = self._overlay
+function TabTransition:_play(strip, from_snap, to_page, from_pos, to_pos, from_rect)
+	local comp = self._compositor
 
-	local to_snap, why = overlay:capture(to_page)
+	local to_snap, why = comp:snapshot(to_page)
 	if not to_snap then
 		self:_declined("incoming capture failed: " .. tostring(why))
 		from_snap:release()
@@ -646,12 +654,23 @@ function TabTransition:_play(strip, from_snap, to_page, from_pos, to_pos)
 	end
 
 	local w, h = from_snap.w, from_snap.h
-	if w <= 0 or h <= 0 then
+	if w <= 0 or h <= 0 or to_snap.w <= 0 or to_snap.h <= 0 then
 		self:_declined("captured page has zero size")
 		from_snap:release()
 		to_snap:release()
 		return false
 	end
+
+	-- Where the page sits in the overlay. The incoming page's rectangle is the
+	-- truth after the switch; the outgoing one (taken before it) is the fallback.
+	local rect = content_rect(comp, to_page, from_rect)
+	if not rect then
+		self:_declined("no rectangle for the page")
+		from_snap:release()
+		to_snap:release()
+		return false
+	end
+	rect = { x = rect.x, y = rect.y, w = w, h = h }
 
 	-- Direction: moving rightward along the strip pushes content leftward, the way
 	-- a filmstrip advances. Nested group strips report their own local positions,
@@ -683,25 +702,26 @@ function TabTransition:_play(strip, from_snap, to_page, from_pos, to_pos)
 	local fade = (motion.fade ~= false) and (frac < 1)
 	local lead = fade and OUTGOING_LEAD or 1
 
-	-- Background behind the composition. Only ever visible in the few pixels the
-	-- damped outgoing page has vacated before the incoming page is fully opaque --
-	-- but leaving those pixels as whatever the back buffer last held is how a
-	-- transition picks up a ghost of the previous one.
-	local backdrop = ThemePalette.color("bg", "255 255 255")
+	-- Behind both pages: only ever visible in the few pixels the damped outgoing
+	-- page has vacated before the incoming page is fully opaque, but without it the
+	-- live (already switched) page would flash through there.
+	local backdrop = rgb(ThemePalette.color("bg", "255 255 255"))
 
 	local st = {
 		from_snap = from_snap,
 		to_snap   = to_snap,
+		rect      = rect,
 		progress  = 0,
 		w         = w,
 		h         = h,
-		-- Logical page offsets for the frame last composed, BEFORE clipping.
-		--
-		-- The draw calls no longer reveal these: a clipped draw reports where the
-		-- visible part landed, and a page entirely off-canvas is not drawn at all.
-		-- The geometric contract -- the rigid pair sitting exactly one page width
-		-- apart, the incoming page settling at zero -- is about these numbers, so
-		-- they are recorded rather than inferred from what was painted.
+		travel    = travel,
+		lead      = lead,
+		fade      = fade,
+		dir       = dir,
+		backdrop  = backdrop,
+		-- Logical page offsets for the frame last composed. The geometric
+		-- contract -- the rigid pair sitting exactly one page width apart, the
+		-- incoming page settling at zero -- is about these numbers.
 		from_x    = 0,
 		to_x      = 0,
 	}
@@ -711,63 +731,13 @@ function TabTransition:_play(strip, from_snap, to_page, from_pos, to_pos)
 	self._last_geometry = string.format("page %dx%d, travel %d, fade %s",
 		w, h, math.floor(travel), tostring(fade))
 
-	local shown = overlay:show(to_page, function(o)
-		local t = st.progress
-		local W, H = st.w, st.h
-
-		-- Every draw below is clipped to the part of the page actually on the
-		-- canvas.
-		--
-		-- The naive composer drew all three layers at full page size. That is
-		-- correct but wasteful: the pages are mid-slide, so a band of each one is
-		-- off-canvas on every frame except the last, and `travel` is capped at
-		-- `max_travel` (360 px) -- so on a maximised window the great majority of
-		-- those pixels were being blended and then discarded.
-		--
-		-- It matters more than a normal micro-optimisation because one of the
-		-- three is `AlphaBlend`, which GDI implements in software. At 4K a
-		-- full-page blend alone can exceed the whole 16 ms frame budget, and when
-		-- a frame overruns the driver does not stretch the animation -- it drops
-		-- the frame (see core.classes.MotionDirector, "Time-based, not
-		-- frame-based"). Dropped frames are exactly the reported choppiness, and
-		-- they are also why raising the motion speed did not help: a shorter
-		-- duration does not buy more frames, it just spreads the same few over
-		-- less time.
-		--
-		-- Output is unchanged: clipping only removes pixels that fell outside the
-		-- canvas.
-
-		-- Outgoing page: the opaque base, drifting in the direction of travel.
-		local from_x = dir * travel * lead * t
-
-		-- Incoming page: arrives from the side the new tab sits on, and settles at
-		-- zero. At `frac == 1` with the fade off, this sits exactly one page width
-		-- from the outgoing page at every instant -- the rigid Carbon pair.
-		local to_x = -dir * travel * (1 - t)
-
-		st.from_x, st.to_x = from_x, to_x
-
-		blit_clipped(o, st.from_snap, from_x, W, H)
-
-		-- Backdrop, drawn only where neither page covers the canvas.
-		--
-		-- Those pixels are only ever the narrow strip the damped outgoing page has
-		-- vacated before the incoming page is fully opaque -- but leaving them as
-		-- whatever the back buffer last held is how a transition picks up a ghost
-		-- of the previous one, so they do have to be painted. Just not all of
-		-- them: a full-page fill to cover a strip is the same waste as above.
-		fill_uncovered(o, from_x, to_x, W, H, backdrop)
-
-		if fade then
-			local alpha = t / FADE_SPAN
-			if alpha > 1 then alpha = 1 end
-			blend_clipped(o, st.to_snap, to_x, W, H, 255 * alpha)
-		else
-			blit_clipped(o, st.to_snap, to_x, W, H)
-		end
-	end)
-	if not shown then
-		self:_declined("overlay refused to show")
+	-- The first frame goes up before the animation's first tick, with the
+	-- outgoing page exactly where it was: the switch has already happened behind
+	-- it, so a frame of delay would show the new page for a tick.
+	self:_frame(st)
+	local ok, shown = pcall(comp.commit, comp)
+	if not ok or shown == false then
+		self:_declined("compositor refused the first frame")
 		self:_teardown()
 		return false
 	end
@@ -789,7 +759,8 @@ function TabTransition:_play(strip, from_snap, to_page, from_pos, to_pos)
 		on_frame = function(v)
 			this:_count("frames")
 			st.progress = v
-			overlay:redraw()
+			this:_frame(st)
+			comp:schedule(this._director)
 		end,
 		on_done  = function()
 			this:_teardown()

@@ -57,7 +57,7 @@ end
 
 local function log_warn(msg)
 	local ok, log = pcall(require, "core.lib.log")
-	if ok and log.get then pcall(function() log.get("job").warn(msg) end) end
+	if ok and log.get then pcall(function() log.get("job"):warn(msg) end) end
 end
 
 local function decode(line)

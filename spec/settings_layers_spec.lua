@@ -1,35 +1,18 @@
--- Unique per call: busted reseeds math.random, so a random name alone can hand
--- two tests (or two runs) the same temp folder.
-local __unique_seq = 0
-local function __unique_suffix()
-	__unique_seq = __unique_seq + 1
-	return string.format("%d_%d_%d", os.time(), __unique_seq, math.random(1e9))
-end
-
-local lfs = require("lfs")
 local cjson = require("cjson")
 local SettingsManager = require("core.classes.SettingsManager")
+local sandbox = require("spec.support.config_sandbox")
 
--- Point APPDATA at a fresh temp folder for the duration of `fn` (luajit has no
--- setenv, and SettingsManager reads APPDATA in initialize()).
+-- Run `fn(settings_path)` against a fresh per-user config root, optionally
+-- seeded with a settings.json.
 local function with_appdata(json, fn)
-	local dir = os.getenv("TEMP") .. "\\lunar_layers_spec_" .. __unique_suffix()
-	lfs.mkdir(dir)
-	lfs.mkdir(dir .. "\\Lunar Extension Host")
-	local path = dir .. "\\Lunar Extension Host\\settings.json"
+	local root = sandbox.new_root("lunar_layers_spec")
+	local path = sandbox.join(sandbox.mkdir(sandbox.app_dir(root)), "settings.json")
 	if json then
 		local f = assert(io.open(path, "w"))
 		f:write(cjson.encode(json))
 		f:close()
 	end
-	local real = os.getenv
-	os.getenv = function(k)
-		if k == "APPDATA" then return dir end
-		return real(k)
-	end
-	local ok, err = pcall(fn, path)
-	os.getenv = real
-	if not ok then error(err, 0) end
+	sandbox.with_root(root, fn, path)
 end
 
 local function read_json(path)

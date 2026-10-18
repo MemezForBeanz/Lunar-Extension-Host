@@ -1,7 +1,7 @@
 -- .busted — configuration for the busted test runner.
 --
 -- Specs live in spec/ and exercise the host's Lua modules. They run
--- under the vendored LuaJIT 2.1 (vendor\luajit) via scripts\test.ps1 — the same
+-- under LuaJIT 2.1 via scripts\test.ps1 (Windows) or scripts/dev.sh test (Linux) — the same
 -- VM the shipped GUI uses, so a passing suite says something about production.
 -- spec/support/runtime_host.lua enforces that and aborts on any other host.
 --
@@ -21,6 +21,6 @@ return {
 			"./vendor/luarocks-tree/share/lua/5.1/?.lua",
 			"./vendor/luarocks-tree/share/lua/5.1/?/init.lua",
 		}, ";"),
-		cpath = "./vendor/luarocks-tree/lib/lua/5.1/?.dll",
+		cpath = "./vendor/luarocks-tree/lib/lua/5.1/?.dll;./vendor/luarocks-tree/lib/lua/5.1/?.so",
 	},
 }

@@ -1,5 +1,0 @@
-/* The app icon; built from lunar-icon.svg by scripts\make-icon.ps1. */
-IUP ICON "lunar.ico"
-
-#include <winuser.h>
-1 RT_MANIFEST "LunarExtensionHost.exe.manifest"

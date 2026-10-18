@@ -667,7 +667,7 @@ function FolderDialog.show(opts)
 				MARGIN = L.margin(4), GAP = L.gap(3),
 			}),
 			TITLE = "New Folder",
-			-- Win32 ICON RESOURCE name from assets/LunarExtensionHost.rc, so popups
+			-- Win32 ICON RESOURCE name from assets/Lunar.rc, so popups
 			-- carry the app icon in their title bar and Alt-Tab entry too.
 			ICON = "IUP",
 			RASTERSIZE = "380x150",
@@ -887,7 +887,7 @@ function FolderDialog.show(opts)
 			MARGIN = L.margin(4), GAP = L.gap(3),
 		}),
 		TITLE = opts.title or "Select Folder",
-		-- Win32 ICON RESOURCE name from assets/LunarExtensionHost.rc, so popups
+		-- Win32 ICON RESOURCE name from assets/Lunar.rc, so popups
 		-- carry the app icon in their title bar and Alt-Tab entry too.
 		ICON = "IUP",
 		-- RASTERSIZE, not SIZE: IUP's SIZE is in font-relative dialog units, which is

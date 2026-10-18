@@ -15,9 +15,12 @@ plugins\<name>\init.lua     folder extension
 
 A folder extension may ship its own modules in `classes\`, `ui\`, and `libs\`
 subdirectories (required as `classes.X`, `ui.X`, `libs.X`), plus native `.dll`
-modules in the extension root or a `native\` subdirectory. The manager places
-the extension folder on `package.path` and `package.cpath` only while the
-extension loads, then restores both.
+modules in the extension root or a `native\` subdirectory (`.so` on Linux).
+Each extension gets its own `require`: it finds these modules in the
+extension's folder whenever they are required (also later, from callbacks),
+keeps them in a cache of its own, and falls back to the host's `require` for
+everything else. Two extensions can both ship `classes.Util` without
+colliding, and Extensions > Reload Extensions runs the current code.
 
 Extensions are loaded in sorted path order.
 
@@ -109,7 +112,7 @@ partially-registered extension already created.
 ```powershell
 cmake -S . -B build -G "MinGW Makefiles"
 cmake --build build
-.\build\bin\LunarExtensionHost.exe
+.\build\bin\Lunar.exe
 ```
 
 `plugins\` and `assets\` are staged under `build\bin\`, so a development build

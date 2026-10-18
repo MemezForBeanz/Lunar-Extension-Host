@@ -25,11 +25,11 @@ local EXTERNAL = {
 	argparse = true, tableshape = true, serpent = true, date = true,
 	logging = true, ffi = true, bit = true, jit = true, appimages = true,
 	themeapply = true, svgicon = true, iupraw = true, winredraw = true,
-	logscan = true,
+	logscan = true, compositor = true,
 }
 
 -- Resolved at runtime from a location CMake populates, not from the source tree:
--- the CLI harness is copied next to LunarExtensionHostCLI.exe along with scanner.lua
+-- the CLI harness is copied next to LunarCLI.exe along with scanner.lua
 -- (see the POST_BUILD step in CMakeLists.txt).
 local BUILD_COPIED = {
 	["src/lua/core/test_backend.lua"] = { scanner = true },

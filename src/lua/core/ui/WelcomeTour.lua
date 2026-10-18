@@ -187,7 +187,7 @@ function M.show(opts)
 			GAP = L.gap(3),
 		}),
 		TITLE = "Welcome Tour",
-		-- Win32 ICON RESOURCE name from assets/LunarExtensionHost.rc.
+		-- Win32 ICON RESOURCE name from assets/Lunar.rc.
 		ICON = "IUP",
 		SIZE = "420x260",
 		SHRINK = "YES",

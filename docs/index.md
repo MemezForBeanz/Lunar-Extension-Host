@@ -17,6 +17,7 @@ This site documents the API those extensions are written against.
 - **Manifest reference** — the `manifest.json` identity and capability schema.
 - **Tab groups** — how the tab strip nests, scrolls, and persists its layout.
 - **Motion** — the Carbon-derived animation system, and `ctx:animate`.
+- **Trust model** — extensions are trusted by install location; there is no sandbox.
 
 ## Layers
 

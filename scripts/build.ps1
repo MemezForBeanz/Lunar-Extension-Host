@@ -8,16 +8,20 @@
 
     Build modes (-Mode):
         portable   Self-contained folder (exe + plugins\) + a .zip. No install.
-        installer  A real Windows Installer package (.msi) built with the WiX Toolset.
+        installer  A real Windows Installer package (.msi) built with the WiX Toolset,
+                   plus Lunar-Setup-<ver>.exe: the graphical installer people download.
                    The app is the required "core" feature; every extension is its own
-                   optional feature, so users pick exactly which extensions to install
-                   from the standard MSI feature-selection screen. Uninstall is handled
-                   natively through Add/Remove Programs.
+                   optional feature (MSI feature Ft_ext_<id>). The setup .exe is an
+                   IExpress self-extractor carrying Lunar.exe, the installer script and
+                   the MSI; its wizard (the same pages as on Linux) runs msiexec with
+                   ADDLOCAL for the extensions the user ticked. IT can still deploy the
+                   .msi directly (msiexec /i ... /qn). Uninstall is handled natively
+                   through Add/Remove Programs.
         all        Both of the above (default).
 
     Hosting model (GitHub-primary, share mirror):
         * GitHub Releases are the canonical, versioned store. One release per version
-          (tag v<semver>) holds LunarExtensionHost-<ver>.msi, the portable zip, and a small
+          (tag v<semver>) holds Lunar-Setup-<ver>.exe, LunarExtensionHost-<ver>.msi, the portable zip, and a small
           release.json describing the contents.
         * The SMB share is an auto-populated, zero-auth mirror under releases\<ver>\
           plus a manifest.json and a stable LunarExtensionHost-Setup.msi at the share root
@@ -128,7 +132,7 @@ $DistDir    = Join-Path $RepoRoot 'dist'
 $AssetsDir  = Join-Path $DistDir 'release-assets'
 $AppName    = 'Lunar Extension Host'
 $Manufacturer = 'Lunar Extension Host contributors'
-$ExeName    = 'LunarExtensionHost.exe'
+$ExeName    = 'Lunar.exe'
 # STABLE across versions - do not change. Lunar has its own product identity,
 # separate from any org's branded installer, so the two never replace each other.
 $UpgradeCode = '5C145DA3-FBAC-420D-B9F0-EE19AFEA76EA'
@@ -153,6 +157,10 @@ function Get-ReleaseAssetsForVersion($ver) {
     }
 
     $assets = @($msi, $releaseJson)
+    $setup = Join-Path $AssetsDir "Lunar-Setup-$ver.exe"
+    if (Test-Path -LiteralPath $setup) {
+        $assets += $setup
+    }
     $portable = Join-Path $AssetsDir "Lunar-portable-$ver.zip"
     if (Test-Path -LiteralPath $portable) {
         $assets += $portable
@@ -383,7 +391,7 @@ function Invoke-Build {
 # to be added here explicitly.
 function Copy-AppFiles($dest) {
     New-Item -ItemType Directory -Path $dest -Force | Out-Null
-    $include = @('LunarExtensionHost.exe', 'assets', 'certs')
+    $include = @('Lunar.exe', 'assets', 'certs')
     foreach ($name in $include) {
         $src = Join-Path $BinDir $name
         if (-not (Test-Path -LiteralPath $src)) {
@@ -422,12 +430,29 @@ function Copy-PluginFiles($dest) {
         ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
 }
 
-# Best-effort: read an extension's display name + version from its source.
+# An extension's id the way the host derives one (ExtensionManifest.defaultId).
+function Get-DefaultExtensionId($s) {
+    $v = ([string]$s).ToLowerInvariant()
+    $v = [regex]::Replace($v, '[^a-z0-9._-]+', '-')
+    $v = [regex]::Replace($v, '-+', '-').Trim('-')
+    if ($v -eq '') { $v = 'extension' }
+    if ($v -notmatch '^[a-z0-9]') { $v = "ext-$v" }
+    return $v
+}
+
+# Read an extension's manifest.json (folder extension) or <name>.manifest.json (single
+# file) - the same files the host reads at startup and the Linux installer scans - for
+# its id, display name, version and description. Falls back to the initialize(...)
+# call in the source, then to the file name.
 function Get-ExtensionInfo($item, $ver) {
     $name = $item.BaseName
     $version = ''
+    $description = ''
+    $extId = Get-DefaultExtensionId $item.BaseName
+    $manifestPath = $null
     if ($item.PSIsContainer) {
         $entry = 'init.lua'
+        $manifestPath = Join-Path $item.FullName 'manifest.json'
         $init = Join-Path $item.FullName 'init.lua'
         if (Test-Path $init) {
             $txt = Get-Content -LiteralPath $init -Raw
@@ -437,15 +462,47 @@ function Get-ExtensionInfo($item, $ver) {
         $type = 'folder'
     } else {
         $entry = $item.Name
+        $manifestPath = Join-Path $item.DirectoryName ($item.BaseName + '.manifest.json')
         $type = 'file'
     }
+    if ($manifestPath -and (Test-Path -LiteralPath $manifestPath)) {
+        try {
+            $mf = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+            if ($mf.id)          { $extId = [string]$mf.id }
+            if ($mf.name)        { $name = [string]$mf.name }
+            if ($mf.version)     { $version = [string]$mf.version }
+            if ($mf.description) { $description = [string]$mf.description }
+        } catch {
+            Write-Info "Ignoring unreadable manifest $manifestPath ($($_.Exception.Message))"
+        }
+    }
     [pscustomobject]@{
-        id      = (Get-WixId $item.BaseName)                    # safe WiX identifier
-        name    = $name                                         # display name (feature title)
-        source  = $item.Name                                    # how it appears under plugins\
-        type    = $type
-        entry   = $entry
-        version = $version
+        id          = (Get-WixId $item.BaseName)                    # safe WiX identifier (feature Ft_ext_<id>)
+        extId       = $extId                                        # the extension's own id (manifest)
+        name        = $name                                         # display name (feature title)
+        source      = $item.Name                                    # how it appears under plugins\
+        type        = $type
+        entry       = $entry
+        version     = $version
+        description = $description
+    }
+}
+
+# What lives under plugins\ that the MSI turns into features: every folder and file,
+# except a <name>.manifest.json that belongs to <name>.lua (it ships with that
+# extension's component rather than being an extension of its own).
+function Get-ExtensionItems($pluginsDir) {
+    $items = @(Get-ChildItem -LiteralPath $pluginsDir -Force)
+    $luaStems = @{}
+    foreach ($i in $items) {
+        if (-not $i.PSIsContainer -and $i.Extension -eq '.lua') { $luaStems[$i.BaseName] = $true }
+    }
+    foreach ($i in $items) {
+        if (-not $i.PSIsContainer -and $i.Name -like '*.manifest.json') {
+            $stem = $i.Name.Substring(0, $i.Name.Length - '.manifest.json'.Length)
+            if ($luaStems.ContainsKey($stem)) { continue }
+        }
+        $i
     }
 }
 
@@ -472,7 +529,7 @@ function New-Portable($ver) {
 # Builds release-assets\LunarExtensionHost-<ver>.msi plus a release.json manifest.
 #
 # Layout of the installed product (Program Files\Lunar Extension Host\):
-#   LunarExtensionHost.exe                     -> the required "core" feature
+#   Lunar.exe                     -> the required "core" feature
 #   plugins\<extension>\ or plugins\<x>.lua -> one optional feature per extension
 #
 # Each extension is its own MSI Feature, so the standard feature-selection screen
@@ -502,9 +559,10 @@ function New-Msi($ver) {
 
     # Discover extensions and harvest each into its own component group.
     $exts = @()
-    Get-ChildItem -LiteralPath $srcPlugins -Force | ForEach-Object {
+    Get-ExtensionItems $srcPlugins | ForEach-Object {
         $exts += (Get-ExtensionInfo $_ $ver)
     }
+    $script:MsiExtensions = $exts
 
     # candle preprocessor variables (source roots) + the .wxs files to compile.
     $candleVars = @("-dAppSrc=$appSrc", "-dPluginsSrc=$srcPlugins", "-dLicenseRtf=$LicenseRtf")
@@ -544,18 +602,33 @@ function New-Msi($ver) {
 "@
         }
         else {
-            # Single-file extension: one component placed directly under plugins\.
+            # Single-file extension: a component placed directly under plugins\, plus a
+            # second one for its <name>.manifest.json when there is one (an
+            # auto-GUID component can hold only one file).
             $cmp = "Cmp_ext_$($e.id)"
+            $companionName = [System.IO.Path]::GetFileNameWithoutExtension($e.source) + '.manifest.json'
+            $companionComp = ''
+            $companionRef = ''
+            if (Test-Path -LiteralPath (Join-Path $srcPlugins $companionName)) {
+                $companionComp = @"
+      <Component Id="${cmp}_manifest" Guid="*">
+        <File Id="File_ext_$($e.id)_manifest" Source="`$(var.PluginsSrc)\$(ConvertTo-XmlAttr $companionName)" KeyPath="yes" />
+      </Component>
+
+"@
+                $companionRef = "        <ComponentRef Id=`"${cmp}_manifest`" />`r`n"
+            }
             $fileComps += @"
       <Component Id="$cmp" Guid="*">
         <File Id="File_ext_$($e.id)" Source="`$(var.PluginsSrc)\$(ConvertTo-XmlAttr $e.source)" KeyPath="yes" />
       </Component>
 
+$companionComp
 "@
             $extFeatures += @"
       <Feature Id="Ft_ext_$($e.id)" Title="$title" Level="1" Description="$title extension.">
         <ComponentRef Id="$cmp" />
-      </Feature>
+$companionRef      </Feature>
 
 "@
         }
@@ -668,6 +741,7 @@ $extFeatures    </Feature>
         name       = $AppName
         version    = $ver
         msi        = "LunarExtensionHost-$ver.msi"
+        setup      = "Lunar-Setup-$ver.exe"
         portable   = "Lunar-portable-$ver.zip"
         extensions = @($exts | ForEach-Object { [pscustomobject]@{ name = $_.name; source = $_.source; type = $_.type; version = $_.version } })
         builtAt    = (Get-Date).ToString('o')
@@ -676,6 +750,117 @@ $extFeatures    </Feature>
     Write-Info "Extensions (optional features): $((@($exts) | ForEach-Object name) -join ', ')"
     Write-Info "MSI:            $msi"
     Write-Info "Release assets: $AssetsDir"
+}
+
+# --- 3b. Setup program (IExpress self-extractor around the MSI) -------------------
+# Builds release-assets\Lunar-Setup-<ver>.exe: the installer people download. IExpress
+# (iexpress.exe, part of Windows) packs a flat list of files into a self-extracting exe
+# that unpacks them to a temp folder and runs a command there:
+#
+#   Lunar.exe setup.lua        the wizard (src\lua\installer, embedded in Lunar.exe)
+#
+# The wizard shows the same pages as the Linux setup and finally runs
+# `msiexec /i LunarExtensionHost-<ver>.msi ADDLOCAL=Ft_Core,Ft_ext_<id>,... /qn`
+# elevated. payload.json (written here) tells it the version, the MSI's name and the
+# extension -> MSI feature mapping, taken from the very list the MSI was built from.
+function New-SetupExe($ver) {
+    Write-Step "Building setup program (v$ver)"
+    if ($null -eq $script:MsiExtensions) { throw 'New-SetupExe needs the extension list New-Msi produced.' }
+    $msiName = "LunarExtensionHost-$ver.msi"
+    $msi = Join-Path $AssetsDir $msiName
+    if (-not (Test-Path -LiteralPath $msi)) { throw "MSI not found: $msi" }
+
+    $iexpress = Join-Path $env:SystemRoot 'System32\iexpress.exe'
+    if (-not (Test-Path -LiteralPath $iexpress)) { $iexpress = Join-Path $env:SystemRoot 'SysWOW64\iexpress.exe' }
+    if (-not (Test-Path -LiteralPath $iexpress)) { throw 'iexpress.exe not found (it ships with Windows).' }
+
+    $stage = Join-Path $DistDir 'setup'
+    if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+    New-Item -ItemType Directory -Path $stage -Force | Out-Null
+
+    # IExpress packages a flat folder, so everything sits side by side.
+    Copy-Item -LiteralPath (Join-Path $BinDir $ExeName) -Destination $stage
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'installer\setup.lua') -Destination $stage
+    Copy-Item -LiteralPath (Join-Path $RepoRoot 'LICENSE') -Destination $stage
+    Copy-Item -LiteralPath $msi -Destination $stage
+
+    $payload = [ordered]@{
+        version    = $ver
+        platform   = 'windows'
+        msi        = $msiName
+        extensions = @($script:MsiExtensions | ForEach-Object {
+            [ordered]@{ id = $_.extId; name = $_.name; version = $_.version; description = $_.description
+                        feature = "Ft_ext_$($_.id)" }
+        })
+    }
+    $json = $payload | ConvertTo-Json -Depth 6
+    # UTF-8 without a BOM (the Lua JSON decoder doesn't skip one).
+    [System.IO.File]::WriteAllText((Join-Path $stage 'payload.json'), $json, (New-Object System.Text.UTF8Encoding($false)))
+
+    $files = @(Get-ChildItem -LiteralPath $stage -File | ForEach-Object Name)
+    $out = Join-Path $AssetsDir "Lunar-Setup-$ver.exe"
+    if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Force }
+
+    $strings = New-Object System.Collections.Generic.List[string]
+    $sources = New-Object System.Collections.Generic.List[string]
+    for ($i = 0; $i -lt $files.Count; $i++) {
+        $strings.Add(('FILE{0}="{1}"' -f $i, $files[$i]))
+        $sources.Add("%FILE$i%=")
+    }
+    $sed = @"
+[Version]
+Class=IEXPRESS
+SEDVersion=3
+[Options]
+PackagePurpose=InstallApp
+ShowInstallProgramWindow=1
+HideExtractAnimation=1
+UseLongFileName=1
+InsideCompressed=0
+CAB_FixedSize=0
+CAB_ResvCodeSigning=0
+RebootMode=N
+InstallPrompt=%InstallPrompt%
+DisplayLicense=%DisplayLicense%
+FinishMessage=%FinishMessage%
+TargetName=%TargetName%
+FriendlyName=%FriendlyName%
+AppLaunched=%AppLaunched%
+PostInstallCmd=%PostInstallCmd%
+AdminQuietInstCmd=%AdminQuietInstCmd%
+UserQuietInstCmd=%UserQuietInstCmd%
+SourceFiles=SourceFiles
+[Strings]
+InstallPrompt=
+DisplayLicense=
+FinishMessage=
+TargetName=$out
+FriendlyName=Lunar Setup $ver
+AppLaunched=$ExeName setup.lua
+PostInstallCmd=<None>
+AdminQuietInstCmd=
+UserQuietInstCmd=
+$($strings -join "`r`n")
+[SourceFiles]
+SourceFiles0=$stage\
+[SourceFiles0]
+$($sources -join "`r`n")
+"@
+    $sedPath = Join-Path $DistDir 'setup.sed'
+    Set-Content -LiteralPath $sedPath -Value $sed -Encoding ASCII
+
+    # /N: no wizard, /Q: quiet. The .SED is named relative to the working folder: a
+    # quoted absolute path makes iexpress exit 1 without a message. It can also return
+    # before the exe is complete on some Windows versions, so wait for the output as
+    # well as the process.
+    $p = Start-Process -FilePath $iexpress -ArgumentList @('/N', '/Q', (Split-Path -Leaf $sedPath)) `
+        -WorkingDirectory (Split-Path -Parent $sedPath) -Wait -PassThru
+    $deadline = (Get-Date).AddSeconds(120)
+    while (-not (Test-Path -LiteralPath $out) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+    if (-not (Test-Path -LiteralPath $out)) { throw "iexpress did not produce $out (exit $($p.ExitCode)); see $sedPath" }
+    # Let it finish writing.
+    Start-Sleep -Seconds 1
+    Write-Info "Setup:          $out ($([math]::Round((Get-Item -LiteralPath $out).Length / 1MB, 1)) MB)"
 }
 
 # --- 4a. Publish to the SMB share (versioned mirror) ----------------------------
@@ -818,8 +1003,8 @@ if (-not (Test-Path (Join-Path $BinDir $ExeName))) {
 
 switch ($Mode) {
     'portable'  { New-Portable $Version }
-    'installer' { New-Msi $Version }
-    'all'       { New-Portable $Version; New-Msi $Version }
+    'installer' { New-Msi $Version; New-SetupExe $Version }
+    'all'       { New-Portable $Version; New-Msi $Version; New-SetupExe $Version }
 }
 
 # Publishing (the MSI is required for either target).

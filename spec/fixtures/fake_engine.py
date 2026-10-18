@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 import time
+import signal
 
 
 def emit(**event):
@@ -71,6 +72,16 @@ def main():
         child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
         emit(type="log", level="info", message="grandchild", pid=child.pid)
         time.sleep(600)
+
+    elif mode == "fds":
+        # Linux exposes the exact descriptors that survived exec.
+        fds = sorted(int(fd) for fd in os.listdir("/proc/self/fd") if fd.isdigit())
+        # The directory listing can include its own transient descriptor.
+        fds = [fd for fd in fds if os.path.exists("/proc/self/fd/%d" % fd)]
+        emit(type="result", ok=True, data={"fds": fds})
+
+    elif mode == "signal":
+        os.kill(os.getpid(), signal.SIGTERM)
 
     else:
         sys.stderr.write("unknown mode %s\n" % mode)

@@ -111,3 +111,16 @@ Colour is only half of the Carbon language the app follows; the other half is
 movement. Animation durations, easing and choreography are documented separately
 in **Motion**, and are configured alongside the theme selector in
 Settings → Appearance.
+
+## Light and dark
+
+Settings > Appearance > **Match system theme** shows the user's light theme while
+the operating system is in light mode and their dark theme while it is in dark
+mode (Windows' app mode; on Linux the desktop's light/dark style), switching live.
+Lunar decides whether a theme is dark from its palette's `bg` brightness. A theme
+whose background doesn't say it clearly can declare it in its spec:
+
+```lua
+Theme.initialize(self, { id = "my_theme", label = "My Theme", dark = true, palette = p })
+```
+

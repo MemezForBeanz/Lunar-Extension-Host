@@ -47,7 +47,7 @@
 .NOTES
     Requires MSYS2 with the mingw64 toolchain (gcc, mingw32-make) and perl.
     After running, rebuild the app and check what it negotiates:
-        build\win\bin\LunarExtensionHostCLI.exe scripts\tls_check.lua <host> [port]
+        build\win\bin\LunarCLI.exe scripts\tls_check.lua <host> [port]
 #>
 [CmdletBinding()]
 param(
@@ -157,4 +157,4 @@ Get-ChildItem (Join-Path $VendorSsl 'lib') -Filter *.a |
 Write-Host ""
 Write-Host "Now rebuild and run the TLS regression:" -ForegroundColor Yellow
 Write-Host "  cmake --build --preset dev"
-Write-Host "  build\win\bin\LunarExtensionHostCLI.exe scripts\tls_check.lua <host> [port]"
+Write-Host "  build\win\bin\LunarCLI.exe scripts\tls_check.lua <host> [port]"

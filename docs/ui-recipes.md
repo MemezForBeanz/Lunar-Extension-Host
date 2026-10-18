@@ -153,6 +153,36 @@ menu:popup(x, y)
 Rebuild the item list with `setItems` when the available actions change, and call
 `destroy` when the owning UI goes away.
 
+## Dropdowns
+
+Use `ctx.ui.FlatDropdown` for every pick-one-from-a-list control, not
+`iup.list{ DROPDOWN = "YES" }`. A native dropdown takes the operating system's
+look (a stock combo on Windows, the desktop's GTK theme on Linux) and ignores
+Lunar's theme; the flat one is drawn by IUP and themed with the rest of the UI.
+
+```lua
+local dd = ctx.ui.FlatDropdown.new(iup, {
+    items = { "Debug", "Release" },
+    value = 1,
+    width = 180,
+    on_change = function(index, label) ctx:setStatus("Build: " .. label) end,
+})
+-- Place dd.widget in your layout; dd:setItems(...) and dd:setValue(...) change it
+-- from code without calling on_change.
+```
+
+It closes on a pick (including re-picking the current item), ignores drags and
+scrollbar clicks, keeps a long list scrolling inside a capped popup, and gives each
+instance its own drop child, so none of that needs re-deriving per extension.
+
+The keyboard works as on a native combo box: Space or Enter opens it, the arrow
+keys move through the open list from the selected item, Enter picks and Escape
+closes; while it is closed, Up, Down, Home and End change the selection directly.
+
+One known gap: it is a drawn control, so a screen reader announces a button with
+its current caption rather than a list with items. If a choice must be fully
+screen-reader accessible today, a native list is still the safer pick.
+
 ## Lists
 
 - `core.ui.ReorderableList` — multi-select list with drag-to-reorder and a drop
@@ -176,17 +206,31 @@ dialog.
 
 ## Long-running work
 
-The IUP event loop is single-threaded. Use `ctx.subprocess` for external
-processes and poll from a host-owned timer:
+The IUP event loop is single-threaded, so external tools run as processes the
+host drives without blocking. A tool that speaks the JSON-lines protocol runs as
+a job (see `core.lib.ProcessJob`):
 
 ```lua
-local proc = ctx.subprocess.start(cmdline)
+ctx:startJob({
+    argv = { engine, "collect", "--json" },
+    on_event = function(ev) ctx:setStatus(ev.message or ev.type) end,
+    on_exit = function(res) ctx:setStatus(res.status .. ": " .. tostring(res.summary)) end,
+}, M)
+```
+
+Anything else uses `ctx:spawn`, polled from a host-owned timer:
+
+```lua
+local proc = assert(ctx:spawn({ argv = { "git", "status", "--porcelain" }, cwd = repo }, M))
 ctx:addTimer({ time = 200, run = true, action = function()
-    local done, code = ctx.subprocess.poll(proc)
+    local out = proc:read("stdout")
+    local code = proc:poll()
     ...
 end }, M)
 ```
 
+Both belong to the owner you pass: unloading or reloading the extension ends the
+process and everything it started, and a job's callbacks stop.
 Timers created through the host are destroyed on unload, and a throwing timer
 callback is disarmed instead of looping on errors.
 

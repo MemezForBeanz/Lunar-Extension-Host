@@ -48,7 +48,7 @@
 -- ### Failing closed
 --
 -- Every piece of this is decoration around an `iup.Popup` that works without it. If
--- the scrim is unavailable, or the FFI is missing, or `SHOW_CB` never fires, the
+-- the scrim is unavailable, or the platform can't move windows, or `SHOW_CB` never fires, the
 -- dialog still opens and still closes; it simply does so instantly. No call site
 -- needs to know which of those happened.
 --
@@ -58,25 +58,7 @@ local Tokens = require("core.lib.MotionTokens")
 
 local M = {}
 
-local ok_ffi, ffi = pcall(require, "ffi")
-if not ok_ffi then ffi = nil end
-
-local ok_iupffi, IupFFI = pcall(require, "core.classes.IupFFI")
-if not ok_iupffi then IupFFI = nil end
-
-local user32
-if ffi then
-	pcall(ffi.cdef, [[
-		int SetWindowPos(void *hwnd, void *after, int x, int y,
-		                 int cx, int cy, unsigned int flags);
-	]])
-	local ok_lib, lib = pcall(ffi.load, "user32")
-	if ok_lib then user32 = lib end
-end
-
-local SWP_NOSIZE     = 0x0001
-local SWP_NOZORDER   = 0x0004
-local SWP_NOACTIVATE = 0x0010
+local platform = require("core.platform")
 
 -- The host's shared scrim, installed once by main.lua. Module-level rather than
 -- threaded through every call site because there is exactly one page to dim and
@@ -100,20 +82,6 @@ end
 -- The director reaches us through the scrim rather than being installed twice.
 local function director()
 	return scrim and scrim:director() or nil
-end
-
--- Move a mapped dialog without resizing, activating or restacking it.
-local function move(dlg, x, y)
-	if not user32 or not IupFFI then return false end
-	local ok, moved = pcall(function()
-		local p = IupFFI.ptr(dlg)
-		if p == nil then return false end
-		local hwnd = IupFFI.getptr(p, "HWND")
-		if hwnd == nil then return false end
-		return user32.SetWindowPos(hwnd, nil, x, y, 0, 0,
-			SWP_NOSIZE + SWP_NOZORDER + SWP_NOACTIVATE) ~= 0
-	end)
-	return ok and moved
 end
 
 -- Screen position of a mapped dialog, as two numbers, or nil.
@@ -178,20 +146,21 @@ function M.popup(iup, dlg, opts)
 		if not animated and dir and (state == nil or state == 0) then
 			animated = true
 			local rx, ry = positionOf(iup, dlg)
-			if rx and user32 and IupFFI then
-				-- Offset applied before the animation is scheduled, not left to
-				-- its first tick. `animate` does not call `on_frame` until the
-				-- timer fires, so without this the dialog paints one frame at its
-				-- resting position and then jumps down to start rising -- a
-				-- visible stutter on precisely the frame the user first sees it.
-				move(dlg, rx, ry + rise)
+			-- Offset applied before the animation is scheduled, not left to its
+			-- first tick. `animate` does not call `on_frame` until the timer
+			-- fires, so without this the dialog paints one frame at its resting
+			-- position and then jumps down to start rising -- a visible stutter
+			-- on precisely the frame the user first sees it. Where the platform
+			-- can't move windows (native Wayland) the first move says so and the
+			-- dialog simply appears.
+			if rx and platform.move_window(iup, dlg, rx, ry + rise) then
 				dir:animate({
 					role     = "modal_enter",
 					target   = dlg,
 					from     = rise,
 					to       = 0,
 					on_frame = function(v)
-						move(dlg, rx, ry + v)
+						platform.move_window(iup, dlg, rx, ry + v)
 					end,
 				})
 			end

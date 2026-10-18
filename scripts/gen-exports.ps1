@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Regenerates src/LunarExtensionHost.def, the host executable's explicit export list.
+    Regenerates src/Lunar.def, the host executable's explicit export list.
 
 .DESCRIPTION
     The host exports symbols for two runtime consumers:
@@ -32,7 +32,7 @@ $ErrorActionPreference = 'Stop'
 
 $RepoRoot   = Split-Path -Parent $PSScriptRoot
 $HarvestDir = Join-Path $RepoRoot 'build_exportharvest'
-$DefPath    = Join-Path $RepoRoot 'src\LunarExtensionHost.def'
+$DefPath    = Join-Path $RepoRoot 'src\Lunar.def'
 $MingwBin   = 'C:\msys64\mingw64\bin'
 
 if (-not (Test-Path $MingwBin)) { throw "MSYS2 mingw64 toolchain not found at $MingwBin" }
@@ -49,11 +49,11 @@ Write-Host "==> Linking an unstripped harvest binary (this takes a few minutes)"
             -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLUNAR_EXPORT_ALL_SYMBOLS=ON 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "cmake configure failed ($LASTEXITCODE)" }
 
-    & cmake --build $HarvestDir -j 4 --target LunarExtensionHost 2>&1 | Out-Null
+    & cmake --build $HarvestDir -j 4 --target Lunar 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "cmake build failed ($LASTEXITCODE)" }
 }
 
-$exe = Join-Path $HarvestDir 'bin\LunarExtensionHost.exe'
+$exe = Join-Path $HarvestDir 'bin\Lunar.exe'
 if (-not (Test-Path $exe)) { throw "harvest binary not produced: $exe" }
 
 Write-Host "==> Reading symbol table" -ForegroundColor Cyan
@@ -78,7 +78,7 @@ $missing = $required | Where-Object { $all -notcontains $_ }
 if ($missing) { throw "FFI-required symbols not found in the binary: $($missing -join ', ')" }
 
 $header = @(
-    ';; LunarExtensionHost.def -- explicit export list for the host executable.'
+    ';; Lunar.def -- explicit export list for the host executable.'
     ';;'
     ';; GENERATED FILE -- do not edit by hand. Regenerate with scripts/gen-exports.ps1.'
     ';;'

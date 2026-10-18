@@ -1,7 +1,7 @@
 -- machine_check.lua
 -- CLI verification harness for src/lua/core/lib/machine.lua.
 -- Run from the repo root via:
---   build\bin\LunarExtensionHostCLI.exe scripts\machine_check.lua
+--   build\bin\LunarCLI.exe scripts\machine_check.lua
 --
 -- machine.lua is pure Lua (optional luasocket for IP), so it can be exercised
 -- without the GUI. This harness points package.path at the repo source tree and

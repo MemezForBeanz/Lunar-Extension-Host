@@ -1,12 +1,20 @@
 local AppearanceSettings = require("core.ui.AppearanceSettings")
 
+local handles = {}
+
 local function fake_iup()
-	local iup = { DEFAULT = -2 }
+	local iup = { DEFAULT = -2, BUTTON1 = 49 }
 	local function widget(kind) return function(attrs) attrs.kind = kind; return attrs end end
 	iup.toggle, iup.list = widget("toggle"), widget("list")
+	iup.flatlist, iup.dropbutton = widget("flatlist"), widget("dropbutton")
 	function iup.SetAttribute(w, k, v) w[k] = v end
+	function iup.GetAttribute(w, k) return w[k] end
+	function iup.SetHandle(name, w) handles[name] = w end
 	return iup
 end
+
+-- The flat list behind a FlatDropdown's button.
+local function drop_list(btn) return handles[btn.DROPCHILD] end
 
 local function setup(opts)
 	opts = opts or {}
@@ -27,6 +35,7 @@ local function setup(opts)
 		host = { addSettings = function(_, name, s) section = { name = name, entries = s.entries } end },
 		theme_manager = { buildDropdown = function() return { kind = "dropdown" } end },
 		motion = { configure = function(_, c) configured[#configured + 1] = c end },
+		system_theme = opts.system_theme,
 		org_name = opts.org_name,
 	})
 	local by_label = {}
@@ -52,12 +61,18 @@ describe("AppearanceSettings", function()
 		assert.are.same({ { enabled = false } }, s.configured)
 	end)
 
-	it("applies a speed choice", function()
+	it("applies a speed choice from an owner-drawn dropdown", function()
 		local s = setup({ values = { motion_scale = 2.0 } })
-		assert.are.equal("5", s.w["Motion speed"].VALUE)
-		s.w["Motion speed"]:action("0.75x", 2, 1)
+		local btn = s.w["Motion speed"]
+		assert.are.equal("dropbutton", btn.kind)          -- not a native iup.list
+		local list = drop_list(btn)
+		assert.are.equal("5", list.VALUE)
+		assert.are.equal(AppearanceSettings.SPEEDS[5], btn.TITLE)
+		list.VALUE = "2"                                   -- the user picks 0.75x
+		list:valuechanged_cb()
 		assert.are.equal(0.75, s.store.motion_scale)
 		assert.are.same({ { scale = 0.75 } }, s.configured)
+		assert.are.equal(AppearanceSettings.SPEEDS[2], btn.TITLE)
 	end)
 
 	it("greys out a locked setting and changes nothing when it is toggled", function()
@@ -69,6 +84,31 @@ describe("AppearanceSettings", function()
 		t:action(0)
 		assert.are.same({}, s.configured)
 		assert.are.equal(0, s.saved())
+	end)
+
+	it("adds a Match system theme toggle that drives SystemTheme", function()
+		local calls = {}
+		local st = {
+			enabled = function() return false end,
+			setEnabled = function(_, on) calls[#calls + 1] = on; return true end,
+		}
+		local s = setup({ system_theme = st })
+		assert.are.equal(5, #s.section.entries)
+		assert.are.equal("Match system theme", s.section.entries[2].label)
+		local t = s.w["Match system theme"]
+		assert.are.equal("OFF", t.VALUE)
+		t:action(1)
+		assert.are.same({ true }, calls)
+	end)
+
+	it("greys out Match system theme when the org locks the theme", function()
+		local st = { enabled = function() return false end, setEnabled = function() return false end }
+		local s = setup({ system_theme = st, locked = { theme = true }, org_name = "Acme" })
+		local t = s.w["Match system theme"]
+		assert.are.equal("NO", t.ACTIVE)
+		assert.are.equal("Managed by Acme", t.TIP)
+		t:action(1)                                       -- refused: the toggle snaps back
+		assert.are.equal("OFF", t.VALUE)
 	end)
 
 	it("maps a scale to the nearest choice", function()
