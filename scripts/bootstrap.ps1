@@ -106,8 +106,13 @@ if ($Force -or -not (Test-Path (Join-Path $lj "lib\libluajit-5.1.a")) -or -not (
 		if (Test-Path $lj) { Remove-Item $lj -Recurse -Force }
 		foreach ($d in "bin", "lib", "src", "include") { New-Item -ItemType Directory -Force -Path (Join-Path $lj $d) | Out-Null }
 
+		# SHELL=cmd.exe: LuaJIT's Makefile writes cmd syntax when it doesn't detect
+		# MSYS, but GNU make on Windows switches to sh whenever one is on PATH (the
+		# GitHub runner has Git's), which then fails on the cmd syntax.
+		$ljMake = @("SHELL=cmd.exe")
+
 		# Static: the library the exe links.
-		Invoke-Native "building LuaJIT (static)" { mingw32-make -C $src BUILDMODE=static }
+		Invoke-Native "building LuaJIT (static)" { mingw32-make -C $src @ljMake BUILDMODE=static }
 		Copy-Item (Join-Path $src "libluajit.a") (Join-Path $lj "lib\libluajit-5.1.a")
 		$headers = "lua.h", "lualib.h", "lauxlib.h", "luaconf.h", "luajit.h", "lua.hpp"
 		foreach ($h in $headers) {
@@ -116,8 +121,8 @@ if ($Force -or -not (Test-Path (Join-Path $lj "lib\libluajit-5.1.a")) -or -not (
 		}
 
 		# Dynamic: the interpreter and lua51.dll that C rocks link against.
-		Invoke-Native "cleaning LuaJIT" { mingw32-make -C $src clean }
-		Invoke-Native "building LuaJIT (dynamic)" { mingw32-make -C $src BUILDMODE=dynamic }
+		Invoke-Native "cleaning LuaJIT" { mingw32-make -C $src @ljMake clean }
+		Invoke-Native "building LuaJIT (dynamic)" { mingw32-make -C $src @ljMake BUILDMODE=dynamic }
 		Copy-Item (Join-Path $src "luajit.exe") (Join-Path $lj "bin")
 		Copy-Item (Join-Path $src "lua51.dll") (Join-Path $lj "bin")
 		Copy-Item (Join-Path $src "lua51.dll") (Join-Path $lj "lib")
