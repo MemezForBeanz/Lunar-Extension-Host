@@ -1,0 +1,89 @@
+# Publish the API reference (LDoc, `scripts/dev.sh docs`) to GitHub Pages on
+# every push to main that touches the documented sources, or by hand.
+# Repository setting: Pages -> Source = GitHub Actions.
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/lua/**'
+      - 'src/c/**'
+      - 'docs/**'
+      - 'config.ld'
+      - 'README.md'
+      - 'scripts/dev.sh'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      LUAJIT_COMMIT: 2a8e017
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential luarocks git curl ca-certificates
+
+      # Same LuaJIT and rock tree as the CI workflow (shared cache keys).
+      - name: Cache LuaJIT build
+        id: luajit-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/LuaJIT
+          key: luajit-${{ runner.os }}-${{ runner.arch }}-${{ env.LUAJIT_COMMIT }}
+
+      - name: Build LuaJIT
+        if: steps.luajit-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/LuaJIT/LuaJIT ~/LuaJIT
+          git -C ~/LuaJIT checkout "$LUAJIT_COMMIT"
+          make -C ~/LuaJIT -j"$(nproc)"
+
+      - name: Install LuaJIT
+        run: sudo make -C ~/LuaJIT install PREFIX=/usr/local
+
+      - name: Cache rocks and downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/luarocks-tree
+            vendor/.downloads
+          key: deps-linux-${{ env.LUAJIT_COMMIT }}-${{ hashFiles('*.rockspec', 'scripts/dev.sh') }}
+
+      - name: Bootstrap
+        run: scripts/dev.sh bootstrap
+
+      - name: Build the API reference
+        run: scripts/dev.sh docs --check --out dist/docs
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

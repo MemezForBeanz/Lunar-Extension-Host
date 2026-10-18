@@ -202,7 +202,9 @@ Things that are easy to break:
 
 ## API documentation
 
-The host API is documented with [LDoc](https://github.com/lunarmodules/LDoc):
+The host API is documented with [LDoc](https://github.com/lunarmodules/LDoc) and
+published at **https://memezforbeanz.github.io/Lunar-Extension-Host/** (rebuilt by
+`.github/workflows/docs.yml` on every push to `main`). To build it locally:
 
 ```powershell
 .\scripts\docs.ps1          # build dist\docs
