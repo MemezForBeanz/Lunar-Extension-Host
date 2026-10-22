@@ -20,6 +20,10 @@ set(LUNAR_VERSION_PATCH ${CMAKE_MATCH_3})
 # Place all executables in build/bin/
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+# Linux servers: build only lunar-cli (the headless host and script runner), with
+# no GTK, X11, fontconfig or IUP, so it configures on a machine without a desktop.
+option(LUNAR_HEADLESS "Linux: build only lunar-cli, without the GTK desktop app" OFF)
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -476,7 +480,7 @@ else()
     )
 endif()
 
-else()
+elseif(NOT LUNAR_HEADLESS)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
 pkg_check_modules(FONTCONFIG REQUIRED IMPORTED_TARGET fontconfig)
@@ -615,7 +619,7 @@ add_dependencies(LunarCLI sync_runtime embed_lua)
 # A Linux release build ends with the install packages (scripts/package_linux.sh):
 # dist/linux/Lunar-Setup-<version>-x86_64.run, lunar-extension-host_<version>_<arch>.deb and Lunar-<version>-x86_64.AppImage,
 # each with the menu entry and icons. Dev builds skip it (the script refuses them).
-if(NOT WIN32 AND NOT LUNAR_DEV_BUILD)
+if(NOT WIN32 AND NOT LUNAR_DEV_BUILD AND NOT LUNAR_HEADLESS)
     add_custom_target(linux_packages ALL
         COMMAND ${CMAKE_SOURCE_DIR}/scripts/package_linux.sh
                 --build-dir ${CMAKE_BINARY_DIR} --out ${CMAKE_SOURCE_DIR}/dist/linux

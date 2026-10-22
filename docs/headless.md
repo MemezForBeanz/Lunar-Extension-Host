@@ -86,14 +86,36 @@ service's environment.
 
 The Linux build needs glibc 2.34 or newer (`process` uses `close_range` and
 `_Fork`). On an older distribution (CentOS 7 has 2.17), don't upgrade the
-system glibc: install a private runtime (glibc 2.34+, OpenSSL 3) under
-`/opt/lunar-runtime` and point the executable's interpreter and library path
-at it with `patchelf`, so only Lunar uses it.
+system glibc: give Lunar a private runtime, so only Lunar uses it. On CentOS 7
+this works with nothing installed system-wide:
+
+1. **Runtime:** unpack (don't install) RHEL 9-family `glibc`, `openssl-libs`,
+   `openssl-devel`, `zlib` and `libgcc` packages into
+   `/opt/lunar-runtime/sysroot`, with `lib64 -> usr/lib64`.
+2. **Toolchain:** the `ziglang`, `cmake`, `ninja` and `patchelf` wheels from PyPI
+   are standalone binaries that run on glibc 2.17. Compile with
+   `zig cc -target x86_64-linux-gnu.2.34 -fno-sanitize=undefined -funwind-tables`.
+3. **LuaJIT:** static, `HOST_CC=gcc` (its build-time tools run on the host),
+   `XCFLAGS="-O2 -DLUAJIT_UNWIND_EXTERNAL"` (its unwind probe reads stdin, which
+   `zig cc` doesn't), and `TARGET_XLIBS` adding the runtime's `libgcc_s.so.1`
+   plus `-Wl,--allow-shlib-undefined` (that libgcc_s uses a glibc symbol RHEL
+   backported to 2.34).
+4. **lunar-cli:** `cmake -DLUNAR_HEADLESS=ON -DLUNAR_DEV_BUILD=OFF` with the zig
+   wrapper as the compiler and the OpenSSL paths pinned to the sysroot.
+5. **Point it at the runtime:** `patchelf --set-interpreter
+   <sysroot>/usr/lib64/ld-linux-x86-64.so.2 --force-rpath --set-rpath
+   <sysroot>/usr/lib64` (`DT_RPATH`, so libssl's own dependencies resolve there
+   too), and put `vendor/certs/cacert.pem` at `bin/certs/` next to it.
+
+Child processes the host starts (Python tools, shell scripts) run on the system
+libraries as usual; nothing is exported to them.
 
 ## Status
 
 Built so far: the event loop (`core.lib.EventLoop`), the headless mode of
 `HostAPI`, manifest `modes`, `core.headless` and `lunar-cli --headless`, and
-`core.lib.HttpServer` (not yet exposed to extensions). Next: `ctx:addRoute` on
-top of the HTTP server, a file-based secret store, local SQLite storage, and a
-CMake option that builds the CLI without GTK.
+`core.lib.HttpServer` (not yet exposed to extensions), and `LUNAR_HEADLESS`
+(CMake: only lunar-cli, no GTK). Verified on CentOS 7.9 with the private
+runtime: JIT, errors unwinding through C, jobs, HTTPS, SIGTERM. Next:
+`ctx:addRoute` on top of the HTTP server, a file-based secret store, and local
+SQLite storage.
