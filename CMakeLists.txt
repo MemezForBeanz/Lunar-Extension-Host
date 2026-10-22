@@ -266,6 +266,7 @@ add_custom_command(
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/lib
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/platform.lua
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/platform
+            --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/headless.lua
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/installer
             --preload middleclass ${LUA_MIDDLECLASS}
             --preload socket ${LSOCK_LUA}/socket.lua
@@ -607,7 +608,9 @@ add_custom_target(sync_runtime ALL
 # other target that reads or writes inside those directories must be ordered
 # after it, or a parallel build can race the wipe:
 #   * LunarCLI's harness scripts resolve lua/ and certs/ next to the exe.
-add_dependencies(LunarCLI sync_runtime)
+# LunarCLI also embeds the Lua tree (main_cli.c includes lua_bundle.h for the
+# headless host), so the bundle must be generated first.
+add_dependencies(LunarCLI sync_runtime embed_lua)
 
 # A Linux release build ends with the install packages (scripts/package_linux.sh):
 # dist/linux/Lunar-Setup-<version>-x86_64.run, lunar-extension-host_<version>_<arch>.deb and Lunar-<version>-x86_64.AppImage,
@@ -622,5 +625,3 @@ if(NOT WIN32 AND NOT LUNAR_DEV_BUILD)
         USES_TERMINAL
         VERBATIM)
 endif()
-
-

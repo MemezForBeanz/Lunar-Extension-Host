@@ -78,4 +78,41 @@ describe("ExtensionManifest", function()
 		assert.are.equal("implicit", manifest.manifest_source)
 		assert.are.equal("Legacy Plugin", manifest.name)
 	end)
+
+	describe("modes", function()
+		local base = { schema_version = 2, id = "srv", name = "Server", version = "1" }
+		local function with(t)
+			local m = {}
+			for k, v in pairs(base) do m[k] = v end
+			for k, v in pairs(t) do m[k] = v end
+			return m
+		end
+
+		it("accepts gui and headless with host_api 3", function()
+			local m = assert(Manifest.validate(with({ host_api = 3, modes = { "headless", "gui" } })))
+			assert.are.same({ "headless", "gui" }, m.modes)
+			assert.is_true(Manifest.supportsMode(m, "headless"))
+			assert.is_true(Manifest.supportsMode(m, "gui"))
+		end)
+
+		it("needs host_api 3, schema 2, a known mode and at least one", function()
+			local _, err = Manifest.validate(with({ modes = { "headless" } }))
+			assert.truthy(err:find("host_api 3", 1, true))
+			_, err = Manifest.validate({ id = "x", name = "X", version = "1", modes = { "gui" } })
+			assert.truthy(err:find("schema_version 2", 1, true))
+			_, err = Manifest.validate(with({ host_api = 3, modes = { "server" } }))
+			assert.truthy(err:find("unknown mode", 1, true))
+			_, err = Manifest.validate(with({ host_api = 3, modes = {} }))
+			assert.truthy(err:find("at least one", 1, true))
+		end)
+
+		it("defaults to the desktop app only", function()
+			local m = assert(Manifest.validate(base))
+			assert.is_nil(m.modes)
+			assert.is_true(Manifest.supportsMode(m, "gui"))
+			assert.is_false(Manifest.supportsMode(m, "headless"))
+			local h = assert(Manifest.validate(with({ host_api = 3, modes = { "headless" } })))
+			assert.is_false(Manifest.supportsMode(h, "gui"))
+		end)
+	end)
 end)

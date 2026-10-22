@@ -31,7 +31,7 @@ Extensions declare identity and integration surfaces in a JSON manifest loaded b
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `schema_version` | number | no | `1` or `2` (default `1`). `platforms` and `host_api` need `2`, so a host too old to understand them rejects the manifest instead of ignoring them. |
+| `schema_version` | number | no | `1` or `2` (default `1`). `platforms`, `host_api` and `modes` need `2`, so a host too old to understand them rejects the manifest instead of ignoring them. |
 | `id` | string | no | Lowercase letters, digits, `.`, `_`, `-`. Derived from the file or folder name when omitted. Must be unique across loaded extensions. |
 | `name` | string | yes* | Display name. Falls back to the discovered default name. |
 | `version` | string | yes* | Shown in the Help menu. Falls back to the extension table's `version`. |
@@ -40,7 +40,7 @@ Extensions declare identity and integration surfaces in a JSON manifest loaded b
 | `capabilities` | array of strings | no | Integration surfaces the extension uses, e.g. `tabs`, `settings`, `menus`, `routes`. |
 | `provides` | object of string arrays | no | What the extension contributes per capability, e.g. `{"tabs": ["Example"]}`. |
 | `platforms` | array of strings | no | Schema 2. `windows`, `linux`, `macos`. Omitted means all. On any other platform the extension is skipped before its code runs; Help > Window Diagnostics lists it with the reason. |
-| `host_api` | integer | no | Schema 2. The oldest host API the extension needs (default `1`). This host provides `2`: `1` plus `ctx:registerTheme` and `ctx:registerFont`. A newer requirement is reported as a load error asking the user to update Lunar. |
+| `host_api` | integer | no | Schema 2. The oldest host API the extension needs (default `1`). This host provides `3`: `2` adds `ctx:registerTheme` and `ctx:registerFont`; `3` adds `modes` and the headless host (`ctx.mode`, `ctx.loop`). A newer requirement is reported as a load error asking the user to update Lunar. |
 
 \* Required unless the value can be derived from the discovery defaults or from
 `id`, `name`, and `version` fields on the returned extension table.

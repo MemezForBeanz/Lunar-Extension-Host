@@ -177,6 +177,13 @@ function ExtensionManager:loadAll(ctx)
                 id = manifest.id, name = manifest.name, source = entry.source,
                 reason = "needs " .. table.concat(manifest.platforms, " or "),
             }
+        elseif not Manifest.supportsMode(manifest, ctx.mode or "gui") then
+            -- The headless host loads only extensions that say they run there;
+            -- the desktop skips headless-only ones. Not an error either way.
+            self.skipped[#self.skipped + 1] = {
+                id = manifest.id, name = manifest.name, source = entry.source,
+                reason = "not for the " .. tostring(ctx.mode or "gui") .. " host",
+            }
         elseif (manifest.host_api or 1) > Manifest.HOST_API then
             report_plugin_error(iup, ctx, entry, "compatibility", string.format(
                 "needs host API %d; this host provides %d. Update Lunar.",

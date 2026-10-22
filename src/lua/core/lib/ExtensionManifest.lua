@@ -22,6 +22,7 @@
 -- | `provides`      | object       | Sub-arrays: `tabs`, `routes`, `commands`, `settings`, `status` |
 -- | `platforms`     | string array | Schema 2 only. `windows`, `linux`, `macos`; omitted = all |
 -- | `host_api`      | integer      | Schema 2 only. Oldest host API the extension needs (default 1) |
+-- | `modes`         | string array | Schema 2 only. `gui`, `headless`; omitted = `gui` only. Needs host_api 3 |
 -- @module core.lib.ExtensionManifest
 
 local cjson = require("cjson")
@@ -33,10 +34,14 @@ M.SCHEMA_VERSION = 2
 
 --- Version of the extension API (`ctx`) this host provides. Raise it when an
 -- extension-visible API is added, so extensions that need it can say so.
-M.HOST_API = 2  -- 2: ctx:registerTheme, ctx:registerFont
+M.HOST_API = 3  -- 2: ctx:registerTheme, ctx:registerFont. 3: manifest `modes`, the headless host (ctx.mode, ctx.loop)
 
 --- Platform names a manifest may list.
 M.PLATFORMS = { windows = true, linux = true, macos = true }
+
+--- Host modes a manifest may list: the desktop app, or the headless host
+-- (`core.headless`). An extension that never says `headless` is never loaded there.
+M.MODES = { gui = true, headless = true }
 
 local ID_PATTERN = "^[a-z0-9][a-z0-9._%-]*$"
 
@@ -198,6 +203,27 @@ function M.validate(manifest, defaults)
 		end
 	end
 
+	local modes
+	if manifest.modes ~= nil then
+		if schema_version < 2 then
+			return nil, "modes needs schema_version 2"
+		end
+		local list, merr = normalize_string_array(manifest.modes, "modes")
+		if not list then return nil, merr end
+		if #list == 0 then return nil, "modes must list at least one mode" end
+		for _, m in ipairs(list) do
+			if not M.MODES[m] then
+				return nil, "unknown mode '" .. m .. "' (use gui or headless)"
+			end
+		end
+		-- A host from before modes would ignore the field and load a headless-only
+		-- extension in the desktop app; host_api 3 makes such a host refuse it.
+		if (host_api or 1) < 3 then
+			return nil, "modes needs host_api 3"
+		end
+		modes = list
+	end
+
 	local explicit_id = trim(manifest.id)
 	if explicit_id and not explicit_id:match(ID_PATTERN) then
 		return nil, "manifest id must contain only lowercase letters, digits, '.', '_' or '-'"
@@ -239,6 +265,8 @@ function M.validate(manifest, defaults)
 		-- nil means "every platform".
 		platforms = platforms,
 		host_api = host_api,
+		-- nil means "gui only".
+		modes = modes,
 		manifest_path = defaults.path,
 		manifest_source = defaults.source or "file",
 	}
@@ -252,6 +280,20 @@ function M.supports(manifest, os_name)
 	if type(manifest) ~= "table" or manifest.platforms == nil then return true end
 	for _, p in ipairs(manifest.platforms) do
 		if p == os_name then return true end
+	end
+	return false
+end
+
+--- Can this extension run in host mode `mode`?
+-- @tparam table manifest A validated manifest.
+-- @tparam string mode `"gui"` or `"headless"`.
+-- @treturn boolean
+function M.supportsMode(manifest, mode)
+	mode = mode or "gui"
+	local modes = type(manifest) == "table" and manifest.modes or nil
+	if modes == nil then return mode == "gui" end
+	for _, m in ipairs(modes) do
+		if m == mode then return true end
 	end
 	return false
 end

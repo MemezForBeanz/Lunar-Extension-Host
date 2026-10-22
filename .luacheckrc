@@ -20,6 +20,7 @@ read_globals = {
 	"iup",
 	"subprocess",
 	"LUNAR_EXE_DIR",
+	"LUNAR_STOP_REQUESTED",  -- lunar-cli --headless: true once SIGTERM/SIGINT arrived
 	"LUNAR_EXE_PATH",
 	"LUNAR_PID",
 	"LUNAR_DEV_BUILD",  -- true in a local (CMake LUNAR_DEV_BUILD=ON) build

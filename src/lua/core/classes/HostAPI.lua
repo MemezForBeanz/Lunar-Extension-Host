@@ -88,6 +88,12 @@ local DEFAULT_OWNER = require("core.classes.host.Owners")
 --   menus, status callbacks, settings view)
 function HostAPI:initialize(opts)
     self.iup        = opts.iup
+    -- Headless (core.headless): no IUP; timers, jobs and the async scheduler run on
+    -- this core.lib.EventLoop instead.
+    self.loop       = opts.loop
+    --- `"gui"` or `"headless"`: which host is running the extensions.
+    self.mode       = opts.mode or (opts.iup and "gui" or "headless")
+    self._notify_fn = opts.notify   -- headless stand-in for toasts
     self.app        = opts.app
     self.settings   = opts.settings
     self._subprocess_owner = {}   -- legacy subprocess handle -> owner record
@@ -523,7 +529,11 @@ end
 --                kind  = "error" })
 function HostAPI:notify(spec, owner)
     local host = self._toasts
-    if not host then return end
+    if not host then
+        -- Headless: no window to toast in; the host logs it instead.
+        if self._notify_fn then pcall(self._notify_fn, spec or {}, owner) end
+        return
+    end
     spec = spec or {}
     if spec.owner == nil then spec.owner = owner or DEFAULT_OWNER end
     pcall(function() host:show(spec) end)
@@ -732,10 +742,18 @@ function HostAPI:addVersionInfo(name, version, owner) return Menus.addVersionInf
 -- @tparam[opt] func opts.action callback invoked on each tick
 -- @tparam[opt=false] boolean opts.run start the timer immediately
 -- @tparam[opt] table owner owning extension
--- @treturn userdata the timer handle, so `RUN` can be toggled with `iup.SetAttribute`
+-- @treturn userdata the timer handle, so `RUN` can be toggled with `iup.SetAttribute`.
+--   Headless (no IUP) it is a `core.lib.EventLoop` timer: use `:start()` / `:stop()`.
 -- @usage local t = ctx:addTimer({ time = 500, action = poll, run = true }, M)
 function HostAPI:addTimer(opts, owner)
     local iup = self.iup
+    if not iup then
+        assert(self.loop, "addTimer: this host has neither IUP nor an event loop")
+        -- The loop isolates a throwing callback the same way: disarm, report once.
+        local timer = self.loop:every(opts.time or 100, opts.action or function() end, opts.run == true)
+        table.insert(self:_record(owner).timers, timer)
+        return timer
+    end
     local timer = iup.timer{
         TIME = tostring(opts.time or 100),
         RUN  = opts.run and "YES" or "NO",
@@ -841,6 +859,17 @@ end
 -- @local
 function HostAPI:_markShown()
     self._shown = true
+    if not self.iup then
+        -- Headless: "shown" means every extension has registered; there are no
+        -- tabs, menus or widgets to scope.
+        local queued = self._ready
+        self._ready = {}
+        for _, e in ipairs(queued) do
+            local ok, err = pcall(e.fn)
+            if not ok then self:setStatus("onReady error: " .. tostring(err)) end
+        end
+        return
+    end
     -- Structural changes from here on happen against a mapped tree, so the group
     -- manager must start remapping the pages it moves.
     if self._tab_groups then self._tab_groups:markShown() end
@@ -954,8 +983,12 @@ function HostAPI:removeOwned(owner)
             end
         end
         for _, timer in ipairs(r.timers) do
-            step("stop timer", iup.SetAttribute, timer, "RUN", "NO")
-            step("destroy timer", iup.Destroy, timer)
+            if type(timer) == "table" and timer.close then
+                step("close timer", timer.close, timer)   -- headless loop timer
+            else
+                step("stop timer", iup.SetAttribute, timer, "RUN", "NO")
+                step("destroy timer", iup.Destroy, timer)
+            end
         end
         -- Processes go after the timers: nothing of this owner's can poll a handle
         -- once it is closed.
@@ -1014,8 +1047,10 @@ function HostAPI:removeOwned(owner)
         self._ready = kept
     end
 
-    step("fix file separator", self._fixupFileSeparator, self)
-    step("apply status scope", self._applyStatusScope, self)
+    if iup then
+        step("fix file separator", self._fixupFileSeparator, self)
+        step("apply status scope", self._applyStatusScope, self)
+    end
     if self.tabs then step("refresh tabs", iup.Refresh, self.tabs) end
     return true, failures
 end
