@@ -337,14 +337,23 @@ function M.active()
 	return #scheduler.jobs
 end
 
+--- Queue this job on the shared scheduler without a timer: something else calls
+-- `M.tick()` (the headless `core.lib.EventLoop` does, while `M.active() > 0`).
+-- Attaching the same job twice has no effect.
+-- @treturn boolean true when newly attached
+function Job:attach()
+	if self._done or self._attached then return false end
+	self._attached = true
+	scheduler.jobs[#scheduler.jobs + 1] = self
+	return true
+end
+
 --- Drive this job from the shared timer until it finishes.
 -- Attaching the same job twice has no effect.
 -- @param iup The IUP module.
 -- @tparam[opt=50] number interval_ms Tick interval (set by the first attach).
 function Job:attach_timer(iup, interval_ms)
-	if self._done or self._attached then return end
-	self._attached = true
-	scheduler.jobs[#scheduler.jobs + 1] = self
+	if not self:attach() then return end
 	if not scheduler.timer then
 		scheduler.timer = iup.timer({ time = interval_ms or 50 })
 		function scheduler.timer.action_cb()

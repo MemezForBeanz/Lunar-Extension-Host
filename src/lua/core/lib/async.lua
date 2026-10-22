@@ -87,17 +87,26 @@ function M.run(fn, cb)
 	return true
 end
 
---- Pump the scheduler once, non-blocking.
--- @treturn boolean true while work remains (keep the pump timer running)
-function M.pump()
+--- Run the scheduler once, waiting up to `timeout` seconds for socket activity.
+-- The headless loop (`core.lib.EventLoop`) uses this so an idle host sleeps in
+-- `select` instead of spinning; the GUI uses `pump` (no wait).
+-- @tparam[opt=0] number timeout seconds
+-- @treturn boolean true while work remains
+function M.step(timeout)
 	if not M.available then return false end
 	copas.running = true
-	copas.step(0)
+	copas.step(timeout or 0)
 	if copas.finished() then
 		copas.running = false
 		return false
 	end
 	return true
+end
+
+--- Pump the scheduler once, non-blocking.
+-- @treturn boolean true while work remains (keep the pump timer running)
+function M.pump()
+	return M.step(0)
 end
 
 --- Cooperative sleep, for use *inside* a task. No-op outside the scheduler.

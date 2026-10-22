@@ -66,7 +66,11 @@ function M.startJob(self, opts, owner)
     if not job then return nil, err end
     entry.job = job
     jobs[entry] = true
-    if self.iup then job:attach_timer(self.iup) end
+    if self.iup then
+        job:attach_timer(self.iup)
+    elseif self.loop then
+        job:attach()   -- the headless loop ticks every attached job
+    end
     return job
 end
 
@@ -137,6 +141,8 @@ function M._ensureAsyncPump(self)
     local iup = self.iup
     local async = self:async()
     if not async.available then return end
+    -- Headless: the event loop steps copas on every turn.
+    if not iup then return end
     if not self._async_timer then
         local timer = iup.timer({ TIME = 15, RUN = "NO" })
         local host = self
