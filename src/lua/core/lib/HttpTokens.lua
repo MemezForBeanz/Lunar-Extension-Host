@@ -44,14 +44,14 @@ function M.load(path)
 		-- O_NOFOLLOW and O_NONBLOCK: refuse symlinks and never hang on a FIFO.
 		local flags = ffi.os == "Linux" and (131072 + 2048 + 524288) or (256 + 4)
 		local fd = ffi.C.open(path, flags)
-		if fd < 0 then return nil, "cannot open tokens file" end
+		if fd < 0 then return nil, "cannot open tokens file " .. path end
 		local attr = require("lfs").attributes((ffi.os == "Linux" and "/proc/self/fd/" or "/dev/fd/") .. fd)
 		local ok, err = M.validateAttributes(attr, tonumber(ffi.C.getuid()))
-		if not ok then ffi.C.close(fd) return nil, err end
+		if not ok then ffi.C.close(fd) return nil, path .. ": " .. tostring(err) end
 		local buffer, chunks, size = ffi.new("char[4096]"), {}, 0
 		while size <= 65536 do
 			local n = tonumber(ffi.C.read(fd, buffer, 4096))
-			if n < 0 then ffi.C.close(fd) return nil, "cannot read tokens file" end
+			if n < 0 then ffi.C.close(fd) return nil, "cannot read tokens file " .. path end
 			if n == 0 then break end
 			size = size + n
 			chunks[#chunks + 1] = ffi.string(buffer, n)
