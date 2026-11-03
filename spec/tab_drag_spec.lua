@@ -36,6 +36,7 @@ local function make_case()
 	}
 
 	local iup = { DEFAULT = 0, BUTTON1 = 1 }
+	function iup.isdouble(status) return status == "double" end
 
 	-- The Lua binding allocates a fresh userdata on every push, so a handle
 	-- fetched twice is two different Lua objects (core.lib.handle). GetChild here
@@ -189,6 +190,9 @@ describe("TabOrder gestures", function()
 			stripsDeepestFirst = function() return { strip } end,
 			isGroupStrip = function(_, w) return w ~= nil and unwrap(w).is_group == true end,
 			stripOf = function() return nil end,
+			toggleCollapsed = function(_, w)
+				applied[#applied + 1] = { op = "collapse", widget = unwrap(w) }
+			end,
 			moveInto = function(_, w, target, index)
 				applied[#applied + 1] = { op = "moveInto", widget = unwrap(w),
 					target = unwrap(target), index = index }
@@ -216,6 +220,21 @@ describe("TabOrder gestures", function()
 		release(50)
 		fire_timers()
 		assert.are.equal(0, #applied)
+	end)
+
+	it("toggles a group on parent-tab double-click without starting a drag", function()
+		strip:flat_button_cb(1, 1, 225, BAND / 2, "double")
+		release(225)
+		fire_timers()
+		assert.same({ { op = "collapse", widget = children[3] } }, applied)
+		assert.is_nil(order._drag)
+	end)
+
+	it("does not collapse a leaf on double-click", function()
+		strip:flat_button_cb(1, 1, 50, BAND / 2, "double")
+		release(50)
+		fire_timers()
+		assert.same({}, applied)
 	end)
 
 	it("does nothing for a click that wobbles a pixel or two", function()

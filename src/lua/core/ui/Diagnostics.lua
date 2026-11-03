@@ -37,7 +37,7 @@ end
 -- @tparam table d.loaded loaded extensions (`source`, `name`/`id`)
 -- @tparam table d.skipped skipped extensions (`source`, `name`/`id`, `reason`)
 -- @tparam table d.window `{ RASTERSIZE, CLIENTSIZE, MAXIMIZED, MAXSIZE, MINSIZE }`
--- @tparam table d.layout `{ tabs_raster, statusbar_raster, statusbar_expand }`
+-- @tparam table d.layout `{ tabs_raster, statusbar_raster, statusbar_expand, shell_cap, shell_bands }`
 -- @tparam table|string d.transition the tab transition's report, or why it is unavailable
 -- @tparam[opt] table d.native report lines from `core.lib.NativeStatus.lines`
 -- @treturn string
@@ -78,6 +78,7 @@ function M.window_report(d)
 	end
 
 	local w, l = d.window or {}, d.layout or {}
+	local bands = l.shell_bands or {}
 	for _, line in ipairs({
 		"",
 		"Window",
@@ -91,6 +92,9 @@ function M.window_report(d)
 		"  tabs RASTERSIZE     : " .. tostring(l.tabs_raster),
 		"  statusbar RASTERSIZE: " .. tostring(l.statusbar_raster),
 		"  statusbar EXPAND    : " .. tostring(l.statusbar_expand),
+		"  root tabs height cap: " .. tostring(l.shell_cap),
+		"  bands header/accent/status: " .. tostring(bands.header) .. " / "
+			.. tostring(bands.accent) .. " / " .. tostring(bands.status),
 		"",
 		-- The transition declines silently by design (a press that became a drag
 		-- must not animate), so "nothing moves when I switch tabs" is invisible

@@ -1,4 +1,4 @@
---- Builds the host application menu bar: File, Extensions, Help.
+--- Builds the host application menu bar: File, View, Extensions, Help.
 -- The host contributes minimal items per menu (File → Exit; Help → About) and
 -- exposes each menu handle plus its anchor item so the `HostAPI` can let extensions
 -- append their own entries.
@@ -19,11 +19,12 @@ local M = {}
 -- * `on_reload` `function()` *(optional)* — called after a successful reload. The host
 --   uses it to re-apply the tab-group layout: a reload appends every extension tab
 --   back at the root strip, so without this the user's groups would come back empty.
+-- * `on_show_tab_bars` `function()` *(optional)* — expands every group strip.
 --
 -- @tparam table deps Dependency table (see above).
 -- @treturn userdata IUP menu widget to assign to the dialog's `MENU` attribute.
 -- @treturn table Handle table with keys: `ext_menu`, `ext_submenu`, `file_menu`,
---   `file_exit`, `help_menu`, `help_submenu`, `help_about`.
+--   `file_exit`, `view_menu`, `show_tab_bars`, `help_menu`, `help_submenu`, `help_about`.
 function M.build(deps)
     local iup            = deps.iup
     local app_title      = deps.app_title
@@ -86,10 +87,17 @@ function M.build(deps)
 
     local help_menu = iup.menu{ help_about }
 
+    local show_tab_bars = iup.item{ TITLE = "Show all tab bars" }
+    function show_tab_bars:action()
+        if deps.on_show_tab_bars then deps.on_show_tab_bars() end
+        return iup.DEFAULT
+    end
+    local view_menu = iup.menu{ show_tab_bars }
     local ext_submenu  = iup.submenu{ TITLE = "Extensions", ext_menu  }
     local help_submenu = iup.submenu{ TITLE = "Help",       help_menu }
     local menu = iup.menu{
         iup.submenu{ TITLE = "File", file_menu },
+        iup.submenu{ TITLE = "View", view_menu },
         ext_submenu,
         help_submenu,
     }
@@ -99,6 +107,8 @@ function M.build(deps)
         ext_submenu  = ext_submenu,
         file_menu    = file_menu,
         file_exit    = file_exit,
+        view_menu    = view_menu,
+        show_tab_bars = show_tab_bars,
         help_menu    = help_menu,
         help_submenu = help_submenu,
         help_about   = help_about,
