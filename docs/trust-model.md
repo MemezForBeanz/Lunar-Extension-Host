@@ -36,7 +36,19 @@ it refuses to start rather than falling back to the working directory.
 
 A **development build** (`LUNAR_DEV_BUILD=ON`) also loads the repository's
 `plugins\` and honors `LUNAR_PROFILE`. Packs found through `LUNAR_PROFILE_DIR` are
-*untrusted*: their settings apply, but their locks and extensions don't.
+*untrusted*: their settings apply, but their locks don't. Their extensions load
+only in development builds.
+
+The VS Code task **Run Lunar with all org packs (dev)** sets `LUNAR_PROFILE="*"`
+and asks only for `LUNAR_PROFILE_DIR`. This dev-only override loads every valid
+pack from that directory, sorted by id; installed packs are excluded. Each pack
+gets its tool group suffixed with its id, so equal group names stay separate.
+There is no org logo or org identity, and no legacy settings migration. Defaults
+share one settings namespace: the first pack wins duplicate keys (with a warning),
+and saved user settings still take precedence. Extension ids also use first-wins
+ordering with logged collisions; built-in extensions precede all packs. Invalid
+packs are skipped with diagnostics. An empty or missing directory selects no packs.
+Release builds ignore `LUNAR_PROFILE`, including `*`; their trust rules are unchanged.
 
 ## What the host checks, and what it doesn't
 

@@ -46,6 +46,56 @@ local function resolve(files, opts)
 	return OrgProfile.resolve(opts)
 end
 
+describe("OrgProfile all development packs", function()
+	local function env(key)
+		if key == "LUNAR_PROFILE_DIR" then return DEV end
+		if key == "LUNAR_PROFILE" then return "*" end
+	end
+
+	it("combines only dev packs in id order with first defaults winning and no locks or branding", function()
+		local p, info = resolve({
+			[P(DEV, "org-b", "profile.json")] = profile({ id = "org-b", name = "Tools",
+				settings = { shared = true, second = "b" } }),
+			[P(DEV, "org-a", "profile.json")] = profile({ id = "org-a", name = "Tools",
+				settings = { shared = false }, locked = { "shared" }, legacy_config_dir = "OldTools" }),
+			[P(TRUSTED, "org-a", "profile.json")] = profile({ id = "org-a", settings = { installed = true } }),
+			[P(DEV, "bad", "profile.json")] = "invalid",
+		}, { dev_select = "*", env = env })
+		assert.are.equal("dev-all", info.reason)
+		assert.are.equal(2, #p.profiles)
+		assert.are.equal("org-a", p.profiles[1].id)
+		assert.are.equal("org-b", p.profiles[2].id)
+		assert.are.equal("Tools (org-a)", p.profiles[1].tool_group)
+		assert.are.equal("Tools (org-b)", p.profiles[2].tool_group)
+		assert.are.same({ shared = false, second = "b" }, p.settings)
+		assert.are.same({}, p.locked)
+		assert.are.same({}, p.brand)
+		assert.is_nil(p.legacy_config_dir)
+		assert.is_false(p.trusted)
+		assert.are.equal(1, #info.errors)
+		assert.truthy(info.warnings[1]:find("duplicate setting shared", 1, true))
+	end)
+
+	it("does not activate the wildcard from the environment without the host dev gate", function()
+		local p, info = resolve({
+			[P(DEV, "org-a", "profile.json")] = profile({ id = "org-a" }),
+		}, { env = env })
+		assert.is_nil(p)
+		assert.are.equal("none", info.reason)
+	end)
+
+	it("selects no packs for an empty or unset directory without falling back to installed packs", function()
+		for _, get_env in ipairs({ env, function() return nil end }) do
+			local p, info = resolve({
+				[P(TRUSTED, "org-a", "profile.json")] = profile({ id = "org-a" }),
+			}, { dev_select = "*", env = get_env })
+			assert.are.same({}, p.profiles)
+			assert.are.same({}, p.settings)
+			assert.are.equal("dev-all", info.reason)
+		end
+	end)
+end)
+
 describe("OrgProfile.validate", function()
 	local fs = fake_fs({ [P("X", "acme", "logo.svg")] = "<svg/>" })
 

@@ -395,6 +395,8 @@ end
 --   dev_select = string }`. `domain` overrides the system DNS domain (tests,
 --   diagnostics). `dev_select` picks a profile by id, trusted or not, ahead of
 --   everything else; main.lua passes it only in a development build.
+--   `"*"` selects all valid packs in `LUNAR_PROFILE_DIR`, sorted by id, as an
+--   untrusted aggregate with `profiles`, merged defaults and no org identity.
 -- @treturn[1] table The selected profile.
 -- @treturn[2] nil When the install should run neutral.
 -- @treturn table Diagnostics: `{ reason = string, errors = { string, ... },
@@ -405,6 +407,10 @@ function M.resolve(opts)
 	local fs = opts.fs or default_fs
 	local roots = opts.roots or M.roots({ env = opts.env })
 	local info = { errors = {}, warnings = {}, available = {} }
+	if opts.dev_select == "*" then
+		local dir = (opts.env or os.getenv)("LUNAR_PROFILE_DIR")
+		roots = dir and dir ~= "" and { { dir = dir, trusted = false } } or {}
+	end
 
 	-- Trusted roots must be admin-only all the way down to each pack; anything a
 	-- non-admin could have written is ignored. Returns true or false plus the reason.
@@ -476,6 +482,26 @@ function M.resolve(opts)
 	end
 
 	-- 0. Development override (dev builds only; see main.lua).
+	if opts.dev_select == "*" then
+		table.sort(untrusted, function(a, b) return a.id < b.id end)
+		local combined = {
+			id = "*", name = "All development packs", trusted = false,
+			profiles = untrusted, settings = {}, locked = {}, retired = {}, brand = {},
+		}
+		for _, p in ipairs(untrusted) do
+			-- Id suffixes keep even identically named tool groups separate.
+			p.tool_group = p.tool_group .. " (" .. p.id .. ")"
+			for key, value in pairs(p.settings) do
+				if combined.settings[key] == nil then
+					combined.settings[key] = value
+				else
+					info.warnings[#info.warnings + 1] = p.id .. ": ignoring duplicate setting " .. key
+				end
+			end
+		end
+		info.reason = "dev-all"
+		return combined, info
+	end
 	if type(opts.dev_select) == "string" and opts.dev_select ~= "" then
 		for _, list in ipairs({ trusted, untrusted }) do
 			for _, p in ipairs(list) do

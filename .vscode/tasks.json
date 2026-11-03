@@ -86,6 +86,31 @@
             "problemMatcher": []
         },
         {
+            "label": "Run Lunar with all org packs (dev)",
+            "detail": "Loads every valid pack from LUNAR_PROFILE_DIR, sorted by id. Dev builds only.",
+            "type": "process",
+            "command": "${workspaceFolder}/build/win/bin/Lunar.exe",
+            "options": {
+                "cwd": "${workspaceFolder}/build/win/bin",
+                "env": {
+                    "LUNAR_PROFILE_DIR": "${input:orgPacksDir}",
+                    "LUNAR_PROFILE": "*"
+                }
+            },
+            "linux": {
+                "command": "${workspaceFolder}/build/linux/bin/lunar",
+                "options": {
+                    "cwd": "${workspaceFolder}/build/linux/bin",
+                    "env": {
+                        "LUNAR_PROFILE_DIR": "${input:orgPacksDir}",
+                        "LUNAR_PROFILE": "*"
+                    }
+                }
+            },
+            "dependsOn": "Build (dev)",
+            "problemMatcher": []
+        },
+        {
             "label": "Run Lunar (release)",
             "type": "process",
             "command": "${workspaceFolder}/build/rel/bin/Lunar.exe",
