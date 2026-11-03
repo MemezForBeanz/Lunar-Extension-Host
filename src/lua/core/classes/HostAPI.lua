@@ -72,6 +72,8 @@ local UI_TOOLKIT = {
 
 local Secrets = require("core.classes.host.Secrets")
 local Network = require("core.classes.host.Network")
+local Http = require("core.classes.host.Http")
+local Database = require("core.classes.host.Database")
 local Layout = require("core.classes.host.Layout")
 local Routing = require("core.classes.host.Routing")
 local Keys = require("core.classes.host.Keys")
@@ -91,6 +93,11 @@ function HostAPI:initialize(opts)
     -- Headless (core.headless): no IUP; timers, jobs and the async scheduler run on
     -- this core.lib.EventLoop instead.
     self.loop       = opts.loop
+    self._http_server = opts.http_server
+    self._state_dir = opts.state_dir
+    -- A replacement for the OS keyring (core.lib.FileSecrets on a server).
+    self._secret_store = opts.secret_store
+    self._sqlite = opts.sqlite -- injectable binding for lifecycle tests
     --- `"gui"` or `"headless"`: which host is running the extensions.
     self.mode       = opts.mode or (opts.iup and "gui" or "headless")
     self._notify_fn = opts.notify   -- headless stand-in for toasts
@@ -164,6 +171,21 @@ function HostAPI:_record(owner)
     end
     return r
 end
+
+--- Open a cached local database owned by an extension declaring "database".
+-- Returns db or nil,error. name is a simple filename stem, never a path.
+function HostAPI:openDatabase(name, owner) return Database.openDatabase(self, name, owner) end
+
+--- Mount an authenticated route under /ext/<manifest-id>. Requires "http".
+-- Returns an opaque handle or nil,error. owner is required.
+function HostAPI:addRoute(method, path, handler, opts, owner)
+    return Http.addRoute(self, method, path, handler, opts, owner)
+end
+
+--- Remove this owner's HTTP route. Returns false for another owner's handle.
+function HostAPI:removeRoute(handle, owner) return Http.removeRoute(self, handle, owner) end
+
+function HostAPI:_closeDatabases() return Database.closeAll(self) end
 
 --- Associate a validated manifest with an extension owner.
 --
@@ -741,6 +763,9 @@ function HostAPI:addVersionInfo(name, version, owner) return Menus.addVersionInf
 -- @tparam[opt=100] number opts.time interval in milliseconds
 -- @tparam[opt] func opts.action callback invoked on each tick
 -- @tparam[opt=false] boolean opts.run start the timer immediately
+-- @tparam[opt=false] boolean opts.keep_on_error headless only: a callback that raises
+--   is reported and the timer keeps ticking (a server's scheduler must not stop
+--   for one bad tick). Ignored by the GUI host.
 -- @tparam[opt] table owner owning extension
 -- @treturn userdata the timer handle, so `RUN` can be toggled with `iup.SetAttribute`.
 --   Headless (no IUP) it is a `core.lib.EventLoop` timer: use `:start()` / `:stop()`.
@@ -749,8 +774,10 @@ function HostAPI:addTimer(opts, owner)
     local iup = self.iup
     if not iup then
         assert(self.loop, "addTimer: this host has neither IUP nor an event loop")
-        -- The loop isolates a throwing callback the same way: disarm, report once.
-        local timer = self.loop:every(opts.time or 100, opts.action or function() end, opts.run == true)
+        -- The loop isolates a throwing callback the same way: disarm, report once
+        -- (or, with keep_on_error, report and keep ticking).
+        local timer = self.loop:every(opts.time or 100, opts.action or function() end, opts.run == true,
+            { keep_on_error = opts.keep_on_error == true })
         table.insert(self:_record(owner).timers, timer)
         return timer
     end
@@ -855,6 +882,14 @@ function HostAPI:onReady(fn, owner)
     table.insert(self._ready, { fn = fn, owner = owner })
 end
 
+--- Is the host shutting down? Headless, this turns true when the process is told
+-- to stop: running jobs get a grace period to finish, and an extension should not
+-- start new work (for example the next job of a sequence) once it is set.
+-- @treturn boolean
+function HostAPI:isStopping()
+    return self._stopping == true
+end
+
 --- Flush the `onReady` queue. Called exactly once by `main.lua` after `IupShow`.
 -- @local
 function HostAPI:_markShown()
@@ -930,6 +965,11 @@ function HostAPI:removeOwned(owner)
     end
 
     if r then
+        step("remove HTTP routes", Http.removeOwned, self, owner)
+        step("close databases", function()
+            local ok, err = Database.closeOwned(self, owner)
+            if not ok then error(err) end
+        end)
         -- Requests still in flight finish on the scheduler, but their callbacks
         -- would run against an unloaded extension.
         for request in pairs(r.requests or {}) do step("cancel request", request.cancel) end

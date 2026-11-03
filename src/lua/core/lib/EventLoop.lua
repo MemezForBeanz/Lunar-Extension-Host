@@ -7,7 +7,8 @@
 -- pump jobs and copas. Each turn:
 --
 --   1. fire the timers that are due (a callback that raises disarms its timer and
---      is reported once, the way the GUI isolates a failing timer);
+--      is reported once, the way the GUI isolates a failing timer, unless the
+--      timer was made with `keep_on_error`);
 --   2. pump every running `ProcessJob`;
 --   3. step copas, waiting for socket activity until the next timer is due (at
 --      most `max_wait`), or just sleep when copas has nothing to do.
@@ -103,14 +104,17 @@ end
 -- @tparam number interval_ms milliseconds between ticks
 -- @tparam function fn callback
 -- @tparam[opt=true] boolean run start it now
+-- @tparam[opt] table opts `{ keep_on_error = boolean }`: report a raising callback
+--   and keep the timer armed instead of disarming it
 -- @treturn table timer with `start()`, `stop()`, `close()` and a `running` flag
-function M:every(interval_ms, fn, run)
+function M:every(interval_ms, fn, run, opts)
 	assert(type(fn) == "function", "EventLoop:every: callback required")
 	local t = setmetatable({
 		_loop = self,
 		interval = math.max(tonumber(interval_ms) or 100, 1) / 1000,
 		fn = fn,
 		running = false,
+		keep_on_error = opts and opts.keep_on_error == true,
 	}, Timer)
 	self._timers[#self._timers + 1] = t
 	if run ~= false then t:start() end
@@ -147,7 +151,7 @@ function M:_fire_timers()
 			t.due = t_now + t.interval
 			local ok, err = xpcall(t.fn, debug.traceback)
 			if not ok then
-				t.running = false
+				if not t.keep_on_error then t.running = false end
 				self:_report("Timer error: " .. tostring(err))
 			end
 		end
@@ -213,6 +217,24 @@ function M:run(opts)
 		if deadline and self._now() >= deadline then return "deadline" end
 	end
 	return "stopped"
+end
+
+--- Let running jobs finish: disarm every timer (no new work starts from one),
+-- then keep pumping jobs and copas until no job is left or `seconds` pass.
+-- Copas tasks alone (an idle HTTP server) don't hold it open.
+-- @tparam number seconds grace period
+-- @treturn boolean true when every job finished in time
+function M:drain(seconds)
+	for _, t in ipairs(self._timers) do t.running = false end
+	local jobs = self:_jobs_mod()
+	if not jobs then return true end
+	local deadline = self._now() + math.max(tonumber(seconds) or 0, 0)
+	self._stopped = false
+	while jobs.active() > 0 do
+		if self._now() >= deadline then return false end
+		self:turn()
+	end
+	return true
 end
 
 --- Ask `run()` to return after the current turn.
