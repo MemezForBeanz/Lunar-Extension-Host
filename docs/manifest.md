@@ -37,7 +37,7 @@ Extensions declare identity and integration surfaces in a JSON manifest loaded b
 | `version` | string | yes* | Shown in the Help menu. Falls back to the extension table's `version`. |
 | `description` | string | no | Free text. |
 | `group` | string | no | Default tab group for this extension's tabs, e.g. `"Diagnostics"`. Use `/` to nest: `"Tools/Parsers"`. Advisory — see below. |
-| `capabilities` | array of strings | no | Integration surfaces the extension uses, e.g. `tabs`, `settings`, `menus`, `routes`. |
+| `capabilities` | array of strings | no | Integration surfaces the extension uses, e.g. `tabs`, `settings`, `menus`, `routes`. `http` allows `ctx:addRoute` and `database` allows `ctx:openDatabase` (see [Headless host](headless.md)). |
 | `provides` | object of string arrays | no | What the extension contributes per capability, e.g. `{"tabs": ["Example"]}`. |
 | `platforms` | array of strings | no | Schema 2. `windows`, `linux`, `macos`. Omitted means all. On any other platform the extension is skipped before its code runs; Help > Window Diagnostics lists it with the reason. |
 | `host_api` | integer | no | Schema 2. The oldest host API the extension needs (default `1`). This host provides `3`: `2` adds `ctx:registerTheme` and `ctx:registerFont`; `3` adds `modes` and the headless host (`ctx.mode`, `ctx.loop`). A newer requirement is reported as a load error asking the user to update Lunar. |

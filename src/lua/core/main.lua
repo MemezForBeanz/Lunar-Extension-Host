@@ -120,7 +120,7 @@ local ORG_PROFILES = ORG_PROFILE and (ORG_PROFILE.profiles or { ORG_PROFILE }) o
 
 -- The same in every org: an org shows up as its tool group, not a rename.
 local APP_TITLE = "Lunar Extension Host"
-local APP_VERSION = "1.1.0"
+local APP_VERSION = "1.2.0"
 -- Folder or share holding the update manifest.json, from the update_share
 -- setting once settings load (an org profile supplies it). nil: no update checks.
 local SHARE_ROOT
