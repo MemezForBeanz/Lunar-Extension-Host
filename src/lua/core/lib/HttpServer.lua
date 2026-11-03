@@ -44,6 +44,17 @@ local function log_error(self, err)
 	if self.log then pcall(self.log, "error", err) end
 end
 
+local function audit(self, req, status, started)
+	if self.log then
+		pcall(function()
+			self.log("info", cjson.encode({ event = "http_request",
+				token = req and req.auth or "-", method = req and req.method or "-",
+				path = req and req.path or "-", status = status,
+				ms = math.max(0, (socket.gettime() - started) * 1000) }))
+		end)
+	end
+end
+
 -- Visit every byte and every configured token; never return at the first mismatch.
 local function authenticate(tokens, supplied)
 	local name
@@ -66,7 +77,10 @@ function M.new(opts)
 	opts = opts or {}
 	local self = setmetatable({ host = opts.host or "127.0.0.1", port = opts.port or 8470,
 		max_body = opts.max_body or 1048576, read_timeout = opts.read_timeout or 10,
-		tls = opts.tls, log = opts.log, routes = {}, clients = {} }, Server)
+		tls = opts.tls, log = opts.log, routes = {}, clients = {}, client_count = 0,
+		max_connections = opts.max_connections or 64 }, Server)
+	assert(type(self.max_connections) == "number" and self.max_connections >= 1
+		and self.max_connections < math.huge and self.max_connections % 1 == 0, "invalid max_connections")
 	assert(self.max_body >= 0 and self.max_body < math.huge and self.max_body % 1 == 0, "invalid max_body")
 	assert(self.read_timeout > 0 and self.read_timeout < math.huge, "invalid read_timeout")
 	assert(opts.tokens or opts.allow_anonymous == true,
@@ -111,7 +125,7 @@ function Server:unroute(handle)
 	return false
 end
 
-local function read_request(self, conn, client)
+local function read_request(self, conn, client, metadata)
 	local deadline, total, buffer = socket.gettime() + self.read_timeout, 0, ""
 	local function timeout()
 		local remaining = deadline - socket.gettime()
@@ -141,6 +155,7 @@ local function read_request(self, conn, client)
 	local method, target, version
 	if first then method, target, version = first:match("^(%S+) (%S+) HTTP/(1%.[01])$") end
 	if not method or not method:match(TOKEN) or target:sub(1, 1) ~= "/" then return nil, failure(400) end
+	metadata.method, metadata.path = method, target:match("^[^?]*")
 	local headers, count = {}, 0
 	while true do
 		local h = line()
@@ -257,23 +272,51 @@ function Server:start()
 		if not ok then return nil, ctx end
 		if not ctx then return nil, err end
 	end
-	local listener, err = socket.bind(self.host, self.port)
+	-- socket.bind enables SO_REUSEADDR even on Windows, where that permits a
+	-- second listener to steal an occupied port. Only enable it on POSIX, where
+	-- without it a restart can't bind while the last run's connections sit in
+	-- TIME_WAIT. tcp4/tcp6, not tcp(): LuaSocket 3's tcp() creates the socket
+	-- only at bind, so an option set before that is silently dropped.
+	local listener, err = (self.host:find(":", 1, true) and socket.tcp6 or socket.tcp4)()
 	if not listener then return nil, err end
+	if package.config:sub(1, 1) ~= "\\" then
+		local reused, reuse_error = listener:setoption("reuseaddr", true)
+		if not reused then listener:close() return nil, "SO_REUSEADDR: " .. tostring(reuse_error) end
+	end
+	local bound, bind_error = listener:bind(self.host, self.port)
+	if not bound then listener:close() return nil, bind_error end
+	local listening, listen_error = listener:listen(128)
+	if not listening then listener:close() return nil, listen_error end
 	local _, port = listener:getsockname()
 	local ok, added = pcall(copas.addserver, listener, function(raw)
+		local started = socket.gettime()
+		if self.client_count >= self.max_connections then
+			raw:settimeout(0)
+			raw:send("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+			raw:close()
+			audit(self, nil, 503, started)
+			return
+		end
 		local ip, peerport = raw:getpeername()
 		local conn = copas.wrap(raw, tls)
 		self.clients[conn] = true
+		self.client_count = self.client_count + 1
 		conn:settimeout(self.read_timeout)
+		local req, status = nil, 500
+		local metadata = {}
 		local success, problem = xpcall(function()
 			if tls then assert(conn:dohandshake()) end
-			local req, bad = read_request(self, conn, tostring(ip) .. ":" .. tostring(peerport))
+			local bad
+			req, bad = read_request(self, conn, tostring(ip) .. ":" .. tostring(peerport), metadata)
 			local worked, response = xpcall(function()
 				local res = bad
 				if req then res = dispatch(self, req) end
-				return serialize(res, req and req.method)
+				local wire = serialize(res, req and req.method)
+				status = res == nil and 204 or (res.status or 200)
+				return wire
 			end, debug.traceback)
 			if not worked then
+				status = 500
 				log_error(self, response)
 				response = serialize(failure(500, "internal error"), req and req.method)
 			end
@@ -281,8 +324,12 @@ function Server:start()
 			conn:send(response)
 		end, debug.traceback)
 		if not success then log_error(self, problem) end
+		audit(self, req or metadata, status, started)
 		pcall(conn.close, conn)
-		self.clients[conn] = nil
+		if self.clients[conn] then
+			self.clients[conn] = nil
+			self.client_count = self.client_count - 1
+		end
 	end)
 	if not ok then copas.removeserver(listener) return nil, added end
 	self.listener, self.port = listener, tonumber(port)
@@ -297,6 +344,7 @@ function Server:stop()
 	end
 	for conn in pairs(self.clients) do pcall(conn.close, conn) end
 	self.clients = {}
+	self.client_count = 0
 end
 
 return M
