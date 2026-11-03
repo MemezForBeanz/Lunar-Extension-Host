@@ -386,7 +386,7 @@ function ThemeManager:_detectNativeThemeSupport()
 	return ok
 end
 
-function ThemeManager:_attrsFromRule(cls, r)
+function ThemeManager:_attrsFromRule(cls, r, inactive)
 	local attrs = {}
 	if not r then
 		return attrs
@@ -538,14 +538,24 @@ function ThemeManager:_attrsFromRule(cls, r)
 		attrs.SHOWBORDER = "YES"
 	end
 
+	-- Hover and pressed are distinct states. A rule that gives only `hover`
+	-- keeps the old behaviour (the same colour for both); `pressed` and
+	-- `pressedtext` override the pressed half so a theme can make a press
+	-- read as a press (one step darker) rather than as a second hover.
 	if r.hover then
 		attrs.HLCOLOR = r.hover
 		attrs.PSCOLOR = r.hover
+	end
+	if r.pressed then
+		attrs.PSCOLOR = r.pressed
 	end
 
 	if r.hovertext then
 		attrs.TEXTHLCOLOR = r.hovertext
 		attrs.TEXTPSCOLOR = r.hovertext
+	end
+	if r.pressedtext then
+		attrs.TEXTPSCOLOR = r.pressedtext
 	end
 
 	if r.forceflat then
@@ -580,6 +590,36 @@ function ThemeManager:_attrsFromRule(cls, r)
 		end
 		if r.radius then
 			attrs.CORNERRADIUS = tostring(r.radius)
+		end
+	elseif cls == "flatlist" or cls == "flattabs" then
+		-- Rounding only (no gradients): flatlist rounds its body and border;
+		-- flattabs rounds the selected/hovered tab's card (fork additions).
+		if r.radius then
+			attrs.CORNERRADIUS = tostring(r.radius)
+		end
+		-- A rounded tab card and the strip's straight SHOWLINES edges do not
+		-- mix; a theme opting into cards turns the lines off explicitly.
+		if cls == "flattabs" and r.showlines == false then
+			attrs.SHOWLINES = "NO"
+		end
+	end
+
+	-- A theme may suppress the dotted keyboard-focus rectangle on a surface
+	-- whose selection is already obvious (the tab strip's card). Only an
+	-- explicit false emits the attribute; absent means the control's default.
+	if r.focusfeedback == false then
+		attrs.FOCUSFEEDBACK = "NO"
+	end
+	-- IupFlatButton has no BGINACTIVE/TEXTINACTIVE attributes. Resolve disabled
+	-- colors to its real paint attributes when theming after an ACTIVE change.
+	if cls == "flatbutton" and inactive then
+		if r.inactivebg then
+			attrs.BGCOLOR, attrs.HLCOLOR, attrs.PSCOLOR = r.inactivebg, r.inactivebg, r.inactivebg
+			attrs.BORDERCOLOR, attrs.BORDERHLCOLOR, attrs.BORDERPSCOLOR = r.inactivebg, r.inactivebg, r.inactivebg
+			if r.gradcolor then attrs.GRADIENTCOLOR = r.inactivebg end
+		end
+		if r.inactivefg then
+			attrs.FGCOLOR, attrs.TEXTHLCOLOR, attrs.TEXTPSCOLOR = r.inactivefg, r.inactivefg, r.inactivefg
 		end
 	end
 	return attrs
@@ -707,7 +747,15 @@ end
 -- whole theme switch reuses a handful of handles. `attrs` is returned so the caller
 -- can capture each original via _save before NTHEME overwrites it (needed so a later
 -- switch back to Classic can restore the true pre-theme values).
-function ThemeManager:_ensureElementHandle(theme, cls, role)
+-- True when a flat button is disabled. The theme walk can meet a handle IUP has
+-- already destroyed; reading ACTIVE from it raises inside an IUP callback, which
+-- LuaJIT cannot unwind through (the process crashes), so the read is guarded.
+function ThemeManager:_isInactive(ih)
+	local ok, value = pcall(self._iup.GetAttribute, ih, "ACTIVE")
+	return ok and value == "NO"
+end
+
+function ThemeManager:_ensureElementHandle(theme, cls, role, inactive)
 	if not cls then
 		return nil
 	end
@@ -724,13 +772,13 @@ function ThemeManager:_ensureElementHandle(theme, cls, role)
 		self._element_handles[t_id] = cache
 	end
 
-	local key = cls .. "|" .. (role or "")
+	local key = cls .. "|" .. (role or "") .. (inactive and "|inactive" or "")
 	local entry = cache[key]
 	if entry then
 		return entry.name, entry.attrs
 	end
 
-	local attrs = self:_attrsFromRule(cls, r)
+	local attrs = self:_attrsFromRule(cls, r, inactive)
 	if not next(attrs) then
 		cache[key] = { name = false, attrs = attrs }
 		return nil, attrs
@@ -740,6 +788,7 @@ function ThemeManager:_ensureElementHandle(theme, cls, role)
 	local cls_key = cls:upper():gsub("[^%w]", "_")
 	local role_key = (role or ""):upper():gsub("[^%w]", "_")
 	local name = ("%s_EL_%s_%s"):format(self:_themeHandleName(theme), cls_key, role_key)
+	if inactive then name = name .. "_INACTIVE" end
 	local user = self:_newNativeUser(attrs)
 	iup.SetHandle(name, user)
 	cache[key] = { name = name, attrs = attrs }
@@ -750,7 +799,8 @@ end
 -- the ~10-25 individual SetAttribute writes _applyElement issues. Originals are
 -- still captured (cheap reads) so dark->classic restore stays correct.
 function ThemeManager:_applyElementNative(ih, theme, cls, role)
-	local handle, attrs = self:_ensureElementHandle(theme, cls, role)
+	local inactive = cls == "flatbutton" and self:_isInactive(ih)
+	local handle, attrs = self:_ensureElementHandle(theme, cls, role, inactive)
 	if not handle then
 		self:_clearManagedRoleTheme(ih)
 		return
@@ -892,7 +942,8 @@ function ThemeManager:_applyElement(ih, rules, cls, role, p)
 	if not r then
 		return
 	end
-	local attrs = self:_attrsFromRule(cls, r)
+	local inactive = cls == "flatbutton" and self:_isInactive(ih)
+	local attrs = self:_attrsFromRule(cls, r, inactive)
 	if not next(attrs) then
 		return
 	end

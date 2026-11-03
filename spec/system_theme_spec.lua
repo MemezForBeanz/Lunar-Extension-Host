@@ -55,7 +55,7 @@ describe("SystemTheme", function()
 	it("shows the light theme in light mode and the dark theme in dark mode", function()
 		local st, _, themes = fixture({ follow = true, system = false })
 		assert.is_true(st:sync(true))
-		assert.are.same({ "classic" }, themes.applied)
+		assert.are.same({ "lunar_light" }, themes.applied)
 		local st2, _, themes2 = fixture({ follow = true, system = true, dark = "one_dark_pro" })
 		st2:sync(true)
 		assert.are.same({ "one_dark_pro" }, themes2.applied)
@@ -67,7 +67,7 @@ describe("SystemTheme", function()
 		assert.is_false(st:sync())                      -- still light
 		system.dark = true
 		assert.is_true(st:sync())
-		assert.are.same({ "classic", "classic_dark" }, themes.applied)
+		assert.are.same({ "lunar_light", "lunar_dark" }, themes.applied)
 	end)
 
 	it("keeps the current theme when the system can't say", function()
@@ -102,7 +102,7 @@ describe("SystemTheme", function()
 		local st2, store2, themes2 = fixture({ system = true, current = "classic" })
 		st2:setEnabled(true)
 		assert.is_nil(store2.theme_dark)
-		assert.are.same({ "classic_dark" }, themes2.applied)
+		assert.are.same({ "lunar_dark" }, themes2.applied)
 	end)
 
 	it("is unavailable and inert when the org locks the theme", function()
@@ -158,7 +158,7 @@ describe("SystemTheme review fixes", function()
 		assert.is_false(st:tick())                      -- started, in flight
 		assert.is_false(st:tick())
 		assert.is_true(st:tick())                       -- answered dark
-		assert.are.equal("classic_dark", themes.current_id)
+		assert.are.equal("lunar_dark", themes.current_id)
 		assert.are.equal(0, system.asked)               -- never blocked
 		assert.are.equal(1, #probes)
 		st:tick()                                       -- the next check is a fresh probe

@@ -1,0 +1,63 @@
+--- Lunar Dark — the host's own design language, dark variant (the default).
+--
+-- A deep slate night with a violet interactive accent: Carbon's structure,
+-- Obsidian's dim lines and soft depth, VS Code's selective rounding. The
+-- mapping of tokens onto widget roles lives in the shared
+-- `core.classes.Themes.lunar_rules` builder; this file is only the palette.
+--
+-- @classmod core.classes.Themes.LunarDarkTheme
+local Theme = require("core.classes.Themes.Theme")
+local lunar = require("core.classes.Themes.lunar_rules")
+local rgb   = lunar.rgb
+
+local LunarDarkTheme = Theme:subclass("LunarDarkTheme")
+
+function LunarDarkTheme:initialize()
+    local p = {
+        bg              = rgb("#1b1d23"),  -- app floor: deep slate
+        layer01         = rgb("#22242c"),  -- pages, lists, fields
+        layer02         = rgb("#2a2d37"),  -- raised: buttons, dropdowns, toasts
+        layerHover01    = rgb("#313542"),  -- pointer-enter, one step lighter
+        layerSelected01 = rgb("#3a3f4f"),  -- persistent selection / pressed
+        borderSubtle01  = rgb("#30333e"),  -- dim structural lines
+        borderStrong01  = rgb("#464b5c"),  -- field edges, emphasis
+        text            = rgb("#d6d9e0"),
+        textMuted       = rgb("#8b90a0"),
+        accent          = rgb("#7c6cf2"),  -- lunar violet (interactive)
+        accentText      = rgb("#ffffff"),
+        error           = rgb("#e06c75"),
+        success         = rgb("#98c379"),
+        warning         = rgb("#e5c07b"),
+        warningText     = rgb("#1b1d23"),
+        info            = rgb("#56b6c2"),
+        font            = "Segoe UI Variable, 10",
+
+        -- The accent strip's sweep: violet into slate.
+        gradTop         = rgb("#7c6cf2"),
+        gradBottom      = rgb("#4a5578"),
+
+        radius          = 4,   -- interactive controls
+        radiusFrame     = 6,   -- container frames
+    }
+    -- Legacy aliases, so widgets reading the six-key palette keep working.
+    p.surface      = p.layer01
+    p.surface2     = p.layerHover01
+    p.border       = p.borderSubtle01
+    p.borderStrong = p.borderStrong01
+    p.listBg       = p.layer01
+    p.listText     = p.text
+    p.listSelText  = p.accent
+
+    Theme.initialize(self, {
+        id      = "lunar_dark",
+        label   = "Lunar Dark",
+        palette = p,
+        dark    = true,
+    })
+end
+
+function LunarDarkTheme:rules()
+    return lunar.build(self:palette())
+end
+
+return LunarDarkTheme

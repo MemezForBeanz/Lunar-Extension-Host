@@ -37,11 +37,15 @@ end
 function StatusBar.new(opts)
 	local iup = opts.iup
 	local self = setmetatable({ _iup = iup }, StatusBar)
+	-- The literals are the Classic (no-override) look; every real theme
+	-- restyles the bar through the statusbar/statusbar_text roles instead of
+	-- the hardcoded gray this bar carried for years.
 	self._label = iup.label({
 		TITLE = "Status: Ready",
 		EXPAND = "HORIZONTAL",
 		FONT = "Segoe UI, 9",
 		FGCOLOR = "60 60 60",
+		THEMEROLE = "statusbar_text",
 	})
 	-- Registered with HostAPI by whoever owns update checks (core.ui.UpdateCheck),
 	-- and only when there is a share to check.
@@ -56,6 +60,7 @@ function StatusBar.new(opts)
 		self._ext_box,
 		logo_image and iup.label({ IMAGE = logo_image, TITLE = "" }) or nil,
 		BGCOLOR = "240 240 240",
+		THEMEROLE = "statusbar",
 		MARGIN = L.margin(3, 2),
 		GAP = L.gap(3),
 		ALIGNMENT = "ACENTER",

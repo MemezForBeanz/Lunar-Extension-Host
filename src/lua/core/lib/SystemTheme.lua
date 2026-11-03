@@ -23,8 +23,8 @@
 local SystemTheme = {}
 SystemTheme.__index = SystemTheme
 
-SystemTheme.DEFAULT_LIGHT = "classic"
-SystemTheme.DEFAULT_DARK = "classic_dark"
+SystemTheme.DEFAULT_LIGHT = "lunar_light"
+SystemTheme.DEFAULT_DARK = "lunar_dark"
 
 --- Create the controller.
 -- @tparam table opts
