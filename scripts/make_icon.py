@@ -3,7 +3,7 @@
 
 Usage:
   make_icon.py <render dir> <assets dir>
-  make_icon.py --from-ico <assets dir>     (re-extract the Linux PNGs from lunar.ico)
+  make_icon.py --from-ico <assets dir>     (extract all PNG assets from lunar.ico)
 
 <render dir> holds lunar-<size>.png for every size in SIZES, rendered from the
 SVG at that exact size (scripts/make-icon.ps1 does the rendering with a headless
@@ -17,9 +17,8 @@ Writes, into <assets dir>:
                      the Linux icon set (window icon via GTK, and the hicolor
                      theme icons the .deb and AppImage install)
 
-The art is black on transparent, which disappears on a dark taskbar. Each size
-gets a thin white halo under the black shapes: invisible on a light background,
-an outline on a dark one. Standard library only, like embed_images.py.
+Preserves each render's colours and alpha without adding an outline or background.
+Standard library only, like embed_images.py.
 """
 import os
 import struct
@@ -32,28 +31,6 @@ from embed_images import png_to_rgba  # noqa: E402
 SIZES = [16, 20, 24, 32, 40, 48, 64, 128, 256]
 # The freedesktop hicolor sizes we ship (a subset of SIZES).
 LINUX_SIZES = [16, 24, 32, 48, 64, 128, 256]
-
-
-def add_halo(w, h, rgba, radius):
-    """Composite the art over a white copy of itself dilated by `radius` px."""
-    alpha = [rgba[i * 4 + 3] for i in range(w * h)]
-    out = bytearray(w * h * 4)
-    reach = [(dx, dy) for dy in range(-radius, radius + 1) for dx in range(-radius, radius + 1)
-             if dx * dx + dy * dy <= radius * radius + radius]
-    for y in range(h):
-        for x in range(w):
-            halo = 0
-            for dx, dy in reach:
-                xx, yy = x + dx, y + dy
-                if 0 <= xx < w and 0 <= yy < h and alpha[yy * w + xx] > halo:
-                    halo = alpha[yy * w + xx]
-            i = (y * w + x) * 4
-            fa, ha = rgba[i + 3] / 255, halo / 255
-            oa = fa + ha * (1 - fa)
-            # The art is black, so its colour adds nothing; only the halo is white.
-            v = 0 if oa == 0 else round(255 * ha * (1 - fa) / oa)
-            out[i:i + 4] = bytes((v, v, v, round(oa * 255)))
-    return out
 
 
 def encode_png(w, h, rgba):
@@ -81,17 +58,44 @@ def encode_ico(images):
     return header + body
 
 
+def dib_to_png(data, size):
+    """Convert an uncompressed 32-bit icon bitmap, preserving its embedded alpha."""
+    if len(data) < 40:
+        sys.exit("truncated icon bitmap header")
+    header, width, height, planes, bits, compression = struct.unpack_from("<IiiHHI", data)
+    if (header != 40 or width != size or abs(height) != size * 2
+            or planes != 1 or bits != 32 or compression != 0):
+        sys.exit("only uncompressed 32-bit BITMAPINFOHEADER icon bitmaps are supported")
+    if len(data) < header + size * size * 4:
+        sys.exit("truncated icon bitmap pixels")
+    rgba = bytearray(size * size * 4)
+    for y in range(size):
+        source_y = size - 1 - y if height > 0 else y
+        for x in range(size):
+            source = header + (source_y * size + x) * 4
+            target = (y * size + x) * 4
+            blue, green, red, alpha = data[source:source + 4]
+            rgba[target:target + 4] = bytes((red, green, blue, alpha))
+    return encode_png(size, size, rgba)
+
+
 def decode_ico(data):
-    """[(size, png bytes)] from an .ico whose entries are PNGs (as encode_ico writes)."""
+    """[(size, png bytes)] from PNG or uncompressed 32-bit bitmap ICO entries."""
+    if len(data) < 6:
+        sys.exit("truncated icon header")
     _, kind, count = struct.unpack_from("<HHH", data, 0)
     if kind != 1:
         sys.exit("not an icon file")
+    if len(data) < 6 + 16 * count:
+        sys.exit("truncated icon directory")
     out = []
     for i in range(count):
-        w, _, _, _, _, _, length, offset = struct.unpack_from("<BBBBHHII", data, 6 + 16 * i)
+        w, h, _, _, _, _, length, offset = struct.unpack_from("<BBBBHHII", data, 6 + 16 * i)
+        if w != h or offset < 6 + 16 * count or offset + length > len(data):
+            sys.exit("invalid or non-square icon entry %d" % i)
         png = data[offset:offset + length]
-        if not png.startswith(b"\x89PNG"):
-            sys.exit("icon entry %d is not PNG data" % i)
+        if not png.startswith(b"\x89PNG\r\n\x1a\n"):
+            png = dib_to_png(png, w or 256)
         out.append((w or 256, png))
     return out
 
@@ -109,7 +113,14 @@ def write_linux_icons(images, assets_dir):
 def main():
     if len(sys.argv) == 3 and sys.argv[1] == "--from-ico":
         with open(os.path.join(sys.argv[2], "lunar.ico"), "rb") as f:
-            write_linux_icons(decode_ico(f.read()), sys.argv[2])
+            images = decode_ico(f.read())
+        missing = set(LINUX_SIZES) - dict(images).keys()
+        if missing:
+            sys.exit("icon is missing required sizes: %s" % sorted(missing))
+        with open(os.path.join(sys.argv[2], "lunar-icon-32.png"), "wb") as f:
+            f.write(dict(images)[32])
+        write_linux_icons(images, sys.argv[2])
+        print("wrote lunar-icon-32.png; source lunar.ico unchanged")
         return
     if len(sys.argv) != 3:
         sys.exit(__doc__)
@@ -120,7 +131,7 @@ def main():
         w, h, rgba = png_to_rgba(path)
         if (w, h) != (size, size):
             sys.exit("%s is %dx%d, expected %dx%d" % (path, w, h, size, size))
-        images.append((size, encode_png(w, h, add_halo(w, h, rgba, max(1, round(size / 40))))))
+        images.append((size, encode_png(w, h, rgba)))
     with open(os.path.join(assets_dir, "lunar.ico"), "wb") as f:
         f.write(encode_ico(images))
     with open(os.path.join(assets_dir, "lunar-icon-32.png"), "wb") as f:
