@@ -389,7 +389,7 @@ add_executable(Lunar WIN32
 configure_file(${CMAKE_SOURCE_DIR}/assets/lunar_version.h.in ${CMAKE_BINARY_DIR}/generated/lunar_version.h @ONLY)
 set_source_files_properties(assets/Lunar.rc PROPERTIES
     INCLUDE_DIRECTORIES ${CMAKE_BINARY_DIR}/generated
-    OBJECT_DEPENDS ${CMAKE_BINARY_DIR}/generated/lunar_version.h)
+    OBJECT_DEPENDS "${CMAKE_BINARY_DIR}/generated/lunar_version.h;${CMAKE_SOURCE_DIR}/assets/lunar.ico")
 add_dependencies(Lunar embed_lua)
 add_dependencies(Lunar embed_images)
 add_dependencies(Lunar iup_fork)
@@ -629,3 +629,36 @@ if(NOT WIN32 AND NOT LUNAR_DEV_BUILD AND NOT LUNAR_HEADLESS)
         USES_TERMINAL
         VERBATIM)
 endif()
+
+
+
+# ---------------------------------------------------------------------------
+# Tests (CTest)
+# ---------------------------------------------------------------------------
+# One CTest test per busted spec file, plus luacheck, so `ctest`, the CMake Tools
+# Test button and VS Code's Test Explorer can run and report them individually.
+# They drive the same scripts as the Test/Lint tasks (vendored LuaJIT + LuaRocks
+# tree, restored by scripts/bootstrap.ps1 -Dev or scripts/dev.sh bootstrap) and
+# run from the repo root, where .busted and .luacheckrc live. The specs exercise
+# the Lua sources directly, so they need no build first.
+enable_testing()
+if(WIN32)
+    set(LUNAR_TEST_CMD powershell -NoProfile -ExecutionPolicy Bypass -File ${CMAKE_SOURCE_DIR}/scripts/test.ps1)
+    set(LUNAR_LINT_CMD powershell -NoProfile -ExecutionPolicy Bypass -File ${CMAKE_SOURCE_DIR}/scripts/lint.ps1)
+else()
+    set(LUNAR_TEST_CMD ${CMAKE_SOURCE_DIR}/scripts/dev.sh test)
+    set(LUNAR_LINT_CMD ${CMAKE_SOURCE_DIR}/scripts/dev.sh lint)
+endif()
+
+file(GLOB LUNAR_SPECS CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/spec/*_spec.lua)
+foreach(spec IN LISTS LUNAR_SPECS)
+    get_filename_component(spec_name ${spec} NAME_WE)
+    string(REGEX REPLACE "_spec$" "" spec_name ${spec_name})
+    add_test(NAME spec.${spec_name}
+             COMMAND ${LUNAR_TEST_CMD} spec/${spec_name}_spec.lua
+             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    set_tests_properties(spec.${spec_name} PROPERTIES LABELS "busted" TIMEOUT 120)
+endforeach()
+
+add_test(NAME lint COMMAND ${LUNAR_LINT_CMD} WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(lint PROPERTIES LABELS "lint" TIMEOUT 300)
