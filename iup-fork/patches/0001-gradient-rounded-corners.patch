@@ -43,7 +43,7 @@ index 1e22c2b..211b3d3 100644
  
  IUP_SDK_API void iupDlgListDestroySelected(const char* name, void* value)
 diff --git a/src/iup_draw.c b/src/iup_draw.c
-index 31d5852..3fe4f4a 100644
+index 31d5852..ddd4729 100644
 --- a/src/iup_draw.c
 +++ b/src/iup_draw.c
 @@ -22,6 +22,16 @@
@@ -296,7 +296,7 @@ index 31d5852..3fe4f4a 100644
  {
    long color;
 diff --git a/src/iup_draw.h b/src/iup_draw.h
-index 677c810..9829475 100644
+index 677c810..2e1a6ad 100644
 --- a/src/iup_draw.h
 +++ b/src/iup_draw.h
 @@ -71,6 +71,13 @@ IUP_SDK_API void iupFlatDrawBorder(IdrawCanvas* dc, int xmin, int xmax, int ymin
@@ -314,7 +314,7 @@ index 677c810..9829475 100644
                              const char* imagename, const char* title, int *w, int *h, double text_orientation);
  IUP_SDK_API void iupFlatDrawIcon(Ihandle* ih, IdrawCanvas* dc, int icon_x, int icon_y, int icon_width, int icon_height,
 diff --git a/src/iup_dropbutton.c b/src/iup_dropbutton.c
-index e828595..fe09cc5 100644
+index e828595..3cf26fc 100644
 --- a/src/iup_dropbutton.c
 +++ b/src/iup_dropbutton.c
 @@ -166,9 +166,9 @@ static int iDropButtonRedraw_CB(Ihandle* ih)
@@ -343,7 +343,26 @@ index e828595..fe09cc5 100644
    }
  
    /* reserve space for focus feedback (after background draw) */
-@@ -782,6 +782,20 @@ static int iDropButtonDialogKeyEscCB(Ihandle* dlg)
+@@ -260,7 +260,17 @@ static int iDropButtonRedraw_CB(Ihandle* ih)
+   if (ih->data->has_focus && focus_feedback)
+   {
+     border_width--;
+-    iupdrvDrawFocusRect(dc, border_width, border_width, ih->currentwidth - 1 - border_width, ih->currentheight - 1 - border_width);
++    {
++      /* Lunar fork: rounded controls get a focus ring along the contour (see iup_flatbutton.c). */
++      int focus_radius = iupAttribGetInt(ih, "CORNERRADIUS");
++      if (focus_radius > 0)
++        iupFlatDrawRoundBorder(dc, border_width, ih->currentwidth - 1 - border_width,
++                               border_width, ih->currentheight - 1 - border_width,
++                               focus_radius > border_width ? focus_radius - border_width : 1,
++                               1, fgcolor, NULL, active);
++      else
++        iupdrvDrawFocusRect(dc, border_width, border_width, ih->currentwidth - 1 - border_width, ih->currentheight - 1 - border_width);
++    }
+   }
+ 
+   iupdrvDrawFlush(dc);
+@@ -782,6 +792,20 @@ static int iDropButtonDialogKeyEscCB(Ihandle* dlg)
    return IUP_DEFAULT;
  }
  
@@ -364,7 +383,7 @@ index e828595..fe09cc5 100644
  static Ihandle* iDropButtonCreateDropDialog(Ihandle* ih)
  {
    Ihandle* dlg = IupDialog(NULL);
-@@ -798,6 +812,9 @@ static Ihandle* iDropButtonCreateDropDialog(Ihandle* ih)
+@@ -798,6 +822,9 @@ static Ihandle* iDropButtonCreateDropDialog(Ihandle* ih)
    IupSetCallback(dlg, "FOCUS_CB", (Icallback)iDropButtonDialogFocusCB);
    IupSetCallback(dlg, "K_ESC", (Icallback)iDropButtonDialogKeyEscCB);
  
@@ -374,7 +393,7 @@ index e828595..fe09cc5 100644
    return dlg;
  }
  
-@@ -850,7 +867,9 @@ static int iDropButtonCreateMethod(Ihandle* ih, void** params)
+@@ -850,7 +877,9 @@ static int iDropButtonCreateMethod(Ihandle* ih, void** params)
  
  static void iDropButtonDestroyMethod(Ihandle* ih)
  {
@@ -385,7 +404,7 @@ index e828595..fe09cc5 100644
      IupDestroy(ih->data->dropdialog);
  }
  
-@@ -942,6 +961,10 @@ Iclass* iupDropButtonNewClass(void)
+@@ -942,6 +971,10 @@ Iclass* iupDropButtonNewClass(void)
    iupClassRegisterAttribute(ic, "BORDERWIDTH", iDropButtonGetBorderWidthAttrib, iDropButtonSetBorderWidthAttrib, IUPAF_SAMEASSYSTEM, "1", IUPAF_NOT_MAPPED);  /* inheritable */
    iupClassRegisterAttribute(ic, "FGCOLOR", NULL, NULL, "DLGFGCOLOR", NULL, IUPAF_DEFAULT);  /* force the new default value */
    iupClassRegisterAttribute(ic, "BGCOLOR", iDropButtonGetBgColorAttrib, iDropButtonSetAttribPostRedraw, IUPAF_SAMEASSYSTEM, "DLGBGCOLOR", IUPAF_NOT_MAPPED | IUPAF_NO_SAVE);
@@ -397,7 +416,7 @@ index e828595..fe09cc5 100644
    iupClassRegisterAttribute(ic, "PSCOLOR", NULL, NULL, NULL, NULL, IUPAF_DEFAULT);  /* inheritable */
    iupClassRegisterAttribute(ic, "TEXTHLCOLOR", NULL, NULL, NULL, NULL, IUPAF_DEFAULT);  /* inheritable */
 diff --git a/src/iup_flatbutton.c b/src/iup_flatbutton.c
-index 1f09fda..f9599f5 100644
+index 1f09fda..779aeed 100644
 --- a/src/iup_flatbutton.c
 +++ b/src/iup_flatbutton.c
 @@ -125,7 +125,7 @@ static int iFlatButtonRedraw_CB(Ihandle* ih)
@@ -418,7 +437,28 @@ index 1f09fda..f9599f5 100644
                         border_width, ih->currentheight - 1 - border_width,
                         bgcolor, NULL, 1);  /* background is always active */
  
-@@ -757,6 +757,11 @@ Iclass* iupFlatButtonNewClass(void)
+@@ -182,7 +182,19 @@ static int iFlatButtonRedraw_CB(Ihandle* ih)
+   if (ih->data->has_focus && focus_feedback)
+   {
+     border_width--;
+-    iupdrvDrawFocusRect(dc, border_width, border_width, ih->currentwidth - 1 - border_width, ih->currentheight - 1 - border_width);
++    /* Lunar fork: on a rounded control the native dotted rectangle reads as a
++       broken square outline; draw the focus ring along the rounded contour
++       instead (one pixel, the foreground color, just inside the border). */
++    {
++      int focus_radius = iupAttribGetInt(ih, "CORNERRADIUS");
++      if (focus_radius > 0)
++        iupFlatDrawRoundBorder(dc, border_width, ih->currentwidth - 1 - border_width,
++                               border_width, ih->currentheight - 1 - border_width,
++                               focus_radius > border_width ? focus_radius - border_width : 1,
++                               1, fgcolor, NULL, active);
++      else
++        iupdrvDrawFocusRect(dc, border_width, border_width, ih->currentwidth - 1 - border_width, ih->currentheight - 1 - border_width);
++    }
+   }
+ 
+   iupdrvDrawFlush(dc);
+@@ -757,6 +769,11 @@ Iclass* iupFlatButtonNewClass(void)
    iupClassRegisterAttribute(ic, "TEXTHLCOLOR", NULL, NULL, NULL, NULL, IUPAF_DEFAULT);  /* inheritable */
    iupClassRegisterAttribute(ic, "TEXTPSCOLOR", NULL, NULL, NULL, NULL, IUPAF_DEFAULT);  /* inheritable */
  
@@ -431,7 +471,7 @@ index 1f09fda..f9599f5 100644
    iupClassRegisterAttribute(ic, "IMAGEPRESS", NULL, NULL, NULL, NULL, IUPAF_IHANDLENAME | IUPAF_NO_DEFAULTVALUE | IUPAF_NO_INHERIT);
    iupClassRegisterAttribute(ic, "IMAGEHIGHLIGHT", NULL, NULL, NULL, NULL, IUPAF_IHANDLENAME | IUPAF_NO_DEFAULTVALUE | IUPAF_NO_INHERIT);
 diff --git a/src/iup_flatframe.c b/src/iup_flatframe.c
-index 84ac4a7..441d54d 100644
+index 84ac4a7..ee41e6a 100644
 --- a/src/iup_flatframe.c
 +++ b/src/iup_flatframe.c
 @@ -65,9 +65,14 @@ static int iFlatFrameRedraw_CB(Ihandle* ih)
@@ -476,7 +516,7 @@ index 84ac4a7..441d54d 100644
    iupClassRegisterAttribute(ic, "FRAMESPACE", NULL, NULL, IUPAF_SAMEASSYSTEM, "2", IUPAF_NO_INHERIT);
  
 diff --git a/src/iup_flatlabel.c b/src/iup_flatlabel.c
-index 14d6799..708cf9f 100644
+index 14d6799..2a1411e 100644
 --- a/src/iup_flatlabel.c
 +++ b/src/iup_flatlabel.c
 @@ -69,9 +69,9 @@ static int iFlatLabelRedraw_CB(Ihandle* ih)
@@ -504,7 +544,7 @@ index 14d6799..708cf9f 100644
    /* Special */
    iupClassRegisterAttribute(ic, "TITLE", NULL, iFlatLabelSetAttribPostRedraw, NULL, NULL, IUPAF_NO_DEFAULTVALUE | IUPAF_NO_INHERIT);
 diff --git a/src/iup_flatscrollbar.c b/src/iup_flatscrollbar.c
-index c527028..6a4392e 100644
+index c527028..716ecc4 100644
 --- a/src/iup_flatscrollbar.c
 +++ b/src/iup_flatscrollbar.c
 @@ -177,6 +177,39 @@ static int iFlatScrollBarMoveHandler(int size, int arrow_size, int max, int d, i
@@ -577,7 +617,7 @@ index c527028..6a4392e 100644
  
    iupClassRegisterAttribute(ic, "ARROWIMAGES", NULL, NULL, NULL, NULL, IUPAF_NO_INHERIT);
 diff --git a/src/iup_flatscrollbox.c b/src/iup_flatscrollbox.c
-index c8d987d..d91a70f 100644
+index c8d987d..08113f8 100644
 --- a/src/iup_flatscrollbox.c
 +++ b/src/iup_flatscrollbox.c
 @@ -23,9 +23,29 @@
@@ -714,7 +754,7 @@ index c8d987d..d91a70f 100644
    iupFlatScrollBarRegister(ic);
  
 diff --git a/src/iup_flattoggle.c b/src/iup_flattoggle.c
-index 16c85d9..086e56a 100644
+index 16c85d9..54f7460 100644
 --- a/src/iup_flattoggle.c
 +++ b/src/iup_flattoggle.c
 @@ -149,9 +149,9 @@ static int iFlatToggleRedraw_CB(Ihandle* ih)
@@ -743,7 +783,28 @@ index 16c85d9..086e56a 100644
  
    /* reserve space for focus feedback (after background draw) */
    if (iupAttribGetBoolean(ih, "CANFOCUS") && focus_feedback)
-@@ -883,6 +883,10 @@ Iclass* iupFlatToggleNewClass(void)
+@@ -307,8 +307,18 @@ static int iFlatToggleRedraw_CB(Ihandle* ih)
+   if (ih->data->has_focus && focus_feedback)
+   {
+     border_width--;
+-    iupdrvDrawFocusRect(dc, border_width + icon_left, border_width,
+-                        icon_right - border_width, ih->currentheight - 1 - border_width);
++    /* Lunar fork: rounded controls get a focus ring along the contour (see iup_flatbutton.c). */
++    {
++      int focus_radius = iupAttribGetInt(ih, "CORNERRADIUS");
++      if (focus_radius > 0)
++        iupFlatDrawRoundBorder(dc, border_width + icon_left, icon_right - border_width,
++                               border_width, ih->currentheight - 1 - border_width,
++                               focus_radius > border_width ? focus_radius - border_width : 1,
++                               1, fgcolor, NULL, active);
++      else
++        iupdrvDrawFocusRect(dc, border_width + icon_left, border_width,
++                            icon_right - border_width, ih->currentheight - 1 - border_width);
++    }
+   }
+ 
+   iupdrvDrawFlush(dc);
+@@ -883,6 +893,10 @@ Iclass* iupFlatToggleNewClass(void)
    iupClassRegisterAttribute(ic, "BORDERWIDTH", iFlatToggleGetBorderWidthAttrib, iFlatToggleSetBorderWidthAttrib, IUPAF_SAMEASSYSTEM, "1", IUPAF_NOT_MAPPED);  /* inheritable */
    iupClassRegisterAttribute(ic, "FGCOLOR", NULL, NULL, "DLGFGCOLOR", NULL, IUPAF_DEFAULT);  /* force the new default value */
    iupClassRegisterAttribute(ic, "BGCOLOR", iFlatToggleGetBgColorAttrib, iFlatToggleSetAttribPostRedraw, IUPAF_SAMEASSYSTEM, "DLGBGCOLOR", IUPAF_NO_SAVE);
@@ -755,7 +816,7 @@ index 16c85d9..086e56a 100644
    iupClassRegisterAttribute(ic, "PSCOLOR", NULL, NULL, NULL, NULL, IUPAF_DEFAULT);  /* inheritable */
    iupClassRegisterAttribute(ic, "TEXTHLCOLOR", NULL, NULL, NULL, NULL, IUPAF_DEFAULT);  /* inheritable */
 diff --git a/src/iup_gauge.c b/src/iup_gauge.c
-index bb5bd03..b2941bf 100644
+index bb5bd03..d418a66 100644
 --- a/src/iup_gauge.c
 +++ b/src/iup_gauge.c
 @@ -125,6 +125,52 @@ static int iGaugeRedraw_CB(Ihandle* ih)
@@ -821,7 +882,7 @@ index bb5bd03..b2941bf 100644
    /* Overwrite IupCanvas Attributes */
    iupClassRegisterAttribute(ic, "ACTIVE", iupBaseGetActiveAttrib, iGaugeSetActiveAttrib, IUPAF_SAMEASSYSTEM, "YES", IUPAF_DEFAULT);
 diff --git a/src/iup_text.c b/src/iup_text.c
-index cd49897..6d7c2e9 100644
+index cd49897..1831b89 100644
 --- a/src/iup_text.c
 +++ b/src/iup_text.c
 @@ -416,7 +416,16 @@ static int iTextSetMultilineAttrib(Ihandle* ih, const char* value)
@@ -869,7 +930,7 @@ index cd49897..6d7c2e9 100644
  }
  
 diff --git a/src/win/iupwin_draw_gdi.c b/src/win/iupwin_draw_gdi.c
-index 8cf5068..3cf4053 100644
+index 8cf5068..1bcd18d 100644
 --- a/src/win/iupwin_draw_gdi.c
 +++ b/src/win/iupwin_draw_gdi.c
 @@ -305,6 +305,141 @@ static void iwinDrawRectangleSimAA(IdrawCanvas* dc, int x1, int y1, int x2, int
@@ -1015,7 +1076,7 @@ index 8cf5068..3cf4053 100644
  {
    if (dc->wdl_gc)
 diff --git a/src/win/iupwin_text.c b/src/win/iupwin_text.c
-index 0dcf11d..d41a63f 100644
+index 0dcf11d..ddb15f1 100644
 --- a/src/win/iupwin_text.c
 +++ b/src/win/iupwin_text.c
 @@ -966,6 +966,32 @@ static char* winTextGetLineCountAttrib(Ihandle* ih)
@@ -1101,7 +1162,7 @@ index 2374a26..14dd007 100644
      /* Pen functions */
      GPA(CreatePen1, (DWORD, float, dummy_GpUnit, dummy_GpPen**));
 diff --git a/src/win/wdl/backend-gdix.h b/src/win/wdl/backend-gdix.h
-index 597800d..e26c7fe 100644
+index 597800d..37c412e 100644
 --- a/src/win/wdl/backend-gdix.h
 +++ b/src/win/wdl/backend-gdix.h
 @@ -79,6 +79,8 @@ struct gdix_vtable_tag {
