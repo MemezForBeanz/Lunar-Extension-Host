@@ -19,6 +19,7 @@
 --     widget as a group strip**; there is no separate registry to consult.
 --   * `_IUPLUNAR_GROUPSOURCE` — `"user"` or `"manifest"` (see the pruning rule).
 --   * `_IUPLUNAR_GROUPACTIVE` — the member this group was last left on.
+--   * `_IUPLUNAR_COLLAPSED` — YES when the group's own strip is hidden.
 --   * `_IUPLUNAR_GROUPHINT` — optional manifest-supplied default group path,
 --     applied only the first time a tab is seen.
 --
@@ -99,6 +100,7 @@ local NAME_ATTR   = "_IUPLUNAR_GROUPNAME"
 local SOURCE_ATTR = "_IUPLUNAR_GROUPSOURCE"
 local ACTIVE_ATTR = "_IUPLUNAR_GROUPACTIVE"
 local HINT_ATTR   = "_IUPLUNAR_GROUPHINT"
+local COLLAPSED_ATTR = "_IUPLUNAR_COLLAPSED"
 
 -- Versions 1 and 2 were both written by builds that read the group marker through
 -- an INHERITED attribute (see the constants below), so both could persist a tree
@@ -287,7 +289,7 @@ end
 -- it does nothing. Use `renameGroup` to change the name.
 --
 -- @tparam userdata widget a page handle
--- @treturn table|nil `{ name, source, strip, active }`
+-- @treturn table|nil `{ name, source, strip, active, collapsed }`
 function TabGroups:groupOf(widget)
 	if not self:isGroupStrip(widget) then return nil end
 	local name   = attr.get(self._iup, widget, NAME_ATTR)
@@ -297,6 +299,7 @@ function TabGroups:groupOf(widget)
 		name   = name or self:_titleOf(widget) or "Group",
 		source = source or "user",
 		active = active,
+		collapsed = self:isCollapsed(widget),
 		strip  = widget,
 	}
 end
@@ -469,9 +472,41 @@ end
 -- STRIP CONSTRUCTION
 -- =======================================================================
 
--- Attach the host's per-strip behaviour: the "+" new-group button and whatever
--- drag handling the caller installs. Applied to the root strip as well as to
--- every group strip, so a group's own bar behaves exactly like the main one.
+--- Collapse only a group's strip; its selected page stays visible.
+function TabGroups:isCollapsed(strip)
+	if not self:isGroupStrip(strip) then return false end
+	-- The registered attribute also keeps recovery usable without the internal
+	-- attribute FFI bridge (persistence already refuses to save in that case).
+	return attr.get(self._iup, strip, COLLAPSED_ATTR) == "YES"
+		or attr.get(self._iup, strip, "SHOWTABS") == "NO"
+end
+
+function TabGroups:setCollapsed(strip, collapsed)
+	if not self:isGroupStrip(strip) then return false end
+	collapsed = collapsed == true
+	if self:isCollapsed(strip) == collapsed then return false end
+	return self:_batch(function()
+		self._iup.SetAttribute(strip, "SHOWTABS", collapsed and "NO" or "YES")
+		attr.set(self._iup, strip, COLLAPSED_ATTR, collapsed and "YES" or nil)
+		self:_requestRefresh()
+		self:_changed() -- persists and invokes the shell-budget hook after layout
+		return true
+	end)
+end
+
+function TabGroups:toggleCollapsed(strip)
+	return self:setCollapsed(strip, not self:isCollapsed(strip))
+end
+
+function TabGroups:showAllTabBars()
+	self:_batch(function()
+		for _, strip in ipairs(self:stripsDeepestFirst()) do
+			self:setCollapsed(strip, false)
+		end
+	end)
+end
+
+-- Attach the host's per-strip extra buttons and the caller's drag handlers.
 function TabGroups:_prepareStrip(strip)
 	local iup = self._iup
 	local self_ = self
@@ -483,14 +518,21 @@ function TabGroups:_prepareStrip(strip)
 	--
 	-- NOTE: this only works because core.classes.TabOrder now hooks
 	-- FLAT_BUTTON_CB instead of overwriting the control's internal BUTTON_CB.
-	pcall(iup.SetAttribute, strip, "EXTRABUTTONS", "1")
+	local is_group = self:isGroupStrip(strip)
+	pcall(iup.SetAttribute, strip, "EXTRABUTTONS", is_group and "2" or "1")
 	pcall(iup.SetAttributeId, strip, "EXTRATITLE", 1, "+")
 	pcall(iup.SetAttributeId, strip, "EXTRATIP", 1, "New tab group")
+	if is_group then
+		pcall(iup.SetAttributeId, strip, "EXTRATITLE", 2, "^")
+		pcall(iup.SetAttributeId, strip, "EXTRATIP", 2, "Hide tab bar (double-click the parent tab to restore)")
+	end
 
 	pcall(function()
 		function strip:extrabutton_cb(id, pressed)
 			-- Act on release, mirroring a normal button click.
-			if id == 1 and pressed == 0 then
+			if id == 2 and pressed == 0 and is_group then
+				self_:setCollapsed(strip, true)
+			elseif id == 1 and pressed == 0 then
 				if self_._on_new then
 					self_._on_new(strip)
 				else
@@ -965,7 +1007,8 @@ function TabGroups:_mergeAbsent(children)
 					if n.t == "group" and n.name == g.name then found = n break end
 				end
 				if not found then
-					found = { t = "group", name = g.name, source = g.source, active = g.active, children = {} }
+					found = { t = "group", name = g.name, source = g.source, active = g.active,
+						collapsed = g.collapsed or nil, children = {} }
 					table.insert(list, math.min(g.index or #list + 1, #list + 1), found)
 				end
 				list = found.children
@@ -987,6 +1030,7 @@ function TabGroups:_serializeStrip(strip, depth)
 				name     = record.name,
 				source   = record.source,
 				active   = record.active,
+				collapsed = record.collapsed or nil,
 				children = self:_serializeStrip(child, depth + 1),
 			}
 		else
@@ -1165,12 +1209,14 @@ function TabGroups:_restoreInto(strip, nodes, placed, depth, path)
 				if group_strip and type(node.active) == "string" then
 					pcall(self._iup.SetAttribute, group_strip, ACTIVE_ATTR, node.active)
 				end
+				if group_strip then self:setCollapsed(group_strip, node.collapsed == true) end
 				local sub = {}
 				for i, g in ipairs(path) do sub[i] = g end
 				-- Its position and selection too: a manifest group left empty is pruned
 				-- from the live tree, and must come back where it was, not at the end.
 				sub[#sub + 1] = {
 					name = node.name, index = index, active = node.active,
+					collapsed = node.collapsed == true,
 					source = node.source == "manifest" and "manifest" or "user",
 				}
 				self:_restoreInto(group_strip, node.children, placed, depth + 1, sub)

@@ -18,6 +18,14 @@ local function base(over)
 end
 
 describe("Diagnostics.window_report", function()
+	it("reports the measured shell bands and root tab cap", function()
+		local text = Diagnostics.window_report(base({ layout = {
+			shell_cap = 922, shell_bands = { header = 40, accent = 2, status = 30 },
+		} }))
+		assert.truthy(text:find("root tabs height cap: 922", 1, true))
+		assert.truthy(text:find("bands header/accent/status: 40 / 2 / 30", 1, true))
+	end)
+
 	it("reports the org pack, its tool group and the extensions", function()
 		local text = Diagnostics.window_report(base({
 			profile = { id = "acme", trusted = false, tool_group = "Acme Tools" },

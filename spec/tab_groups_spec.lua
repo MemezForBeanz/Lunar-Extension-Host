@@ -109,6 +109,7 @@ local function make_iup()
 	function iup.GetAttribute(w, name)
 		local cur = real(w)
 		if is_internal(name) then return cur.attrs[name] end
+		if name == "SHOWTABS" then return cur.attrs[name] or "YES" end
 		while cur do
 			local v = cur.attrs[name]
 			if v ~= nil then return v end
@@ -374,6 +375,113 @@ describe("TabGroups", function()
 		iup.Append(root, w)
 		return w
 	end
+
+	describe("collapsed strips", function()
+		it("round-trips nested collapse state without changing selection or membership", function()
+			local a, b = add("a/1"), add("b/1")
+			local outer = groups:createGroup(root, "Outer")
+			local inner = groups:createGroup(outer, "Inner")
+			groups:moveInto(a, inner)
+			groups:moveInto(b, inner)
+			iup.SetAttribute(inner, "VALUEPOS", "1")
+			groups:setCollapsed(outer, true)
+			groups:setCollapsed(inner, true)
+			assert.equal("1", iup.GetAttribute(inner, "VALUEPOS"))
+			local saved = groups:serialize()
+			assert.equal(3, saved.version)
+			assert.is_true(saved.children[1].collapsed)
+			assert.is_true(saved.children[1].children[1].collapsed)
+			groups:restore()
+			assert.same(saved, groups:serialize())
+			outer = root.children[1]
+			inner = outer.children[1]
+			assert.equal("NO", iup.GetAttribute(inner, "SHOWTABS"))
+			assert.equal("NO", iup.GetAttribute(outer, "SHOWTABS"))
+		end)
+
+		it("does not inherit collapse and restores all groups with one change notification", function()
+			local outer = groups:createGroup(root, "Outer")
+			local inner = groups:createGroup(outer, "Inner")
+			groups:setCollapsed(outer, true)
+			assert.is_false(groups:isCollapsed(inner))
+			assert.equal("YES", iup.GetAttribute(inner, "SHOWTABS"))
+			groups:setCollapsed(inner, true)
+			local changes = 0
+			groups._on_change = function() changes = changes + 1 end
+			groups:showAllTabBars()
+			assert.equal(1, changes)
+			assert.equal("YES", iup.GetAttribute(outer, "SHOWTABS"))
+			assert.equal("YES", iup.GetAttribute(inner, "SHOWTABS"))
+			assert.is_false(groups:isCollapsed(outer))
+			assert.is_false(groups:isCollapsed(inner))
+			groups:showAllTabBars()
+			assert.equal(1, changes)
+		end)
+
+		it("only offers collapse on groups and activates it on extra-button release", function()
+			local group = groups:createGroup(root, "Tools")
+			assert.equal("1", iup.GetAttribute(root, "EXTRABUTTONS"))
+			assert.equal("2", iup.GetAttribute(group, "EXTRABUTTONS"))
+			group:extrabutton_cb(2, 1)
+			assert.is_false(groups:isCollapsed(group))
+			group:extrabutton_cb(2, 0)
+			assert.is_true(groups:isCollapsed(group))
+			assert.is_false(groups:setCollapsed(root, true))
+			assert.is_false(groups:setCollapsed(add("plain/1"), true))
+		end)
+
+		it("accepts older schema-3 groups without a collapsed field", function()
+			settings:set("tab_groups", { version = 3, children = {
+				{ t = "group", name = "Old", source = "user", children = {} },
+			} })
+			groups:restore()
+			assert.is_false(groups:isCollapsed(root.children[1]))
+			assert.equal("YES", iup.GetAttribute(root.children[1], "SHOWTABS"))
+		end)
+
+		it("offers hide and show actions on the parent tab's context menu", function()
+			local TabOrder = require("core.classes.TabOrder")
+			local group = groups:createGroup(root, "Tools")
+			local function menu_widget(def) return def end
+			iup.item, iup.menu, iup.separator = menu_widget, menu_widget, menu_widget
+			iup.Popup = function() end
+			iup.Destroy = function() end
+			local order = TabOrder:new({ iup = iup })
+			order:setGroups(groups)
+			order:_showMenu(root, 0)
+			local item = order._menu:handle()[1]
+			assert.equal("Hide tab bar", item.TITLE)
+			item:action()
+			assert.is_true(groups:isCollapsed(group))
+			order:_showMenu(root, 0)
+			item = order._menu:handle()[1]
+			assert.equal("Show tab bar", item.TITLE)
+			item:action()
+			assert.is_false(groups:isCollapsed(group))
+		end)
+
+		it("keeps a group collapsed when a page is moved into it", function()
+			local group = groups:createGroup(root, "Tools")
+			groups:setCollapsed(group, true)
+			local page = add("new/1")
+			groups:moveInto(page, group)
+			assert.is_true(groups:isCollapsed(group))
+			assert.equal("NO", iup.GetAttribute(group, "SHOWTABS"))
+			assert.equal(page, iup._real(iup.GetChild(group, 0)))
+		end)
+
+		it("can recover hidden strips even when internal attributes cannot be read", function()
+			local group = groups:createGroup(root, "Tools")
+			groups:setCollapsed(group, true)
+			local get = iup.GetAttribute
+			iup.GetAttribute = function(widget, name)
+				if name:sub(1, 4) == "_IUP" then return nil end
+				return get(widget, name)
+			end
+			groups:showAllTabBars()
+			assert.equal("YES", get(group, "SHOWTABS"))
+		end)
+	end)
 
 	-- ---------------------------------------------------------- seamlessness ---
 	--

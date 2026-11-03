@@ -535,13 +535,22 @@ function TabOrder:install(strip)
 	-- Returning IUP_DEFAULT lets the control's own handler run afterwards, which
 	-- is what keeps tab switching, the scroll arrows and the "+" extra button
 	-- working.
-	function strip:flat_button_cb(button, pressed, x, y, _status)
+	function strip:flat_button_cb(button, pressed, x, y, status)
 		if button ~= iup.BUTTON1 then return iup.DEFAULT end
 
 		if pressed == 1 then
 			self_._bounds = nil
 			local pos = self_:_posAt(strip, x, y)
 			if pos then
+				local child = self_:_child(strip, pos)
+				if iup.isdouble and iup.isdouble(status or "") and self_._groups
+					and self_._groups:isGroupStrip(child) then
+					self_._drag = nil
+					self_:_cancelSpring()
+					if self_._transition then self_._transition:settle() end
+					self_._groups:toggleCollapsed(child)
+					return iup.DEFAULT
+				end
 				-- Capture the outgoing page NOW, while it is still the visible one.
 				-- The control switches pages after this callback returns, and IUP
 				-- only reports the change afterwards -- by which point the old page
@@ -711,6 +720,10 @@ function TabOrder:_showMenu(strip, pos)
 	end
 
 	if record then
+		items[#items + 1] = {
+			title = groups:isCollapsed(child) and "Show tab bar" or "Hide tab bar",
+			action = function() groups:toggleCollapsed(child) end,
+		}
 		items[#items + 1] = {
 			title = "Rename Group...",
 			action = function()

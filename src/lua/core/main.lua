@@ -69,6 +69,7 @@ local HostAPI = require("core.classes.HostAPI")
 local SettingsView = require("core.ui.SettingsView")
 local MenuBar = require("core.ui.MenuBar")
 local StatusBar = require("core.ui.StatusBar")
+local ShellBudget = require("core.ui.ShellBudget")
 local UpdateCheck = require("core.ui.UpdateCheck")
 local ThemeManager = require("core.classes.ThemeManager")
 local SystemTheme = require("core.lib.SystemTheme")
@@ -333,6 +334,9 @@ local menu_bar, mh = MenuBar.build({
 	on_reload = function()
 		if tab_groups then tab_groups:restore() end
 	end,
+	on_show_tab_bars = function()
+		if tab_groups then tab_groups:showAllTabBars() end
+	end,
 })
 ext_menu = mh.ext_menu
 
@@ -520,6 +524,40 @@ local dlg = iup.dialog({
 
 -- Keep MAXSIZE/MINSIZE on the monitor the window is on (core.ui.MonitorFit).
 local monitor_fit = MonitorFit.new({ iup = iup, dialog = dlg, ffi = IupFFI })
+local shell_budget = { bands = {} }
+local function measured_height(widget, attribute)
+	local ok, size = pcall(iup.GetAttribute, widget, attribute or "RASTERSIZE")
+	local height = ok and type(size) == "string" and tonumber(size:match("x(%d+)$"))
+	return height and height > 0 and height or nil
+end
+
+local function recalc_shell_budget(client_h)
+	client_h = client_h or measured_height(dlg, "CLIENTSIZE")
+	if not client_h or client_h <= 0 then return false end
+	local bands = {
+		header = measured_height(shell_header) or 0,
+		accent = measured_height(gradient_strip) or 0,
+		status = measured_height(status_bar:widget()) or 0,
+	}
+	local cap = ShellBudget.cap(client_h, bands, L.gutter(), 4)
+	shell_budget.bands, shell_budget.cap = bands, cap
+	local value = "65535x" .. cap
+	if iup.GetAttribute(tabs, "MAXSIZE") == value then return false end
+	iup.SetAttribute(tabs, "MAXSIZE", value)
+	return true
+end
+
+function dlg:resize_cb(_, h)
+	recalc_shell_budget(h)
+	return iup.DEFAULT -- winDialogResize performs the layout after this callback.
+end
+
+local function refresh_shell_budget()
+	-- Theme/font and status-scope changes need fresh band measurements first.
+	iup.Refresh(dlg)
+	if recalc_shell_budget() then iup.Refresh(dlg) end
+end
+theme_mgr:onApply(refresh_shell_budget)
 -- A lowercase method is how iuplua binds callbacks; setting dlg.MOVE_CB would
 -- store an attribute IUP never calls.
 function dlg:move_cb(x, y)   -- luacheck: ignore x y
@@ -709,7 +747,10 @@ tab_groups = TabGroups:new({
 	iup = iup,
 	root_strip = tabs,
 	settings = settings_mgr,
-	on_change = function() host:_applyTabScopes() end,
+	on_change = function()
+		host:_applyTabScopes()
+		refresh_shell_budget()
+	end,
 	on_strip_created = function(strip) tab_order:install(strip) end,
 	on_new_group = function(strip)
 		local name = NameDialog.show({
@@ -808,6 +849,8 @@ host:addMenuItem("Window Diagnostics...", function()
 			tabs_raster = attr(tabs, "RASTERSIZE"),
 			statusbar_raster = attr(status_bar:widget(), "RASTERSIZE"),
 			statusbar_expand = attr(status_bar:widget(), "EXPAND"),
+			shell_cap = shell_budget.cap,
+			shell_bands = shell_budget.bands,
 		},
 		transition = ok_rep and report or tostring(report),
 		native = NativeStatus.lines(NATIVE, theme_mgr:fastPaths()),
