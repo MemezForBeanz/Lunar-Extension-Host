@@ -1,0 +1,160 @@
+diff --git a/src/iup_flattabs.c b/src/iup_flattabs.c
+index b7e8550..afac6ff 100644
+--- a/src/iup_flattabs.c
++++ b/src/iup_flattabs.c
+@@ -298,6 +298,8 @@ static int iFlatTabsGetTitleSize(Ihandle* ih, int *title_width, int* title_heigh
+ 
+   *title_width = 0;
+   *title_height = 0;
++  if (!iupAttribGetBoolean(ih, "SHOWTABS"))
++    return 0;
+   title_max = 0;
+ 
+   for (pos = 0, child = ih->firstchild; child; child = child->brother, pos++)
+@@ -602,6 +604,29 @@ static int iFlatTabsRedraw_CB(Ihandle* ih)
+   /* draw child area background */
+   iupFlatDrawBox(dc, child_x_pos, child_x_pos + child_width - 1, child_y_pos, child_y_pos + child_height - 1, bgcolor, NULL, 1);
+ 
++  /* Hidden strips retain SHOWLINES decoration, but never paint titles, extra
++     buttons or focus feedback. Keep the page geometry identical except for the
++     missing title band (also used by CLIENTSIZE and the layout methods). */
++  if (!iupAttribGetBoolean(ih, "SHOWTABS"))
++  {
++    if (show_lines)
++    {
++      long color = iupDrawStrToColor(iupAttribGetStr(ih, "TABSLINECOLOR"), 0);
++      int w = ih->currentwidth - 1, h = ih->currentheight - 1;
++      if (tabType != ITABS_TOP)
++        iupdrvDrawLine(dc, 0, 0, w, 0, color, IUP_DRAW_STROKE, 1);
++      if (tabType != ITABS_BOTTOM)
++        iupdrvDrawLine(dc, 0, h, w, h, color, IUP_DRAW_STROKE, 1);
++      if (tabType != ITABS_LEFT)
++        iupdrvDrawLine(dc, 0, 0, 0, h, color, IUP_DRAW_STROKE, 1);
++      if (tabType != ITABS_RIGHT)
++        iupdrvDrawLine(dc, w, 0, w, h, color, IUP_DRAW_STROKE, 1);
++    }
++    iupdrvDrawFlush(dc);
++    iupdrvDrawKillCanvas(dc);
++    return IUP_DEFAULT;
++  }
++
+   /* title area background */
+   iupFlatDrawBox(dc, title_x_pos, title_xmax, title_y_pos, title_ymax, tabs_bgcolor, NULL, 1);
+ 
+@@ -764,7 +789,20 @@ static int iFlatTabsRedraw_CB(Ihandle* ih)
+           y1 = tab_y;
+           y2 = tab_y + tab_h;
+         }
+-        iupFlatDrawBox(dc, x1, x2, y1, y2, background_color, NULL, 1);
++        /* Lunar fork: with CORNERRADIUS, a selected or hovered tab paints as a
++           card with rounded top corners (the square lower half re-fill keeps
++           it joined to the page below), like Obsidian's and VS Code's active
++           tab. Top-oriented strips only; the app never uses the others. */
++        {
++          int tab_radius = iupAttribGetInt(ih, "CORNERRADIUS");
++          if (tab_radius > 0 && tabType == ITABS_TOP && (y2 - y1) > 2 * tab_radius)
++          {
++            iupFlatDrawRoundBox(dc, x1, x2, y1, y2, tab_radius, background_color, NULL, 1);
++            iupFlatDrawBox(dc, x1, x2, y1 + tab_radius, y2, background_color, NULL, 1);
++          }
++          else
++            iupFlatDrawBox(dc, x1, x2, y1, y2, background_color, NULL, 1);
++        }
+       }
+       else
+         background_color = tabs_bgcolor;
+@@ -1041,6 +1079,9 @@ static int iFlatTabsResize_CB(Ihandle* ih, int width, int height)
+ {
+   int scroll_pos = iupAttribGetInt(ih, "_IUPFTABS_SCROLLPOS");
+   int tabType = iupAttribGetInt(ih, "_IUPTAB_TYPE");
++  if (!iupAttribGetBoolean(ih, "SHOWTABS"))
++    return IUP_DEFAULT;
++
+   if (scroll_pos)
+   {
+     int title_width, title_height;
+@@ -1161,6 +1202,10 @@ static int iFlatTabsFindTab(Ihandle* ih, int cur_x, int cur_y, int show_close, i
+ 
+   int scroll_size = iFlatTabsGetTitleSize(ih, &title_width, &title_height, 1);
+ 
++  *inside_close = 0;
++  if (!iupAttribGetBoolean(ih, "SHOWTABS"))
++    return ITABS_NONE;
++
+   switch (tabType)
+   {
+   default: /* ITABS_TOP */
+@@ -1369,6 +1414,9 @@ static int iFlatTabsButton_CB(Ihandle* ih, int button, int pressed, int x, int y
+       return IUP_DEFAULT;
+   }
+ 
++  if (!iupAttribGetBoolean(ih, "SHOWTABS"))
++    return IUP_DEFAULT;
++
+   if (button == IUP_BUTTON1 && pressed)
+   {
+     int inside_close;
+@@ -1563,6 +1611,9 @@ static int iFlatTabsMotion_CB(Ihandle *ih, int x, int y, char *status)
+       return IUP_DEFAULT;
+   }
+ 
++  if (!iupAttribGetBoolean(ih, "SHOWTABS"))
++    return IUP_DEFAULT;
++
+   show_close = iupAttribGetBoolean(ih, "SHOWCLOSE");
+   tab_highlighted = iupAttribGetInt(ih, "_IUPFTABS_HIGHLIGHTED");
+   tab_found = iFlatTabsFindTab(ih, x, y, show_close, &inside_close);
+@@ -2128,6 +2179,35 @@ static int iFlatTabsSetExpandButtonStateAttrib(Ihandle* ih, const char* value)
+   return 1;
+ }
+ 
++/* Store before refreshing: unlike TABTYPE (which only posts a redraw), this
++   attribute changes the space available to every child immediately. */
++static int iFlatTabsSetShowTabsAttrib(Ihandle* ih, const char* value)
++{
++  /* Return 1 (store) in every path: the mapping process re-applies each stored
++     attribute through its setter (iupAttribUpdate) and REMOVES it from the
++     hash when the setter answers 0 -- which turned a SHOWTABS=NO set before
++     map back into the YES default, silently re-showing the strip. */
++  int show = value ? iupStrBoolean(value) : 1;
++  if (iupAttribGetBoolean(ih, "SHOWTABS") == show)
++    return 1;
++
++  iupAttribSet(ih, "SHOWTABS", show ? "YES" : "NO");
++  iupAttribSetInt(ih, "_IUPFTABS_HIGHLIGHTED", ITABS_NONE);
++  iupAttribSetInt(ih, "_IUPFTABS_CLOSEHIGH", ITABS_NONE);
++  iupAttribSetInt(ih, "_IUPFTABS_CLOSEPRESS", ITABS_NONE);
++  iupAttribSetInt(ih, "_IUPFTABS_EXTRAPRESS", ITABS_NONE);
++  if (ih->handle)
++  {
++    Ihandle* child = iFlatTabsGetCurrentTab(ih);
++    iupFlatItemResetTip(ih);
++    IupRefresh(ih);
++    if (show && child)
++      iFlatTabsUpdateScrollPos(ih, child);
++    iupdrvPostRedraw(ih);
++  }
++  return 1;
++}
++
+ static int iFlatTabsSetTabTypeAttrib(Ihandle* ih, const char* value)
+ {
+   if (iupStrEqualNoCase(value, "BOTTOM"))
+@@ -2147,6 +2227,8 @@ static int iFlatTabsSetTabTypeAttrib(Ihandle* ih, const char* value)
+ 
+ static char* iFlatTabsGetExtraBoxAttrib(Ihandle* ih, int id)
+ {
++  if (!iupAttribGetBoolean(ih, "SHOWTABS"))
++    return NULL;
+   int extra_buttons = iupAttribGetInt(ih, "EXTRABUTTONS");
+   if (extra_buttons && id >= 1 && id <= extra_buttons)
+   {
+@@ -2489,6 +2571,8 @@ Iclass* iupFlatTabsNewClass(void)
+   iupClassRegisterAttribute(ic, "TIP", NULL, iupFlatItemSetTipAttrib, NULL, NULL, IUPAF_NO_DEFAULTVALUE | IUPAF_NO_INHERIT);
+ 
+   /* IupFlatTabs only */
++  iupClassRegisterAttribute(ic, "SHOWTABS", NULL, iFlatTabsSetShowTabsAttrib, IUPAF_SAMEASSYSTEM, "YES", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "CORNERRADIUS", NULL, iFlatTabsSetAttribPostRedraw, NULL, NULL, IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);  /* Lunar fork */
+   iupClassRegisterAttribute(ic, "VALUE", iFlatTabsGetValueAttrib, iFlatTabsSetValueAttrib, NULL, NULL, IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "VALUEPOS", iFlatTabsGetValuePosAttrib, iFlatTabsSetValuePosAttrib, IUPAF_SAMEASSYSTEM, "0", IUPAF_NO_SAVE | IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "VALUE_HANDLE", iFlatTabsGetValueHandleAttrib, iFlatTabsSetValueHandleAttrib, NULL, NULL, IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT | IUPAF_IHANDLE | IUPAF_NO_STRING);
