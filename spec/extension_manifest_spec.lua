@@ -15,6 +15,16 @@ describe("ExtensionManifest", function()
 		assert.are.same({ "Main" }, manifest.provides.tabs)
 	end)
 
+	it("answers whether a manifest declares a capability", function()
+		local manifest = assert(Manifest.validate({
+			id = "srv", name = "Srv", version = "1", capabilities = { "http", "database" },
+		}, { id = "srv" }))
+		assert.is_true(Manifest.hasCapability(manifest, "http"))
+		assert.is_true(Manifest.hasCapability(manifest, "database"))
+		assert.is_false(Manifest.hasCapability(manifest, "secrets"))
+		assert.is_false(Manifest.hasCapability({}, "http"))
+	end)
+
 	it("rejects an explicitly invalid ID instead of silently rewriting it", function()
 		local manifest, err = Manifest.validate({
 			id = "Invalid Plugin!",

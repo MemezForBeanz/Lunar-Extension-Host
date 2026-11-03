@@ -43,6 +43,15 @@ M.PLATFORMS = { windows = true, linux = true, macos = true }
 -- (`core.headless`). An extension that never says `headless` is never loaded there.
 M.MODES = { gui = true, headless = true }
 
+--- Capabilities remain extensible strings. These host services require an
+-- explicit declaration (correctness checks, not a sandbox).
+function M.hasCapability(manifest, name)
+	for _, capability in ipairs(manifest.capabilities or {}) do
+		if capability == name then return true end
+	end
+	return false
+end
+
 local ID_PATTERN = "^[a-z0-9][a-z0-9._%-]*$"
 
 local function trim(value)
