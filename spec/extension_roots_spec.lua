@@ -75,6 +75,26 @@ describe("ExtensionManager roots", function()
 		assert.truthy(c.errors[1]:find("already loaded from built-in", 1, true))
 	end)
 
+	it("keeps separate pack groups and rejects duplicate ids from later packs", function()
+		local a, b = sandbox()
+		plugin(a, "dup")
+		plugin(b, "dup")
+		plugin(b, "unique")
+		local mgr = ExtensionManager:new({
+			{ dir = a, source = "org:org-a", group = "Tools (org-a)" },
+			{ dir = b, source = "org:org-b", group = "Tools (org-b)" },
+		})
+		local entries = mgr:_discover()
+		assert.are.equal("Tools (org-a)", entries[1].group)
+		assert.are.equal("Tools (org-b)", entries[3].group)
+		local c = ctx()
+		assert.are.equal(2, mgr:loadAll(c))
+		assert.are.equal(2, #_G.__ran)
+		assert.are.equal("org:org-a", mgr.extensions[1].source)
+		assert.are.equal("org:org-b", mgr.extensions[2].source)
+		assert.truthy(c.errors[1]:find("already loaded from org:org-a", 1, true))
+	end)
+
 	it("skips other-platform extensions and refuses newer host APIs before running them", function()
 		local builtin = sandbox()
 		local other = platform.is_windows and "linux" or "windows"

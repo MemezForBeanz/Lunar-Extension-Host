@@ -94,9 +94,11 @@ that fails the check is ignored, and Help > Window Diagnostics says why.
 3. Otherwise none: plain Lunar.
 
 **For development**, point `LUNAR_PROFILE_DIR` at a folder of packs. Packs found
-there are *untrusted*: their settings apply, but their locks and
-extensions don't. A development build also accepts `LUNAR_PROFILE=<id>` to pick
-one by id.
+there are *untrusted*: their settings apply, but their locks don't; their
+extensions load only in dev builds. A development build accepts
+`LUNAR_PROFILE=<id>` to pick one, or `LUNAR_PROFILE="*"` to load all packs in that
+directory. VS Code provides **Run Lunar with all org packs (dev)** for the latter;
+see [the trust model](docs/trust-model.md) for ordering and shared settings.
 
 ## Writing an extension
 

@@ -115,6 +115,8 @@ do
 	end
 end
 
+local ORG_PROFILES = ORG_PROFILE and (ORG_PROFILE.profiles or { ORG_PROFILE }) or {}
+
 -- The same in every org: an org shows up as its tool group, not a rename.
 local APP_TITLE = "Lunar Extension Host"
 local APP_VERSION = "1.1.0"
@@ -204,6 +206,7 @@ do
 		org_log:info("no org profile (" .. tostring(ORG_INFO.reason) .. "); running neutral")
 	end
 	for _, err in ipairs(ORG_INFO.errors) do org_log:warn("skipped profile " .. err) end
+	for _, warning in ipairs(ORG_INFO.warnings) do org_log:warn(warning) end
 
 	-- The updater installs an MSI, so update checks are Windows-only for now;
 	-- Linux builds will update through their package format instead.
@@ -217,13 +220,14 @@ end
 -- itself is trusted (admin-installed); a dev build also takes LUNAR_PROFILE_DIR
 -- packs so pack extensions can be developed without installing them.
 local extension_roots = { { dir = resolve_plugins_dir(APP_DIR), source = "built-in", create = true } }
-if ORG_PROFILE and (ORG_PROFILE.trusted or DEV_BUILD) then
-	extension_roots[#extension_roots + 1] = {
-		dir = platform.path:join(ORG_PROFILE.dir, "extensions"),
-		source = "org:" .. ORG_PROFILE.id,
-		-- The pack's tabs open together in the org's group, e.g. "Acme Tools".
-		group = ORG_PROFILE.tool_group,
-	}
+for _, profile in ipairs(ORG_PROFILES) do
+	if profile.trusted or DEV_BUILD then
+		extension_roots[#extension_roots + 1] = {
+			dir = platform.path:join(profile.dir, "extensions"),
+			source = "org:" .. profile.id,
+			group = profile.tool_group,
+		}
+	end
 end
 local ext_mgr = ExtensionMgr:new(extension_roots)
 
@@ -367,7 +371,7 @@ host = HostAPI:new({
 	-- display name only); org settings reach it through ctx.settings as usual.
 	app = {
 		title = APP_TITLE, version = APP_VERSION, dir = APP_DIR,
-		org = ORG_PROFILE and { id = ORG_PROFILE.id, name = ORG_PROFILE.name } or nil,
+		org = ORG_PROFILE and not ORG_PROFILE.profiles and { id = ORG_PROFILE.id, name = ORG_PROFILE.name } or nil,
 	},
 	settings = settings_mgr,
 	subprocess = subprocess,
@@ -455,7 +459,7 @@ AppearanceSettings.register({
 	iup = iup, settings = settings_mgr, host = host,
 	theme_manager = theme_mgr, motion = motion_director,
 	system_theme = system_theme,
-	org_name = ORG_PROFILE and ORG_PROFILE.name,
+	org_name = ORG_PROFILE and not ORG_PROFILE.profiles and ORG_PROFILE.name,
 })
 
 -- Startup sizes for the main window: the primary monitor's usable area, until
@@ -734,16 +738,16 @@ tab_groups:restore()
 -- keeps them wherever they were). Recorded per org and group name, so moves the
 -- user makes afterwards are theirs; renaming the group in the profile applies
 -- once more. Only recorded once the org's tabs were actually there to move.
-if ORG_PROFILE and ORG_PROFILE.tool_group then
-	local group = ORG_PROFILE.tool_group
+for _, profile in ipairs(ORG_PROFILES) do
+	local group = profile.tool_group
 	local applied = settings_mgr:get("tool_group_applied")
 	applied = type(applied) == "table" and applied or {}
-	if applied[ORG_PROFILE.id] ~= group then
+	if applied[profile.id] ~= group then
 		local ok, matched = pcall(tab_groups.applyHints, tab_groups, function(_, hint)
 			return hint == group or hint:sub(1, #group + 1) == group .. "/"
 		end)
 		if ok and matched > 0 then
-			applied[ORG_PROFILE.id] = group
+			applied[profile.id] = group
 			settings_mgr:set("tool_group_applied", applied)
 			settings_mgr:save()
 		end
