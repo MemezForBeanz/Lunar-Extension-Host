@@ -826,7 +826,7 @@ host:_markShown()
 -- With "Match system theme" on, the system's mode decides; otherwise (or when the
 -- system can't say) the saved theme.
 if not system_theme:sync(true) then
-	theme_mgr:apply(settings_mgr:get("theme") or "classic_dark", { skip_save = true })
+	theme_mgr:apply(settings_mgr:get("theme") or "lunar_dark", { skip_save = true })
 end
 system_theme:start()
 

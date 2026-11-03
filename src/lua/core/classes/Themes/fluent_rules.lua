@@ -83,7 +83,7 @@ function M.build(p)
     local sfg = (p.gradEnabled and p.gradTop) or p.accent
     local shi = (p.gradEnabled and p.gradBottom) or p.accent
     local spr = (p.gradEnabled and (p.accentHover or p.gradBottom)) or accentHover
-    return {
+    local rules = {
         -- Shell header: the band naming the product, brand semibold beside the
         -- product name (see carbon_rules for the reasoning).
         shellheader   = { bg = p.bg, fg = p.text, border = p.border, borderwidth = 1 },
@@ -140,6 +140,42 @@ function M.build(p)
         pagesubtitle        = { fg = p.textMuted, font = sized(p.font, 10) },
         sectiontitle        = { fg = p.text,      font = sized(p.font, 11, true) },
         hint                = { fg = p.textMuted, font = sized(p.font, 9) },
+
+        -- Semantic text roles (see carbon_rules.lua).
+        error_label   = { fg = p.error,   font = p.font },
+        success_label = { fg = p.success, font = p.font },
+        warning_label = { fg = p.warning, font = p.font },
+        info_label    = { fg = p.info,    font = p.font },
+        mono          = { fg = p.text,      font = "Consolas, 10" },
+        mono_hint     = { fg = p.textMuted, font = "Consolas, 9" },
+
+        -- Bottom status bar (see carbon_rules.lua).
+        statusbar      = { bg = p.bg, fg = p.textMuted, border = p.border },
+        statusbar_text = { bg = p.bg, fg = p.textMuted, font = sized(p.font, 9) },
+
+        -- Hyperlink button: accent text, no fill or border (see carbon_rules).
+        link_btn = {
+            bg = p.surface, fg = p.accent, font = p.font,
+            border = p.surface, borderwidth = 0, padding = "2x1",
+            hover = p.surface, hovertext = p.accentHover or p.accent,
+            pressed = p.surface, pressedtext = p.textMuted,
+        },
+
+        -- Icon button: square quiet target for glyph-only actions.
+        icon_btn = {
+            bg = p.surface, fg = p.textMuted, font = p.font,
+            border = p.surface, borderwidth = 0, padding = "4x4", radius = p.radius,
+            hover = p.surface2, hovertext = p.text,
+            pressed = shade(p.surface2, -0.08), pressedtext = p.text,
+        },
+
+        -- Fluent's "subtle" button: transparent at rest, surface fill on hover.
+        ghost_btn = {
+            bg = p.surface, fg = p.textMuted, font = p.font,
+            border = p.surface, borderwidth = 0, padding = "8x3", radius = p.radius,
+            hover = p.surface2, hovertext = p.text,
+            pressed = shade(p.surface2, -0.08), pressedtext = p.text,
+        },
         settingslabel       = { fg = p.text,      font = p.font },
         settingslabel_muted = { fg = p.textMuted, font = p.font },
         settingspanel = { bg = p.surface },
@@ -164,34 +200,34 @@ function M.build(p)
         -- vertical darkening toward the lower edge under gradient themes.
         actionbutton  = {
             bg = p.surface, gradcolor = defGrad, radius = p.radius, fg = p.text, font = p.font,
-            border = p.borderStrong, borderwidth = 1, showborder = true,
+            padding = "12x5", border = p.borderStrong, borderwidth = 1, showborder = true,
             hover = p.surface2, hovertext = p.text,
         },
         -- Fluent "Primary" button: signature accent gradient sweep (blue -> purple),
         -- text-on-accent, deeper accent on hover.
         primary_btn = {
             bg = priTop, gradcolor = priGrad, radius = p.radius, fg = p.accentText, font = p.font,
-            border = priBorder, borderwidth = 1, showborder = true,
+            padding = "12x5", border = priBorder, borderwidth = 1, showborder = true,
             hover = accentHover, hovertext = p.accentText,
         },
         warning_btn = {
             bg = p.surface, gradcolor = defGrad, radius = p.radius, fg = p.text, font = p.font,
-            border = p.borderStrong, borderwidth = 1, showborder = true,
+            padding = "12x5", border = p.borderStrong, borderwidth = 1, showborder = true,
             hover = p.warning, hovertext = p.warningText,
         },
         danger_btn = {
             bg = p.surface, gradcolor = defGrad, radius = p.radius, fg = p.text, font = p.font,
-            border = p.borderStrong, borderwidth = 1, showborder = true,
+            padding = "12x5", border = p.borderStrong, borderwidth = 1, showborder = true,
             hover = p.error, hovertext = p.accentText,
         },
         info_btn = {
             bg = p.surface, gradcolor = defGrad, radius = p.radius, fg = p.text, font = p.font,
-            border = p.borderStrong, borderwidth = 1, showborder = true,
+            padding = "12x5", border = p.borderStrong, borderwidth = 1, showborder = true,
             hover = p.info, hovertext = p.accentText,
         },
         dropbutton    = {
             bg = p.surface, gradcolor = defGrad, radius = p.radius, fg = p.text, font = p.font,
-            border = p.borderStrong, borderwidth = 1, showborder = true,
+            padding = "12x5", border = p.borderStrong, borderwidth = 1, showborder = true,
             hover = p.surface2, hovertext = p.text,
         },
         -- Thin gradient accent strip in the chrome (native flatlabel with a horizontal
@@ -240,6 +276,16 @@ function M.build(p)
         progressbar   = { bg = p.surface, fg = p.accent, border = p.border },
         gauge         = { bg = p.surface, fg = p.accent, border = p.border },
     }
+    -- Roles replace class rules: preserve the entire bordered-list definition.
+    rules.list_mono = {}
+    for key, value in pairs(rules.list_bordered) do rules.list_mono[key] = value end
+    rules.list_mono.font = "Consolas, 9"
+    for _, role in ipairs({ "flatbutton", "primary_btn", "actionbutton", "ghost_btn",
+                            "danger_btn", "warning_btn", "info_btn", "link_btn", "icon_btn" }) do
+        rules[role].inactivebg = p.layer01 or p.surface or p.bg
+        rules[role].inactivefg = p.textMuted
+    end
+    return rules
 end
 
 return M

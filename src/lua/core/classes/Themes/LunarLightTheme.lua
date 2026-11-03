@@ -1,0 +1,61 @@
+--- Lunar Light — the host's own design language, light variant.
+--
+-- The daylight counterpart of `LunarDarkTheme` ("Match system theme" pairs
+-- them): the same structure and violet accent on paper-white layers, with
+-- semantic colors deepened for contrast on light surfaces. Role mapping lives
+-- in the shared `core.classes.Themes.lunar_rules` builder.
+--
+-- @classmod core.classes.Themes.LunarLightTheme
+local Theme = require("core.classes.Themes.Theme")
+local lunar = require("core.classes.Themes.lunar_rules")
+local rgb   = lunar.rgb
+
+local LunarLightTheme = Theme:subclass("LunarLightTheme")
+
+function LunarLightTheme:initialize()
+    local p = {
+        bg              = rgb("#f2f2f7"),
+        layer01         = rgb("#ffffff"),
+        layer02         = rgb("#f7f7fb"),
+        layerHover01    = rgb("#ececf3"),
+        layerSelected01 = rgb("#e2e2ee"),
+        borderSubtle01  = rgb("#dcdce6"),
+        borderStrong01  = rgb("#b8b8c8"),
+        text            = rgb("#27272f"),
+        textMuted       = rgb("#6e6e80"),
+        accent          = rgb("#6a5ae0"),  -- violet, deepened for light surfaces
+        accentText      = rgb("#ffffff"),
+        error           = rgb("#c4314b"),
+        success         = rgb("#3a7d44"),
+        warning         = rgb("#946200"),
+        warningText     = rgb("#ffffff"),
+        info            = rgb("#0b6a78"),
+        font            = "Segoe UI Variable, 10",
+
+        gradTop         = rgb("#6a5ae0"),
+        gradBottom      = rgb("#8d9ac9"),
+
+        radius          = 4,
+        radiusFrame     = 6,
+    }
+    p.surface      = p.layer01
+    p.surface2     = p.layerHover01
+    p.border       = p.borderSubtle01
+    p.borderStrong = p.borderStrong01
+    p.listBg       = p.layer01
+    p.listText     = p.text
+    p.listSelText  = p.accent
+
+    Theme.initialize(self, {
+        id      = "lunar_light",
+        label   = "Lunar Light",
+        palette = p,
+        dark    = false,
+    })
+end
+
+function LunarLightTheme:rules()
+    return lunar.build(self:palette())
+end
+
+return LunarLightTheme

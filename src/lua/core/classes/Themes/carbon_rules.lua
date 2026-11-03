@@ -91,16 +91,13 @@ end
 -- @tparam table p Palette table. See module header for the full token list.
 -- @treturn table Widget class/role → style mapping.
 function M.build(p)
-    -- Carbon's `$field-01` button height, expressed as padding because that is
-    -- the only lever IUP gives a theme over a flat control's size. 12px above and
-    -- below a ~15px line of body text lands on Carbon's 40px control; 16px either
-    -- side is `$spacing-05`, the same step the page margins use, so a button's
-    -- label lines up with the content column beside it.
-    --
-    -- 40 rather than the 48 of `$field-02`: the host's dialogs are built to fixed
-    -- heights and a 48px button overflows the smaller ones. `CarbonLayout.CARBON`
-    -- carries both, so a surface that wants the full-size target can ask for it.
-    local BTN_PAD = string.format("%dx%d", L.SPACING[5], 12)
+    -- Button size: VS Code / Obsidian scale rather than Carbon's own 40px
+    -- `$field-01` target. Carbon's slab buttons were the single loudest
+    -- "everything is too big" complaint -- a ~15px body line with 5px above
+    -- and below is a ~27px control, and 12px sides keep the label snug. This
+    -- deliberately departs from the Carbon spec; everything else about the
+    -- Carbon themes (tokens, layers, type scale) is unchanged.
+    local BTN_PAD = "12x5"
 
     -- Carbon's `$field-01` text-input height (40px). IUP's text/multiline/list
     -- controls have no explicit height attribute that the theme layer can set, but
@@ -119,7 +116,7 @@ function M.build(p)
     local elevated = p.layer02         or p.surface2
     local layer1   = p.layer01        or p.surface
 
-    return {
+    local rules = {
         -- Type scale. Owner-drawn flatlabels, so these follow the theme rather
         -- than baking a literal color the way the extensions' own headings used
         -- to -- which is why a dark-blue page title survived onto a dark theme.
@@ -131,6 +128,47 @@ function M.build(p)
         pagesubtitle  = { fg = p.textMuted, font = sized(p.font, 11) },
         sectiontitle  = { fg = p.text,      font = sized(p.font, 15, true) },
         hint          = { fg = p.textMuted, font = sized(p.font, 9) },
+
+        -- Semantic text roles ($support-* as text): extensions state meaning,
+        -- the theme supplies the color, so no widget carries a literal.
+        error_label   = { fg = p.error,   font = p.font },
+        success_label = { fg = p.success, font = p.font },
+        warning_label = { fg = p.warning, font = p.font },
+        info_label    = { fg = p.info,    font = p.font },
+        mono          = { fg = p.text,      font = "Consolas, 10" },
+        mono_hint     = { fg = p.textMuted, font = "Consolas, 9" },
+
+        -- The bottom status bar: the shell's floor, muted text (it is
+        -- peripheral by definition).
+        statusbar      = { bg = p.bg, fg = p.textMuted, border = p.borderSubtle01 or p.border },
+        statusbar_text = { bg = p.bg, fg = p.textMuted, font = sized(p.font, 9) },
+
+        -- Carbon's ghost button: borderless, reveals itself on hover. For
+        -- small inline row actions ("Change...", a rail's tool buttons).
+        ghost_btn = {
+            bg = layer1, fg = p.textMuted, font = p.font,
+            border = layer1, borderwidth = 0, padding = "8x3",
+            hover = hover, hovertext = p.text,
+            pressed = selected, pressedtext = p.text,
+        },
+
+        -- Hyperlink button ($link-01 as a control): accent text, no fill, no
+        -- border, at rest and under the pointer alike.
+        link_btn = {
+            bg = layer1, fg = p.accent, font = p.font,
+            border = layer1, borderwidth = 0, padding = "2x1",
+            hover = layer1, hovertext = p.accent,
+            pressed = layer1, pressedtext = p.textMuted,
+        },
+
+        -- Icon button: square quiet target for glyph-only actions; invisible
+        -- at rest, $layer-hover-01 under the pointer.
+        icon_btn = {
+            bg = layer1, fg = p.textMuted, font = p.font,
+            border = layer1, borderwidth = 0, padding = "4x4",
+            hover = hover, hovertext = p.text,
+            pressed = selected, pressedtext = p.text,
+        },
 
         -- UI shell header. Carbon's shell sits on $background -- the darkest
         -- surface in the theme -- while the content below it sits on $layer-01, so
@@ -339,6 +377,16 @@ function M.build(p)
         progressbar   = { bg = layer1, fg = p.accent, border = p.border },
         gauge         = { bg = layer1, fg = p.accent, border = p.border },
     }
+    -- Roles replace class rules: preserve the entire bordered-list definition.
+    rules.list_mono = {}
+    for key, value in pairs(rules.list_bordered) do rules.list_mono[key] = value end
+    rules.list_mono.font = "Consolas, 9"
+    for _, role in ipairs({ "flatbutton", "primary_btn", "actionbutton", "ghost_btn",
+                            "danger_btn", "warning_btn", "info_btn", "link_btn", "icon_btn" }) do
+        rules[role].inactivebg = p.layer01 or p.surface or p.bg
+        rules[role].inactivefg = p.textMuted
+    end
+    return rules
 end
 
 return M
