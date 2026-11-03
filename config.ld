@@ -53,6 +53,7 @@ file = {
 		-- Generated/derived theme rule tables carry no public API.
 		"src/lua/core/classes/Themes/carbon_rules.lua",
 		"src/lua/core/classes/Themes/fluent_rules.lua",
+		"src/lua/core/classes/Themes/lunar_rules.lua",
 		-- Third-party implementation shim with no Lua-visible API.
 		"src/c/libs/nanosvg_impl.c",
 	},
