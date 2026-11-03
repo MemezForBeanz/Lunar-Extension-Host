@@ -70,5 +70,13 @@
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" } },
     { "name": "linux-release", "configurePreset": "linux-release", "jobs": 8,
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" } }
+  ],
+  "testPresets": [
+    { "name": "dev", "configurePreset": "dev",
+      "output": { "outputOnFailure": true }, "execution": { "jobs": 8 },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" } },
+    { "name": "linux-dev", "configurePreset": "linux-dev",
+      "output": { "outputOnFailure": true }, "execution": { "jobs": 8 },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" } }
   ]
 }
