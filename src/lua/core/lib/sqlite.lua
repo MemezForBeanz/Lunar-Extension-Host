@@ -32,8 +32,10 @@ int sqlite3_column_bytes(sqlite3_stmt *, int);
 
 local M = { NULL = {} }
 local lib
+-- winsqlite3.dll ships with Windows and needs nothing else. A MinGW build drags in
+-- whichever libgcc/libwinpthread the PATH holds, which can crash on the first call.
 local candidates = ffi.os == "Windows"
-	and { "libsqlite3-0.dll", "sqlite3", "C:/msys64/mingw64/bin/libsqlite3-0.dll" }
+	and { "winsqlite3", "libsqlite3-0.dll", "sqlite3", "C:/msys64/mingw64/bin/libsqlite3-0.dll" }
 	or { "libsqlite3.so.0" }
 for _, name in ipairs(candidates) do
 	local ok, loaded = pcall(ffi.load, name)
