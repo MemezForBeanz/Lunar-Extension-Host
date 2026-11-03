@@ -111,6 +111,46 @@ describe("HttpServer", function()
 
 	it("rejects oversized bodies before waiting for them", function()
 		assert.are.equal(413, request("POST", "/", "Content-Length: 129\r\n").status)
+		local entry = cjson.decode(logs[#logs][2])
+		assert.are.equal("POST", entry.method)
+		assert.are.equal("/", entry.path)
+		assert.are.equal(413, entry.status)
+	end)
+
+	it("audits authenticated requests without logging credentials or query strings", function()
+		srv.tokens = { secret = "operator" }
+		srv:route("GET", "/audit", function() return { status = 202, json = { ok = true } } end)
+		assert.are.equal(202, request("GET", "/audit?private=sensitive", "Authorization: Bearer secret\r\n").status)
+		local entry = cjson.decode(logs[#logs][2])
+		assert.are.equal("operator", entry.token)
+		assert.are.equal("GET", entry.method)
+		assert.are.equal("/audit", entry.path)
+		assert.are.equal(202, entry.status)
+		assert.is_true(entry.ms >= 0)
+		assert.is_nil(logs[#logs][2]:find("secret", 1, true))
+		assert.is_nil(logs[#logs][2]:find("sensitive", 1, true))
+	end)
+
+	it("caps slow clients and recovers slots after their absolute read deadline", function()
+		srv.max_connections, srv.read_timeout = 1, 0.15
+		local slow = assert(socket.tcp())
+		slow:settimeout(1)
+		assert(slow:connect("127.0.0.1", srv.port))
+		assert(slow:send("GET / HTTP/1.1\r\nHost:"))
+		local deadline = socket.gettime() + 2
+		while srv.client_count == 0 and socket.gettime() < deadline do copas.step(0.005) end
+		assert.are.equal(1, srv.client_count)
+		local overflow = assert(socket.tcp())
+		overflow:settimeout(1)
+		assert(overflow:connect("127.0.0.1", srv.port))
+		while #logs == 0 and socket.gettime() < deadline do copas.step(0.005) end
+		overflow:close()
+		assert.are.equal(503, cjson.decode(logs[1][2]).status)
+		while srv.client_count > 0 and socket.gettime() < deadline do copas.step(0.005) end
+		slow:close()
+		assert.are.equal(0, srv.client_count)
+		srv:route("GET", "/", function() return { ok = true } end)
+		assert.are.equal(200, request("GET", "/").status)
 	end)
 
 	it("logs handler tracebacks without exposing them", function()
