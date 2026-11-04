@@ -90,26 +90,12 @@ function M.show(opts)
 	local index = 1
 	local result = "dismissed"
 
-	local title_lbl = iup.label({
-		TITLE = "",
-		FONT = "Segoe UI, Bold 13",
-		EXPAND = "HORIZONTAL",
+	local title_lbl = iup.flatlabel({ TITLE = "", THEMEROLE = "sectiontitle", EXPAND = "HORIZONTAL" })
+	-- A label, not a text field: this is reading, and a field brings native scrollbars.
+	local body_text = iup.flatlabel({
+		TITLE = "", THEMEROLE = "settingslabel", EXPAND = "YES", ALIGNMENT = "ALEFT:ATOP",
 	})
-	local body_text = iup.text({
-		MULTILINE = "YES",
-		READONLY = "YES",
-		BORDER = "NO",
-		CANFOCUS = "NO",
-		EXPAND = "YES",
-		VISIBLELINES = "10",
-		FONT = "Segoe UI, 11",
-		THEMEROLE = "text",
-	})
-	local page_lbl = iup.label({
-		TITLE = "",
-		FONT = "Segoe UI, 8",
-		FGCOLOR = "120 120 120",
-	})
+	local page_lbl = iup.flatlabel({ TITLE = "", THEMEROLE = "hint", EXPAND = "HORIZONTAL" })
 
 	local back_btn = iup.flatbutton({
 		TITLE = "Back",
@@ -132,7 +118,7 @@ function M.show(opts)
 	local function render()
 		local page = PAGES[index]
 		iup.SetAttribute(title_lbl, "TITLE", page.title)
-		iup.SetAttribute(body_text, "VALUE", page.body)
+		iup.SetAttribute(body_text, "TITLE", page.body)
 		iup.SetAttribute(page_lbl, "TITLE", string.format("Step %d of %d", index, #PAGES))
 		iup.SetAttribute(back_btn, "ACTIVE", index > 1 and "YES" or "NO")
 		iup.SetAttribute(next_btn, "TITLE", index < #PAGES and "Next" or "Finish")
@@ -167,30 +153,26 @@ function M.show(opts)
 	dlg = iup.dialog({
 		iup.vbox({
 			title_lbl,
-			iup.flatframe({
-				body_text,
-				TITLE = "",
-				MARGIN = L.margin(3),
-				EXPAND = "YES",
-				THEMEROLE = "settingspanel",
-			}),
-			page_lbl,
+			body_text,
 			iup.hbox({
+				page_lbl,
 				back_btn,
-				iup.fill({}),
 				dismiss_btn,
 				next_btn,
 				GAP = L.gap(3),
 				ALIGNMENT = "ACENTER",
 			}),
-			MARGIN = L.margin(4),
-			GAP = L.gap(3),
+			MARGIN = L.margin(6),
+			GAP = L.gap(4),
 		}),
 		TITLE = "Welcome Tour",
 		-- Win32 ICON RESOURCE name from assets/Lunar.rc.
 		ICON = "IUP",
-		SIZE = "420x260",
+		SIZE = "340x170",
 		SHRINK = "YES",
+		RESIZE = "NO",
+		MINBOX = "NO",
+		MAXBOX = "NO",
 	})
 
 	if opts.notify_tree_change then
