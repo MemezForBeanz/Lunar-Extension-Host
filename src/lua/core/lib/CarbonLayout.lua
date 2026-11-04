@@ -379,6 +379,16 @@ function M.page(iup, children)
 	return iup.vbox(children)
 end
 
+--- Set a progress gauge, showing it only while there is progress to show.
+-- An idle gauge is an empty outline that says nothing.
+-- @tparam userdata iup the IUP binding
+-- @tparam ihandle gauge
+-- @tparam number value 0 to the gauge's MAX
+function M.setProgress(iup, gauge, value)
+	iup.SetAttribute(gauge, "VALUE", tostring(value))
+	iup.SetAttribute(gauge, "VISIBLE", (tonumber(value) or 0) > 0 and "YES" or "NO")
+end
+
 --- Snap an arbitrary pixel value to the nearest step on the scale.
 --
 -- For migrating existing literals: it reports what a hand-tuned value should have

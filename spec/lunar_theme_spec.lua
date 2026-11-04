@@ -159,7 +159,7 @@ describe("ThemeManager pressed-state mapping", function()
             assert.equal(rule.inactivebg, inactive.BGCOLOR)
             assert.equal(rule.inactivefg, inactive.FGCOLOR)
             assert.equal(rule.inactivebg, inactive.HLCOLOR)
-            assert.equal(rule.inactivebg, inactive.BORDERCOLOR)
+            assert.equal(rule.inactiveborder or rule.inactivebg, inactive.BORDERCOLOR)
             if rule.gradcolor then assert.equal(rule.inactivebg, inactive.GRADIENTCOLOR) end
             assert.is_nil(inactive.BGINACTIVE)
             assert.is_nil(inactive.TEXTINACTIVE)

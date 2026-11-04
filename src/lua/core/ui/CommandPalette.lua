@@ -236,7 +236,7 @@ function CommandPalette:_refresh()
 	iup.SetAttribute(list, "REMOVEITEM", "ALL")
 	for i, item in ipairs(rows) do
 		if item.heading then
-			iup.SetAttribute(list, tostring(i), ROW_INDENT .. item.heading)
+			iup.SetAttribute(list, tostring(i), ROW_INDENT .. item.heading:upper())
 			iup.SetAttributeId(list, "ITEMFGCOLOR", i, self._muted())
 		else
 			local line = (item.group and item.title) or self._registry.class.label(item)

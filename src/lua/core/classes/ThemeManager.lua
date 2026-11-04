@@ -663,7 +663,9 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 	if cls == "flatbutton" and inactive then
 		if r.inactivebg then
 			attrs.BGCOLOR, attrs.HLCOLOR, attrs.PSCOLOR = r.inactivebg, r.inactivebg, r.inactivebg
-			attrs.BORDERCOLOR, attrs.BORDERHLCOLOR, attrs.BORDERPSCOLOR = r.inactivebg, r.inactivebg, r.inactivebg
+			-- The outline stays: without it a disabled button is a hole in the page.
+			local edge = r.inactiveborder or r.inactivebg
+			attrs.BORDERCOLOR, attrs.BORDERHLCOLOR, attrs.BORDERPSCOLOR = edge, edge, edge
 			if r.gradcolor then attrs.GRADIENTCOLOR = r.inactivebg end
 		end
 		if r.inactivefg then
