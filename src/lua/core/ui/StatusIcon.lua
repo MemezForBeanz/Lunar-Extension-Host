@@ -37,11 +37,11 @@ StatusIcon.__index = StatusIcon
 -- now tracks the active theme.
 local STATES = {
 	db_ok        = { file = "data--base.svg",          role = "neutral" },
-	db_alert     = { file = "data--alert.svg",         role = "warning" },
+	db_alert     = { file = "data--alert.svg",         role = "neutral" },
 	db_error     = { file = "data--error.svg",         role = "error" },
 	upd_complete = { file = "update-complete.svg",     role = "neutral" },
 	upd_get      = { file = "update--get.svg",         role = "info" },
-	upd_check    = { file = "update--get.svg",         role = "warning" },
+	upd_check    = { file = "update--get.svg",         role = "neutral" },
 	upd_now      = { file = "update-now.svg",          role = "info" },
 	build_ok     = { file = "checkmark--outline.svg",  role = "success" },
 	build_warn   = { file = "in-progress--warning.svg", role = "warning" },
