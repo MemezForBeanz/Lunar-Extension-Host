@@ -68,6 +68,7 @@ local SettingsView = class("SettingsView")
 -- path-length text field plus a Browse button, which is the widest thing any
 -- shipped extension puts in a row.
 local CONTROL_COLUMN = L.FIELD.wide
+local LABEL_COLUMN = 340
 
 -- Chevron edge length in pixels. Carbon's own accordion uses a 16px icon against
 -- body text; this matches.
@@ -126,32 +127,15 @@ function SettingsView:initialize(opts)
     self._sections = {}   -- ordered list of section records
     self._query    = ""
 
-    -- The native edit control is wrapped in a themed flatframe (BORDER=NO on the
-    -- text itself) so the search box's border/background follow the active theme
-    -- instead of the OS's own (non-themeable) edit chrome. Both the inner text AND
-    -- the outer frame need THEMEROLE="text" so the theming walk reaches and
-    -- re-colors the actual native control.
-    local search = iup.text{
-        BORDER    = "NO",
-        EXPAND    = "HORIZONTAL",
-        CUEBANNER = "Search settings...",
-        FONT      = "Segoe UI, 10",
-        THEMEROLE = "text",
-    }
-    self._search = search
     local sv = self
-    function search:valuechanged_cb()
-        sv:filter(iup.GetAttribute(search, "VALUE") or "")
-        return iup.DEFAULT
-    end
-
-    local search_box = iup.flatframe{
-        search,
-        TITLE     = "",
-        MARGIN    = L.margin(1),
-        EXPAND    = "HORIZONTAL",
-        THEMEROLE = "text",
-    }
+    local FlatField = require("core.ui.FlatField")
+    local search_field = FlatField.new(iup, {
+        cue = "Search settings...",
+        icon = self._icon_dir and (self._icon_dir .. "/search.svg") or nil,
+        on_change = function(text) sv:filter(text) end,
+    })
+    self._search = search_field.text
+    local search_box = search_field.widget
 
     -- Inner container holds section headers and bodies (direct children, so each
     -- can be individually shown/hidden + floated during filtering).
@@ -215,7 +199,6 @@ function SettingsView:initialize(opts)
     -- unset lets the color inherit from the dialog, which IS themed.
     self._widget = iup.vbox{
         iup.hbox{
-            iup.label{ TITLE = "Search ", FONT = "Segoe UI, 10" },
             search_box,
             ALIGNMENT = "ACENTER",
             GAP       = L.gap(L.ROLE.inline_gap),
@@ -523,9 +506,9 @@ function SettingsView:_buildRow(entry, category)
         ALIGNMENT  = "ACENTER",
     }
 
+    -- A fixed label column, so every control in every section starts at the same x.
     local top = iup.hbox{
-        label,
-        iup.fill{},
+        iup.hbox{ label, RASTERSIZE = L.size(LABEL_COLUMN), ALIGNMENT = "ACENTER" },
         column,
         ALIGNMENT = "ACENTER",
         GAP       = L.gap(L.ROLE.inline_gap),

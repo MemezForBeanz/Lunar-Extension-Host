@@ -393,8 +393,8 @@ describe("SettingsView rows", function()
 
 		-- Row 1 has a description: its label is a button, so it highlights and
 		-- invites a click. Row 2 has none and stays an inert label.
-		assert.are.equal("flatbutton", section.rows[1].box.children[1].children[1].kind)
-		assert.are.equal("flatlabel", section.rows[2].box.children[1].children[1].kind)
+		assert.are.equal("flatbutton", section.rows[1].box.children[1].children[1].children[1].kind)
+		assert.are.equal("flatlabel", section.rows[2].box.children[1].children[1].children[1].kind)
 	end)
 
 	it("hides a description until its row is opened", function()

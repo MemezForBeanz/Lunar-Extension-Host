@@ -36,8 +36,8 @@ function LunarDarkTheme:initialize()
         gradTop         = rgb("#7c6cf2"),
         gradBottom      = rgb("#4a5578"),
 
-        radius          = 4,   -- interactive controls
-        radiusFrame     = 6,   -- container frames
+        radius          = 6,   -- interactive controls
+        radiusFrame     = 10,   -- container frames
     }
     -- Legacy aliases, so widgets reading the six-key palette keep working.
     p.surface      = p.layer01

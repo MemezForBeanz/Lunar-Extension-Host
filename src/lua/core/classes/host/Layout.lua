@@ -147,12 +147,37 @@ function M._wrapTabForPadding(self, widget, opts)
         if horizontal > cap then horizontal = cap end
     end
 
-    return iup.vbox{
+    local wrapper = iup.vbox{
         widget,
         MARGIN = tostring(horizontal) .. "x" .. tostring(vertical),
         GAP = L.gap(0),
         EXPAND = "YES",
     }
+    if max_width and max_width > 0 then
+        self._centered = self._centered or {}
+        self._centered[#self._centered + 1] = {
+            wrapper = wrapper, max_width = max_width, side = side_padding, vertical = vertical,
+        }
+    end
+    return wrapper
+end
+
+--- Centre each width-capped page in the space it actually has.
+--
+-- The margin computed at creation assumes the page fills the screen. A window that is
+-- not maximized, or a page in a split pane, has less, and that margin pushed the
+-- content off the side. Run after anything that changes how wide a page is.
+function M.recenterPages(self)
+    local iup = self.iup
+    for _, entry in ipairs(self._centered or {}) do
+        pcall(function()
+            local parent = iup.GetParent(entry.wrapper)
+            local width = parent and tonumber(tostring(iup.GetAttribute(parent, "RASTERSIZE")):match("^(%d+)x"))
+            if not width or width <= 0 then return end
+            local horizontal = math.max(entry.side, math.floor((width - entry.max_width) / 2))
+            iup.SetAttribute(entry.wrapper, "MARGIN", horizontal .. "x" .. entry.vertical)
+        end)
+    end
 end
 
 
