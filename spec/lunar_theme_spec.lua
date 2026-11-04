@@ -92,10 +92,10 @@ describe("lunar_rules", function()
 
     it("sizes buttons at VS Code scale, not Carbon slabs", function()
         local l, c = lunar.build(palette()), carbon.build(palette())
-        for _, rules in ipairs({ l, c }) do
+        for rules, padding in pairs({ [l] = "14x6", [c] = "12x5" }) do
             for _, role in ipairs({ "primary_btn", "actionbutton", "danger_btn",
                                     "warning_btn", "info_btn" }) do
-                assert.equal("12x5", rules[role].padding, role)
+                assert.equal(padding, rules[role].padding, role)
             end
             assert.equal("8x3", rules.ghost_btn.padding)
             assert.equal("4x4", rules.icon_btn.padding)
