@@ -69,7 +69,7 @@ function M.build(p)
     local borderS  = p.borderStrong01  or p.borderStrong or border
 
     local R  = p.radius or 6        -- interactive controls
-    local RF = p.radiusFrame or 10  -- container surfaces
+    local RF = p.radiusFrame or 8   -- container surfaces
     -- The lit corners: a step past the strong border, so they read as light on
     -- the edge and not as a brighter outline.
     local sheen = p.sheen or shade(borderS, 0.22)
@@ -329,11 +329,13 @@ function M.build(p)
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         -- A field edge in focus. core.ui.FlatField swaps its frame to this role.
+        -- A container for content: a recessed fill with the same edge everywhere.
+        well = { bg = well, fg = p.text, font = p.font, border = border, radius = RF, sheen = sheen },
         text_cue = { bg = well, fg = p.textMuted, font = p.font },
         text_focus = { bg = well, fg = p.text, font = p.font, border = p.accent, radius = R },
         -- The bottom bar's command bar: reads as a recessed field, not a button.
         commandbar = {
-            bg = well, fg = p.text, font = sized(p.font, 10),
+            bg = well, fg = p.textMuted, font = sized(p.font, 10),
             border = border, borderwidth = 1, showborder = true, radius = R,
             padding = "12x6",
             hover = hover, hovertext = p.text,

@@ -86,6 +86,7 @@ function M.addShellRoles(rules, p)
         },
         palette_text = { bg = floor, fg = p.text, font = font },
         palette_prompt = { bg = floor, fg = p.textMuted, font = font },
+        well = { bg = well, fg = p.text, font = font, border = border },
         text_cue = { bg = well, fg = p.textMuted, font = font },
         palette_hint = { bg = floor, fg = p.textMuted, font = font },
         palette_frame = { bg = floor, fg = p.text, font = font, border = strong },

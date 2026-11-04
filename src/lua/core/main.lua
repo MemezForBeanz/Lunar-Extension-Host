@@ -633,9 +633,6 @@ local command_palette = CommandPalette.new({
 	notify_tree_change = function(w) theme_mgr:themeWidget(w) end,
 	on_error = function(message) host:setStatus(message) end,
 	round = function(window) require("core.lib.desktop").roundWindow(iup, window) end,
-	search_icon = VectorIcon.imageHandle(iup, {
-		path = platform.path:join(ICON_DIR, "search.svg"), size = 16, color = "#9aa0b0",
-	}),
 	anchor = function()
 		local bar = status_bar:commandWidget()
 		local x, y = tostring(iup.GetAttribute(bar, "SCREENPOSITION") or ""):match("(-?%d+),(-?%d+)")
