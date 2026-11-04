@@ -648,6 +648,7 @@ function TabGroups:_createGroup(parent_strip, name, source, index)
 	local strip = iup.flattabs({})
 	pcall(iup.SetAttribute, strip, "TABTYPE", "TOP")
 	pcall(iup.SetAttribute, strip, "EXPAND", "YES")
+	pcall(iup.SetAttribute, strip, "THEMEROLE", "flattabs_sub")
 
 	name = name or ("Group " .. tostring(self:_countGroups(self._root) + 1))
 	-- Identity, name and origin all live on the widget. Nothing is registered
@@ -930,6 +931,22 @@ function TabGroups:activeLeaf()
 	end
 	if self:isGroupStrip(active) then return nil end   -- empty group
 	return active
+end
+
+--- The page at the front of each root: everything the user can see at once.
+-- @treturn {userdata,...}
+function TabGroups:frontPages()
+	local iup, out = self._iup, {}
+	for _, root in ipairs(self:_roots()) do
+		local ok, page = pcall(iup.GetAttributeHandle, root, "VALUE")
+		local guard = 0
+		while ok and page and self:isGroupStrip(page) and guard < MAX_DEPTH do
+			ok, page = pcall(iup.GetAttributeHandle, page, "VALUE")
+			guard = guard + 1
+		end
+		if ok and page and not self:isGroupStrip(page) then out[#out + 1] = page end
+	end
+	return out
 end
 
 --- Make `widget` the visible page, activating every group above it.

@@ -46,7 +46,7 @@ function FlatField.new(iup, opts)
 
 	local row = { text, ALIGNMENT = "ACENTER", GAP = L.gap(2), EXPAND = "HORIZONTAL" }
 	if opts.icon then
-		local icon = VectorIcon.new(iup, { path = opts.icon, size = 16, role = "textMuted" })
+		local icon = VectorIcon.new(iup, { path = opts.icon, size = 16, role = "neutral" })
 		table.insert(row, 1, icon:widget())
 	end
 

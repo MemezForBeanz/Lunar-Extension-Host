@@ -36,10 +36,10 @@ StatusIcon.__index = StatusIcon
 -- error/info mapping the old render_icons.py used as FIXED colors, except this
 -- now tracks the active theme.
 local STATES = {
-	db_ok        = { file = "data--base.svg",          role = "success" },
+	db_ok        = { file = "data--base.svg",          role = "neutral" },
 	db_alert     = { file = "data--alert.svg",         role = "warning" },
 	db_error     = { file = "data--error.svg",         role = "error" },
-	upd_complete = { file = "update-complete.svg",     role = "success" },
+	upd_complete = { file = "update-complete.svg",     role = "neutral" },
 	upd_get      = { file = "update--get.svg",         role = "info" },
 	upd_check    = { file = "update--get.svg",         role = "warning" },
 	upd_now      = { file = "update-now.svg",          role = "info" },

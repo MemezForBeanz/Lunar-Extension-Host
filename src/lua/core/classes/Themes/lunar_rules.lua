@@ -73,6 +73,10 @@ function M.build(p)
     -- The lit corners: a step past the strong border, so they read as light on
     -- the edge and not as a brighter outline.
     local sheen = p.sheen or shade(borderS, 0.22)
+    -- Where content sits: a step recessed from the page, so a list or a field reads by
+    -- its fill and the outline can stay faint.
+    local well = p.well or p.bg
+    local chosen = p.accentSoft or selected
     -- The flat scrollbar: a quiet rounded thumb on no track, no arrows. The
     -- accent is for what the user can act on, so it is kept for the pressed
     -- thumb instead of every scrollbar at rest.
@@ -111,10 +115,10 @@ function M.build(p)
     local rules = {
         -- Type scale (identical to carbon_rules: heading-04 / heading-03 /
         -- body-compact-01 / label-01).
-        pagetitle     = { fg = p.text,      font = sized(p.font, 18, true) },
-        pagesubtitle  = { fg = p.textMuted, font = sized(p.font, 10) },
-        sectiontitle  = { fg = p.text,      font = sized(p.font, 11, true) },
-        hint          = { fg = p.textMuted, font = sized(p.font, 9) },
+        pagetitle     = { fg = p.text,      font = sized(p.font, 18, true), padding = "0x0" },
+        pagesubtitle  = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
+        sectiontitle  = { fg = p.text,      font = sized(p.font, 11, true), padding = "0x0" },
+        hint          = { fg = p.textMuted, font = sized(p.font, 9), padding = "0x0" },
 
         -- Semantic text roles: state colored by meaning, never by literal.
         error_label   = { fg = p.error,   font = p.font },
@@ -139,7 +143,7 @@ function M.build(p)
         -- The bottom status bar, finally a themed surface instead of a
         -- hardcoded gray: the shell's floor color with muted text.
         statusbar      = { bg = p.bg, fg = p.textMuted, border = border },
-        statusbar_text = { bg = p.bg, fg = p.textMuted, font = sized(p.font, 9) },
+        statusbar_text = { bg = p.bg, fg = p.text, font = sized(p.font, 9) },
 
         -- Toasts: elevated surface, semantic bar on the left edge.
         toast_bg_info     = { bg = elevated, fg = p.text },
@@ -177,6 +181,16 @@ function M.build(p)
         flattabs      = {
             bg = layer1, fg = p.text, font = p.font,
             tabsbg = p.gradShellWell or shade(p.bg, -0.35), tabsfg = p.textMuted,
+            border = border, borderwidth = 1,
+            hover = hover, selbg = selected,
+            radius = R, focusfeedback = false, showlines = false,
+            tabspadding = "12x6",
+        },
+        -- The bar inside a group: the tool level, so it sits on the page itself and only
+        -- the chosen label changes, where the app-level bar above it is a dark well.
+        flattabs_sub = {
+            bg = layer1, fg = p.text, selfg = p.accent, font = p.font,
+            tabsbg = layer1, tabsfg = p.textMuted,
             border = border, borderwidth = 1,
             hover = hover, selbg = selected,
             radius = R, focusfeedback = false, showlines = false,
@@ -266,31 +280,31 @@ function M.build(p)
             bg = elevated, fg = p.text, font = p.font,
             border = border, borderwidth = 1, radius = R,
             scrollbg = elevated, scrollfg = borderS,
-            selbg = selected, seltext = p.text, selalpha = "0",
+            selbg = chosen, seltext = p.text, selalpha = "0",
         },
 
         -- Lists and data panes: square by design (rule 2).
         list_bordered = scroll({
-            bg = layer1, fg = p.text, font = p.font, border = border, borderwidth = 1, radius = RF,
-            scrollbg = layer1, sheen = sheen, itemradius = R,
-            selbg = selected, seltext = p.text, selalpha = "0",
+            bg = well, fg = p.text, font = p.font, border = border, borderwidth = 1, radius = RF,
+            scrollbg = well, sheen = sheen, itemradius = R,
+            selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         list_plain    = scroll({
             bg = layer1, fg = p.text, font = p.font, border = layer1, borderwidth = 0,
             scrollbg = layer1, itemradius = R,
-            selbg = selected, seltext = p.text, selalpha = "0",
+            selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         outputlog     = {
-            bg = layer1, fg = p.text, border = border,
-            scrollbg = layer1, scrollfg = borderS,
+            bg = well, fg = p.text, border = well,
+            scrollbg = well, scrollfg = borderS,
         },
         outputlog_scroll = scroll({
-            bg = layer1, fg = p.text, border = border, borderwidth = 1,
-            scrollbg = layer1,
+            bg = well, fg = p.text, border = well, borderwidth = 0,
+            scrollbg = well,
         }),
         list_bordered_scroll = scroll({
-            bg = layer1, fg = p.text, border = border, borderwidth = 1,
-            scrollbg = layer1,
+            bg = well, fg = p.text, border = well, borderwidth = 0,
+            scrollbg = well,
         }),
         toggle        = { fg = p.text, font = p.font },
         flattoggle    = { bg = layer1, fg = p.text, font = p.font, radius = R,
@@ -304,20 +318,20 @@ function M.build(p)
         -- flatframe wrappers extensions put around text fields take `text` as
         -- their THEMEROLE, so the radius here rounds the wrapper (flatframe
         -- honours it) while the native field inside ignores it.
-        text      = { bg = layer1, fg = p.text, font = p.font, border = borderS, radius = R },
-        multiline = { bg = layer1, fg = p.text, font = p.font, border = borderS, padding = "0x6" },
+        text      = { bg = well, fg = p.text, font = p.font, border = border, radius = R },
+        multiline = { bg = well, fg = p.text, font = p.font, border = border, padding = "0x6" },
         list      = { bg = layer1, fg = p.text, font = p.font, border = borderS, padding = "0x6" },
         flatlist      = scroll({
-            bg = layer1, fg = p.text, font = p.font,
+            bg = well, fg = p.text, font = p.font,
             border = border, borderwidth = 1, radius = RF, sheen = sheen,
-            scrollbg = layer1, itemradius = R,
-            selbg = selected, seltext = p.text, selalpha = "0",
+            scrollbg = well, itemradius = R,
+            selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         -- A field edge in focus. core.ui.FlatField swaps its frame to this role.
-        text_focus = { bg = layer1, fg = p.text, font = p.font, border = p.accent, radius = R },
+        text_focus = { bg = well, fg = p.text, font = p.font, border = p.accent, radius = R },
         -- The bottom bar's command bar: reads as a recessed field, not a button.
         commandbar = {
-            bg = layer1, fg = p.textMuted, font = sized(p.font, 9),
+            bg = well, fg = p.text, font = sized(p.font, 9),
             border = border, borderwidth = 1, showborder = true, radius = R,
             padding = "10x3",
             hover = hover, hovertext = p.text,
@@ -331,10 +345,11 @@ function M.build(p)
         palette_list = scroll({
             bg = elevated, fg = p.text, font = p.font, border = elevated, borderwidth = 0,
             radius = R, scrollbg = elevated, itemradius = R,
-            selbg = selected, seltext = p.text, selalpha = "0",
+            selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         progressbar   = { bg = layer1, fg = p.accent, border = border },
-        gauge         = { bg = layer1, fg = p.accent, border = border, notext = true },
+        -- An idle gauge is invisible: the track matches the page, so only real progress shows.
+        gauge         = { bg = layer1, fg = p.accent, border = layer1, notext = true },
     }
     -- Roles replace class rules: preserve the entire bordered-list definition.
     rules.list_mono = {}
@@ -342,7 +357,7 @@ function M.build(p)
     rules.list_mono.font = "Consolas, 9"
     for _, role in ipairs({ "flatbutton", "primary_btn", "actionbutton", "ghost_btn",
                             "danger_btn", "warning_btn", "info_btn", "link_btn", "icon_btn" }) do
-        rules[role].inactivebg = p.layer01 or p.surface or p.bg
+        rules[role].inactivebg = elevated
         rules[role].inactivefg = p.textMuted
     end
     return rules

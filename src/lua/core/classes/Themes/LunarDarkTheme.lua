@@ -31,6 +31,8 @@ function LunarDarkTheme:initialize()
         warningText     = rgb("#1b1d23"),
         info            = rgb("#56b6c2"),
         font            = "Segoe UI, 10",
+        well            = rgb("#1b1d23"),   -- recessed: lists, fields, output
+        accentSoft      = rgb("#3a3672"),   -- a chosen row
 
         -- The accent strip's sweep: violet into slate.
         gradTop         = rgb("#7c6cf2"),
