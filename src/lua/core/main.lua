@@ -833,7 +833,6 @@ set_status("Ready")   -- the last extension's load message is not news
 
 -- Append the host-owned Settings tab BEFORE restoring tab order, so it participates
 -- in drag-reordering and order persistence alongside the extension tabs.
-Kit.bindIcon(iup, settings_view:widget(), "settings", { attribute = "TABIMAGE", size = 16, role = "neutral" })
 iup.Append(tabs, settings_view:widget())
 host:installKeyDispatch(settings_view:widget())
 host:registerHostTab("settings", settings_view:widget())

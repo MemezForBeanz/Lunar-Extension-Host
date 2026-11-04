@@ -157,7 +157,6 @@ local function fill_lists(h)
 		and iup.GetAttribute(h, "THEMEROLE") ~= "palette_list" then
 		sample_set = sample_set % #SAMPLE_SETS + 1
 		for i, row in ipairs(SAMPLE_SETS[sample_set]) do iup.SetAttribute(h, tostring(i), row) end
-		iup.SetAttribute(h, "VALUE", "2")
 	end
 	local i, child = 0, iup.GetChild(h, 0)
 	while child do

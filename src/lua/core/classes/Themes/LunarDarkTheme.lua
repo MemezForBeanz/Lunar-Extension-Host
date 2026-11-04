@@ -23,7 +23,8 @@ function LunarDarkTheme:initialize()
         borderStrong01  = rgb("#464b5c"),  -- field edges, emphasis
         text            = rgb("#d6d9e0"),
         textMuted       = rgb("#a7acba"),
-        accent          = rgb("#6c5ce7"),  -- lunar violet (interactive)
+        accent          = rgb("#6c5ce7"),
+        accentBright    = rgb("#a99eff"),  -- a mark on a dark field: 7:1  -- lunar violet (interactive)
         accentText      = rgb("#ffffff"),
         error           = rgb("#ff8a93"),
         success         = rgb("#98c379"),
