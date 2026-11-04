@@ -11,6 +11,21 @@ and scrolling features to IUP's *flat* controls:
   selection and jump-to-line while showing the themed flat scrollbar instead of the
   Win32 one. Used by the Log File Parser (`plugins\logparser\libs\resultsview.lua`).
 
+- `SHOWGRIP=SASH` on `IupSplit` (with `HLCOLOR`), `STYLE=SASH` on `IupFlatSeparator`: a
+  hairline splitter that lights up under the pointer, in place of the dotted grip.
+- `BORDERSHEENCOLOR`: light caught by the four corners of a rounded border.
+- `SB_INSET`: keeps a flat scrollbar inside a rounded border; `ITEMRADIUS` on
+  `IupFlatList`: a selected row as an inset pill; `CHECKRADIUS` on `IupFlatToggle`;
+  `TABSACTIVELINE` on `IupFlatTabs`: an underline on the current tab.
+
+Patch 0005 also fixes behaviour rather than adding to it: GDI+ drawing is aligned to pixel
+centres (the bottom of rounded buttons was being cut off), a disabled control fades toward
+its surface on dark themes, a cue banner stays up while its field has focus, a split with
+no size no longer divides by zero, changing BARSIZE no longer un-hides a bar on another
+tab, and `GAP` and `MARGIN` no longer inherit, so a page's padding is not added again by
+every box inside it. That last one changes how a nested box measures: set `MARGIN` on
+each box that wants one.
+
 The gradient/rounded work replaces the old Lua-side `Gradient*` widgets (GradientKit
 et al.), which drew onto separate `iup.canvas` overlays and caused artefacts such as
 the double-scrollbar bug.

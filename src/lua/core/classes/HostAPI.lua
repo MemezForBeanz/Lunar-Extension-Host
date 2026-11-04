@@ -722,6 +722,22 @@ function HostAPI:setCommands(registry)
     self._commands = registry
 end
 
+--- Connect the task runner (`core.classes.TaskRunner`). Host only.
+function HostAPI:setTasks(runner)
+    self._tasks = runner
+end
+
+--- Add a task to the command bar, listed when the user types `task `.
+--
+-- @tparam table spec `label`, `argv` (an array, never a shell string), optional `cwd`
+-- @param[opt] owner the extension
+-- @treturn table|nil the stored task
+-- @usage ctx:addTask({ label = "Rebuild index", argv = { "tool", "--index" } }, M)
+function HostAPI:addTask(spec, owner)
+    if not self._tasks then return nil end
+    return self._tasks:add(spec, owner)
+end
+
 --- Add a command to the command bar (Ctrl+P).
 --
 -- Menu items are added automatically; use this for actions that have no menu item.
@@ -979,6 +995,7 @@ end
 -- @treturn number how many steps failed (each was logged)
 function HostAPI:removeOwned(owner)
     if self._commands then self._commands:removeOwned(owner) end
+    if self._tasks then self._tasks:removeOwned(owner) end
     local iup = self.iup
     local r = self._owners[owner]
     local host = self

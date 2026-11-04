@@ -77,6 +77,7 @@ local TabOrder = require("core.classes.TabOrder")
 local TabGroups = require("core.classes.TabGroups")
 local PaneGrid = require("core.classes.PaneGrid")
 local CommandRegistry = require("core.classes.CommandRegistry")
+local TaskRunner = require("core.classes.TaskRunner")
 local CommandPalette = require("core.ui.CommandPalette")
 local VectorIcon = require("core.ui.VectorIcon")
 local MotionDirector = require("core.classes.MotionDirector")
@@ -745,15 +746,58 @@ commands:addProvider({
 	end,
 })
 
--- Tasks answer from here, once they exist. The prefix is reserved now so an extension
--- can supply them and the bar already knows how to show them.
+-- Tasks: `task ` in the bar, from tasks.json and from extensions.
+local tasks_file = platform.path:join(platform.config_dir(), "tasks.json")
+local task_runner = TaskRunner:new({
+	spawn = function(opts) return host:spawn(opts) end,
+	status = function(message) host:setStatus(message) end,
+	after = function(ms, fn)
+		local timer = iup.timer({ time = ms })
+		function timer:action_cb()
+			self.run = "NO"
+			iup.Destroy(self)
+			fn()
+			return iup.DEFAULT
+		end
+		timer.run = "YES"
+	end,
+	load = function()
+		local file = io.open(tasks_file, "rb")
+		if not file then return {} end
+		local text = file:read("*a")
+		file:close()
+		local tasks, problems = TaskRunner.parse(text, require("cjson").decode)
+		if problems[1] then host:setStatus(problems[1]) end
+		return tasks
+	end,
+})
+host:setTasks(task_runner)
+
 commands:addProvider({
 	id = "tasks",
 	prefix = "task ",
-	title = "Tasks",
-	empty = "No tasks are defined yet",
-	items = function() return {} end,
+	title = "Enter to run the task",
+	empty = "No tasks yet: add them to tasks.json in your settings folder",
+	items = function(query)
+		local out = {}
+		for _, task in ipairs(task_runner:list()) do
+			if CommandRegistry.score(query, task.label) then
+				out[#out + 1] = {
+					id = "task." .. task.label, title = task.label, group = "Tasks",
+					detail = task_runner:isRunning(task.label) and "running" or nil,
+					run = function()
+						local ok, message = task_runner:run(task)
+						if ok then return true end
+						return nil, message
+					end,
+				}
+			end
+		end
+		return out
+	end,
 })
+add_host_command("tasks", "Run Task", function() command_palette:open("task ") end,
+	{ keywords = "build script job", group = "Lunar" })
 
 -- For scripts/ui_capture.lua, which drives these from outside.
 if DEV_BUILD then
@@ -761,6 +805,8 @@ if DEV_BUILD then
 		palette = command_palette,
 		panes = pane_grid,
 		groups = function() return tab_groups end,
+		host = host,
+		tasks = task_runner,
 	}
 end
 

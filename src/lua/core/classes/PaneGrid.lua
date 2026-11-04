@@ -181,7 +181,9 @@ end
 
 function PaneGrid:_rect()
 	local iup = self._iup
-	local px, py = tostring(iup.GetAttribute(self._grid, "SCREENPOSITION") or ""):match("(-?%d+),(-?%d+)")
+	-- A split has no window of its own, so it has no screen position; the main strip sits
+	-- at the same top-left corner.
+	local px, py = tostring(iup.GetAttribute(self._strips.main, "SCREENPOSITION") or ""):match("(-?%d+),(-?%d+)")
 	local w, h = tostring(iup.GetAttribute(self._grid, "RASTERSIZE") or ""):match("(%d+)x(%d+)")
 	if not (px and w) then return nil end
 	return { x = tonumber(px), y = tonumber(py), w = tonumber(w), h = tonumber(h) }
