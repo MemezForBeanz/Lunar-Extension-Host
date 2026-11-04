@@ -226,6 +226,7 @@ local ROLE_PALETTE_KEY = {
 	accent  = "accent",
 	text    = "text",
 	on_accent = "accentText",
+	disabled = "borderStrong01",
 }
 
 -- Theme palettes store colors as IUP's native "R G B" decimal-triplet string

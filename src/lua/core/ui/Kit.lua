@@ -30,8 +30,7 @@ M.STATUS = {
 }
 
 local icon_dir
-local bound = {}          -- widget -> { attribute, name, size, role }; re-tinted on a theme switch
-setmetatable(bound, { __mode = "k" })
+local bound_iup
 
 --- Say where the Carbon icon set lives. The host calls this once at startup.
 function M.setIconDir(dir) icon_dir = dir end
@@ -52,15 +51,46 @@ function M.icon(iup, name, size, role)
 	return ok and handle or nil
 end
 
-local reactor = {}
-function reactor:_onThemeApply()
-	for widget, spec in pairs(bound) do
-		pcall(function()
-			local handle = M.icon(spec.iup, spec.name, spec.size, spec.role)
-			if handle then spec.iup.SetAttribute(widget, spec.attribute, handle) end
-		end)
+-- What a widget's icon is, kept on the widget: an extension's widgets are built before the
+-- first theme applies, and go away on a reload, so the widget tree is the only list of them
+-- that is always right.
+local SPEC = "KITICON"
+
+local function paint(iup, widget, spec)
+	local name, size, role, attribute = spec:match("^([^|]*)|([^|]*)|([^|]*)|([^|]*)$")
+	if not name then return end
+	local handle = M.icon(iup, name, tonumber(size), role)
+	if handle then iup.SetAttribute(widget, attribute, handle) end
+	-- A tab strip copies a page's image when the page is added, so a later change has to
+	-- reach the strip as well.
+	if handle and attribute == "TABIMAGE" and iup.GetParent(widget) and iup.GetChildPos then
+		local strip = iup.GetParent(widget)
+		pcall(iup.SetAttributeId, strip, "TABIMAGE", iup.GetChildPos(strip, widget), handle)
+	end
+	if attribute == "IMAGE" then
+		local faded = M.icon(iup, name, tonumber(size), "disabled")
+		if faded then iup.SetAttribute(widget, "IMAGEINACTIVE", faded) end
 	end
 end
+
+local function repaint(iup, widget)
+	local spec = iup.GetAttribute(widget, SPEC)
+	if spec then paint(iup, widget, spec) end
+	local i, child = 0, iup.GetChild(widget, 0)
+	while child do
+		repaint(iup, child)
+		i = i + 1
+		child = iup.GetChild(widget, i)
+	end
+end
+
+local reactor = {}
+function reactor:_onThemeApply()
+	local manager = ThemeReactor and ThemeReactor.themeManager()
+	local root = manager and manager._root
+	if root and bound_iup then pcall(repaint, bound_iup, root) end
+end
+M._reactor = reactor -- the registry holds weakly
 if ThemeReactor then ThemeReactor.register(reactor) end
 
 --- Put a themed icon on a widget and keep it the right colour across theme switches.
@@ -70,21 +100,31 @@ if ThemeReactor then ThemeReactor.register(reactor) end
 -- @tparam[opt] table opts `size`, `role`, `attribute` (default IMAGE)
 function M.bindIcon(iup, widget, name, opts)
 	opts = opts or {}
+	bound_iup = iup
 	local attribute = opts.attribute or "IMAGE"
 	local role = opts.role
 	if not role then
 		local widget_role = iup.GetAttribute(widget, "THEMEROLE")
 		if widget_role == "primary_btn" or widget_role == "danger_solid" then role = "on_accent"
 		elseif widget_role == "danger_btn" then role = "error"
-		elseif attribute == "IMAGE" then role = "text" end
+		elseif attribute == "IMAGE" then role = "text"
+		else role = "neutral" end
 	end
-	local spec = { iup = iup, name = name, size = opts.size, role = role, attribute = attribute }
-	local handle = M.icon(iup, name, spec.size, spec.role)
-	if handle then
-		iup.SetAttribute(widget, attribute, handle)
-		bound[widget] = spec
-	end
+	local spec = table.concat({ name, tostring(opts.size or M.ICON_BUTTON), role, attribute }, "|")
+	iup.SetAttribute(widget, SPEC, spec)
+	paint(iup, widget, spec)
 	return widget
+end
+
+--- Hand a widget a little air on one side, so panes either side of a divider don't sit on it.
+-- @tparam userdata iup
+-- @param widget
+-- @tparam string side "left" or "right"
+-- @treturn ihandle the wrapped widget
+function M.inset(iup, widget, side)
+	local air = iup.fill({ RASTERSIZE = L.px(4) .. "x" })
+	if side == "left" then return iup.hbox({ air, widget, EXPAND = "YES" }) end
+	return iup.hbox({ widget, air, EXPAND = "YES" })
 end
 
 --- A button with a leading Carbon icon.

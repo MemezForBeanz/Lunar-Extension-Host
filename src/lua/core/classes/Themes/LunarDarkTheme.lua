@@ -22,7 +22,7 @@ function LunarDarkTheme:initialize()
         borderSubtle01  = rgb("#30333e"),  -- dim structural lines
         borderStrong01  = rgb("#464b5c"),  -- field edges, emphasis
         text            = rgb("#d6d9e0"),
-        textMuted       = rgb("#8b90a0"),
+        textMuted       = rgb("#a7acba"),
         accent          = rgb("#7c6cf2"),  -- lunar violet (interactive)
         accentText      = rgb("#ffffff"),
         error           = rgb("#ff8a93"),
@@ -30,7 +30,7 @@ function LunarDarkTheme:initialize()
         warning         = rgb("#e5c07b"),
         warningText     = rgb("#1b1d23"),
         info            = rgb("#56b6c2"),
-        font            = "Segoe UI, 10",
+        font            = "Segoe UI, 11",
         well            = rgb("#1b1d23"),   -- recessed: lists, fields, output
         accentSoft      = rgb("#403c86"),   -- a chosen row
 

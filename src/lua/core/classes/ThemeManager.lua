@@ -1036,7 +1036,7 @@ function ThemeManager:_applyElement(ih, rules, cls, role, p)
 		-- flatlabels created with a THEMEROLE and no FONT (see
 		-- core.lib.CarbonLayout.pageTitle), so every heading in the app rendered
 		-- at body size and weight and the scale existed only on paper.
-		if attrs.FONT == self._theme_font and not self:_hasLocalFont(ih, p) then
+		if not role and attrs.FONT == self._theme_font and not self:_hasLocalFont(ih, p) then
 			attrs.FONT = nil
 		end
 	end

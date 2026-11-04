@@ -230,6 +230,7 @@ iup.MainLoop = function()
 			for _, s in ipairs(page.path) do iup.SetAttribute(s.strip, "VALUEPOS", tostring(s.pos)) end
 		else
 			fill_lists(dlg) -- an async status may have written a host since the last pass
+			iup.Refresh(dlg)
 			local slug = page.title:lower():gsub("[^%w]+", "-")
 			local IupFFI = require("core.classes.IupFFI")
 			save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(dlg), "HWND")), string.format("%s/%s-%02d-%s.bmp",
