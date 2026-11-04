@@ -374,6 +374,11 @@ function M.build(p)
             border = p.border, borderwidth = 1,
             selbg = p.accent, seltext = p.accentText, selalpha = "255",
         },
+        flatrows = { bg = layer1, fg = p.text, secondary = p.textMuted, font = p.font,
+            border = p.border, itemradius = 4, itemmarker = p.accent,
+            selbg = p.accent, seltext = p.accentText, hover = p.layerHover01 },
+        flatsegmented = { bg = layer1, fg = p.text, font = p.font,
+            border = p.border, radius = 4, selbg = p.accent, seltext = p.accentText },
         progressbar   = { bg = layer1, fg = p.accent, border = p.border },
         gauge         = { bg = layer1, fg = p.accent, border = p.border },
     }

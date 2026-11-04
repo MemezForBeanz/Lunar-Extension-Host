@@ -14,6 +14,8 @@ local ok_reactor, ThemeReactor = pcall(require, "core.ui.ThemeReactor")
 if not ok_reactor then ThemeReactor = nil end
 
 local L = require("core.lib.CarbonLayout")
+function M.rowList(iup, opts) return require("core.ui.RowList").new(iup, opts) end
+function M.segmented(iup, opts) return require("core.ui.RowList").segmented(iup, opts) end
 
 M.ICON_BUTTON = 16
 M.ICON_TAB = 16
@@ -291,7 +293,8 @@ end
 --- A pane that says what it is for until it has something to show.
 --
 -- @tparam userdata iup
--- @tparam table opts `content` (the real widget), `icon`, `title`, `hint`
+-- @tparam table opts `content` (the real widget), `icon`, `title`, `hint`, and `action`
+--   (`{ title, run }`), the one thing to do next, as the page's primary button
 -- @treturn ihandle the pane
 -- @treturn function `set_empty(boolean)`
 -- @treturn ihandle the hint label, for text that changes with state
@@ -300,15 +303,23 @@ function M.emptyPane(iup, opts)
 	if opts.icon then M.bindIcon(iup, glyph, opts.icon, { size = M.ICON_EMPTY, role = "neutral" }) end
 	local title = iup.flatlabel({ TITLE = opts.title or "", THEMEROLE = "empty_title", ALIGNMENT = "ACENTER" })
 	local hint = iup.flatlabel({ TITLE = opts.hint or "", THEMEROLE = "empty_hint", ALIGNMENT = "ACENTER" })
+	local kids = {
+		iup.fill({}),
+		iup.hbox({ iup.fill({}), glyph, iup.fill({}) }),
+		iup.hbox({ iup.fill({}), title, iup.fill({}) }),
+		iup.hbox({ iup.fill({}), hint, iup.fill({}) }),
+	}
+	if opts.action then
+		kids[#kids + 1] = iup.fill({ RASTERSIZE = "x" .. L.px(3) })
+		kids[#kids + 1] = iup.hbox({ iup.fill({}), M.button(iup, {
+			title = opts.action.title, role = "primary_btn", icon = opts.action.icon,
+			action = opts.action.run,
+		}), iup.fill({}) })
+	end
+	kids[#kids + 1] = iup.fill({})
+	kids.GAP, kids.EXPAND = L.gap(2), "YES"
 	local placeholder = iup.flatframe({
-		iup.vbox({
-			iup.fill({}),
-			iup.hbox({ iup.fill({}), glyph, iup.fill({}) }),
-			iup.hbox({ iup.fill({}), title, iup.fill({}) }),
-			iup.hbox({ iup.fill({}), hint, iup.fill({}) }),
-			iup.fill({}),
-			GAP = L.gap(2), EXPAND = "YES",
-		}),
+		iup.vbox(kids),
 		TITLE = "", THEMEROLE = "well", MARGIN = L.margin(5), EXPAND = "YES",
 	})
 	local pane = iup.zbox({ placeholder, opts.content, EXPAND = "YES" })
