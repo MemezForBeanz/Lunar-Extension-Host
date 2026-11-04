@@ -87,6 +87,11 @@ function M.addShellRoles(rules, p)
         palette_text = { bg = floor, fg = p.text, font = font },
         palette_prompt = { bg = floor, fg = p.textMuted, font = font },
         well = { bg = well, fg = p.text, font = font, border = border },
+        danger_solid = {
+            bg = p.error, fg = p.accentText or p.text, font = font, border = p.error,
+            borderwidth = 1, showborder = true, padding = "12x5",
+            hover = p.error, hovertext = p.accentText or p.text,
+        },
         text_cue = { bg = well, fg = p.textMuted, font = font },
         palette_hint = { bg = floor, fg = p.textMuted, font = font },
         palette_frame = { bg = floor, fg = p.text, font = font, border = strong },

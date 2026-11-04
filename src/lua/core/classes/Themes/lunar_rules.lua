@@ -256,6 +256,14 @@ function M.build(p)
             pressed = selected, pressedtext = p.text,
         },
         danger_btn    = semantic(p.error, p.accentText),
+        -- The one irreversible action on a page: a solid fill, so it outranks its neighbours.
+        danger_solid  = {
+            bg = p.error, fg = p.accentText, font = BTN_FONT,
+            border = p.error, borderwidth = 1, showborder = true,
+            padding = BTN_PAD, radius = R,
+            hover = shade(p.error, 0.1), hovertext = p.accentText,
+            pressed = shade(p.error, -0.15), pressedtext = p.accentText,
+        },
         warning_btn   = {
             bg = elevated, fg = p.text, font = BTN_FONT,
             border = border, borderwidth = 1, showborder = true,
@@ -330,7 +338,7 @@ function M.build(p)
         }),
         -- A field edge in focus. core.ui.FlatField swaps its frame to this role.
         -- A container for content: a recessed fill with the same edge everywhere.
-        well = { bg = well, fg = p.text, font = p.font, border = border, radius = RF, sheen = sheen },
+        well = { bg = well, fg = p.text, font = p.font, border = well, radius = RF },
         text_cue = { bg = well, fg = p.textMuted, font = p.font },
         text_focus = { bg = well, fg = p.text, font = p.font, border = p.accent, radius = R },
         -- The bottom bar's command bar: reads as a recessed field, not a button.
@@ -361,8 +369,9 @@ function M.build(p)
     for key, value in pairs(rules.list_bordered) do rules.list_mono[key] = value end
     rules.list_mono.font = "Consolas, 9"
     for _, role in ipairs({ "flatbutton", "primary_btn", "actionbutton", "ghost_btn",
-                            "danger_btn", "warning_btn", "info_btn", "link_btn", "icon_btn" }) do
+                            "danger_btn", "danger_solid", "warning_btn", "info_btn", "link_btn", "icon_btn" }) do
         rules[role].inactivebg = elevated
+        rules[role].inactiveborder = border
         rules[role].inactivefg = p.textMuted
     end
     return rules

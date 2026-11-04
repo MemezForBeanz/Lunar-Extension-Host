@@ -597,6 +597,8 @@ function TabGroups:_prepareStrip(strip)
 	-- NOTE: this only works because core.classes.TabOrder now hooks
 	-- FLAT_BUTTON_CB instead of overwriting the control's internal BUTTON_CB.
 	local is_group = self:isGroupStrip(strip)
+	-- A strip in a group only needs its collapse control: "New tab group" lives on the
+	-- bar at the top, and a second + beside it says nothing about how the two differ.
 	pcall(iup.SetAttribute, strip, "EXTRABUTTONS", is_group and "2" or "1")
 	local function extra(id, text, icon)
 		local image = self._extra_icon and self._extra_icon(icon)
