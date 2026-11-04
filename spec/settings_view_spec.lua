@@ -49,6 +49,7 @@ local function fake_iup()
 		iup[kind] = node(kind)
 	end
 
+	function iup.GetClassName(w) return w.kind end
 	function iup.SetAttribute(w, name, value) w.attrs[name] = value end
 	function iup.GetAttribute(w, name)
 		-- The view measures a body from its NATURALSIZE; report a fixed height so
@@ -384,7 +385,7 @@ describe("SettingsView rows", function()
 		local row = section.rows[1].box
 		local top = row.children[1].children[1]
 		local column = top.children[#top.children]
-		assert.matches("^%d+x0$", column.attrs.RASTERSIZE)
+		assert.matches("^%d+x0$", column.children[2].attrs.RASTERSIZE)
 		assert.are.equal("NO", column.attrs.EXPAND)
 	end)
 

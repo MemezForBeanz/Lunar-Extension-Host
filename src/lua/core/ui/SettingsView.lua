@@ -533,12 +533,16 @@ function SettingsView:_buildRow(entry, category, first)
         fills = true
         release_width(iup, control)
     end
-    -- Width only: the height stays the control's own, which differs between a toggle,
-    -- a text field and a dropdown.
-    local cells = { ALIGNMENT = "ACENTER", RASTERSIZE = L.size(CONTROL_COLUMN), EXPAND = "NO" }
+    -- The empty box holds the column at its width. A width set on the row itself would
+    -- count as the row's natural size and leave nothing for the field to expand into.
+    local cells = { ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" }
     if control and not fills then cells[#cells + 1] = iup.fill{} end
     if control then cells[#cells + 1] = control end
-    local column = iup.hbox(cells)
+    local column = iup.vbox{
+        iup.hbox(cells),
+        iup.hbox{ RASTERSIZE = L.size(CONTROL_COLUMN) },
+        EXPAND = "NO",
+    }
 
     local top = iup.hbox{
         iup.vbox(left),
