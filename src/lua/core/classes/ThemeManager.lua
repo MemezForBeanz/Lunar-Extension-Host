@@ -59,6 +59,8 @@ local CLASS_RULES = {
 	multiline = true,
 	list = true,
 	flatlist = true,
+	flatrows = true,
+	flatsegmented = true,
 	progressbar = true,
 	gauge = true,
 	dropbutton = true,
@@ -393,6 +395,7 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 	end
 	local has_scroll = (
 		cls == "flatlist"
+		or cls == "flatrows"
 		or cls == "flatscrollbox"
 		or cls == "scrollbox"
 		or cls == "list"
@@ -510,7 +513,7 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 			attrs.ARROWCOLOR = r.fg
 		end
 		-- The slim, arrowless bar. Not for the native classes: they ignore these.
-		if r.scrollsize and (cls == "flatlist" or cls == "flatscrollbox") then
+		if r.scrollsize and (cls == "flatlist" or cls == "flatrows" or cls == "flatscrollbox") then
 			attrs.SCROLLBARSIZE = tostring(r.scrollsize)
 			attrs.SHOWARROWS = "NO"
 			attrs.SB_CORNERRADIUS = tostring(r.scrollradius or math.floor(r.scrollsize / 2))
@@ -550,7 +553,7 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 		attrs.SHOWTEXT = "NO"
 	end
 
-	if cls == "flatlist" then
+	if cls == "flatlist" or cls == "flatrows" then
 		if r.itemradius then attrs.ITEMRADIUS = tostring(r.itemradius) end
 		if r.itemmarker then attrs.ITEMMARKERCOLOR = r.itemmarker end
 		local sel_bg = r.selbg or r.hover or r.bg
@@ -564,6 +567,11 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 			attrs.TEXTPSCOLOR = sel_text
 		end
 		attrs.HLCOLORALPHA = r.selalpha or ((r.selbg or r.hover) and "255" or "0")
+		if cls == "flatrows" then attrs.SECONDARYCOLOR = r.secondary or r.fg end
+	end
+	if cls == "flatsegmented" then
+		attrs.PSCOLOR = r.selbg or r.hover or r.bg
+		attrs.TEXTPSCOLOR = r.seltext or r.fg
 	end
 
 	if r.border and (cls == "flatseparator" or cls == "separator") then
@@ -637,7 +645,7 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 		if r.radius then
 			attrs.CORNERRADIUS = tostring(r.radius)
 		end
-	elseif cls == "flatlist" or cls == "flattabs" then
+	elseif cls == "flatlist" or cls == "flatrows" or cls == "flatsegmented" or cls == "flattabs" then
 		-- Rounding only (no gradients): flatlist rounds its body and border;
 		-- flattabs rounds the selected/hovered tab's card (fork additions).
 		if r.radius then

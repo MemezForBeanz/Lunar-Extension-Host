@@ -360,6 +360,11 @@ function M.build(p)
             scrollbg = well, itemradius = R, padding = ROW_PAD, itemmarker = p.accent,
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
+        flatrows = scroll({ bg = well, fg = p.text, secondary = p.textMuted, font = p.font,
+            border = border, radius = RF, itemradius = R, itemmarker = p.accent,
+            selbg = chosen, seltext = p.text, hover = hover, scrollbg = well }),
+        flatsegmented = { bg = layer1, fg = p.textMuted, font = p.font,
+            border = border, radius = R, selbg = chosen, seltext = p.text },
         -- A field edge in focus. core.ui.FlatField swaps its frame to this role.
         -- A container for content: a recessed fill with the same edge everywhere.
         well = { bg = layer1, fg = p.text, font = p.font, border = border, radius = RF, sheen = sheen },
