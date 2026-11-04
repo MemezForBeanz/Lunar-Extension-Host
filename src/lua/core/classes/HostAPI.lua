@@ -80,6 +80,7 @@ local Layout = require("core.classes.host.Layout")
 local Routing = require("core.classes.host.Routing")
 local Keys = require("core.classes.host.Keys")
 local Menus = require("core.classes.host.Menus")
+local Languages = require("core.classes.host.Languages")
 
 local HostAPI = class("HostAPI")
 
@@ -508,6 +509,65 @@ end
 -- can parent its per-toast windows there.
 --
 -- @tparam ToastHost host a `core.ui.Toast.ToastHost` instance
+
+--- Contribute a language server (host API 4). The only way a server reaches the
+-- host: the built-in Lua and C servers use it too.
+--
+-- The manifest must declare the `language_server` capability. Nothing is started
+-- here; the server starts when the first file it serves is opened, and it is
+-- ended when the extension unloads. See `docs/language-servers.md`.
+--
+-- @tparam table spec
+-- @tparam string spec.id unique id: lowercase letters, digits, `.`, `_`, `-`
+-- @tparam[opt] string spec.name display name
+-- @tparam {string,...} spec.languages protocol language ids; the first is the default
+-- @tparam[opt] {string,...} spec.extensions file extensions, e.g. `{ ".py", ".pyi" }`
+-- @tparam[opt] {string,...} spec.filenames whole file names it also serves
+-- @tparam[opt] table spec.language_ids extension to language id, where not the default
+-- @tparam[opt] {string,...} spec.root_markers files that mark a project root
+-- @tparam function|table spec.command `fn(root) -> { argv, cwd, env } | nil, reason`.
+--   Return `nil` and a sentence when there is no server to run; it is shown to the user.
+-- @tparam[opt] table spec.settings the server's configuration
+-- @tparam[opt] table spec.init_options `initializationOptions`
+-- @tparam table owner the extension
+-- @treturn[1] table the registered server
+-- @treturn[2] nil
+-- @treturn[2] string why it was refused
+-- @since host API 4
+-- @usage
+--    ctx:addLanguageServer({
+--        id = "python", languages = { "python" }, extensions = { ".py", ".pyi" },
+--        root_markers = { "pyproject.toml", ".git" },
+--        command = function()
+--            local exe, why = ctx:findLanguageServer({ id = "python", names = { "pylsp" } })
+--            if not exe then return nil, why end
+--            return { argv = { exe } }
+--        end,
+--    }, M)
+function HostAPI:addLanguageServer(spec, owner) return Languages.addLanguageServer(self, spec, owner) end
+
+--- Find a language server's executable on this computer (host API 4): the path
+-- the user set in Settings, then a copy shipped in Lunar's `servers/` folder,
+-- then `PATH`. Lunar never downloads one.
+--
+-- @tparam table spec `id` (the server id, for the Settings path), `label`,
+--   `names` (executable names), optional `bundled` (paths under Lunar's folder)
+--   and `install` (a sentence saying how to get it)
+-- @treturn[1] string the executable
+-- @treturn[1] string `"settings"`, `"bundled"` or `"path"`
+-- @treturn[2] nil
+-- @treturn[2] string a sentence to show the user
+-- @since host API 4
+function HostAPI:findLanguageServer(spec) return Languages.findLanguageServer(self, spec) end
+
+--- The language-server registry (`core.lsp.Registry`), or nil where processes
+-- cannot run. Host-internal: extensions register through `addLanguageServer`.
+-- @local
+function HostAPI:languageServers() return Languages.registry(self) end
+
+--- Every diagnostic the servers have published (`core.lsp.Diagnostics`). Host-internal.
+-- @local
+function HostAPI:languageDiagnostics() return Languages.diagnostics(self) end
 -- @local
 function HostAPI:setToastHost(host)
     self._toasts = host
@@ -1159,6 +1219,9 @@ function HostAPI:removeOwned(owner)
     return true, failures
 end
 function HostAPI:_activeOwner() return Layout._activeOwner(self) end
+    -- Language servers end with the extension that contributed them.
+    step("stop language servers", Languages.removeOwned, self, owner)
+
 function HostAPI:_activeTab() return Layout._activeTab(self) end
 
 function HostAPI:_tabIndex(widget) return Layout._tabIndex(self, widget) end

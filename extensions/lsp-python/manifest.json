@@ -1,0 +1,16 @@
+{
+  "schema_version": 2,
+  "id": "lsp-python",
+  "name": "Python language support",
+  "version": "1.0.0",
+  "description": "Diagnostics, hover, completion and go to definition for Python, through Pyright or pylsp.",
+  "host_api": 4,
+  "capabilities": [
+    "language_server"
+  ],
+  "provides": {
+    "language_servers": [
+      "python"
+    ]
+  }
+}
