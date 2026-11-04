@@ -360,7 +360,7 @@ describe("SettingsView sections", function()
 
 		view:toggleSection(section)
 		assert.are.equal("NO", section.body.attrs.FLOATING)
-		assert.are.equal("YES", section.body.attrs.VISIBLE)
+		assert.is_nil(section.body.attrs.VISIBLE)
 	end)
 
 	it("releases the pinned height once open, so a later row can grow it", function()
@@ -471,7 +471,7 @@ describe("SettingsView filtering", function()
 
 		view:filter("verbose")
 
-		assert.are.equal("YES", bq.rows[2].box.attrs.VISIBLE)
+		assert.is_nil(bq.rows[2].box.attrs.VISIBLE)
 		assert.are.equal("NO", bq.rows[1].box.attrs.VISIBLE)
 		assert.are.equal("NO", other.header.attrs.VISIBLE)
 	end)
