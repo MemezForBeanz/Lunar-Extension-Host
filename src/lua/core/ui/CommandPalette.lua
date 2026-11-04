@@ -216,7 +216,7 @@ function CommandPalette:_refresh()
 	if #items > 0 then
 		iup.SetAttribute(list, "VALUE", "1")
 		iup.SetAttribute(self._hint, "TITLE", provider and provider.title
-			or (self._choices and self._choices.hint) or HINT)
+			or (self._choices and self._choices.hint) or (text == "" and PLACEHOLDER) or HINT)
 	else
 		iup.SetAttribute(self._hint, "TITLE", provider and (provider.empty or "Nothing to show yet")
 			or "No matching commands")

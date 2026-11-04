@@ -322,7 +322,7 @@ function M.pageHeader(iup, title, subtitle)
 		kids[#kids + 1] = M.pageSubtitle(iup, subtitle)
 	end
 	kids.GAP    = M.gap(M.ROLE.label_gap)
-	kids.MARGIN = M.margin(0)
+	kids.MARGIN = "0x0"
 	kids.EXPAND = "HORIZONTAL"
 	return iup.vbox(kids)
 end

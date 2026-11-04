@@ -913,7 +913,10 @@ tab_groups:setPanes(pane_grid:extraStrips())
 pane_grid:setGroups(tab_groups)
 tab_order:setPanes(pane_grid, dlg)
 for _, strip in pairs(pane_grid:extraStrips()) do theme_mgr:themeWidget(strip) end
-theme_mgr:onApply(function() pane_grid:sync() end)
+theme_mgr:onApply(function()
+	pane_grid:sync()
+	host:syncScrollHosts()
+end)
 pane_grid:onLayout(schedule_recenter)
 host:centerPage(settings_view:widget(), SETTINGS_MAX_WIDTH, L.px(L.ROLE.page))
 
@@ -921,6 +924,7 @@ host:centerPage(settings_view:widget(), SETTINGS_MAX_WIDTH, L.px(L.ROLE.page))
 -- Settings tab are in the strip, and while the pages are still unmapped.
 tab_groups:restore()
 pane_grid:sync()
+host:syncScrollHosts()
 
 -- The first time an org's tool group applies on this machine, move the org's
 -- tools into it whatever the saved layout says (a layout from before tool groups

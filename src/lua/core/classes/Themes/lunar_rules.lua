@@ -95,7 +95,7 @@ function M.build(p)
     -- the body font -- text and control are proportionate again, which is the
     -- real fix for "undersized text on oversized buttons".
     local BTN_FONT = p.font
-    local BTN_PAD  = "14x6"
+    local BTN_PAD  = "12x4"
     local accent_hover   = p.accentHover   or shade(p.accent, 0.12)
     local accent_pressed = p.accentPressed or shade(p.accent, -0.14)
 
@@ -115,7 +115,7 @@ function M.build(p)
     local rules = {
         -- Type scale (identical to carbon_rules: heading-04 / heading-03 /
         -- body-compact-01 / label-01).
-        pagetitle     = { fg = p.text,      font = sized(p.font, 20, true), padding = "0x0" },
+        pagetitle     = { fg = p.text,      font = sized(p.font, 18, true), padding = "0x0" },
         pagesubtitle  = { fg = p.textMuted, font = sized(p.font, 11), padding = "0x0" },
         sectiontitle  = { fg = p.text,      font = sized(p.font, 12, true), padding = "0x0" },
         hint          = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
@@ -189,7 +189,7 @@ function M.build(p)
         -- The bar inside a group: the tool level, so it sits on the page itself and only
         -- the chosen label changes, where the app-level bar above it is a dark well.
         flattabs_sub = {
-            bg = layer1, fg = p.text, selfg = p.accent, font = p.font,
+            bg = layer1, fg = p.text, font = p.font, activeline = p.accent,
             tabsbg = layer1, tabsfg = p.textMuted,
             border = border, borderwidth = 1,
             hover = hover, selbg = selected,
@@ -198,7 +198,7 @@ function M.build(p)
         },
         scrollbox     = { bg = layer1, fg = p.text, border = border },
         flatscrollbox = scroll({ bg = layer1, fg = p.text, border = border, borderwidth = 1, scrollbg = layer1 }),
-        tabscroll     = scroll({ bg = p.bg, fg = p.text, border = p.bg, borderwidth = 0, scrollbg = p.bg }),
+        tabscroll     = scroll({ bg = layer1, fg = p.text, border = layer1, borderwidth = 0, scrollbg = layer1 }),
         label         = { fg = p.text, font = p.font },
         settingslabel       = { fg = p.text,      font = p.font },
         settingslabel_muted = { fg = p.textMuted, font = p.font },
@@ -273,6 +273,7 @@ function M.build(p)
         dropbutton    = {
             bg = elevated, fg = p.text, font = p.font,
             border = border, borderwidth = 1, showborder = true, radius = R,
+            padding = "10x4",
             hover = hover, hovertext = p.text,
             pressed = selected, pressedtext = p.text,
         },
@@ -328,6 +329,7 @@ function M.build(p)
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         -- A field edge in focus. core.ui.FlatField swaps its frame to this role.
+        text_cue = { bg = well, fg = p.textMuted, font = p.font },
         text_focus = { bg = well, fg = p.text, font = p.font, border = p.accent, radius = R },
         -- The bottom bar's command bar: reads as a recessed field, not a button.
         commandbar = {

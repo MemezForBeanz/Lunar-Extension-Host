@@ -637,6 +637,7 @@ function HostAPI:_scaleSidePadding(side_padding, opts) return Layout._scaleSideP
 function HostAPI:_wrapTabForPadding(widget, opts) return Layout._wrapTabForPadding(self, widget, opts) end
 function HostAPI:_wrapTabForScroll(widget) return Layout._wrapTabForScroll(self, widget) end
 function HostAPI:recenterPages() return Layout.recenterPages(self) end
+function HostAPI:syncScrollHosts() return Layout.syncScrollHosts(self) end
 function HostAPI:centerPage(widget, max_width, side) return Layout.centerPage(self, widget, max_width, side) end
 
 --- Append a tab to the main tab strip.

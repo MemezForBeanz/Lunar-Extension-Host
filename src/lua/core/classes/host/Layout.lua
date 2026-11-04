@@ -249,7 +249,21 @@ function M._wrapTabForScroll(self, widget)
         -- Never let a missing/renamed control cost the user their tab.
         return widget
     end
+    self._scroll_hosts = self._scroll_hosts or {}
+    self._scroll_hosts[#self._scroll_hosts + 1] = box
     return box
+end
+
+--- Give every page scroll host the page colour.
+--
+-- Flat controls take their background from the nearest native parent's stored BGCOLOR,
+-- and a scroll host is that parent. Run after a theme applies.
+function M.syncScrollHosts(self)
+    local surface = self.tabs and self.iup.GetAttribute(self.tabs, "BGCOLOR")
+    if not surface then return end
+    for _, box in ipairs(self._scroll_hosts or {}) do
+        pcall(self.iup.SetAttribute, box, "BGCOLOR", surface)
+    end
 end
 
 function M.addTab(self, title, widget, owner, opts)

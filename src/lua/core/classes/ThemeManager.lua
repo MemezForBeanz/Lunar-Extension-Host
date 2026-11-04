@@ -646,6 +646,9 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 		if cls == "flattabs" and r.tabspadding then
 			attrs.TABSPADDING = r.tabspadding
 		end
+		if cls == "flattabs" and r.activeline then
+			attrs.TABSACTIVELINE = r.activeline
+		end
 	end
 
 	-- A theme may suppress the dotted keyboard-focus rectangle on a surface

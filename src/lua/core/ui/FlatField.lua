@@ -60,7 +60,9 @@ function FlatField.new(iup, opts)
 	})
 
 	local field = self
+	self._cue = opts.cue
 	function text:valuechanged_cb()
+		if field._showing_cue then return iup.DEFAULT end
 		if opts.on_change then opts.on_change(iup.GetAttribute(text, "VALUE") or "") end
 		return iup.DEFAULT
 	end
@@ -72,14 +74,33 @@ function FlatField.new(iup, opts)
 		return iup.CONTINUE
 	end
 	function text:getfocus_cb()
+		field:_setCue(false)
 		field:_edge(true)
 		return iup.DEFAULT
 	end
 	function text:killfocus_cb()
+		field:_setCue(true)
 		field:_edge(false)
 		return iup.DEFAULT
 	end
+	self:_setCue(true)
 	return self
+end
+
+-- The system cue banner does not reliably paint on an owner-themed edit, so an empty
+-- field holds the hint as muted text until it gets focus.
+function FlatField:_setCue(show)
+	local iup, text = self._iup, self.text
+	if not self._cue then return end
+	if show and (iup.GetAttribute(text, "VALUE") or "") == "" then
+		self._showing_cue = true
+		iup.SetAttribute(text, "VALUE", self._cue)
+		iup.SetAttribute(text, "THEMEROLE", "text_cue")
+	elseif not show and self._showing_cue then
+		iup.SetAttribute(text, "VALUE", "")
+		iup.SetAttribute(text, "THEMEROLE", "text")
+		self._showing_cue = false
+	end
 end
 
 -- Swap the frame's role so the theme decides the colour, and the next theme switch
@@ -93,12 +114,15 @@ end
 
 --- The field's text.
 function FlatField:value()
+	if self._showing_cue then return "" end
 	return self._iup.GetAttribute(self.text, "VALUE") or ""
 end
 
 --- Replace the text.
 function FlatField:setValue(value)
+	self:_setCue(false)
 	self._iup.SetAttribute(self.text, "VALUE", value or "")
+	self:_setCue(true)
 end
 
 return FlatField

@@ -22,7 +22,7 @@ function LunarLightTheme:initialize()
         borderSubtle01  = rgb("#dcdce6"),
         borderStrong01  = rgb("#b8b8c8"),
         text            = rgb("#27272f"),
-        textMuted       = rgb("#6e6e80"),
+        textMuted       = rgb("#666a73"),
         accent          = rgb("#6a5ae0"),  -- violet, deepened for light surfaces
         accentText      = rgb("#ffffff"),
         error           = rgb("#c4314b"),
