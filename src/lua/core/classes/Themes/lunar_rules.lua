@@ -204,7 +204,7 @@ function M.build(p)
         settingslabel_muted = { fg = p.textMuted, font = p.font },
         settingspanel = { bg = layer1, border = layer1, borderwidth = 0, radius = 0 },
         settingsheader = {
-            bg = layer1, fg = p.text, font = p.font,
+            bg = layer1, fg = p.text, font = sized(p.font, 12, true),
             border = layer1, borderwidth = 0, radius = R,
             hover = hover, hovertext = p.text, pressed = selected,
         },

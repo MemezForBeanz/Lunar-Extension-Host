@@ -327,7 +327,7 @@ status_bar = StatusBar.new({
 	iup = iup,
 	icon_dir = ICON_DIR,
 	search_icon = VectorIcon.imageHandle(iup, {
-		path = platform.path:join(ICON_DIR, "search.svg"), size = 14, color = "#8b90a0",
+		path = platform.path:join(ICON_DIR, "search.svg"), size = 14, color = "#9aa0b0",
 	}),
 	-- The org's logo, when its profile ships one; the neutral build shows none.
 	logo = ORG_PROFILE and ORG_PROFILE.brand.logo,
@@ -634,7 +634,7 @@ local command_palette = CommandPalette.new({
 	on_error = function(message) host:setStatus(message) end,
 	round = function(window) require("core.lib.desktop").roundWindow(iup, window) end,
 	search_icon = VectorIcon.imageHandle(iup, {
-		path = platform.path:join(ICON_DIR, "search.svg"), size = 16, color = "#8b90a0",
+		path = platform.path:join(ICON_DIR, "search.svg"), size = 16, color = "#9aa0b0",
 	}),
 	anchor = function()
 		local bar = status_bar:commandWidget()
@@ -884,7 +884,7 @@ tab_groups = TabGroups:new({
 	settings = settings_mgr,
 	extra_icon = function(name)
 		return VectorIcon.imageHandle(iup, {
-			path = platform.path:join(ICON_DIR, name .. ".svg"), size = 14, color = "#8b90a0",
+			path = platform.path:join(ICON_DIR, name .. ".svg"), size = 14, color = "#9aa0b0",
 		})
 	end,
 	on_change = function()
