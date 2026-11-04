@@ -101,7 +101,7 @@ function M.show(opts)
 
 	local notice = iup.label({
 		TITLE = "Send stores this draft on the feedback backend with your IP address, user name, host name, app version, and current Lunar address.",
-		FONT = "Segoe UI, 9",
+		FONT = "Segoe UI, 11",
 		FGCOLOR = "120 120 120",
 		EXPAND = "HORIZONTAL",
 	})

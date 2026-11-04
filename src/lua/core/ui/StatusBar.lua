@@ -47,7 +47,7 @@ function StatusBar.new(opts)
 	self._label = iup.label({
 		TITLE = "Ready",
 		EXPAND = "HORIZONTAL",
-		FONT = "Segoe UI, 9",
+		FONT = "Segoe UI, 11",
 		FGCOLOR = "60 60 60",
 		THEMEROLE = "statusbar_text",
 	})

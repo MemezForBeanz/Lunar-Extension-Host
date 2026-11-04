@@ -327,7 +327,7 @@ status_bar = StatusBar.new({
 	iup = iup,
 	icon_dir = ICON_DIR,
 	search_icon = VectorIcon.imageHandle(iup, {
-		path = platform.path:join(ICON_DIR, "search.svg"), size = 14, color = "#9aa0b0",
+		path = platform.path:join(ICON_DIR, "search.svg"), size = 14, color = "#7d8290",
 	}),
 	-- The org's logo, when its profile ships one; the neutral build shows none.
 	logo = ORG_PROFILE and ORG_PROFILE.brand.logo,
@@ -882,7 +882,7 @@ tab_groups = TabGroups:new({
 	settings = settings_mgr,
 	extra_icon = function(name)
 		return VectorIcon.imageHandle(iup, {
-			path = platform.path:join(ICON_DIR, name .. ".svg"), size = 14, color = "#9aa0b0",
+			path = platform.path:join(ICON_DIR, name .. ".svg"), size = 14, color = "#7d8290",
 		})
 	end,
 	on_change = function()
