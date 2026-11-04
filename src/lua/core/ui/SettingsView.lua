@@ -246,7 +246,7 @@ function SettingsView:fitWidth(width)
     local iup = self._iup
     local wide = width >= NAV_MIN_PAGE
     Kit.show(iup, self._nav, wide, self._search)
-    local lead = wide and math.floor((width - NAV_WIDTH - COLUMN_WIDTH) / 2) or 0
+    local lead = wide and math.floor((width - NAV_WIDTH - COLUMN_WIDTH) / 2) or 1 -- 0 means no size at all
     iup.SetAttribute(self._lead, "RASTERSIZE", lead .. "x")
 end
 
