@@ -655,10 +655,11 @@ local command_palette = CommandPalette.new({
 	end,
 })
 status_bar:onCommand(function() command_palette:toggle() end)
-status_bar:onMenu(function(x, y)
+local function open_app_menu(x, y)
 	iup.SetAttribute(menu_bar, "POPUPALIGN", "ALEFT:ABOTTOM")
 	iup.Popup(menu_bar, x, y)
-end)
+end
+status_bar:onMenu(open_app_menu)
 host:registerShortcut(iup.K_cP, function() command_palette:toggle() end)
 host:_installKeyDispatch(dlg)
 
@@ -815,6 +816,7 @@ add_host_command("tasks", "Run Task", function() command_palette:open("task ") e
 -- For scripts/ui_capture.lua, which drives these from outside.
 if DEV_BUILD then
 	_G.LUNAR_DEV_SHELL = {
+		open_menu = open_app_menu,
 		palette = command_palette,
 		panes = pane_grid,
 		groups = function() return tab_groups end,
