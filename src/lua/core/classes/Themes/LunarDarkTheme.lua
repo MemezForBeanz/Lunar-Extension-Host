@@ -30,7 +30,7 @@ function LunarDarkTheme:initialize()
         warning         = rgb("#e5c07b"),
         warningText     = rgb("#1b1d23"),
         info            = rgb("#56b6c2"),
-        font            = "Segoe UI Variable, 10",
+        font            = "Segoe UI, 10",
 
         -- The accent strip's sweep: violet into slate.
         gradTop         = rgb("#7c6cf2"),

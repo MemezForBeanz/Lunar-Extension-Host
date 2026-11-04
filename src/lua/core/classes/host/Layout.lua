@@ -162,6 +162,14 @@ function M._wrapTabForPadding(self, widget, opts)
     return wrapper
 end
 
+--- Keep a page at `max_width`, centred, whatever space it is given.
+function M.centerPage(self, widget, max_width, side)
+    self._centered = self._centered or {}
+    self._centered[#self._centered + 1] = {
+        wrapper = widget, max_width = max_width, side = side or 0, vertical = 0,
+    }
+end
+
 --- Centre each width-capped page in the space it actually has.
 --
 -- The margin computed at creation assumes the page fills the screen. A window that is

@@ -514,6 +514,7 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 			attrs.SCROLLBARSIZE = tostring(r.scrollsize)
 			attrs.SHOWARROWS = "NO"
 			attrs.SB_CORNERRADIUS = tostring(r.scrollradius or math.floor(r.scrollsize / 2))
+			attrs.SB_INSET = tostring(r.scrollinset or 0)
 		end
 	end
 
@@ -541,7 +542,10 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 		attrs.BORDERSHEENCOLOR = r.sheen
 	end
 
+	if cls == "gauge" and r.notext then attrs.SHOW_TEXT = "NO" end
+
 	if cls == "flatlist" then
+		if r.itemradius then attrs.ITEMRADIUS = tostring(r.itemradius) end
 		local sel_bg = r.selbg or r.hover or r.bg
 		local sel_text = r.seltext or r.hovertext or r.fg
 		if sel_bg then
@@ -614,6 +618,7 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 		if r.titlealign and cls == "flatframe" then
 			attrs.TITLEALIGNMENT = r.titlealign
 			attrs.TITLELINE = "NO"
+			if r.titlepad then attrs.TITLEPADDING = r.titlepad end
 		end
 		if r.gradcolor then
 			attrs.GRADIENTCOLOR     = r.gradcolor
@@ -1300,6 +1305,12 @@ function ThemeManager:_repaintSubtree(root, theme)
 			if okr then
 				role = rv
 			end
+		end
+		-- A flat list or toggle with no role takes its class rule the way a role is
+		-- applied. Left to the dialog's class theme it only gets what that theme sets
+		-- at creation, so it missed the slim scrollbar and the themed checkbox.
+		if (not role or role == "") and (cls == "flatlist" or cls == "flattoggle") then
+			role = cls
 		end
 		-- Skip void layout containers (vbox/hbox/zbox/cbox/gridbox) unless they were
 		-- given an explicit THEMEROLE. They draw nothing and only pass inheritance

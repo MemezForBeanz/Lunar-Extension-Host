@@ -270,65 +270,9 @@ end
 -- internal BUTTON_CB, which is what dispatches those arrows. See TabOrder.
 tabs = iup.flattabs({})
 
--- Carbon UI shell header: the band that names the product.
---
--- Carbon's shell is the first thing in its content-entrance order and the last
--- thing that should ever move, which is why it is a static band rather than
--- anything interactive -- the menu bar above it already owns the actions.
---
--- It is what was missing structurally. Without it the window opened straight onto
--- a tab strip, so there was nothing establishing the application's own frame of
--- reference and every tab read as the top of the hierarchy. Carbon puts the shell
--- on $background and the content on $layer-01, and that one step of contrast is
--- most of what makes the layout read as deliberate.
---
--- Brand and product are two labels, not one, so the brand can be semibold and the
--- product name regular -- Carbon's shell treatment, one typeface at two weights.
---
--- ### Height is the text, not Carbon's 48px
---
--- Carbon specifies a 48px shell header, and this used to pin exactly that with a
--- zero-width child carrying an explicit RASTERSIZE. It was wrong here and the
--- reason is worth keeping: Carbon's shell header is the application's *only*
--- chrome -- it carries the nav, the actions and the account menu, so 48px is
--- working space. This app already has a native Win32 menu bar directly above it,
--- so the band holds nothing but a product name, and 48px of it was a third of an
--- inch of empty grey above every screen.
---
--- Following the token here would be following it past the point where it means
--- anything. The band is sized to its text.
---
--- EXPAND is HORIZONTAL only, for the same reason the status bar's is: a
--- vertically-expanding child gets handed `naturalheight + empty`, and `empty` goes
--- negative once the content is taller than the window, which is how the status bar
--- once got squeezed to nothing. Horizontal-only makes this a fixed-height row that
--- the vbox skips when distributing a deficit.
--- The first word of the product name is the brand ("Lunar" | "Extension Host").
-local SHELL_BRAND, SHELL_PRODUCT = APP_TITLE:match("^(%S+)%s*(.*)$")
-local shell_header = iup.hbox({
-	iup.flatlabel({ TITLE = SHELL_BRAND or APP_TITLE, THEMEROLE = "shellbrand" }),
-	iup.flatlabel({ TITLE = SHELL_PRODUCT or "", THEMEROLE = "shellproduct" }),
-	iup.fill({}),
-	iup.flatlabel({ TITLE = "v" .. APP_VERSION, THEMEROLE = "shellmeta" }),
-	THEMEROLE  = "shellheader",
-	-- Horizontal padding only. Vertical is zero so the band is exactly as tall as
-	-- the labels inside it.
-	MARGIN     = L.margin(5, 0),
-	GAP        = L.gap(2),
-	ALIGNMENT  = "ACENTER",
-	EXPAND     = "HORIZONTAL",
-})
-
--- Native gradient accent strip (a thin bar above the tabs). Themes that opt in (via
--- palette.gradEnabled/gradTop/gradBottom) render a real horizontal gradient here through
--- the forked flat controls; non-gradient themes paint it in the dialog background color
--- so it blends away. Themed via the "accentstrip" rule (see fluent_rules).
-local gradient_strip = iup.flatlabel({
-	TITLE      = "",
-	RASTERSIZE = "x4",
-	EXPAND     = "HORIZONTAL",
-	THEMEROLE  = "accentstrip",
-})
+-- No band above the tabs. The window's title bar names the product, the tab strip names
+-- the tool, and a third row saying "Lunar Extension Host" over a coloured line pushed
+-- every page down by another 30px to repeat the title bar.
 
 -- Host-owned, centralized settings surface (search box + collapsible sections).
 -- `settings` persists which categories the user collapsed; `icon_dir` supplies the
@@ -508,8 +452,6 @@ local WORK_W, WORK_H, TASKBAR = STARTUP.work_w, STARTUP.work_h, STARTUP.taskbar
 local pane_grid = PaneGrid:new({ iup = iup, main = tabs, settings = settings_mgr })
 
 local content_box = iup.vbox({
-	shell_header,
-	gradient_strip,
 	pane_grid:widget(),
 	status_bar:widget(),
 	MARGIN = L.margin(0),
@@ -561,8 +503,6 @@ local function recalc_shell_budget(client_h)
 	client_h = client_h or measured_height(dlg, "CLIENTSIZE")
 	if not client_h or client_h <= 0 then return false end
 	local bands = {
-		header = measured_height(shell_header) or 0,
-		accent = measured_height(gradient_strip) or 0,
 		status = measured_height(status_bar:widget()) or 0,
 	}
 	local cap = ShellBudget.cap(client_h, bands, L.gutter(), 4)
@@ -573,6 +513,9 @@ local function recalc_shell_budget(client_h)
 	iup.SetAttribute(pane_grid:widget(), "MAXSIZE", value)
 	return true
 end
+
+-- Settings reads as a form, so it keeps a form's width on any monitor.
+local SETTINGS_MAX_WIDTH = 860
 
 -- Page widths are only known after the layout pass a resize triggers.
 local recenter_timer = iup.timer({ time = 30 })
@@ -690,6 +633,9 @@ local command_palette = CommandPalette.new({
 	notify_tree_change = function(w) theme_mgr:themeWidget(w) end,
 	on_error = function(message) host:setStatus(message) end,
 	round = function(window) require("core.lib.desktop").roundWindow(iup, window) end,
+	search_icon = VectorIcon.imageHandle(iup, {
+		path = platform.path:join(ICON_DIR, "search.svg"), size = 16, color = "#8b90a0",
+	}),
 	anchor = function()
 		local bar = status_bar:commandWidget()
 		local x, y = tostring(iup.GetAttribute(bar, "SCREENPOSITION") or ""):match("(-?%d+),(-?%d+)")
@@ -703,7 +649,7 @@ host:registerShortcut(iup.K_cP, function() command_palette:toggle() end)
 host:_installKeyDispatch(dlg)
 
 local function add_host_command(id, title, run, extra)
-	local spec = { id = "host." .. id, title = title, category = "Lunar", run = function()
+	local spec = { id = "host." .. id, title = title, run = function()
 		run()
 		return true
 	end }
@@ -936,6 +882,11 @@ tab_groups = TabGroups:new({
 	iup = iup,
 	root_strip = tabs,
 	settings = settings_mgr,
+	extra_icon = function(name)
+		return VectorIcon.imageHandle(iup, {
+			path = platform.path:join(ICON_DIR, name .. ".svg"), size = 14, color = "#8b90a0",
+		})
+	end,
 	on_change = function()
 		host:_applyTabScopes()
 		refresh_shell_budget()
@@ -964,6 +915,7 @@ tab_order:setPanes(pane_grid, dlg)
 for _, strip in pairs(pane_grid:extraStrips()) do theme_mgr:themeWidget(strip) end
 theme_mgr:onApply(function() pane_grid:sync() end)
 pane_grid:onLayout(schedule_recenter)
+host:centerPage(settings_view:widget(), SETTINGS_MAX_WIDTH, L.px(L.ROLE.page))
 
 -- Rebuild the saved arrangement now that every extension tab and the host's own
 -- Settings tab are in the strip, and while the pages are still unmapped.

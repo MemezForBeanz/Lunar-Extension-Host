@@ -67,8 +67,8 @@ local SettingsView = class("SettingsView")
 -- Width of the column every control is laid into, in pixels. Wide enough for a
 -- path-length text field plus a Browse button, which is the widest thing any
 -- shipped extension puts in a row.
-local CONTROL_COLUMN = L.FIELD.wide
-local LABEL_COLUMN = 340
+local CONTROL_COLUMN = 440
+local LABEL_COLUMN = 260
 
 -- Chevron edge length in pixels. Carbon's own accordion uses a 16px icon against
 -- body text; this matches.
@@ -533,7 +533,7 @@ function SettingsView:_buildRow(entry, category)
     end
 
     children.GAP    = L.gap(L.ROLE.label_gap)
-    children.MARGIN = L.margin(L.ROLE.section, L.ROLE.row)
+    children.MARGIN = L.margin(L.ROLE.section, 2)
     children.EXPAND = "HORIZONTAL"
 
     local box = iup.vbox(children)

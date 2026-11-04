@@ -30,7 +30,8 @@ function LunarLightTheme:initialize()
         warning         = rgb("#946200"),
         warningText     = rgb("#ffffff"),
         info            = rgb("#0b6a78"),
-        font            = "Segoe UI Variable, 10",
+        font            = "Segoe UI, 10",
+        gradShellWell   = rgb("#e9e9f1"),   -- tab strip: a whisper off the page, never a grey band
 
         gradTop         = rgb("#6a5ae0"),
         gradBottom      = rgb("#8d9ac9"),
