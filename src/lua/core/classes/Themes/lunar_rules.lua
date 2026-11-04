@@ -121,7 +121,7 @@ function M.build(p)
         -- body-compact-01 / label-01).
         pagetitle     = { fg = p.text,      font = sized(p.headingFont or HEADING, 18), padding = "0x0" },
         pagesubtitle  = { fg = p.textMuted, font = sized(p.font, 11), padding = "0x0" },
-        sectiontitle  = { fg = p.text,      font = sized(HEADING, 13), padding = "0x0" },
+        sectiontitle  = { fg = p.text,      font = sized(HEADING, 14), padding = "0x0" },
         hint          = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
 
         -- Semantic text roles: state colored by meaning, never by literal.
@@ -221,7 +221,7 @@ function M.build(p)
         empty_title   = { fg = p.text, font = sized(p.font, 12), padding = "0x0" },
         empty_hint    = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
         settingsheader = {
-            bg = layer1, fg = p.text, font = sized(HEADING, 13),
+            bg = layer1, fg = p.text, font = sized(HEADING, 14),
             border = layer1, borderwidth = 0, radius = R,
             hover = hover, hovertext = p.text, pressed = selected,
         },
@@ -321,12 +321,12 @@ function M.build(p)
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         outputlog     = {
-            bg = well, fg = p.text, border = well,
-            scrollbg = well, scrollfg = borderS,
+            bg = layer1, fg = p.text, border = layer1,
+            scrollbg = layer1, scrollfg = borderS,
         },
         outputlog_scroll = scroll({
-            bg = well, fg = p.text, border = well, borderwidth = 0,
-            scrollbg = well,
+            bg = layer1, fg = p.text, border = layer1, borderwidth = 0,
+            scrollbg = layer1,
         }),
         list_bordered_scroll = scroll({
             bg = well, fg = p.text, border = well, borderwidth = 0,
@@ -357,7 +357,7 @@ function M.build(p)
         }),
         -- A field edge in focus. core.ui.FlatField swaps its frame to this role.
         -- A container for content: a recessed fill with the same edge everywhere.
-        well = { bg = well, fg = p.text, font = p.font, border = border, radius = RF, sheen = sheen },
+        well = { bg = layer1, fg = p.text, font = p.font, border = border, radius = RF, sheen = sheen },
         text_cue = { bg = well, fg = p.textMuted, font = p.font },
         text_focus = { bg = well, fg = p.text, font = p.font, border = p.accent, radius = R },
         -- The bottom bar's command bar: reads as a recessed field, not a button.

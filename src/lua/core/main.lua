@@ -646,12 +646,12 @@ local command_palette = CommandPalette.new({
 	muted = function()
 		return require("core.ui.ThemeReactor").palette().textMuted or "128 128 128"
 	end,
+	-- Summoned over the work, in the upper part of the window, the way a modal would be.
 	anchor = function()
-		local bar = status_bar:commandWidget()
-		local x, y = tostring(iup.GetAttribute(bar, "SCREENPOSITION") or ""):match("(-?%d+),(-?%d+)")
-		local w = tostring(iup.GetAttribute(bar, "RASTERSIZE") or ""):match("^(%d+)x")
+		local x, y = tostring(iup.GetAttribute(dlg, "SCREENPOSITION") or ""):match("(-?%d+),(-?%d+)")
+		local w = tostring(iup.GetAttribute(dlg, "RASTERSIZE") or ""):match("^(%d+)x")
 		if not (x and w) then return nil end
-		return tonumber(x), tonumber(y), tonumber(w)
+		return tonumber(x), tonumber(y) + 120, tonumber(w)
 	end,
 })
 status_bar:onCommand(function() command_palette:toggle() end)
