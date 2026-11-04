@@ -208,6 +208,34 @@ ctx:addCommandProvider({
 Give a provider a `prefix` such as `"repo "` and that text sends everything after it
 to that provider alone.
 
+## The page kit
+
+`ctx.ui.Kit` holds the pieces every tool page shares, so a page reads as Lunar whichever
+extension drew it:
+
+```lua
+local Kit = ctx.ui.Kit
+
+local run = Kit.button(iup, { title = "Run", icon = "play--outline", role = "primary_btn", action = go })
+Kit.iconize(iup, { { save_btn, "save" }, { browse_btn, "folder--open" } })
+
+local pane, set_empty = Kit.emptyPane(iup, {
+    content = output, icon = "terminal",
+    title = "No output yet", hint = "Press Run to start.",
+})
+
+local line = Kit.statusLine(iup, "warning", "API key not set")
+Kit.setStatus(iup, line, "ok", "API key saved")
+```
+
+Icons are Carbon SVGs from `assets\Icons`, tinted from the theme and repainted on a theme
+switch. `addTab` takes `icon` and `addSettings` takes `icon` as well.
+
+Use `Kit.show(iup, widget, visible, anchor)` to show or hide part of a page, never a bare
+`VISIBLE`: a widget with `VISIBLE=YES` stored on it stops following its tab and shows
+through whichever tab is in front. `anchor` is any always-visible native control on the
+same page. `L.setProgress` takes the same `anchor`.
+
 ## Tasks
 
 Typing `task ` in the command bar lists tasks, and Enter runs one. Users add their own
