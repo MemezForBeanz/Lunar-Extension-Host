@@ -769,6 +769,7 @@ host:addMenuItem("Feedback...", show_feedback, "help")
 
 -- Load extensions from plugins
 ext_mgr:loadAll(host)
+set_status("Ready")   -- the last extension's load message is not news
 
 -- Append the host-owned Settings tab BEFORE restoring tab order, so it participates
 -- in drag-reordering and order persistence alongside the extension tabs.

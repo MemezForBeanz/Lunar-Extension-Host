@@ -209,6 +209,12 @@ end
 -- extension's menus and shortcuts follow the pane that was last touched.
 function TabGroups:setActiveRoot(strip)
 	self._active_root = strip or self._root
+	if self._on_active_root then self._on_active_root(self._active_root) end
+end
+
+--- Run `fn(strip)` when the root being worked in changes.
+function TabGroups:onActiveRoot(fn)
+	self._on_active_root = fn
 end
 
 --- Every leaf page in every root, in display order.

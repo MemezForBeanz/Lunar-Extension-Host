@@ -15,8 +15,8 @@ local LunarLightTheme = Theme:subclass("LunarLightTheme")
 function LunarLightTheme:initialize()
     local p = {
         bg              = rgb("#f2f2f7"),
-        layer01         = rgb("#ffffff"),
-        layer02         = rgb("#f7f7fb"),
+        layer01         = rgb("#f6f6f9"),
+        layer02         = rgb("#ffffff"),
         layerHover01    = rgb("#ececf3"),
         layerSelected01 = rgb("#e2e2ee"),
         borderSubtle01  = rgb("#d0d0da"),
@@ -31,8 +31,8 @@ function LunarLightTheme:initialize()
         warningText     = rgb("#ffffff"),
         info            = rgb("#0b6a78"),
         font            = "Segoe UI, 11",
-        well            = rgb("#f0f0f6"),   -- recessed: lists, fields, output
-        accentSoft      = rgb("#e6e3fb"),   -- a chosen row
+        well            = rgb("#ffffff"),   -- recessed: lists, fields, output
+        accentSoft      = rgb("#d6d0f8"),   -- a chosen row
         gradShellWell   = rgb("#e9e9f1"),   -- tab strip: a whisper off the page, never a grey band
 
         gradTop         = rgb("#6a5ae0"),

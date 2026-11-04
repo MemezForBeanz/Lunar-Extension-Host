@@ -138,6 +138,20 @@ end
 --- Connect the tab tree. Called once; `TabGroups` then treats the panes as roots.
 function PaneGrid:setGroups(groups)
 	self._groups = groups
+	groups:onActiveRoot(function(strip) self:_markActive(strip) end)
+end
+
+-- With two panes open, the pane being worked in carries the accent line on its tab bar.
+function PaneGrid:_markActive(active)
+	local iup = self._iup
+	local used = self:_used()
+	local split = used.right or used.bottom or used.corner
+	local accent = require("core.ui.ThemeReactor").palette().accent
+	for _, strip in pairs(self._strips) do
+		local on = split and accent and handle.same(iup, strip, active)
+		iup.SetAttribute(strip, "TABSACTIVELINE", on and accent or nil)
+		iup.Update(strip)
+	end
 end
 
 function PaneGrid:_count(zone)

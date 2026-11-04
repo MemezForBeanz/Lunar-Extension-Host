@@ -309,10 +309,10 @@ function M.build(p)
         }),
         toggle        = { fg = p.text, font = p.font },
         flattoggle    = { bg = layer1, fg = p.text, font = p.font, radius = R,
-            checkbg = elevated, checkfg = borderS, checkhl = p.textMuted, checkon = p.accent },
+            checkbg = well, checkfg = p.textMuted, checkhl = p.text, checkon = p.accent },
         flattoggle_noborder = { bg = layer1, fg = p.text, font = p.font,
             border = layer1, borderwidth = 0, radius = R,
-            checkbg = elevated, checkfg = borderS, checkhl = p.textMuted, checkon = p.accent },
+            checkbg = well, checkfg = p.textMuted, checkhl = p.text, checkon = p.accent },
 
         -- Fields: a dim box on the raised surface; the strong border marks the
         -- input edge the way VS Code's inputs read against their panels. The
