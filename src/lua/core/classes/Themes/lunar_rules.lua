@@ -96,7 +96,7 @@ function M.build(p)
     -- real fix for "undersized text on oversized buttons".
     local BTN_FONT = p.font
     local BTN_PAD  = "12x5"
-    local ROW_PAD  = "8x4"   -- one list row height, wherever a list is
+    local ROW_PAD  = "14x4"   -- one list row height, wherever a list is
     local accent_hover   = p.accentHover   or shade(p.accent, 0.12)
     local accent_pressed = p.accentPressed or shade(p.accent, -0.14)
 
@@ -113,12 +113,15 @@ function M.build(p)
         }
     end
 
+    -- Semibold, where the face has one, rather than a bold synthesised from the body cut.
+    local HEADING = "Segoe UI Semibold"
+
     local rules = {
         -- Type scale (identical to carbon_rules: heading-04 / heading-03 /
         -- body-compact-01 / label-01).
-        pagetitle     = { fg = p.text,      font = sized(p.headingFont or p.font, 18, not p.headingFont), padding = "0x0" },
+        pagetitle     = { fg = p.text,      font = sized(p.headingFont or HEADING, 18), padding = "0x0" },
         pagesubtitle  = { fg = p.textMuted, font = sized(p.font, 11), padding = "0x0" },
-        sectiontitle  = { fg = p.text,      font = sized(p.headingFont or p.font, 13, not p.headingFont), padding = "0x0" },
+        sectiontitle  = { fg = p.text,      font = sized(HEADING, 13), padding = "0x0" },
         hint          = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
 
         -- Semantic text roles: state colored by meaning, never by literal.
@@ -206,10 +209,18 @@ function M.build(p)
         settingspanel = { bg = layer1, border = layer1, borderwidth = 0, radius = 0 },
         settingscard  = { bg = layer1, border = border, radius = RF, sheen = sheen },
         settings_description = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
+        settings_nav  = {
+            bg = layer1, fg = p.textMuted, font = p.font, border = layer1, borderwidth = 0,
+            padding = "12x6", radius = R, hover = hover, hovertext = p.text, pressed = selected,
+        },
+        settings_nav_on = {
+            bg = selected, fg = p.text, font = p.font, border = selected, borderwidth = 0,
+            padding = "12x6", radius = R, hover = selected, hovertext = p.text, pressed = selected,
+        },
         empty_title   = { fg = p.text, font = sized(p.font, 12), padding = "0x0" },
         empty_hint    = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
         settingsheader = {
-            bg = layer1, fg = p.text, font = sized(p.headingFont or p.font, 13, not p.headingFont),
+            bg = layer1, fg = p.text, font = sized(HEADING, 13),
             border = layer1, borderwidth = 0, radius = R,
             hover = hover, hovertext = p.text, pressed = selected,
         },
@@ -300,12 +311,12 @@ function M.build(p)
         -- Lists and data panes: square by design (rule 2).
         list_bordered = scroll({
             bg = well, fg = p.text, font = p.font, border = border, borderwidth = 1, radius = RF,
-            scrollbg = well, sheen = sheen, itemradius = R, padding = ROW_PAD,
+            scrollbg = well, sheen = sheen, itemradius = R, padding = ROW_PAD, itemmarker = p.accent,
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         list_plain    = scroll({
             bg = layer1, fg = p.text, font = p.font, border = layer1, borderwidth = 0,
-            scrollbg = layer1, itemradius = R, padding = ROW_PAD,
+            scrollbg = layer1, itemradius = R, padding = ROW_PAD, itemmarker = p.accent,
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         outputlog     = {
@@ -338,7 +349,7 @@ function M.build(p)
         flatlist      = scroll({
             bg = well, fg = p.text, font = p.font,
             border = border, borderwidth = 1, radius = RF, sheen = sheen,
-            scrollbg = well, itemradius = R, padding = ROW_PAD,
+            scrollbg = well, itemradius = R, padding = ROW_PAD, itemmarker = p.accent,
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         -- A field edge in focus. core.ui.FlatField swaps its frame to this role.
@@ -366,7 +377,7 @@ function M.build(p)
                           radius = RF, sheen = sheen },
         palette_list = scroll({
             bg = elevated, fg = p.text, font = p.font, border = elevated, borderwidth = 0,
-            radius = R, scrollbg = elevated, itemradius = R,
+            radius = R, scrollbg = elevated, itemradius = R, itemmarker = p.accent,
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         progressbar   = { bg = layer1, fg = p.accent, border = border },

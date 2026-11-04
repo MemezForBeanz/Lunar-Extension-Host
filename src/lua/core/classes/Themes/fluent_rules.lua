@@ -79,6 +79,8 @@ function M.addShellRoles(rules, p)
     local defaults = {
         text_focus = { bg = well, fg = p.text, font = font, border = p.accent },
         settingscard = { bg = floor, border = border },
+        settings_nav = { bg = floor, fg = p.textMuted, font = font, border = floor, borderwidth = 0, hover = hover },
+        settings_nav_on = { bg = selected, fg = p.text, font = font, border = selected, borderwidth = 0 },
         settings_description = { fg = p.textMuted, font = font },
         empty_title = { fg = p.text, font = font },
         empty_hint = { fg = p.textMuted, font = font },

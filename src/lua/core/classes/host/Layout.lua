@@ -163,12 +163,19 @@ function M._wrapTabForPadding(self, widget, opts)
 end
 
 --- Keep a page at `max_width`, centred, whatever space it is given.
-function M.centerPage(self, widget, max_width, side, vertical, page)
+function M.centerPage(self, widget, max_width, side)
     self._centered = self._centered or {}
     self._centered[#self._centered + 1] = {
-        wrapper = widget, max_width = max_width, side = side or 0, vertical = vertical or 0,
-        page = page,
+        wrapper = widget, max_width = max_width, side = side or 0, vertical = 0,
     }
+end
+
+--- Tell a page how wide it is whenever that may have changed.
+-- @param widget the page
+-- @tparam function fit `fn(width)`
+function M.fitPage(self, widget, fit)
+    self._centered = self._centered or {}
+    self._centered[#self._centered + 1] = { wrapper = widget, fit = fit }
 end
 
 --- Centre each width-capped page in the space it actually has.
@@ -180,11 +187,10 @@ function M.recenterPages(self)
     local iup = self.iup
     for _, entry in ipairs(self._centered or {}) do
         pcall(function()
-            -- `page`: the widget that fills the tab, when the wrapper sits deeper inside
-            -- it. Boxes inside a page still hold their old size at this point.
-            local parent = iup.GetParent(entry.page or entry.wrapper)
+            local parent = iup.GetParent(entry.wrapper)
             local width = parent and tonumber(tostring(iup.GetAttribute(parent, "RASTERSIZE")):match("^(%d+)x"))
             if not width or width <= 0 then return end
+            if entry.fit then return entry.fit(width) end
             local horizontal = math.max(entry.side, math.floor((width - entry.max_width) / 2))
             iup.SetAttribute(entry.wrapper, "MARGIN", horizontal .. "x" .. entry.vertical)
         end)

@@ -17,6 +17,7 @@ and scrolling features to IUP's *flat* controls:
 - `SB_INSET`: keeps a flat scrollbar inside a rounded border; `ITEMRADIUS` on
   `IupFlatList`: a selected row as an inset pill; `CHECKRADIUS` on `IupFlatToggle`;
   `TABSACTIVELINE` on `IupFlatTabs`: an underline on the current tab.
+- `ITEMMARKERCOLOR` on `IupFlatList`: Carbon's leading marker on the selected row.
 
 Patch 0005 also fixes behaviour rather than adding to it: GDI+ drawing is aligned to pixel
 centres (the bottom of rounded buttons was being cut off), a disabled control fades toward

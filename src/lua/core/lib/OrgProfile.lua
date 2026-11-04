@@ -490,9 +490,11 @@ function M.resolve(opts)
 			id = "*", name = "All development packs", trusted = false,
 			profiles = untrusted, settings = {}, locked = {}, retired = {}, brand = {},
 		}
+		local group_uses = {}
+		for _, p in ipairs(untrusted) do group_uses[p.tool_group] = (group_uses[p.tool_group] or 0) + 1 end
 		for _, p in ipairs(untrusted) do
-			-- Id suffixes keep even identically named tool groups separate.
-			p.tool_group = p.tool_group .. " (" .. p.id .. ")"
+			-- Id suffixes keep identically named tool groups separate.
+			if group_uses[p.tool_group] > 1 then p.tool_group = p.tool_group .. " (" .. p.id .. ")" end
 			for key, value in pairs(p.settings) do
 				if combined.settings[key] == nil then
 					combined.settings[key] = value
