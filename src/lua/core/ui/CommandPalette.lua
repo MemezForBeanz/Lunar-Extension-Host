@@ -57,9 +57,13 @@ function CommandPalette:_build()
 	local field = iup.text({
 		BORDER = "NO",
 		EXPAND = "HORIZONTAL",
-		CUEBANNER = PLACEHOLDER,
 		THEMEROLE = "palette_text",
 		NC = "2048",
+	})
+	-- A label floated over the empty field. Windows' own cue banner disappears on an edit
+	-- that has focus, and this one always does.
+	local prompt = iup.flatlabel({
+		TITLE = PLACEHOLDER, FLOATING = "YES", POSITION = "46,17", THEMEROLE = "palette_prompt",
 	})
 	local field_icon = self._search_icon and iup.label({ TITLE = "", IMAGE = self._search_icon, THEMEROLE = "palette_text" })
 	local list = iup.flatlist({
@@ -78,7 +82,7 @@ function CommandPalette:_build()
 	})
 	local frame = iup.flatframe({
 		iup.vbox({
-			iup.hbox({ field_icon, field, MARGIN = L.margin(4, 3), GAP = L.gap(3),
+			iup.hbox({ field_icon, field, prompt, MARGIN = L.margin(4, 3), GAP = L.gap(3),
 				ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" }),
 			iup.flatseparator({ ORIENTATION = "HORIZONTAL", STYLE = "LINE", BARSIZE = "1" }),
 			list,
@@ -102,7 +106,7 @@ function CommandPalette:_build()
 		PARENTDIALOG = self._parent,
 		THEMEROLE = "palette_frame",
 	})
-	self._field, self._list, self._hint = field, list, hint
+	self._field, self._list, self._hint, self._prompt = field, list, hint, prompt
 
 	function field:valuechanged_cb()
 		palette:_refresh()
@@ -162,6 +166,7 @@ function CommandPalette:_build()
 
 	iup.Map(self._dialog)
 	if self._theme then pcall(self._theme, self._dialog) end
+	iup.SetAttribute(list, "PADDING", "12x4")
 	if self._round then pcall(self._round, self._dialog) end
 end
 
@@ -204,6 +209,7 @@ function CommandPalette:_refresh()
 		items, provider = self:_filterChoices(text), nil
 	end
 	self._items = items
+	iup.SetAttribute(self._prompt, "VISIBLE", text == "" and "YES" or "NO")
 
 	iup.SetAttribute(list, "REMOVEITEM", "ALL")
 	for i, item in ipairs(items) do
@@ -216,7 +222,7 @@ function CommandPalette:_refresh()
 	if #items > 0 then
 		iup.SetAttribute(list, "VALUE", "1")
 		iup.SetAttribute(self._hint, "TITLE", provider and provider.title
-			or (self._choices and self._choices.hint) or (text == "" and PLACEHOLDER) or HINT)
+			or (self._choices and self._choices.hint) or HINT)
 	else
 		iup.SetAttribute(self._hint, "TITLE", provider and (provider.empty or "Nothing to show yet")
 			or "No matching commands")
@@ -286,11 +292,12 @@ function CommandPalette:open(text, choices)
 	self:_build()
 	local iup = self._iup
 	self._choices = choices
-	iup.SetAttribute(self._field, "CUEBANNER", choices and choices.placeholder or PLACEHOLDER)
+	iup.SetAttribute(self._prompt, "TITLE", choices and choices.placeholder or PLACEHOLDER)
 	iup.SetAttribute(self._field, "VALUE", text or "")
 	self:_refresh()
 	local x, y = self:_place()
 	iup.ShowXY(self._dialog, x, y)
+	iup.SetAttribute(self._prompt, "ZORDER", "TOP")
 	iup.SetFocus(self._field)
 	iup.SetAttribute(self._field, "CARETPOS", tostring(#(text or "")))
 end

@@ -340,6 +340,7 @@ function M.build(p)
             pressed = selected, pressedtext = p.text,
         },
         palette_text = { bg = elevated, fg = p.text, font = sized(p.font, 12) },
+        palette_prompt = { bg = elevated, fg = p.textMuted, font = sized(p.font, 12), padding = "0x0" },
         palette_hint = { bg = elevated, fg = p.textMuted, font = sized(p.font, 10) },
         snap_preview = { bg = p.accent, fg = p.accent, border = p.accent },
         palette_frame = { bg = elevated, fg = p.text, font = p.font, border = borderS,

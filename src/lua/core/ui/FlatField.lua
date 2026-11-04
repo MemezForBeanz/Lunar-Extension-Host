@@ -44,7 +44,8 @@ function FlatField.new(iup, opts)
 	})
 	self.text = text
 
-	local row = { text, ALIGNMENT = "ACENTER", GAP = L.gap(2), EXPAND = "HORIZONTAL" }
+	-- The padding lives on this box: a flat frame has no margin of its own.
+	local row = { text, ALIGNMENT = "ACENTER", GAP = L.gap(2), MARGIN = "8x4", EXPAND = "HORIZONTAL" }
 	if opts.icon then
 		local icon = VectorIcon.new(iup, { path = opts.icon, size = 16, role = "neutral" })
 		table.insert(row, 1, icon:widget())
@@ -53,7 +54,6 @@ function FlatField.new(iup, opts)
 	self.widget = iup.flatframe({
 		iup.hbox(row),
 		TITLE = "",
-		MARGIN = L.margin(3, 2),
 		EXPAND = opts.width and "NO" or "HORIZONTAL",
 		RASTERSIZE = opts.width and (opts.width .. "x") or nil,
 		THEMEROLE = "text",

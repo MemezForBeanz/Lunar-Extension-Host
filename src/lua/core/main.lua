@@ -515,7 +515,7 @@ local function recalc_shell_budget(client_h)
 end
 
 -- Settings reads as a form, so it keeps a form's width on any monitor.
-local SETTINGS_MAX_WIDTH = 860
+local SETTINGS_MAX_WIDTH = 940
 
 -- Page widths are only known after the layout pass a resize triggers.
 local recenter_timer = iup.timer({ time = 30 })
