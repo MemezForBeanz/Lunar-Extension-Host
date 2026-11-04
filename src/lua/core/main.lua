@@ -945,7 +945,7 @@ tab_groups = TabGroups:new({
 	settings = settings_mgr,
 	extra_icon = function(name)
 		return VectorIcon.imageHandle(iup, {
-			path = platform.path:join(ICON_DIR, name .. ".svg"), size = 14, color = "#7d8290",
+			path = platform.path:join(ICON_DIR, name .. ".svg"), size = 16, color = "#b4b9c6",
 		})
 	end,
 	on_change = function()
