@@ -29,6 +29,7 @@ local function fake_iup(script)
 		CLOSE = "close",
 		CENTER = 0,
 		label = widget("label"),
+		flatlabel = widget("flatlabel"),
 		text = widget("text"),
 		fill = widget("fill"),
 		vbox = widget("vbox"),
