@@ -14,7 +14,10 @@ local L = require("core.lib.CarbonLayout")
 local CommandPalette = {}
 CommandPalette.__index = CommandPalette
 
-local WIDTH, HEIGHT = 640, 372
+-- Nine whole rows of 32px, plus the field, the rule and the hint. A height chosen any
+-- other way leaves a sliced row above the hint line.
+local WIDTH, ROW_HEIGHT, ROWS, CHROME = 640, 32, 9, 88
+local HEIGHT = ROW_HEIGHT * ROWS + CHROME
 
 -- A click on the list moves focus from the field to the list, and that fires the
 -- field's kill-focus first. Wait this long, then look at where focus really went.
@@ -23,7 +26,7 @@ local FOCUS_SETTLE_MS = 90
 -- Windows hides a cue banner while the field has focus, and this field always does,
 -- so the prompt lives in the hint line under the list.
 local PLACEHOLDER = "Type a command, or a lunar:// address"
-local HINT = "Type to filter   Enter to run   Esc to close   task for tasks"
+local HINT = "Enter to run    Esc to close    Type task to run a task"
 
 --- Create the palette. The window is built on first use.
 -- @tparam table opts
@@ -34,6 +37,7 @@ local HINT = "Type to filter   Enter to run   Esc to close   task for tasks"
 -- @tparam[opt] function opts.notify_tree_change themes a new widget tree
 -- @tparam[opt] function opts.on_error `fn(message)`: a command failed
 -- @tparam[opt] function opts.round `fn(dialog)`: rounds the window's corners
+-- @tparam[opt] string opts.search_icon image handle shown in front of the field
 function CommandPalette.new(opts)
 	return setmetatable({
 		_iup = opts.iup,
@@ -43,6 +47,7 @@ function CommandPalette.new(opts)
 		_theme = opts.notify_tree_change,
 		_on_error = opts.on_error,
 		_round = opts.round,
+		_search_icon = opts.search_icon,
 		_items = {},
 	}, CommandPalette)
 end
@@ -54,13 +59,14 @@ function CommandPalette:_build()
 	local field = iup.text({
 		BORDER = "NO",
 		EXPAND = "HORIZONTAL",
-		CUEBANNER = PLACEHOLDER,
 		THEMEROLE = "palette_text",
 		NC = "2048",
 	})
+	local field_icon = self._search_icon and iup.label({ TITLE = "", IMAGE = self._search_icon, THEMEROLE = "palette_text" })
 	local list = iup.flatlist({
 		EXPAND = "YES",
-		SCROLLBAR = "VERTICAL",
+		FLATSCROLLBAR = "YES",
+		SCROLLBAR = "NO",
 		SHOWDRAGDROP = "NO",
 		SPACING = "4",
 		PADDING = "12x4",
@@ -73,7 +79,8 @@ function CommandPalette:_build()
 	})
 	local frame = iup.flatframe({
 		iup.vbox({
-			iup.hbox({ field, MARGIN = L.margin(4, 3), EXPAND = "HORIZONTAL" }),
+			iup.hbox({ field_icon, field, MARGIN = L.margin(4, 3), GAP = L.gap(3),
+				ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" }),
 			iup.flatseparator({ ORIENTATION = "HORIZONTAL", STYLE = "LINE", BARSIZE = "1" }),
 			list,
 			iup.hbox({ hint, MARGIN = L.margin(4, 2), EXPAND = "HORIZONTAL" }),
@@ -210,7 +217,7 @@ function CommandPalette:_refresh()
 	if #items > 0 then
 		iup.SetAttribute(list, "VALUE", "1")
 		iup.SetAttribute(self._hint, "TITLE", provider and provider.title
-			or (self._choices and self._choices.hint) or HINT)
+			or (self._choices and self._choices.hint) or (text == "" and PLACEHOLDER) or HINT)
 	else
 		iup.SetAttribute(self._hint, "TITLE", provider and (provider.empty or "Nothing to show yet")
 			or "No matching commands")
@@ -280,7 +287,6 @@ function CommandPalette:open(text, choices)
 	self:_build()
 	local iup = self._iup
 	self._choices = choices
-	iup.SetAttribute(self._field, "CUEBANNER", choices and choices.placeholder or PLACEHOLDER)
 	iup.SetAttribute(self._field, "VALUE", text or "")
 	self:_refresh()
 	local x, y = self:_place()

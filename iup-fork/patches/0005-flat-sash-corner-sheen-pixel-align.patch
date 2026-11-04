@@ -42,7 +42,7 @@ index ddd4729..e70aca9 100644
      iupFlatDrawBorder(dc, xmin, xmax, ymin, ymax, border_width, color, bgcolor, active);
  }
 diff --git a/src/iup_flatlist.c b/src/iup_flatlist.c
-index 231fc46..3040cb8 100644
+index 231fc46..4b07f5d 100644
 --- a/src/iup_flatlist.c
 +++ b/src/iup_flatlist.c
 @@ -25,6 +25,7 @@
@@ -74,6 +74,74 @@ index 231fc46..3040cb8 100644
    /* Lunar fork: honors CORNERRADIUS (rounded list body), like the other flat
       controls. Items are drawn after this fill, so with a small radius only the
       background's corner pixels round; rows never reach into the border. */
+@@ -338,7 +353,18 @@ static int iFlatListRedraw_CB(Ihandle* ih)
+     }
+ 
+     /* item background */
+-    iupFlatDrawBox(dc, x, x + ih->data->line_width - 1, y, y + ih->data->line_height - 1, bgcolor, bgcolor, 1);
++    {
++      /* Lunar fork: ITEMRADIUS draws a selected row as a rounded pill inset from the list's
++         edges, so it never runs into the rounded corners of the list itself. */
++      int item_radius = iupAttribGetInt(ih, "ITEMRADIUS");
++      if (items[i].selected && item_radius > 0)
++      {
++        iupFlatDrawBox(dc, x, x + ih->data->line_width - 1, y, y + ih->data->line_height - 1, background_color, background_color, 1);
++        iupFlatDrawRoundBox(dc, x + 4, x + ih->data->line_width - 5, y + 1, y + ih->data->line_height - 2, item_radius, bgcolor, background_color, 1);
++      }
++      else
++        iupFlatDrawBox(dc, x, x + ih->data->line_width - 1, y, y + ih->data->line_height - 1, bgcolor, bgcolor, 1);
++    }
+ 
+     iFlatListSetItemFont(ih, items[i].font);
+ 
+@@ -1986,6 +2012,8 @@ Iclass* iupFlatListNewClass(void)
+   iupClassRegisterAttribute(ic, "VALUESTRING", iFlatListGetValueStringAttrib, iFlatListSetValueStringAttrib, NULL, NULL, IUPAF_NO_DEFAULTVALUE | IUPAF_NO_INHERIT);
+ 
+   iupClassRegisterAttribute(ic, "CORNERRADIUS", NULL, iFlatListSetAttribPostRedraw, NULL, NULL, IUPAF_NOT_MAPPED);  /* Lunar fork */
++  iupClassRegisterAttribute(ic, "ITEMRADIUS", NULL, iFlatListSetAttribPostRedraw, NULL, NULL, IUPAF_NOT_MAPPED);  /* Lunar fork */
++  iupClassRegisterAttribute(ic, "ITEMRADIUS", NULL, iFlatListSetAttribPostRedraw, NULL, NULL, IUPAF_NOT_MAPPED);  /* Lunar fork */
+   iupClassRegisterAttribute(ic, "BORDERCOLOR", NULL, NULL, IUPAF_SAMEASSYSTEM, IUP_FLAT_BORDERCOLOR, IUPAF_DEFAULT);  /* inheritable */
+   iupClassRegisterAttribute(ic, "BORDERWIDTH", iFlatListGetBorderWidthAttrib, iFlatListSetBorderWidthAttrib, IUPAF_SAMEASSYSTEM, "0", IUPAF_NOT_MAPPED);  /* inheritable */
+   iupClassRegisterAttribute(ic, "FGCOLOR", NULL, iFlatListSetAttribPostRedraw, IUP_FLAT_FORECOLOR, NULL, IUPAF_NOT_MAPPED);  /* force the new default value */
+diff --git a/src/iup_flatscrollbar.c b/src/iup_flatscrollbar.c
+index 716ecc4..fe9cc0e 100644
+--- a/src/iup_flatscrollbar.c
++++ b/src/iup_flatscrollbar.c
+@@ -1097,8 +1097,11 @@ IUP_SDK_API void iupFlatScrollBarSetChildrenCurrentSize(Ihandle* ih, int shrink)
+   }
+   else
+   {
+-    iupBaseSetCurrentSize(sb_vert, sb_size, ih->currentheight, shrink);  /* sb_vert->currentheight == ih->currentheight */
+-    iupBaseSetCurrentSize(sb_horiz, ih->currentwidth, sb_size, shrink);  /* sb_horiz->currentwidth == ih->currentwidth */
++    /* Lunar fork: SB_INSET keeps the bars inside a rounded border. They are child windows,
++       so at the control's edge they cut straight through the border drawn under them. */
++    int inset = iupAttribGetInt(ih, "SB_INSET");
++    iupBaseSetCurrentSize(sb_vert, sb_size, ih->currentheight - 2 * inset, shrink);  /* sb_vert->currentheight == ih->currentheight */
++    iupBaseSetCurrentSize(sb_horiz, ih->currentwidth - 2 * inset, sb_size, shrink);  /* sb_horiz->currentwidth == ih->currentwidth */
+   }
+ }
+ 
+@@ -1133,8 +1136,9 @@ IUP_SDK_API void iupFlatScrollBarSetChildrenPosition(Ihandle* ih)
+   }
+   else
+   {
+-    iupBaseSetPosition(sb_vert, ih->currentwidth - sb_size, 0);
+-    iupBaseSetPosition(sb_horiz, 0, ih->currentheight - sb_size);
++    int inset = iupAttribGetInt(ih, "SB_INSET");
++    iupBaseSetPosition(sb_vert, ih->currentwidth - sb_size - (inset ? 2 : 0), inset);
++    iupBaseSetPosition(sb_horiz, inset, ih->currentheight - sb_size - (inset ? 2 : 0));
+   }
+ 
+   IupSetAttribute(sb_vert, "ZORDER", "TOP");
+@@ -1290,6 +1294,8 @@ IUP_SDK_API void iupFlatScrollBarRegister(Iclass* ic)
+   iupClassRegisterAttribute(ic, "SB_PRESSCOLOR", NULL, NULL, IUPAF_SAMEASSYSTEM, "96 96 96", IUPAF_NO_INHERIT);
+   /* Lunar fork additions: rounded + gradient flat-scrollbar thumb (see iFlatScrollBarDrawThumb). */
+   iupClassRegisterAttribute(ic, "SB_CORNERRADIUS", NULL, NULL, IUPAF_SAMEASSYSTEM, "0", IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "SB_INSET", NULL, NULL, IUPAF_SAMEASSYSTEM, "0", IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "SB_INSET", NULL, NULL, IUPAF_SAMEASSYSTEM, "0", IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "SB_GRADIENTCOLOR", NULL, NULL, NULL, NULL, IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "SB_GRADIENTDIRECTION", NULL, NULL, IUPAF_SAMEASSYSTEM, "VERTICAL", IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "SHOWARROWS", NULL, NULL, IUPAF_SAMEASSYSTEM, "Yes", IUPAF_NO_INHERIT);
 diff --git a/src/iup_flatseparator.c b/src/iup_flatseparator.c
 index 7ade73e..4d5506d 100644
 --- a/src/iup_flatseparator.c

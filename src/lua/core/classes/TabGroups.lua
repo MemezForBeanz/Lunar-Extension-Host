@@ -147,6 +147,7 @@ function TabGroups:initialize(opts)
 	self._on_new     = opts.on_new_group
 	self._notify     = opts.notify_tree_change
 	self._height_cap = tonumber(opts.height_cap)
+	self._extra_icon = opts.extra_icon
 
 	self._shown    = false
 	self._restored = false
@@ -591,10 +592,18 @@ function TabGroups:_prepareStrip(strip)
 	-- FLAT_BUTTON_CB instead of overwriting the control's internal BUTTON_CB.
 	local is_group = self:isGroupStrip(strip)
 	pcall(iup.SetAttribute, strip, "EXTRABUTTONS", is_group and "2" or "1")
-	pcall(iup.SetAttributeId, strip, "EXTRATITLE", 1, "+")
+	local function extra(id, text, icon)
+		local image = self._extra_icon and self._extra_icon(icon)
+		if image then
+			pcall(iup.SetAttributeId, strip, "EXTRAIMAGE", id, image)
+		else
+			pcall(iup.SetAttributeId, strip, "EXTRATITLE", id, text)
+		end
+	end
+	extra(1, "+", "add")
 	pcall(iup.SetAttributeId, strip, "EXTRATIP", 1, "New tab group")
 	if is_group then
-		pcall(iup.SetAttributeId, strip, "EXTRATITLE", 2, "^")
+		extra(2, "^", "chevron--up")
 		pcall(iup.SetAttributeId, strip, "EXTRATIP", 2, "Hide tab bar (double-click the parent tab to restore)")
 	end
 
@@ -829,6 +838,7 @@ function TabGroups:_moveInto(widget, target_strip, index)
 	-- documents -- and restore() runs this path pre-show.
 	if self._shown and not kept then pcall(iup.Map, widget) end
 	self:_applyHeightCap(widget)
+	self:_rehide(source)
 	-- Both strips: the source lost a tab and the destination gained one, so both
 	-- have position-indexed titles that no longer line up with their children.
 	self:_syncTitles(source)
@@ -842,6 +852,24 @@ function TabGroups:_moveInto(widget, target_strip, index)
 	self:_requestRefresh()
 	self:_changed()
 	return true
+end
+
+-- When a page leaves a strip, IupFlatTabs shows the strip's next page, even if the strip
+-- is itself a hidden page of its parent. That put a hidden group's page on top of
+-- whichever tab was really current.
+function TabGroups:_rehide(strip)
+	local iup, cur, guard = self._iup, strip, 0
+	while cur and not self:_isRoot(cur) and guard < MAX_DEPTH do
+		local parent = self:stripOf(cur)
+		if not parent then return end
+		local ok, current = pcall(iup.GetAttributeHandle, parent, "VALUE")
+		if ok and current and not self:_same(current, cur) then
+			pcall(iup.SetAttribute, cur, "VISIBLE", "NO")
+			return
+		end
+		cur = parent
+		guard = guard + 1
+	end
 end
 
 --- Create a new group holding `first` and `second`, in place of `first`.

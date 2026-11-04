@@ -5,7 +5,7 @@ local handles = {}
 local function fake_iup()
 	local iup = { DEFAULT = -2, BUTTON1 = 49 }
 	local function widget(kind) return function(attrs) attrs.kind = kind; return attrs end end
-	iup.toggle, iup.list = widget("toggle"), widget("list")
+	iup.flattoggle, iup.list = widget("flattoggle"), widget("list")
 	iup.flatlist, iup.dropbutton = widget("flatlist"), widget("dropbutton")
 	function iup.SetAttribute(w, k, v) w[k] = v end
 	function iup.GetAttribute(w, k) return w[k] end
@@ -55,7 +55,7 @@ describe("AppearanceSettings", function()
 
 	it("saves and applies a toggle", function()
 		local s = setup()
-		s.w["Interface motion"]:action(0)
+		s.w["Interface motion"].VALUE = "OFF"; s.w["Interface motion"]:valuechanged_cb()
 		assert.is_false(s.store.motion_enabled)
 		assert.are.equal(1, s.saved())
 		assert.are.same({ { enabled = false } }, s.configured)
@@ -81,7 +81,7 @@ describe("AppearanceSettings", function()
 		assert.are.equal("NO", t.ACTIVE)
 		assert.are.equal("Managed by Acme", t.TIP)
 		assert.are.equal("NO", s.w.Theme.ACTIVE)
-		t:action(0)
+		t.VALUE = "OFF"; t:valuechanged_cb()
 		assert.are.same({}, s.configured)
 		assert.are.equal(0, s.saved())
 	end)
@@ -97,7 +97,7 @@ describe("AppearanceSettings", function()
 		assert.are.equal("Match system theme", s.section.entries[2].label)
 		local t = s.w["Match system theme"]
 		assert.are.equal("OFF", t.VALUE)
-		t:action(1)
+		t.VALUE = "ON"; t:valuechanged_cb()
 		assert.are.same({ true }, calls)
 	end)
 
@@ -107,7 +107,7 @@ describe("AppearanceSettings", function()
 		local t = s.w["Match system theme"]
 		assert.are.equal("NO", t.ACTIVE)
 		assert.are.equal("Managed by Acme", t.TIP)
-		t:action(1)                                       -- refused: the toggle snaps back
+		t.VALUE = "ON"; t:valuechanged_cb()                                       -- refused: the toggle snaps back
 		assert.are.equal("OFF", t.VALUE)
 	end)
 

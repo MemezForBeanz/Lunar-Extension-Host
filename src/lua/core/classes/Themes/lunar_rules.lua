@@ -77,7 +77,8 @@ function M.build(p)
     -- accent is for what the user can act on, so it is kept for the pressed
     -- thumb instead of every scrollbar at rest.
     local function scroll(rule)
-        rule.scrollsize  = 10
+        rule.scrollsize  = 8
+        rule.scrollinset = rule.radius and math.floor(rule.radius / 2) + 1 or 2
         rule.scrollfg    = borderS
         rule.scrollhi    = p.textMuted
         rule.scrollpress = p.accent
@@ -94,12 +95,13 @@ function M.build(p)
     local accent_hover   = p.accentHover   or shade(p.accent, 0.12)
     local accent_pressed = p.accentPressed or shade(p.accent, -0.14)
 
-    -- A semantic button: dim at rest except for its outline, filled on hover,
-    -- a darker fill while pressed.
+    -- A semantic button is a standard button at rest; only its text carries the
+    -- meaning, and the colour fills in on hover. Coloured outlines at rest made every
+    -- toolbar a row of competing signals.
     local function semantic(color, text_on)
         return {
-            bg = p.bg, fg = p.text, font = BTN_FONT,
-            border = color, borderwidth = 1, showborder = true,
+            bg = elevated, fg = color, font = BTN_FONT,
+            border = border, borderwidth = 1, showborder = true,
             padding = BTN_PAD, radius = R,
             hover = color, hovertext = text_on,
             pressed = shade(color, -0.15), pressedtext = text_on,
@@ -109,9 +111,9 @@ function M.build(p)
     local rules = {
         -- Type scale (identical to carbon_rules: heading-04 / heading-03 /
         -- body-compact-01 / label-01).
-        pagetitle     = { fg = p.text,      font = sized(p.font, 21, true) },
-        pagesubtitle  = { fg = p.textMuted, font = sized(p.font, 11) },
-        sectiontitle  = { fg = p.text,      font = sized(p.font, 15, true) },
+        pagetitle     = { fg = p.text,      font = sized(p.font, 18, true) },
+        pagesubtitle  = { fg = p.textMuted, font = sized(p.font, 10) },
+        sectiontitle  = { fg = p.text,      font = sized(p.font, 11, true) },
         hint          = { fg = p.textMuted, font = sized(p.font, 9) },
 
         -- Semantic text roles: state colored by meaning, never by literal.
@@ -164,7 +166,7 @@ function M.build(p)
         split         = { bg = p.bg,     fg = p.text, border = border, sash = p.accent, barsize = 7 },
         frame         = { bg = p.bg,     fg = p.text, font = p.font, border = border },
         flatframe     = { bg = layer1,   fg = p.text, font = p.font, border = border, radius = RF,
-                          sheen = sheen, titlealign = "ALEFT" },
+                          sheen = sheen, titlealign = "ALEFT", titlepad = "12x4" },
         flatseparator = { bg = p.bg, border = border },
         tabs          = { bg = p.bg,     fg = p.text, font = p.font, border = border },
         -- The tab strip: a well one step DARKER than the app floor, so the
@@ -240,8 +242,20 @@ function M.build(p)
             pressed = selected, pressedtext = p.text,
         },
         danger_btn    = semantic(p.error, p.accentText),
-        warning_btn   = semantic(p.warning, p.warningText),
-        info_btn      = semantic(p.info, p.accentText),
+        warning_btn   = {
+            bg = elevated, fg = p.text, font = BTN_FONT,
+            border = border, borderwidth = 1, showborder = true,
+            padding = BTN_PAD, radius = R,
+            hover = hover, hovertext = p.text,
+            pressed = selected, pressedtext = p.text,
+        },
+        info_btn      = {
+            bg = elevated, fg = p.text, font = BTN_FONT,
+            border = border, borderwidth = 1, showborder = true,
+            padding = BTN_PAD, radius = R,
+            hover = hover, hovertext = p.text,
+            pressed = selected, pressedtext = p.text,
+        },
         dropbutton    = {
             bg = elevated, fg = p.text, font = p.font,
             border = border, borderwidth = 1, showborder = true, radius = R,
@@ -258,12 +272,12 @@ function M.build(p)
         -- Lists and data panes: square by design (rule 2).
         list_bordered = scroll({
             bg = layer1, fg = p.text, font = p.font, border = border, borderwidth = 1, radius = RF,
-            scrollbg = layer1, sheen = sheen,
+            scrollbg = layer1, sheen = sheen, itemradius = R,
             selbg = selected, seltext = p.text, selalpha = "0",
         }),
         list_plain    = scroll({
             bg = layer1, fg = p.text, font = p.font, border = layer1, borderwidth = 0,
-            scrollbg = layer1,
+            scrollbg = layer1, itemradius = R,
             selbg = selected, seltext = p.text, selalpha = "0",
         }),
         outputlog     = {
@@ -296,7 +310,7 @@ function M.build(p)
         flatlist      = scroll({
             bg = layer1, fg = p.text, font = p.font,
             border = border, borderwidth = 1, radius = RF, sheen = sheen,
-            scrollbg = layer1,
+            scrollbg = layer1, itemradius = R,
             selbg = selected, seltext = p.text, selalpha = "0",
         }),
         -- A field edge in focus. core.ui.FlatField swaps its frame to this role.
@@ -316,11 +330,11 @@ function M.build(p)
                           radius = RF, sheen = sheen },
         palette_list = scroll({
             bg = elevated, fg = p.text, font = p.font, border = elevated, borderwidth = 0,
-            radius = R, scrollbg = elevated,
+            radius = R, scrollbg = elevated, itemradius = R,
             selbg = selected, seltext = p.text, selalpha = "0",
         }),
         progressbar   = { bg = layer1, fg = p.accent, border = border },
-        gauge         = { bg = layer1, fg = p.accent, border = border },
+        gauge         = { bg = layer1, fg = p.accent, border = border, notext = true },
     }
     -- Roles replace class rules: preserve the entire bordered-list definition.
     rules.list_mono = {}

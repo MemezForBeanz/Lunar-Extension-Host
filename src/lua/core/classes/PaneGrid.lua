@@ -40,6 +40,8 @@ local EDGE = 0.25
 -- A split's full range. IUP stores VALUE in thousandths.
 local FULL = 1000
 local HALF = 500
+-- A divider stops here: a page squeezed thinner than this is a page nobody can use.
+local PANE_LIMITS = "300:700"
 
 -- How long after the last sash movement the sizes are saved.
 local SAVE_DELAY_MS = 400
@@ -233,7 +235,16 @@ function PaneGrid:sync()
 	local sizes = self._sizes
 	local has_right = used.right or used.corner
 
+	-- Flat controls read their background from the nearest native parent's stored
+	-- colour. Without this on the pane strips, every label in a pane painted the
+	-- dialog's colour over the page's.
+	local surface = self._iup.GetAttribute(self._strips.main, "BGCOLOR")
+	for _, zone in ipairs({ "right", "bottom", "corner" }) do
+		self._iup.SetAttribute(self._strips[zone], "BGCOLOR", surface)
+	end
+
 	self:_apply(self._grid, has_right and (sizes.grid or HALF) or FULL, has_right)
+	self._iup.SetAttribute(self._grid, "MINMAX", has_right and PANE_LIMITS or ("0:" .. FULL))
 	self:_apply(self._left, used.bottom and (sizes.left or HALF) or FULL, used.bottom)
 	if used.right and used.corner then
 		self:_apply(self._right, sizes.right or HALF, true)

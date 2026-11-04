@@ -106,6 +106,15 @@ end
 -- Give every empty list some rows, so scrollbars, row height and selection show up in
 -- a run with no real data behind it.
 local function fill_lists(h)
+	-- Screenshots leave this machine, and org packs prefill internal hosts and addresses.
+	if class(h) == "text" then
+		local value = iup.GetAttribute(h, "VALUE") or ""
+		if value:match("^\\\\") then
+			iup.SetAttribute(h, "VALUE", "\\\\server\\share")
+		elseif value:match("%d+%.%d+%.%d+%.%d+") then
+			iup.SetAttribute(h, "VALUE", "https://backend.example:8000")
+		end
+	end
 	if class(h) == "flatlist" and (tonumber(iup.GetAttribute(h, "COUNT")) or 0) == 0
 		and iup.GetAttribute(h, "THEMEROLE") ~= "palette_list" then
 		for i = 1, 40 do iup.SetAttribute(h, tostring(i), string.format("sample-item-%02d", i)) end

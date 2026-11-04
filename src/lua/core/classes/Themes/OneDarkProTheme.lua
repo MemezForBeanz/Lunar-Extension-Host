@@ -34,7 +34,7 @@ function OneDarkProTheme:initialize()
         warning      = rgb("#e5c07b"),  -- One Dark Pro yellow
         warningText  = rgb("#282c34"),  -- dark text on the yellow warning fill
         info         = rgb("#56b6c2"),  -- One Dark Pro cyan
-        font         = "Segoe UI Variable, 10",
+        font         = "Segoe UI, 10",
 
         -- Gradient tokens (paint-time overlay only; see GradientCanvas).
         gradEnabled  = true,
