@@ -24,6 +24,9 @@ local HEIGHT = ROW_HEIGHT * ROWS + CHROME
 local FOCUS_SETTLE_MS = 90
 
 local PLACEHOLDER = "Type a command, or a lunar:// address"
+-- A flat list draws its text at the row's edge whatever PADDING says; the selected row is an
+-- inset pill, so the text needs to start inside it.
+local ROW_INDENT = "   "
 local HINT = "Enter to run    Esc to close"
 
 --- Create the palette. The window is built on first use.
@@ -63,7 +66,7 @@ function CommandPalette:_build()
 	-- A label floated over the empty field. Windows' own cue banner disappears on an edit
 	-- that has focus, and this one always does.
 	local prompt = iup.flatlabel({
-		TITLE = PLACEHOLDER, FLOATING = "YES", POSITION = "46,17", THEMEROLE = "palette_prompt",
+		TITLE = PLACEHOLDER, FLOATING = "YES", POSITION = "46,17", RASTERSIZE = "520x24", THEMEROLE = "palette_prompt",
 	})
 	local field_icon = self._search_icon and iup.label({ TITLE = "", IMAGE = self._search_icon, THEMEROLE = "palette_text" })
 	local list = iup.flatlist({
@@ -166,7 +169,6 @@ function CommandPalette:_build()
 
 	iup.Map(self._dialog)
 	if self._theme then pcall(self._theme, self._dialog) end
-	iup.SetAttribute(list, "PADDING", "12x4")
 	if self._round then pcall(self._round, self._dialog) end
 end
 
@@ -217,7 +219,7 @@ function CommandPalette:_refresh()
 		if item.detail and item.detail ~= "" then
 			line = line .. "    " .. item.detail
 		end
-		iup.SetAttribute(list, tostring(i), line)
+		iup.SetAttribute(list, tostring(i), ROW_INDENT .. line)
 	end
 	if #items > 0 then
 		iup.SetAttribute(list, "VALUE", "1")
