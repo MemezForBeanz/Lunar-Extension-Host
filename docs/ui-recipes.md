@@ -261,6 +261,14 @@ land; right-click a tab for Split Right and Split Down. The page keeps its windo
 its state, it simply lays out in a smaller rectangle, so **a page must not assume it
 fills the window**. Dividers settle on quarters, thirds and halves.
 
+### Focus Pane
+
+With two or more panes open, use **Focus Pane / Restore Split** in the command palette
+or the view button at the end of the active pane's tab strip. The active pane fills
+the workspace; use the command again or press Esc to restore the previous split.
+Focus is temporary for this session. It does not change the stored divider sizes,
+and a theme change or window resize keeps the focused pane until it is restored.
+
 ## Fields
 
 `ctx.ui.FlatField` is a text field with a themed edge, an accent ring while focused, an

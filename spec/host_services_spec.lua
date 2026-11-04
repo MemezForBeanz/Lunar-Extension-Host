@@ -1,6 +1,22 @@
 local HostAPI = require("core.classes.HostAPI")
 
 describe("HostAPI service facade", function()
+    it("runs the Escape fallback only when no shortcut consumed the key", function()
+        local iup = { CONTINUE = 1, IGNORE = -1 }
+        local host = HostAPI:new({ iup = iup })
+        local fallbacks = 0
+        host._key_fallback = function(key)
+            assert.equals(27, key)
+            fallbacks = fallbacks + 1
+            return true
+        end
+        assert.equals(iup.IGNORE, host:_dispatchKey(27))
+        assert.equals(1, fallbacks)
+        host:registerShortcut(27, function() end)
+        assert.equals(iup.IGNORE, host:_dispatchKey(27))
+        assert.equals(1, fallbacks)
+    end)
+
     it("dispatches routes and shortcuts and removes both on owner teardown", function()
         local iup = { CONTINUE = 1, IGNORE = -1 }
         local host = HostAPI:new({ iup = iup })

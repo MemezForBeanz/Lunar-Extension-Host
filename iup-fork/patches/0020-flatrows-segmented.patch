@@ -13,10 +13,10 @@ index 6665b08..8a8b6d1 100644
  IUP_API Ihandle*  IupToggle     (const char* title, const char* action);
 diff --git a/src/iup_flatrows.c b/src/iup_flatrows.c
 new file mode 100644
-index 0000000..4663a36
+index 0000000..458d22a
 --- /dev/null
 +++ b/src/iup_flatrows.c
-@@ -0,0 +1,260 @@
+@@ -0,0 +1,270 @@
 +/* Lunar virtual row list: only visible rows are queried and painted. */
 +#include <stdlib.h>
 +#include <stdio.h>
@@ -77,6 +77,7 @@ index 0000000..4663a36
 +  int pos = ih->data->selected;
 +  return pos ? rows_value(ih, "TITLE", pos) : NULL;
 +}
++static char* rows_get_idvalue(Ihandle* ih, int pos) { return rows_value(ih, "TITLE", pos); }
 +static int rows_redraw(Ihandle* ih)
 +{
 +  IdrawCanvas* dc = iupdrvDrawCreateCanvas(ih);
@@ -92,9 +93,9 @@ index 0000000..4663a36
 +  {
 +    char* empty = IupGetAttribute(ih, "EMPTYTITLE");
 +    char* hint = IupGetAttribute(ih, "EMPTYHINT");
-+    if (empty) iupdrvDrawText(dc, empty, -1, 16, h/2-22, w-32, 26, fgc, font,
++    if (empty) iupdrvDrawText(dc, empty, (int)strlen(empty), 16, h/2-22, w-32, 26, fgc, font,
 +      IUP_DRAW_CENTER|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
-+    if (hint) iupdrvDrawText(dc, hint, -1, 16, h/2+5, w-32, 22,
++    if (hint) iupdrvDrawText(dc, hint, (int)strlen(hint), 16, h/2+5, w-32, 22,
 +      iupDrawStrToColor(IupGetAttribute(ih,"SECONDARYCOLOR"), fgc), font,
 +      IUP_DRAW_CENTER|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
 +  }
@@ -128,7 +129,7 @@ index 0000000..4663a36
 +    if (action && pos == ih->data->hover)
 +    {
 +      right -= 54;
-+      iupdrvDrawText(dc, action, -1, right, y, 54, rh, text_color, font,
++      iupdrvDrawText(dc, action, (int)strlen(action), right, y, 54, rh, text_color, font,
 +        IUP_DRAW_RIGHT|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_CLIP, 0);
 +    }
 +    for (slot = 3; slot >= 1; slot--)
@@ -140,13 +141,13 @@ index 0000000..4663a36
 +      if (width > 0)
 +      {
 +        right -= width;
-+        if (value) iupdrvDrawText(dc, value, -1, right, y, width-8, rh, text_color, font,
++        if (value) iupdrvDrawText(dc, value, (int)strlen(value), right, y, width-8, rh, text_color, font,
 +          IUP_DRAW_RIGHT|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
 +      }
 +    }
-+    if (title) iupdrvDrawText(dc, title, -1, x, y+(secondary ? 3 : 0), right-x, secondary ? 21 : rh,
++    if (title) iupdrvDrawText(dc, title, (int)strlen(title), x, y+(secondary ? 3 : 0), right-x, secondary ? 21 : rh,
 +      text_color, font, IUP_DRAW_LEFT|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
-+    if (secondary) iupdrvDrawText(dc, secondary, -1, x, y+23, right-x, 16,
++    if (secondary) iupdrvDrawText(dc, secondary, (int)strlen(secondary), x, y+23, right-x, 16,
 +      iupDrawStrToColor(IupGetAttribute(ih, "SECONDARYCOLOR"), fgc), font,
 +      IUP_DRAW_LEFT|IUP_DRAW_ELLIPSIS, 0);
 +    if (ih->data->focused && pos == ih->data->selected && IupGetInt(ih, "FOCUSFEEDBACK"))
@@ -218,6 +219,13 @@ index 0000000..4663a36
 +  return 1;
 +}
 +static int rows_post_redraw(Ihandle* ih, const char* value) { if (ih->handle) iupdrvRedrawNow(ih); return 1; }
++static int rows_set_height(Ihandle* ih, const char* value)
++{
++  int height = value && atoi(value) == 44 ? 44 : 32;
++  IupSetInt(ih,"YMAX",ih->data->count*height);
++  if (ih->handle) iupdrvRedrawNow(ih);
++  return 1;
++}
 +static void rows_size(Ihandle* ih, int* w, int* h, int* expand) { *w=240; *h=rows_height(ih)*5; (void)expand; }
 +static void rows_child_size(Ihandle* ih, int shrink) { if (iupFlatScrollBarGet(ih)) iupFlatScrollBarSetChildrenCurrentSize(ih,shrink); }
 +static void rows_child_pos(Ihandle* ih, int x, int y) { if (iupFlatScrollBarGet(ih)) iupFlatScrollBarSetChildrenPosition(ih); (void)x; (void)y; }
@@ -256,7 +264,9 @@ index 0000000..4663a36
 +  iupClassRegisterAttribute(ic,"COUNT",rows_get_count,rows_set_count,"0",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
 +  iupClassRegisterAttribute(ic,"VALUE",rows_get_value,rows_set_value,"0",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
 +  iupClassRegisterAttribute(ic,"ACCESSIBLEVALUE",rows_get_accessible,NULL,NULL,NULL,IUPAF_READONLY|IUPAF_NO_INHERIT);
-+  iupClassRegisterAttribute(ic,"ROWHEIGHT",NULL,rows_post_redraw,"32",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic,"ROWHEIGHT",NULL,rows_set_height,"32",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttributeId(ic,"IDVALUE",rows_get_idvalue,NULL,IUPAF_READONLY|IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic,"VALUESTRING",rows_get_accessible,NULL,NULL,NULL,IUPAF_READONLY|IUPAF_NO_INHERIT);
 +  iupClassRegisterAttribute(ic,"FGCOLOR",NULL,rows_post_redraw,IUP_FLAT_FORECOLOR,NULL,IUPAF_DEFAULT);
 +  iupClassRegisterAttribute(ic,"BGCOLOR",NULL,rows_post_redraw,IUP_FLAT_BACKCOLOR,NULL,IUPAF_DEFAULT);
 +  iupClassRegisterAttribute(ic,"PSCOLOR",NULL,rows_post_redraw,NULL,NULL,IUPAF_DEFAULT);
@@ -279,7 +289,7 @@ index 0000000..4663a36
 +}
 diff --git a/src/iup_flatsegmented.c b/src/iup_flatsegmented.c
 new file mode 100644
-index 0000000..0bdaf79
+index 0000000..ce7bfc7
 --- /dev/null
 +++ b/src/iup_flatsegmented.c
 @@ -0,0 +1,112 @@
@@ -333,7 +343,7 @@ index 0000000..0bdaf79
 +    char* title=IupGetAttributeId(ih,"TITLE",i);
 +    if (i==ih->data->value)
 +      iupFlatDrawRoundBox(dc,x1+2,x2-2,2,h-3,r-2,sel,bg,active);
-+    if (title) iupdrvDrawText(dc,title,-1,x1+3,0,x2-x1-5,h,
++    if (title) iupdrvDrawText(dc,title,(int)strlen(title),x1+3,0,x2-x1-5,h,
 +      iupDrawStrToColor(i==ih->data->value && seltext ? seltext : fg,0),font,
 +      IUP_DRAW_CENTER|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS,0);
 +  }

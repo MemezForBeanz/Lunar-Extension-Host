@@ -82,10 +82,12 @@ describe("PaneGrid:sync", function()
 		return iup
 	end
 
-	local function grid_with(counts)
+	local function grid_with(counts, settings)
 		local iup = fake_iup()
-		local grid = PaneGrid:new({ iup = iup, main = iup.flattabs() })
+		local grid = PaneGrid:new({ iup = iup, main = iup.flattabs(), settings = settings })
+		local active = "main"
 		grid._groups = {
+			activeRoot = function() return grid._strips[active] end,
 			_children = function(_, strip)
 				for zone, s in pairs(grid._strips) do
 					if s == strip then return counts[zone] or {} end
@@ -93,6 +95,7 @@ describe("PaneGrid:sync", function()
 				return {}
 			end,
 		}
+		function grid:setTestActive(zone) active = zone end
 		return grid
 	end
 
@@ -114,5 +117,49 @@ describe("PaneGrid:sync", function()
 		counts.bottom = {}
 		grid:sync()
 		assert.equals(1000, grid._left.val)
+	end)
+
+	it("focuses each occupied pane through the split AUTOHIDE values", function()
+		local counts = { main = { "m" }, right = { "r" }, bottom = { "b" }, corner = { "c" } }
+		local expected = {
+			main = { 1000, 1000, 1000 },
+			right = { 0, 1000, 1000 },
+			bottom = { 1000, 0, 1000 },
+			corner = { 0, 1000, 0 },
+		}
+		for zone, values in pairs(expected) do
+			local grid = grid_with(counts)
+			grid:setTestActive(zone)
+			assert.is_true(grid:toggleFocus())
+			assert.same(values, { grid._grid.val, grid._left.val, grid._right.val })
+			assert.equals("0", grid._grid.attrs.BARSIZE)
+			grid:sync()
+			assert.same(values, { grid._grid.val, grid._left.val, grid._right.val })
+		end
+	end)
+
+	it("restores saved split sizes after focused resize callbacks and sync", function()
+		local saved = { grid = 420, left = 610, right = 370 }
+		local writes = 0
+		local settings = { get = function() return saved end,
+			set = function() writes = writes + 1 end }
+		local grid = grid_with({ main = { "m" }, right = { "r" }, bottom = { "b" }, corner = { "c" } }, settings)
+		grid:sync()
+		assert.same({ 420, 610, 370 }, { grid._grid.val, grid._left.val, grid._right.val })
+		grid:setTestActive("corner")
+		assert.is_true(grid:toggleFocus())
+		grid:_sizesChanged("grid")
+		grid:_sizesChanged("right")
+		assert.same(saved, grid._sizes)
+		assert.equals(0, writes)
+		assert.is_true(grid:restoreFocus())
+		grid:sync()
+		assert.same({ 420, 610, 370 }, { grid._grid.val, grid._left.val, grid._right.val })
+	end)
+
+	it("does not focus a lone pane", function()
+		local grid = grid_with({ main = { "m" } })
+		assert.is_false(grid:toggleFocus())
+		assert.is_false(grid:isFocused())
 	end)
 end)
