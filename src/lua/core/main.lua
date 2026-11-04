@@ -88,6 +88,7 @@ local TabTransition = require("core.ui.TabTransition")
 local TabDragMotion = require("core.ui.TabDragMotion")
 local NameDialog = require("core.ui.NameDialog")
 local WelcomeTour = require("core.ui.WelcomeTour")
+local WindowChrome = require("core.ui.WindowChrome")
 local AppearanceSettings = require("core.ui.AppearanceSettings")
 local Diagnostics = require("core.ui.Diagnostics")
 local NativeStatus = require("core.lib.NativeStatus")
@@ -330,6 +331,9 @@ status_bar = StatusBar.new({
 	search_icon = VectorIcon.imageHandle(iup, {
 		path = platform.path:join(ICON_DIR, "search.svg"), size = 14, color = "#7d8290",
 	}),
+	menu_icon = VectorIcon.imageHandle(iup, {
+		path = platform.path:join(ICON_DIR, "menu.svg"), size = 16, color = "#a2a7b5",
+	}),
 	-- The org's logo, when its profile ships one; the neutral build shows none.
 	logo = ORG_PROFILE and ORG_PROFILE.brand.logo,
 })
@@ -462,7 +466,9 @@ local content_box = iup.vbox({
 local dlg = iup.dialog({
 	content_box,
 	TITLE = APP_TITLE,
-	MENU = menu_bar,
+	-- Windows cannot theme a dialog's menu bar, so there the menu opens from the status
+	-- bar's menu button and the window frame stays one colour with the tab strip.
+	MENU = not platform.is_windows and menu_bar or nil,
 	ICON = APP_ICON_RESOURCE,
 	MINSIZE = STARTUP.minsize,
 	-- A hard ceiling on the window height. IUP sizes a dialog from its content and
@@ -646,6 +652,10 @@ local command_palette = CommandPalette.new({
 	end,
 })
 status_bar:onCommand(function() command_palette:toggle() end)
+status_bar:onMenu(function(x, y)
+	iup.SetAttribute(menu_bar, "POPUPALIGN", "ALEFT:ABOTTOM")
+	iup.Popup(menu_bar, x, y)
+end)
 host:registerShortcut(iup.K_cP, function() command_palette:toggle() end)
 host:_installKeyDispatch(dlg)
 
@@ -1002,6 +1012,9 @@ end
 -- setting it afterwards is a no-op. MAXIMIZED (not FULLSCREEN) keeps the title
 -- bar, so the window stays restorable and movable.
 pcall(iup.SetAttribute, dlg, "PLACEMENT", "MAXIMIZED")
+-- Mapped first, so the frame is already dark on the first frame the user sees.
+pcall(iup.Map, dlg)
+WindowChrome.follow(iup, dlg, theme_mgr)
 iup.Show(dlg)
 
 -- Build the dialog's compositor NOW, while nothing is happening. The scrim, the tab

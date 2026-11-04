@@ -342,6 +342,10 @@ function M.build(p)
         text_cue = { bg = well, fg = p.textMuted, font = p.font },
         text_focus = { bg = well, fg = p.text, font = p.font, border = p.accent, radius = R },
         -- The bottom bar's command bar: reads as a recessed field, not a button.
+        statusbar_button = {
+            bg = p.bg, fg = p.textMuted, border = p.bg, borderwidth = 0, radius = R,
+            hover = hover, pressed = selected,
+        },
         commandbar = {
             bg = well, fg = p.textMuted, font = sized(p.font, 10),
             border = border, borderwidth = 1, showborder = true, radius = R,
