@@ -51,6 +51,17 @@ local function fake_iup()
 
 	function iup.GetClassName(w) return w.kind end
 	function iup.SetAttribute(w, name, value) w.attrs[name] = value end
+	function iup.ResetAttribute(w, name) w.attrs[name] = nil end
+	function iup.Insert(parent, before, child)
+		child.parent = parent
+		for i, c in ipairs(parent.children) do
+			if c == before then
+				table.insert(parent.children, i, child)
+				return
+			end
+		end
+		parent.children[#parent.children + 1] = child
+	end
 	function iup.GetAttribute(w, name)
 		-- The view measures a body from its NATURALSIZE; report a fixed height so
 		-- the animation has somewhere to travel to.

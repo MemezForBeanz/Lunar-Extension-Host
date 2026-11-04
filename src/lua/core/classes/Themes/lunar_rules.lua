@@ -98,7 +98,7 @@ function M.build(p)
     -- the body font -- text and control are proportionate again, which is the
     -- real fix for "undersized text on oversized buttons".
     local BTN_FONT = p.font
-    local BTN_PAD  = "12x6"
+    local BTN_PAD  = "12x5"
     local ROW_PAD  = "14x4"   -- one list row height, wherever a list is
     local accent_hover   = p.accentHover   or shade(p.accent, 0.12)
     local accent_pressed = p.accentPressed or shade(p.accent, -0.14)
@@ -221,6 +221,8 @@ function M.build(p)
             bg = chosen, fg = p.text, font = p.font, border = chosen, borderwidth = 0,
             padding = "12x6", radius = R, hover = chosen, hovertext = p.text, pressed = chosen,
         },
+        settings_crumb = { fg = p.text, font = sized(HEADING, 12), padding = "0x0" },
+        settings_nav_group = { fg = p.textFaint or p.textMuted, font = sized(p.font, 9), padding = "12x8" },
         empty_title   = { fg = p.text, font = sized(HEADING, 11), padding = "0x0" },
         empty_hint    = { fg = p.textMuted, font = sized(p.font, 9), padding = "0x0" },
         settingsheader = {
