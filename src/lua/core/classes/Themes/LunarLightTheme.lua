@@ -15,28 +15,31 @@ local LunarLightTheme = Theme:subclass("LunarLightTheme")
 function LunarLightTheme:initialize()
     local p = {
         bg              = rgb("#f2f2f7"),
-        layer01         = rgb("#ffffff"),
-        layer02         = rgb("#f7f7fb"),
+        layer01         = rgb("#f6f6f9"),
+        layer02         = rgb("#ffffff"),
         layerHover01    = rgb("#ececf3"),
         layerSelected01 = rgb("#e2e2ee"),
-        borderSubtle01  = rgb("#dcdce6"),
+        borderSubtle01  = rgb("#d0d0da"),
         borderStrong01  = rgb("#b8b8c8"),
         text            = rgb("#27272f"),
-        textMuted       = rgb("#6e6e80"),
+        textMuted       = rgb("#666a73"),
         accent          = rgb("#6a5ae0"),  -- violet, deepened for light surfaces
         accentText      = rgb("#ffffff"),
-        error           = rgb("#c4314b"),
+        error           = rgb("#b3243d"),
         success         = rgb("#3a7d44"),
         warning         = rgb("#946200"),
         warningText     = rgb("#ffffff"),
         info            = rgb("#0b6a78"),
-        font            = "Segoe UI Variable, 10",
+        font            = "Segoe UI, 11",
+        well            = rgb("#ffffff"),   -- recessed: lists, fields, output
+        accentSoft      = rgb("#d6d0f8"),   -- a chosen row
+        gradShellWell   = rgb("#e9e9f1"),   -- tab strip: a whisper off the page, never a grey band
 
         gradTop         = rgb("#6a5ae0"),
         gradBottom      = rgb("#8d9ac9"),
 
-        radius          = 4,
-        radiusFrame     = 6,
+        radius          = 6,
+        radiusFrame     = 8,
     }
     p.surface      = p.layer01
     p.surface2     = p.layerHover01

@@ -54,9 +54,9 @@ function M.register(opts)
 	end
 
 	local function toggle(key, configure_key)
-		local t = iup.toggle({ TITLE = "", VALUE = (settings:get(key) ~= false) and "ON" or "OFF" })
-		function t:action(state)
-			local on = (state == 1)
+		local t = iup.flattoggle({ TITLE = "", THEMEROLE = "flattoggle", VALUE = (settings:get(key) ~= false) and "ON" or "OFF" })
+		function t:valuechanged_cb()
+			local on = iup.GetAttribute(t, "VALUE") == "ON"
 			if set_and_save(key, on) then motion:configure({ [configure_key] = on }) end
 			return iup.DEFAULT
 		end
@@ -69,7 +69,7 @@ function M.register(opts)
 		items = M.SPEEDS,
 		value = M.speed_index(settings:get("motion_scale")),
 		width = 180,   -- the same as the Theme selector above it, so the column lines up
-		font = "Segoe UI, 10",
+		font = "Segoe UI, 11",
 		name = "appearance_motion_speed",
 		on_change = function(index)
 			local scale = M.SPEED_VALUES[index]
@@ -90,9 +90,9 @@ function M.register(opts)
 	}
 	local system_theme = opts.system_theme
 	if system_theme then
-		local follow = iup.toggle({ TITLE = "", VALUE = system_theme:enabled() and "ON" or "OFF" })
-		function follow:action(state)
-			if not system_theme:setEnabled(state == 1) then
+		local follow = iup.flattoggle({ TITLE = "", THEMEROLE = "flattoggle", VALUE = system_theme:enabled() and "ON" or "OFF" })
+		function follow:valuechanged_cb()
+			if not system_theme:setEnabled(iup.GetAttribute(follow, "VALUE") == "ON") then
 				iup.SetAttribute(follow, "VALUE", system_theme:enabled() and "ON" or "OFF")
 			end
 			return iup.DEFAULT

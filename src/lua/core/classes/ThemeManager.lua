@@ -448,7 +448,7 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 		if cls == "flattabs" then
 			attrs.TABSLINECOLOR = r.border
 			if r.fg then
-				attrs.FORECOLOR = r.fg
+				attrs.FORECOLOR = r.selfg or r.fg
 				-- Unselected tab labels. Falls back to the selected colour, so a
 				-- rule that does not care reads exactly as it did before.
 				attrs.TABSFORECOLOR = r.tabsfg or r.fg
@@ -509,9 +509,46 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 		if r.fg then
 			attrs.ARROWCOLOR = r.fg
 		end
+		-- The slim, arrowless bar. Not for the native classes: they ignore these.
+		if r.scrollsize and (cls == "flatlist" or cls == "flatscrollbox") then
+			attrs.SCROLLBARSIZE = tostring(r.scrollsize)
+			attrs.SHOWARROWS = "NO"
+			attrs.SB_CORNERRADIUS = tostring(r.scrollradius or math.floor(r.scrollsize / 2))
+			attrs.SB_INSET = tostring(r.scrollinset or 0)
+		end
+	end
+
+	-- Every split in the app, whoever built it, drags on the same flat edge. The
+	-- extension's own SHOWGRIP is replaced on purpose: this is what retires IUP's
+	-- dotted grip without touching any extension (fork patch 0005).
+	if cls == "split" then
+		attrs.SHOWGRIP = "SASH"
+		attrs.BARSIZE = tostring(r.barsize or 7)
+		if r.border then attrs.COLOR = r.border end
+		attrs.HLCOLOR = r.sash or r.border
+	end
+
+	-- A checkbox the theme owns: no white tile on a dark page (fork patch 0005).
+	if cls == "flattoggle" and r.checkbg then
+		attrs.CHECKBGCOLOR = r.checkbg
+		attrs.CHECKFGCOLOR = r.checkfg
+		attrs.CHECKHLCOLOR = r.checkhl
+		attrs.CHECKPSCOLOR = r.checkon
+		attrs.CHECKRADIUS = "3"
+		attrs.CHECKSIZE = "16"
+	end
+
+	-- Light caught by the corners of a rounded box (fork patch 0005).
+	if r.sheen and (cls == "flatframe" or cls == "flatlist" or cls == "dropbutton") then
+		attrs.BORDERSHEENCOLOR = r.sheen
+	end
+
+	if cls == "gauge" and r.notext then
+		attrs.SHOWTEXT = "NO"
 	end
 
 	if cls == "flatlist" then
+		if r.itemradius then attrs.ITEMRADIUS = tostring(r.itemradius) end
 		local sel_bg = r.selbg or r.hover or r.bg
 		local sel_text = r.seltext or r.hovertext or r.fg
 		if sel_bg then
@@ -581,6 +618,11 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 	-- but emits nothing for those themes.
 	if cls == "flatbutton" or cls == "flatframe" or cls == "flatlabel"
 			or cls == "flattoggle" or cls == "dropbutton" then
+		if r.titlealign and cls == "flatframe" then
+			attrs.TITLEALIGNMENT = r.titlealign
+			attrs.TITLELINE = "NO"
+			if r.titlepad then attrs.TITLEPADDING = r.titlepad end
+		end
 		if r.gradcolor then
 			attrs.GRADIENTCOLOR     = r.gradcolor
 			-- r.graddir defaults to VERTICAL when unset (the IUP fork's own
@@ -602,6 +644,12 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 		if cls == "flattabs" and r.showlines == false then
 			attrs.SHOWLINES = "NO"
 		end
+		if cls == "flattabs" and r.tabspadding then
+			attrs.TABSPADDING = r.tabspadding
+		end
+		if cls == "flattabs" and r.activeline then
+			attrs.TABSACTIVELINE = r.activeline
+		end
 	end
 
 	-- A theme may suppress the dotted keyboard-focus rectangle on a surface
@@ -615,7 +663,9 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 	if cls == "flatbutton" and inactive then
 		if r.inactivebg then
 			attrs.BGCOLOR, attrs.HLCOLOR, attrs.PSCOLOR = r.inactivebg, r.inactivebg, r.inactivebg
-			attrs.BORDERCOLOR, attrs.BORDERHLCOLOR, attrs.BORDERPSCOLOR = r.inactivebg, r.inactivebg, r.inactivebg
+			-- The outline stays: without it a disabled button is a hole in the page.
+			local edge = r.inactiveborder or r.inactivebg
+			attrs.BORDERCOLOR, attrs.BORDERHLCOLOR, attrs.BORDERPSCOLOR = edge, edge, edge
 			if r.gradcolor then attrs.GRADIENTCOLOR = r.inactivebg end
 		end
 		if r.inactivefg then
@@ -739,6 +789,19 @@ function ThemeManager:_applyNativeRoleTheme(ih, theme, cls, role)
 
 	iup.SetAttribute(ih, "NTHEME", role_handle)
 	iup.SetAttribute(ih, "THEMEMGR_NTHEME", "1")
+	self:_writeThrough(ih, lcls, theme:rules()[role])
+end
+
+-- A theme handle does not reach everything. What sits inside a flat scroll box reads
+-- its background from the box's stored BGCOLOR, and a gauge's outline is only redrawn
+-- from a direct write, so these two go straight to the widget.
+function ThemeManager:_writeThrough(ih, cls, rule)
+	if not rule then return end
+	if cls == "flatscrollbox" and rule.bg then
+		self._iup.SetAttribute(ih, "BGCOLOR", rule.bg)
+	elseif cls == "gauge" and rule.border then
+		self._iup.SetAttribute(ih, "FLATCOLOR", rule.border)
+	end
 end
 
 -- Returns (handle_name, attrs) for the bundle of attributes that should be applied
@@ -811,6 +874,11 @@ function ThemeManager:_applyElementNative(ih, theme, cls, role)
 	local iup = self._iup
 	iup.SetAttribute(ih, "NTHEME", handle)
 	iup.SetAttribute(ih, "THEMEMGR_NTHEME", "1")
+	-- Everything inside a flat scroll box reads its background from here, and only a
+	-- direct write puts the colour where they look.
+	if cls == "flatscrollbox" and attrs.BGCOLOR then
+		iup.SetAttribute(ih, "BGCOLOR", attrs.BGCOLOR)
+	end
 end
 
 function ThemeManager:_beginPaintBatch(root)
@@ -1263,6 +1331,12 @@ function ThemeManager:_repaintSubtree(root, theme)
 			if okr then
 				role = rv
 			end
+		end
+		-- A flat list or toggle with no role takes its class rule the way a role is
+		-- applied. Left to the dialog's class theme it only gets what that theme sets
+		-- at creation, so it missed the slim scrollbar and the themed checkbox.
+		if (not role or role == "") and (cls == "flatlist" or cls == "flattoggle" or cls == "gauge") then
+			role = cls
 		end
 		-- Skip void layout containers (vbox/hbox/zbox/cbox/gridbox) unless they were
 		-- given an explicit THEMEROLE. They draw nothing and only pass inheritance

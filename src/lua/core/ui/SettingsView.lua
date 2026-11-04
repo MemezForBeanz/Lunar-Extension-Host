@@ -67,7 +67,8 @@ local SettingsView = class("SettingsView")
 -- Width of the column every control is laid into, in pixels. Wide enough for a
 -- path-length text field plus a Browse button, which is the widest thing any
 -- shipped extension puts in a row.
-local CONTROL_COLUMN = L.FIELD.wide
+local CONTROL_COLUMN = 420
+local LABEL_COLUMN = 260
 
 -- Chevron edge length in pixels. Carbon's own accordion uses a 16px icon against
 -- body text; this matches.
@@ -126,37 +127,20 @@ function SettingsView:initialize(opts)
     self._sections = {}   -- ordered list of section records
     self._query    = ""
 
-    -- The native edit control is wrapped in a themed flatframe (BORDER=NO on the
-    -- text itself) so the search box's border/background follow the active theme
-    -- instead of the OS's own (non-themeable) edit chrome. Both the inner text AND
-    -- the outer frame need THEMEROLE="text" so the theming walk reaches and
-    -- re-colors the actual native control.
-    local search = iup.text{
-        BORDER    = "NO",
-        EXPAND    = "HORIZONTAL",
-        CUEBANNER = "Search settings...",
-        FONT      = "Segoe UI, 10",
-        THEMEROLE = "text",
-    }
-    self._search = search
     local sv = self
-    function search:valuechanged_cb()
-        sv:filter(iup.GetAttribute(search, "VALUE") or "")
-        return iup.DEFAULT
-    end
-
-    local search_box = iup.flatframe{
-        search,
-        TITLE     = "",
-        MARGIN    = L.margin(1),
-        EXPAND    = "HORIZONTAL",
-        THEMEROLE = "text",
-    }
+    local FlatField = require("core.ui.FlatField")
+    local search_field = FlatField.new(iup, {
+        cue = "Search settings...",
+        icon = self._icon_dir and (self._icon_dir .. "/search.svg") or nil,
+        on_change = function(text) sv:filter(text) end,
+    })
+    self._search = search_field.text
+    local search_box = search_field.widget
 
     -- Inner container holds section headers and bodies (direct children, so each
     -- can be individually shown/hidden + floated during filtering).
     self._inner = iup.vbox{
-        GAP     = L.gap(L.ROLE.row_gap),
+        GAP     = L.gap(L.ROLE.section_gap),
         MARGIN  = L.margin(L.ROLE.section, L.ROLE.row),
         EXPAND  = "HORIZONTAL",
     }
@@ -195,7 +179,7 @@ function SettingsView:initialize(opts)
     -- itself directly from BGCOLOR/FGCOLOR every time, like flatbutton/flatframe.
     self._empty = iup.flatlabel{
         TITLE     = "No settings registered. Extensions add their settings here.",
-        FONT      = "Segoe UI, 10",
+        FONT      = "Segoe UI, 11",
         THEMEROLE = "settingslabel_muted",
     }
     iup.Append(self._inner, self._empty)
@@ -207,6 +191,7 @@ function SettingsView:initialize(opts)
         self._panel,
         EXPAND    = "YES",
         SCROLLBAR = "VERTICAL",
+        XHIDDEN   = "YES",
     }
 
     -- BGCOLOR intentionally omitted: vbox is a "void" layout container that
@@ -215,7 +200,6 @@ function SettingsView:initialize(opts)
     -- unset lets the color inherit from the dialog, which IS themed.
     self._widget = iup.vbox{
         iup.hbox{
-            iup.label{ TITLE = "Search ", FONT = "Segoe UI, 10" },
             search_box,
             ALIGNMENT = "ACENTER",
             GAP       = L.gap(L.ROLE.inline_gap),
@@ -488,7 +472,7 @@ function SettingsView:_buildRow(entry, category)
     if expandable then
         label = iup.flatbutton{
             TITLE     = entry.label or "",
-            FONT      = "Segoe UI, 10",
+            FONT      = "Segoe UI, 11",
             ALIGNMENT = "ALEFT:ACENTER",
             PADDING   = L.margin(L.ROLE.label_gap, L.ROLE.label_gap),
             BORDER    = "NO",
@@ -506,16 +490,34 @@ function SettingsView:_buildRow(entry, category)
         -- inside the flatscrollbox, so it's a flatlabel, not a native label.
         label = iup.flatlabel{
             TITLE     = entry.label or "",
-            FONT      = "Segoe UI, 10",
+            FONT      = "Segoe UI, 11",
+            PADDING   = L.margin(L.ROLE.label_gap, L.ROLE.label_gap),
             THEMEROLE = "settingslabel",
         }
+    end
+
+    -- A row with only a description still offers something to press.
+    local details_button
+    if expandable and not entry.widget then
+        details_button = iup.flatbutton{ TITLE = "Show details", THEMEROLE = "link_btn" }
+        local view = self
+        function details_button:flat_action()
+            view:_toggleRow(entry)
+            return iup.DEFAULT
+        end
+    end
+
+    -- Every field ends on the same right edge.
+    if entry.widget and iup.GetClassName(entry.widget) == "flatframe" then
+        iup.SetAttribute(entry.widget, "EXPAND", "HORIZONTAL")
+        iup.SetAttribute(entry.widget, "RASTERSIZE", nil)
     end
 
     -- The control column. Fixing the width here rather than on the control
     -- itself means an extension's widget keeps whatever EXPAND it was built with
     -- and simply fills the column, so nothing has to know about this layout.
     local column = iup.hbox{
-        entry.widget or iup.fill{},
+        entry.widget or (expandable and details_button) or iup.fill{},
         -- Width only: the height component is deliberately empty so IUP still
         -- measures the control's own height, which differs between a toggle, a
         -- text field and a dropdown.
@@ -523,9 +525,9 @@ function SettingsView:_buildRow(entry, category)
         ALIGNMENT  = "ACENTER",
     }
 
+    -- A fixed label column, so every control in every section starts at the same x.
     local top = iup.hbox{
-        label,
-        iup.fill{},
+        iup.hbox{ label, RASTERSIZE = L.size(LABEL_COLUMN), ALIGNMENT = "ACENTER" },
         column,
         ALIGNMENT = "ACENTER",
         GAP       = L.gap(L.ROLE.inline_gap),
@@ -550,7 +552,7 @@ function SettingsView:_buildRow(entry, category)
     end
 
     children.GAP    = L.gap(L.ROLE.label_gap)
-    children.MARGIN = L.margin(L.ROLE.section, L.ROLE.row)
+    children.MARGIN = L.margin(L.ROLE.section, 2)
     children.EXPAND = "HORIZONTAL"
 
     local box = iup.vbox(children)

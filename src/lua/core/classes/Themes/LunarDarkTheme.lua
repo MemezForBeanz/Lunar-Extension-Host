@@ -16,7 +16,7 @@ function LunarDarkTheme:initialize()
     local p = {
         bg              = rgb("#1b1d23"),  -- app floor: deep slate
         layer01         = rgb("#22242c"),  -- pages, lists, fields
-        layer02         = rgb("#2a2d37"),  -- raised: buttons, dropdowns, toasts
+        layer02         = rgb("#2f3340"),  -- raised: buttons, dropdowns, toasts
         layerHover01    = rgb("#313542"),  -- pointer-enter, one step lighter
         layerSelected01 = rgb("#3a3f4f"),  -- persistent selection / pressed
         borderSubtle01  = rgb("#30333e"),  -- dim structural lines
@@ -30,14 +30,16 @@ function LunarDarkTheme:initialize()
         warning         = rgb("#e5c07b"),
         warningText     = rgb("#1b1d23"),
         info            = rgb("#56b6c2"),
-        font            = "Segoe UI Variable, 10",
+        font            = "Segoe UI, 11",
+        well            = rgb("#1b1d23"),   -- recessed: lists, fields, output
+        accentSoft      = rgb("#343259"),   -- a chosen row
 
         -- The accent strip's sweep: violet into slate.
         gradTop         = rgb("#7c6cf2"),
         gradBottom      = rgb("#4a5578"),
 
-        radius          = 4,   -- interactive controls
-        radiusFrame     = 6,   -- container frames
+        radius          = 6,   -- interactive controls
+        radiusFrame     = 8,   -- container frames
     }
     -- Legacy aliases, so widgets reading the six-key palette keep working.
     p.surface      = p.layer01

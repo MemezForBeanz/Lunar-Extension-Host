@@ -18,7 +18,7 @@
 -- * `opts.tooltip` `function(entry) -> string|nil` — hover tooltip per row.
 -- * `opts.role` `string` — `BQROLE` tag for focus routing.
 -- * `opts.visiblelines` `string|number` (default `"8"`) — visible row count.
--- * `opts.font` `string` (default `"Consolas, 9"`) — list font.
+-- * `opts.font` `string` (default `"Segoe UI, 11"`) — list font.
 -- * `opts.flat` `boolean` — use `iup.flatlist` instead of `iup.list`.
 -- * `opts.indicator` `string` — drop-line display text.
 -- * `opts.outer_scroll` `boolean` — wrap in a `flatscrollbox` for external scroll.
@@ -75,7 +75,7 @@ function ReorderableList:initialize(iup, opts)
         EXPAND       = "YES",
         MULTIPLE     = "YES",
         VISIBLELINES = tostring(opts.visiblelines or "8"),
-        FONT         = Theme.color("font", opts.font or "Consolas, 9"),
+        FONT         = opts.font or "Segoe UI, 11",
     }
     if self._outer_scroll then list_attrs.SCROLLBAR = "NO" end
     -- Drop the native etched border when the list lives inside a themed frame, so

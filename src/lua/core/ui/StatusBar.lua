@@ -23,6 +23,10 @@ StatusBar.UPDATE_STATES = {
 }
 StatusBar.UPDATE_CLICK_HINT = "\n\nClick to check for updates now."
 
+--- What the command bar says at rest.
+StatusBar.COMMAND_HINT = "Search commands or lunar:// address                              Ctrl+P"
+StatusBar.COMMAND_WIDTH = 440
+
 --- Parse an IUP `"R G B"` colour into three numbers (nil if it isn't one).
 function StatusBar.parse_rgb(value)
 	local r, g, b = tostring(value or ""):match("^(%d+)%s+(%d+)%s+(%d+)")
@@ -41,27 +45,54 @@ function StatusBar.new(opts)
 	-- restyles the bar through the statusbar/statusbar_text roles instead of
 	-- the hardcoded gray this bar carried for years.
 	self._label = iup.label({
-		TITLE = "Status: Ready",
+		TITLE = "Ready",
 		EXPAND = "HORIZONTAL",
-		FONT = "Segoe UI, 9",
+		FONT = "Segoe UI, 11",
 		FGCOLOR = "60 60 60",
 		THEMEROLE = "statusbar_text",
 	})
 	-- Registered with HostAPI by whoever owns update checks (core.ui.UpdateCheck),
 	-- and only when there is a share to check.
 	self._update_icon = StatusIcon.new(iup, {
-		dir = opts.icon_dir, size = 24, state = "upd_complete", tip = StatusBar.UPDATE_STATES.current.tip,
+		dir = opts.icon_dir, size = 18, state = "upd_complete", tip = StatusBar.UPDATE_STATES.current.tip,
 	})
 	self._ext_box = iup.hbox({ GAP = L.gap(2), ALIGNMENT = "ACENTER" })
 	local logo_image = opts.logo and VectorIcon.logoHandle(iup, opts.logo, 20)
+
+	-- The command bar, dead centre. HOMOGENEOUS gives the three cells equal widths, so
+	-- the middle one is centred in the window however long the status text is.
+	self._command = iup.flatbutton({
+		TITLE = StatusBar.COMMAND_HINT,
+		TIP = "Search commands, or go to a lunar:// address (Ctrl+P)",
+		RASTERSIZE = StatusBar.COMMAND_WIDTH .. "x",
+		IMAGE = opts.search_icon,
+		IMAGEPOSITION = "LEFT",
+		ALIGNMENT = "ALEFT:ACENTER",
+		SPACING = "8",
+		CANFOCUS = "NO",
+		THEMEROLE = "commandbar",
+	})
+	local bar = self
+	function self._command:flat_action()
+		if bar._on_command then bar._on_command() end
+		return iup.DEFAULT
+	end
+
 	self._widget = iup.hbox({
-		self._label,
-		iup.fill({}),
-		self._ext_box,
-		logo_image and iup.label({ IMAGE = logo_image, TITLE = "" }) or nil,
+		iup.hbox({ self._label, EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER" }),
+		iup.hbox({ iup.fill({}), self._command, iup.fill({}), EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER" }),
+		iup.hbox({
+			iup.fill({}),
+			self._ext_box,
+			logo_image and iup.label({ IMAGE = logo_image, TITLE = "" }) or nil,
+			EXPAND = "HORIZONTAL",
+			GAP = L.gap(3),
+			ALIGNMENT = "ACENTER",
+		}),
+		HOMOGENEOUS = "YES",
 		BGCOLOR = "240 240 240",
 		THEMEROLE = "statusbar",
-		MARGIN = L.margin(3, 2),
+		MARGIN = L.margin(5, 2),
 		GAP = L.gap(3),
 		ALIGNMENT = "ACENTER",
 		-- HORIZONTAL, not IupHbox's default YES. A vertically expanding child of
@@ -75,6 +106,10 @@ end
 
 --- The bar itself.
 function StatusBar:widget() return self._widget end
+--- The command bar's button, which the palette anchors to.
+function StatusBar:commandWidget() return self._command end
+--- Set what a click on the command bar does.
+function StatusBar:onCommand(fn) self._on_command = fn end
 --- The box extension status elements go in (HostAPI's `status_box`).
 function StatusBar:extBox() return self._ext_box end
 --- The update indicator (a `core.ui.StatusIcon`).
@@ -97,7 +132,7 @@ end
 function StatusBar:setStatus(msg)
 	local iup, label = self._iup, self._label
 	if not label then return end
-	if not pcall(iup.SetAttribute, label, "TITLE", "Status: " .. tostring(msg)) then
+	if not pcall(iup.SetAttribute, label, "TITLE", tostring(msg)) then
 		-- A dead label must never turn status updates into repeated error dialogs.
 		self._label = nil
 		return

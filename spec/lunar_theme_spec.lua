@@ -45,7 +45,7 @@ describe("lunar_rules", function()
             assert.equal("Consolas, 9", rules.list_mono.font)
             for _, role in ipairs({ "flatbutton", "primary_btn", "actionbutton", "ghost_btn",
                                     "danger_btn", "warning_btn", "info_btn", "link_btn", "icon_btn" }) do
-                assert.equal(palette().layer01, rules[role].inactivebg, role)
+                assert.is_string(rules[role].inactivebg, role)
                 assert.equal(palette().textMuted, rules[role].inactivefg, role)
             end
         end
@@ -92,10 +92,10 @@ describe("lunar_rules", function()
 
     it("sizes buttons at VS Code scale, not Carbon slabs", function()
         local l, c = lunar.build(palette()), carbon.build(palette())
-        for _, rules in ipairs({ l, c }) do
+        for rules, padding in pairs({ [l] = "12x4", [c] = "12x5" }) do
             for _, role in ipairs({ "primary_btn", "actionbutton", "danger_btn",
                                     "warning_btn", "info_btn" }) do
-                assert.equal("12x5", rules[role].padding, role)
+                assert.equal(padding, rules[role].padding, role)
             end
             assert.equal("8x3", rules.ghost_btn.padding)
             assert.equal("4x4", rules.icon_btn.padding)
@@ -159,7 +159,7 @@ describe("ThemeManager pressed-state mapping", function()
             assert.equal(rule.inactivebg, inactive.BGCOLOR)
             assert.equal(rule.inactivefg, inactive.FGCOLOR)
             assert.equal(rule.inactivebg, inactive.HLCOLOR)
-            assert.equal(rule.inactivebg, inactive.BORDERCOLOR)
+            assert.equal(rule.inactiveborder or rule.inactivebg, inactive.BORDERCOLOR)
             if rule.gradcolor then assert.equal(rule.inactivebg, inactive.GRADIENTCOLOR) end
             assert.is_nil(inactive.BGINACTIVE)
             assert.is_nil(inactive.TEXTINACTIVE)

@@ -147,12 +147,45 @@ function M._wrapTabForPadding(self, widget, opts)
         if horizontal > cap then horizontal = cap end
     end
 
-    return iup.vbox{
+    local wrapper = iup.vbox{
         widget,
         MARGIN = tostring(horizontal) .. "x" .. tostring(vertical),
         GAP = L.gap(0),
         EXPAND = "YES",
     }
+    if max_width and max_width > 0 then
+        self._centered = self._centered or {}
+        self._centered[#self._centered + 1] = {
+            wrapper = wrapper, max_width = max_width, side = side_padding, vertical = vertical,
+        }
+    end
+    return wrapper
+end
+
+--- Keep a page at `max_width`, centred, whatever space it is given.
+function M.centerPage(self, widget, max_width, side)
+    self._centered = self._centered or {}
+    self._centered[#self._centered + 1] = {
+        wrapper = widget, max_width = max_width, side = side or 0, vertical = 0,
+    }
+end
+
+--- Centre each width-capped page in the space it actually has.
+--
+-- The margin computed at creation assumes the page fills the screen. A window that is
+-- not maximized, or a page in a split pane, has less, and that margin pushed the
+-- content off the side. Run after anything that changes how wide a page is.
+function M.recenterPages(self)
+    local iup = self.iup
+    for _, entry in ipairs(self._centered or {}) do
+        pcall(function()
+            local parent = iup.GetParent(entry.wrapper)
+            local width = parent and tonumber(tostring(iup.GetAttribute(parent, "RASTERSIZE")):match("^(%d+)x"))
+            if not width or width <= 0 then return end
+            local horizontal = math.max(entry.side, math.floor((width - entry.max_width) / 2))
+            iup.SetAttribute(entry.wrapper, "MARGIN", horizontal .. "x" .. entry.vertical)
+        end)
+    end
 end
 
 
@@ -216,7 +249,21 @@ function M._wrapTabForScroll(self, widget)
         -- Never let a missing/renamed control cost the user their tab.
         return widget
     end
+    self._scroll_hosts = self._scroll_hosts or {}
+    self._scroll_hosts[#self._scroll_hosts + 1] = box
     return box
+end
+
+--- Give every page scroll host the page colour.
+--
+-- Flat controls take their background from the nearest native parent's stored BGCOLOR,
+-- and a scroll host is that parent. Run after a theme applies.
+function M.syncScrollHosts(self)
+    local surface = self.tabs and self.iup.GetAttribute(self.tabs, "BGCOLOR")
+    if not surface then return end
+    for _, box in ipairs(self._scroll_hosts or {}) do
+        pcall(self.iup.SetAttribute, box, "BGCOLOR", surface)
+    end
 end
 
 function M.addTab(self, title, widget, owner, opts)
@@ -501,11 +548,19 @@ end
 function M._applyStatusScope(self)
     if not self._status_box then return end
     local iup = self.iup
-    local active_owner = self:_activeOwner()
+    -- Every pane's front tab counts: a tool in a split is still on screen.
+    local on_screen = { [self:_activeOwner() or false] = true }
+    if self._tab_groups then
+        for _, page in ipairs(self._tab_groups:frontPages()) do
+            local tab_id = iup.GetAttribute(page, "HOSTTABOWNERID")
+            local owner = tab_id and self._owner_by_tab[tab_id]
+            if owner then on_screen[owner] = true end
+        end
+    end
 
     local visible = {}
     for _, s in ipairs(self._status_scoped) do
-        if s.persistent or s.owner == active_owner then
+        if s.persistent or on_screen[s.owner] then
             visible[#visible + 1] = s
         end
     end
