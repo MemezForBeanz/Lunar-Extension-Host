@@ -534,11 +534,19 @@ end
 function M._applyStatusScope(self)
     if not self._status_box then return end
     local iup = self.iup
-    local active_owner = self:_activeOwner()
+    -- Every pane's front tab counts: a tool in a split is still on screen.
+    local on_screen = { [self:_activeOwner() or false] = true }
+    if self._tab_groups then
+        for _, page in ipairs(self._tab_groups:frontPages()) do
+            local tab_id = iup.GetAttribute(page, "HOSTTABOWNERID")
+            local owner = tab_id and self._owner_by_tab[tab_id]
+            if owner then on_screen[owner] = true end
+        end
+    end
 
     local visible = {}
     for _, s in ipairs(self._status_scoped) do
-        if s.persistent or s.owner == active_owner then
+        if s.persistent or on_screen[s.owner] then
             visible[#visible + 1] = s
         end
     end

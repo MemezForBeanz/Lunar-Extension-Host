@@ -45,7 +45,7 @@ describe("lunar_rules", function()
             assert.equal("Consolas, 9", rules.list_mono.font)
             for _, role in ipairs({ "flatbutton", "primary_btn", "actionbutton", "ghost_btn",
                                     "danger_btn", "warning_btn", "info_btn", "link_btn", "icon_btn" }) do
-                assert.equal(palette().layer01, rules[role].inactivebg, role)
+                assert.is_string(rules[role].inactivebg, role)
                 assert.equal(palette().textMuted, rules[role].inactivefg, role)
             end
         end

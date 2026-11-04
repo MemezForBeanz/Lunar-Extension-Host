@@ -23,10 +23,8 @@ local HEIGHT = ROW_HEIGHT * ROWS + CHROME
 -- field's kill-focus first. Wait this long, then look at where focus really went.
 local FOCUS_SETTLE_MS = 90
 
--- Windows hides a cue banner while the field has focus, and this field always does,
--- so the prompt lives in the hint line under the list.
 local PLACEHOLDER = "Type a command, or a lunar:// address"
-local HINT = "Enter to run    Esc to close    Type task to run a task"
+local HINT = "Enter to run    Esc to close"
 
 --- Create the palette. The window is built on first use.
 -- @tparam table opts
@@ -59,6 +57,7 @@ function CommandPalette:_build()
 	local field = iup.text({
 		BORDER = "NO",
 		EXPAND = "HORIZONTAL",
+		CUEBANNER = PLACEHOLDER,
 		THEMEROLE = "palette_text",
 		NC = "2048",
 	})
@@ -217,7 +216,7 @@ function CommandPalette:_refresh()
 	if #items > 0 then
 		iup.SetAttribute(list, "VALUE", "1")
 		iup.SetAttribute(self._hint, "TITLE", provider and provider.title
-			or (self._choices and self._choices.hint) or (text == "" and PLACEHOLDER) or HINT)
+			or (self._choices and self._choices.hint) or HINT)
 	else
 		iup.SetAttribute(self._hint, "TITLE", provider and (provider.empty or "Nothing to show yet")
 			or "No matching commands")
@@ -287,6 +286,7 @@ function CommandPalette:open(text, choices)
 	self:_build()
 	local iup = self._iup
 	self._choices = choices
+	iup.SetAttribute(self._field, "CUEBANNER", choices and choices.placeholder or PLACEHOLDER)
 	iup.SetAttribute(self._field, "VALUE", text or "")
 	self:_refresh()
 	local x, y = self:_place()

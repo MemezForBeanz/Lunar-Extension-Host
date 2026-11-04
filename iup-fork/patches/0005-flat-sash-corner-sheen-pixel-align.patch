@@ -1,5 +1,28 @@
+diff --git a/src/iup_box.c b/src/iup_box.c
+index 63fb1c7..2bb8fda 100644
+--- a/src/iup_box.c
++++ b/src/iup_box.c
+@@ -222,12 +222,14 @@ Iclass* iupBoxNewClassBase(void)
+   iupClassRegisterAttribute(ic, "CLIENTOFFSET", iupBaseGetClientOffsetAttrib, NULL, NULL, NULL, IUPAF_READONLY|IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+ 
+   /* boxes only */
+-  iupClassRegisterAttribute(ic, "GAP", iBoxGetGapAttrib, iBoxSetGapAttrib, IUPAF_SAMEASSYSTEM, "0", IUPAF_NOT_MAPPED);
+-  iupClassRegisterAttribute(ic, "CGAP", iBoxGetCGapAttrib, iBoxSetCGapAttrib, IUPAF_SAMEASSYSTEM, "0", IUPAF_NO_SAVE|IUPAF_NOT_MAPPED);
++  /* Lunar fork: GAP and MARGIN do not inherit. A page's padding was otherwise added again by
++     every box nested inside it, so nothing on a page shared a left edge. */
++  iupClassRegisterAttribute(ic, "GAP", iBoxGetGapAttrib, iBoxSetGapAttrib, IUPAF_SAMEASSYSTEM, "0", IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "CGAP", iBoxGetCGapAttrib, iBoxSetCGapAttrib, IUPAF_SAMEASSYSTEM, "0", IUPAF_NO_SAVE|IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "NGAP", iBoxGetGapAttrib, iBoxSetGapAttrib, IUPAF_SAMEASSYSTEM, "0", IUPAF_NO_SAVE|IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "NCGAP", iBoxGetCGapAttrib, iBoxSetCGapAttrib, IUPAF_SAMEASSYSTEM, "0", IUPAF_NO_SAVE|IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+-  iupClassRegisterAttribute(ic, "MARGIN", iBoxGetMarginAttrib, iBoxSetMarginAttrib, IUPAF_SAMEASSYSTEM, "0x0", IUPAF_NOT_MAPPED);
+-  iupClassRegisterAttribute(ic, "CMARGIN", iBoxGetCMarginAttrib, iBoxSetCMarginAttrib, IUPAF_SAMEASSYSTEM, "0x0", IUPAF_NO_SAVE|IUPAF_NOT_MAPPED);
++  iupClassRegisterAttribute(ic, "MARGIN", iBoxGetMarginAttrib, iBoxSetMarginAttrib, IUPAF_SAMEASSYSTEM, "0x0", IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "CMARGIN", iBoxGetCMarginAttrib, iBoxSetCMarginAttrib, IUPAF_SAMEASSYSTEM, "0x0", IUPAF_NO_SAVE|IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "NMARGIN", iBoxGetMarginAttrib, iBoxSetMarginAttrib, IUPAF_SAMEASSYSTEM, "0x0", IUPAF_NO_SAVE|IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "NCMARGIN", iBoxGetCMarginAttrib, iBoxSetCMarginAttrib, IUPAF_SAMEASSYSTEM, "0x0", IUPAF_NO_SAVE|IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+ 
 diff --git a/src/iup_draw.c b/src/iup_draw.c
-index ddd4729..e70aca9 100644
+index ddd4729..8d94e3a 100644
 --- a/src/iup_draw.c
 +++ b/src/iup_draw.c
 @@ -30,6 +30,8 @@ IUP_SDK_API int iupdrvDrawFlatRoundBox(IdrawCanvas* dc, int x1, int y1, int x2,
@@ -11,7 +34,23 @@ index ddd4729..e70aca9 100644
  #endif
  
  
-@@ -846,6 +848,10 @@ IUP_SDK_API void iupFlatDrawBoxAttrib(Ihandle* ih, IdrawCanvas* dc, int xmin, in
+@@ -591,9 +593,13 @@ static long iFlatDrawColorMakeInactive(long color, const char* bgcolor)
+ {
+   unsigned char bg_r = 0, bg_g = 0, bg_b = 0;
+   unsigned char r = iupDrawRed(color), g = iupDrawGreen(color), b = iupDrawBlue(color), a = iupDrawAlpha(color);
++  /* Lunar fork: halfway to the surface behind it. The stock formula assumes a light theme:
++     on a dark surface it brightens a disabled control, and with no background to read it
++     lights the control's border up as the strongest line on the page. */
++  if (!bgcolor || !bgcolor[0])
++    return iupDrawColor(r, g, b, (unsigned char)(a / 2));
+   iupStrToRGB(bgcolor, &bg_r, &bg_g, &bg_b);
+-  iupImageColorMakeInactive(&r, &g, &b, bg_r, bg_g, bg_b);
+-  return iupDrawColor(r, g, b, a);
++  return iupDrawColor((unsigned char)((r + bg_r) / 2), (unsigned char)((g + bg_g) / 2), (unsigned char)((b + bg_b) / 2), a);
+ }
+ 
+ IUP_SDK_API void iupFlatDrawBorder(IdrawCanvas* dc, int xmin, int xmax, int ymin, int ymax, int border_width, const char* fgcolor, const char* bgcolor, int active)
+@@ -846,6 +852,10 @@ IUP_SDK_API void iupFlatDrawBoxAttrib(Ihandle* ih, IdrawCanvas* dc, int xmin, in
    char* dir = ih ? iupAttribGetStr(ih, "GRADIENTDIRECTION") : NULL;
    if (dir && iupStrEqualNoCase(dir, "HORIZONTAL"))
      vertical = 0;
@@ -22,7 +61,7 @@ index ddd4729..e70aca9 100644
    if (radius > 0 || (grad && grad[0] != 0))
      iupFlatDrawGradientBox(dc, xmin, xmax, ymin, ymax, radius, fillcolor, grad, vertical, bgcolor, active);
    else
-@@ -858,7 +864,18 @@ IUP_SDK_API void iupFlatDrawBorderAttrib(Ihandle* ih, IdrawCanvas* dc, int xmin,
+@@ -858,7 +868,18 @@ IUP_SDK_API void iupFlatDrawBorderAttrib(Ihandle* ih, IdrawCanvas* dc, int xmin,
  {
    int radius = ih ? iupAttribGetInt(ih, "CORNERRADIUS") : 0;
    if (radius > 0)
@@ -415,7 +454,7 @@ index 046e880..ed679ae 100644
    iupClassRegisterAttribute(ic, "BARSIZE", iSplitGetBarSizeAttrib, iSplitSetBarSizeAttrib, IUPAF_SAMEASSYSTEM, "5", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
  
 diff --git a/src/win/iupwin_draw_gdi.c b/src/win/iupwin_draw_gdi.c
-index 1bcd18d..02013ef 100644
+index 1bcd18d..c3e5b24 100644
 --- a/src/win/iupwin_draw_gdi.c
 +++ b/src/win/iupwin_draw_gdi.c
 @@ -349,8 +349,11 @@ IUP_SDK_API int iupdrvDrawFlatRoundBox(IdrawCanvas* dc, int x1, int y1, int x2,
@@ -453,7 +492,7 @@ index 1bcd18d..02013ef 100644
 +IUP_SDK_API int iupdrvDrawFlatCornerSheen(IdrawCanvas* dc, int x1, int y1, int x2, int y2,
 +                                          int radius, long color)
 +{
-+  static const float reach[3] = { 2.6f, 1.6f, 0.7f };   /* tail length, in radii */
++  static const float reach[5] = { 3.2f, 2.4f, 1.7f, 1.0f, 0.4f };   /* tail length, in radii */
 +  dummy_GpGraphics* graphics = NULL;
 +  dummy_GpPen* pen = NULL;
 +  float l, t, r, b, d, rad, room_x, room_y;
@@ -476,12 +515,12 @@ index 1bcd18d..02013ef 100644
 +  if (gdix_vtable->fn_CreateFromHDC(dc->hBitmapDC, &graphics) != 0 || !graphics) return 0;
 +  gdix_vtable->fn_SetSmoothingMode(graphics, dummy_SmoothingModeAntiAlias);
 +  /* Translucent, so the strokes add up: brightest on the arc, and each tail fades out. */
-+  gdix_vtable->fn_CreatePen1(iupColor2ARGB(iupDrawColor(iupDrawRed(color), iupDrawGreen(color), iupDrawBlue(color), 64)),
++  gdix_vtable->fn_CreatePen1(iupColor2ARGB(iupDrawColor(iupDrawRed(color), iupDrawGreen(color), iupDrawBlue(color), 36)),
 +                             1.0f, dummy_UnitPixel, &pen);
 +
 +  if (pen)
 +  {
-+    for (i = 0; i < 3; i++)
++    for (i = 0; i < 5; i++)
 +    {
 +      float tx = rad * reach[i], ty = tx;
 +      if (tx > room_x) tx = room_x;
@@ -511,3 +550,17 @@ index 1bcd18d..02013ef 100644
  IUP_SDK_API void iupdrvDrawRectangle(IdrawCanvas* dc, int x1, int y1, int x2, int y2, long color, int style, int line_width)
  {
    if (dc->wdl_gc)
+diff --git a/src/win/iupwin_text.c b/src/win/iupwin_text.c
+index ddb15f1..706175e 100644
+--- a/src/win/iupwin_text.c
++++ b/src/win/iupwin_text.c
+@@ -1386,7 +1386,8 @@ static int winTextSetCueBannerAttrib(Ihandle *ih, const char *value)
+   if (!ih->data->is_multiline && iupwin_comctl32ver6)
+   {
+     WCHAR* wstr = iupwinStrChar2Wide(value);
+-    SendMessage(ih->handle, EM_SETCUEBANNER, (WPARAM)FALSE, (LPARAM)wstr);  /* always an Unicode string here */
++    SendMessage(ih->handle, EM_SETCUEBANNER, (WPARAM)TRUE, (LPARAM)wstr);  /* Lunar fork: stays up while focused */
++     /* always an Unicode string here */
+     free(wstr);
+     return 1;
+   }

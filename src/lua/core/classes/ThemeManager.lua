@@ -448,7 +448,7 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 		if cls == "flattabs" then
 			attrs.TABSLINECOLOR = r.border
 			if r.fg then
-				attrs.FORECOLOR = r.fg
+				attrs.FORECOLOR = r.selfg or r.fg
 				-- Unselected tab labels. Falls back to the selected colour, so a
 				-- rule that does not care reads exactly as it did before.
 				attrs.TABSFORECOLOR = r.tabsfg or r.fg
@@ -542,7 +542,9 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 		attrs.BORDERSHEENCOLOR = r.sheen
 	end
 
-	if cls == "gauge" and r.notext then attrs.SHOW_TEXT = "NO" end
+	if cls == "gauge" and r.notext then
+		attrs.SHOWTEXT = "NO"
+	end
 
 	if cls == "flatlist" then
 		if r.itemradius then attrs.ITEMRADIUS = tostring(r.itemradius) end
@@ -1309,7 +1311,7 @@ function ThemeManager:_repaintSubtree(root, theme)
 		-- A flat list or toggle with no role takes its class rule the way a role is
 		-- applied. Left to the dialog's class theme it only gets what that theme sets
 		-- at creation, so it missed the slim scrollbar and the themed checkbox.
-		if (not role or role == "") and (cls == "flatlist" or cls == "flattoggle") then
+		if (not role or role == "") and (cls == "flatlist" or cls == "flattoggle" or cls == "gauge") then
 			role = cls
 		end
 		-- Skip void layout containers (vbox/hbox/zbox/cbox/gridbox) unless they were
