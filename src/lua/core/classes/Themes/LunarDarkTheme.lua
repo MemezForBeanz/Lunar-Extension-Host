@@ -30,7 +30,7 @@ function LunarDarkTheme:initialize()
         warning         = rgb("#e5c07b"),
         warningText     = rgb("#1b1d23"),
         info            = rgb("#56b6c2"),
-        font            = "Segoe UI, 10",
+        font            = "Segoe UI, 11",
         well            = rgb("#1b1d23"),   -- recessed: lists, fields, output
         accentSoft      = rgb("#3a3672"),   -- a chosen row
 
