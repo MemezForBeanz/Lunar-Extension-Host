@@ -268,6 +268,7 @@ add_custom_command(
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/classes/host
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/ui
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/lib
+            --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/lsp
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/platform.lua
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/platform
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/headless.lua
@@ -394,6 +395,18 @@ add_dependencies(Lunar embed_lua)
 add_dependencies(Lunar embed_images)
 add_dependencies(Lunar iup_fork)
 
+# IupScintilla, the text surface behind core.ui.CodeView (cmake/IupScintilla.cmake).
+# Without it CodeView falls back to a plain text box and the language features
+# that need line geometry (squiggles, hover, completion) are off.
+option(LUNAR_SCINTILLA "Build IupScintilla, the code view behind core.ui.CodeView" ON)
+set(LUNAR_SCINTILLA_TARGET "")
+if(LUNAR_SCINTILLA)
+    set(LUNAR_IUP_SOURCE ${CMAKE_SOURCE_DIR}/vendor/iup-src/iup)
+    include(${CMAKE_SOURCE_DIR}/cmake/IupScintilla.cmake)
+    target_sources(Lunar PRIVATE src/c/libs/scintilla_wrap.c)
+    target_compile_definitions(Lunar PRIVATE LUNAR_HAVE_SCINTILLA=1)
+endif()
+
 # Export the host's symbols (including the statically-linked Lua API) so that
 # loadable extension C modules (an extension's native/<name>.dll) can
 # resolve lua_*/luaL_* from the executable at load time.
@@ -420,6 +433,7 @@ target_link_libraries(Lunar PRIVATE
     luasocket_static
     openssl_ssl
     openssl_crypto
+    ${LUNAR_SCINTILLA_TARGET}   # before the IUP archives it resolves against
     ${IUP_DIR}/libiuplua51.a
     ${IUP_DIR}/libiupluacontrols51.a
     ${IUP_DIR}/libiupcontrols.a
@@ -526,6 +540,16 @@ add_executable(Lunar
     src/c/libs/appimages_wrap.c
 )
 add_dependencies(Lunar embed_lua embed_images iup_fork lunar_exports)
+# IupScintilla on GTK. OFF by default: the GTK build of it has not been compiled
+# or run here yet, and CodeView falls back to a plain text box without it.
+option(LUNAR_SCINTILLA "Build IupScintilla, the code view behind core.ui.CodeView (untested on GTK)" OFF)
+set(LUNAR_SCINTILLA_TARGET "")
+if(LUNAR_SCINTILLA)
+    set(LUNAR_IUP_SOURCE ${CMAKE_SOURCE_DIR}/vendor/iup-src-linux/iup)
+    include(${CMAKE_SOURCE_DIR}/cmake/IupScintilla.cmake)
+    target_sources(Lunar PRIVATE src/c/libs/scintilla_wrap.c)
+    target_compile_definitions(Lunar PRIVATE LUNAR_HAVE_SCINTILLA=1)
+endif()
 # Linux convention: lowercase commands. The process still shows as "Lunar"
 # (posix/host.c sets the process and window-class names at startup).
 set_target_properties(Lunar PROPERTIES OUTPUT_NAME lunar)
@@ -541,6 +565,7 @@ target_include_directories(Lunar PRIVATE
 target_link_libraries(Lunar PRIVATE
     lua_static lfs_static cjson_static luasec_static luasocket_static
     OpenSSL::SSL OpenSSL::Crypto
+    ${LUNAR_SCINTILLA_TARGET}
     ${IUP_LINUX_LUA_LIB} ${IUP_LINUX_LIB}
     PkgConfig::GTK3 X11 Xext PkgConfig::FONTCONFIG m dl pthread
 )
