@@ -53,6 +53,7 @@
 local class = require("middleclass")
 
 local L = require("core.lib.CarbonLayout")
+local Kit = require("core.ui.Kit")
 
 -- Decorative only. Absent FFI or SVG bridge means no chevrons and a plain text
 -- header, which still expands, collapses and reads correctly.
@@ -68,6 +69,12 @@ local SettingsView = class("SettingsView")
 -- path-length text field plus a Browse button, which is the widest thing any
 -- shipped extension puts in a row.
 local CONTROL_COLUMN = 300
+
+-- The page: a list of sections beside a column of cards, centred together. The list gives
+-- way when a pane is too narrow to hold both.
+local NAV_WIDTH = 200
+local COLUMN_WIDTH = 900
+local NAV_MIN_PAGE = NAV_WIDTH + COLUMN_WIDTH + 64
 
 -- A description up to this long sits under its label for good, wrapped at WRAP_AT.
 -- Anything longer (a table of shortcuts, say) stays behind Show details.
@@ -162,12 +169,12 @@ function SettingsView:initialize(opts)
         TITLE     = "",
         MARGIN    = L.margin(0),
         EXPAND    = "YES",
+        -- A settings row stretched across a maximised display puts the control several
+        -- thousand pixels from the label that names it, so the column stops growing.
+        MAXSIZE   = L.maxSize(COLUMN_WIDTH, nil),
         THEMEROLE = "settingspanel",
     }
-    -- The column's width is capped by the host, which centres it (HostAPI:centerPage):
-    -- a settings row stretched across a maximised display puts the control several
-    -- thousand pixels from the label that names it.
-    self._column = iup.vbox{ self._panel, EXPAND = "YES" }
+    self._column = iup.vbox{ self._panel, MARGIN = L.margin(L.ROLE.page, 0), EXPAND = "YES" }
 
     -- iup.flatlabel (owner-drawn), not native iup.label: a native label given an
     -- explicit color loses the OS's transparent-background painting once nested
@@ -178,6 +185,7 @@ function SettingsView:initialize(opts)
     -- itself directly from BGCOLOR/FGCOLOR every time, like flatbutton/flatframe.
     self._empty = iup.flatlabel{
         TITLE     = "No settings registered. Extensions add their settings here.",
+        FLOATING  = "NO",
         FONT      = "Segoe UI, 11",
         THEMEROLE = "settingslabel_muted",
     }
@@ -198,15 +206,22 @@ function SettingsView:initialize(opts)
     -- so a hardcoded color here would never update on theme switch. Leaving it
     -- unset lets the color inherit from the dialog, which IS themed.
     self._search_row = iup.hbox{
-        search_box,
-        -- The scrollbar's width, so the box's edge matches the cards' edge below it.
-        iup.fill{ RASTERSIZE = "12x" },
+        iup.hbox{ search_box, MAXSIZE = L.maxSize(COLUMN_WIDTH, nil), EXPAND = "HORIZONTAL" },
         ALIGNMENT = "ACENTER",
-        MARGIN    = L.margin(L.ROLE.page, L.ROLE.row),
+        MARGIN    = L.margin(L.ROLE.page, L.ROLE.section),
     }
-    self._widget = iup.vbox{
-        self._search_row,
-        self._scroll,
+    self._nav_items = iup.vbox{ GAP = L.gap(1), EXPAND = "HORIZONTAL" }
+    self._nav = iup.vbox{
+        self._nav_items,
+        iup.hbox{ RASTERSIZE = L.size(NAV_WIDTH) },
+        MARGIN = "0x" .. L.px(L.ROLE.section),
+        EXPAND = "VERTICAL",
+    }
+    self._lead = iup.fill{ RASTERSIZE = "0x" }
+    self._widget = iup.hbox{
+        self._lead,
+        self._nav,
+        iup.vbox{ self._search_row, self._scroll, EXPAND = "YES" },
         EXPAND   = "YES",
         TABTITLE = "Settings",
     }
@@ -223,14 +238,31 @@ function SettingsView:widget()
     return self._widget
 end
 
---- The search box's row, centred by the host.
-function SettingsView:searchRow()
-    return self._search_row
+--- Fit the page to the width it has: centre list and column together, and give up the
+-- list when both won't fit. The scroll area keeps running to the page's edge, so the
+-- scrollbar stays there too.
+-- @tparam number width
+function SettingsView:fitWidth(width)
+    local iup = self._iup
+    local wide = width >= NAV_MIN_PAGE
+    Kit.show(iup, self._nav, wide, self._search)
+    local lead = wide and math.floor((width - NAV_WIDTH - COLUMN_WIDTH) / 2) or 0
+    iup.SetAttribute(self._lead, "RASTERSIZE", lead .. "x")
 end
 
---- The column of sections inside the scroll area, centred by the host.
-function SettingsView:column()
-    return self._column
+-- Scroll to a section and mark it in the list.
+function SettingsView:_goTo(section)
+    local iup = self._iup
+    for _, other in ipairs(self._sections) do
+        iup.SetAttribute(other.nav_btn, "THEMEROLE", other == section and "settings_nav_on" or "settings_nav")
+        if self._theme_widget then self._theme_widget(other.nav_btn) end
+    end
+    iup.SetAttribute(self._scroll, "SCROLLTOCHILD_HANDLE", section.header)
+end
+
+--- How to re-theme one widget after its role changes.
+function SettingsView:setThemeWidget(fn)
+    self._theme_widget = fn
 end
 
 -- =======================================================================
@@ -448,7 +480,7 @@ function SettingsView:_buildHeader(section, category)
     end
 
     -- More air above a heading than below it, so it reads as opening the card it heads.
-    local air = #self._sections > 0 and iup.fill{ RASTERSIZE = "x" .. L.px(L.ROLE.section) } or nil
+    local air = #self._sections > 0 and iup.fill{ RASTERSIZE = "x" .. L.px(L.ROLE.section_gap) } or nil
     return iup.vbox{
         air,
         btn,
@@ -589,7 +621,10 @@ function SettingsView:addSection(category, opts, mapped)
     local iup = self._iup
     opts = opts or {}
 
-    if self._empty then iup.SetAttribute(self._empty, "VISIBLE", "NO") end
+    if self._empty then
+        iup.SetAttribute(self._empty, "VISIBLE", "NO")
+        iup.SetAttribute(self._empty, "FLOATING", "YES")
+    end
 
     local section = {
         category = category,
@@ -597,6 +632,19 @@ function SettingsView:addSection(category, opts, mapped)
         widgets  = {},
         open     = true,
     }
+
+    local sv = self
+    local nav_btn = iup.flatbutton{
+        TITLE = category, ALIGNMENT = "ALEFT:ACENTER", EXPAND = "HORIZONTAL",
+        THEMEROLE = (#self._sections == 0) and "settings_nav_on" or "settings_nav",
+    }
+    function nav_btn:flat_action()
+        sv:_goTo(section)
+        return iup.DEFAULT
+    end
+    section.nav_btn = nav_btn
+    iup.Append(self._nav_items, nav_btn)
+    section.widgets[#section.widgets + 1] = nav_btn
 
     local header = self:_buildHeader(section, category)
     iup.Append(self._inner, header)
@@ -678,6 +726,7 @@ function SettingsView:removeSection(section)
     end
     if #self._sections == 0 and self._empty then
         iup.SetAttribute(self._empty, "VISIBLE", "YES")
+        iup.SetAttribute(self._empty, "FLOATING", "NO")
     end
     self:_settle()
 end

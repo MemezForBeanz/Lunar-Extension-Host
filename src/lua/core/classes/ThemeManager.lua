@@ -549,6 +549,7 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 
 	if cls == "flatlist" then
 		if r.itemradius then attrs.ITEMRADIUS = tostring(r.itemradius) end
+		if r.itemmarker then attrs.ITEMMARKERCOLOR = r.itemmarker end
 		local sel_bg = r.selbg or r.hover or r.bg
 		local sel_text = r.seltext or r.hovertext or r.fg
 		if sel_bg then
@@ -646,6 +647,7 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 		end
 		if cls == "flattabs" and r.tabspadding then
 			attrs.TABSPADDING = r.tabspadding
+			attrs.TABSIMAGESPACING = "8"
 		end
 		if cls == "flattabs" and r.activeline then
 			attrs.TABSACTIVELINE = r.activeline

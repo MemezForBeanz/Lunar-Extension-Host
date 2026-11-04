@@ -325,6 +325,7 @@ end
 -- gradients/rounded corners from the ThemeManager attribute walk directly and need no
 -- registration here.
 require("core.ui.ThemeReactor").bindThemeManager(theme_mgr)
+settings_view:setThemeWidget(function(widget) theme_mgr:themeWidget(widget) end)
 
 -- Status bar (built before HostAPI, which takes its extension status box).
 status_bar = StatusBar.new({
@@ -981,11 +982,7 @@ theme_mgr:onApply(function()
 	host:syncScrollHosts()
 end)
 pane_grid:onLayout(schedule_recenter)
--- Column and search box are centred separately from the scroll area, so the scrollbar
--- stays on the window's edge rather than floating beside the column.
-host:centerPage(settings_view:searchRow(), SETTINGS_MAX_WIDTH, L.px(L.ROLE.page), L.px(L.ROLE.row),
-	settings_view:widget())
-host:centerPage(settings_view:column(), SETTINGS_MAX_WIDTH, L.px(L.ROLE.page), 0, settings_view:widget())
+host:fitPage(settings_view:widget(), function(width) settings_view:fitWidth(width) end)
 
 -- Rebuild the saved arrangement now that every extension tab and the host's own
 -- Settings tab are in the strip, and while the pages are still unmapped.
