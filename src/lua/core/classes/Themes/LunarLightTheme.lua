@@ -19,7 +19,7 @@ function LunarLightTheme:initialize()
         layer02         = rgb("#f7f7fb"),
         layerHover01    = rgb("#ececf3"),
         layerSelected01 = rgb("#e2e2ee"),
-        borderSubtle01  = rgb("#dcdce6"),
+        borderSubtle01  = rgb("#d0d0da"),
         borderStrong01  = rgb("#b8b8c8"),
         text            = rgb("#27272f"),
         textMuted       = rgb("#666a73"),

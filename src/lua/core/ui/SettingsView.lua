@@ -191,6 +191,7 @@ function SettingsView:initialize(opts)
         self._panel,
         EXPAND    = "YES",
         SCROLLBAR = "VERTICAL",
+        XHIDDEN   = "YES",
     }
 
     -- BGCOLOR intentionally omitted: vbox is a "void" layout container that
@@ -499,7 +500,9 @@ function SettingsView:_buildRow(entry, category)
     -- itself means an extension's widget keeps whatever EXPAND it was built with
     -- and simply fills the column, so nothing has to know about this layout.
     local column = iup.hbox{
-        entry.widget or iup.fill{},
+        entry.widget or (expandable and iup.flatlabel{
+            TITLE = "Click the name to see them", THEMEROLE = "settingslabel_muted",
+        }) or iup.fill{},
         -- Width only: the height component is deliberately empty so IUP still
         -- measures the control's own height, which differs between a toggle, a
         -- text field and a dropdown.
