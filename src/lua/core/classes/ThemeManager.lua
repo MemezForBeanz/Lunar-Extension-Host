@@ -509,6 +509,36 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 		if r.fg then
 			attrs.ARROWCOLOR = r.fg
 		end
+		-- The slim, arrowless bar. Not for the native classes: they ignore these.
+		if r.scrollsize and (cls == "flatlist" or cls == "flatscrollbox") then
+			attrs.SCROLLBARSIZE = tostring(r.scrollsize)
+			attrs.SHOWARROWS = "NO"
+			attrs.SB_CORNERRADIUS = tostring(r.scrollradius or math.floor(r.scrollsize / 2))
+		end
+	end
+
+	-- Every split in the app, whoever built it, drags on the same flat edge. The
+	-- extension's own SHOWGRIP is replaced on purpose: this is what retires IUP's
+	-- dotted grip without touching any extension (fork patch 0005).
+	if cls == "split" then
+		attrs.SHOWGRIP = "SASH"
+		attrs.BARSIZE = tostring(r.barsize or 7)
+		if r.border then attrs.COLOR = r.border end
+		attrs.HLCOLOR = r.sash or r.border
+	end
+
+	-- A checkbox the theme owns: no white tile on a dark page (fork patch 0005).
+	if cls == "flattoggle" and r.checkbg then
+		attrs.CHECKBGCOLOR = r.checkbg
+		attrs.CHECKFGCOLOR = r.checkfg
+		attrs.CHECKHLCOLOR = r.checkhl
+		attrs.CHECKPSCOLOR = r.checkon
+		attrs.CHECKRADIUS = "3"
+	end
+
+	-- Light caught by the corners of a rounded box (fork patch 0005).
+	if r.sheen and (cls == "flatframe" or cls == "flatlist" or cls == "dropbutton") then
+		attrs.BORDERSHEENCOLOR = r.sheen
 	end
 
 	if cls == "flatlist" then
@@ -581,6 +611,10 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 	-- but emits nothing for those themes.
 	if cls == "flatbutton" or cls == "flatframe" or cls == "flatlabel"
 			or cls == "flattoggle" or cls == "dropbutton" then
+		if r.titlealign and cls == "flatframe" then
+			attrs.TITLEALIGNMENT = r.titlealign
+			attrs.TITLELINE = "NO"
+		end
 		if r.gradcolor then
 			attrs.GRADIENTCOLOR     = r.gradcolor
 			-- r.graddir defaults to VERTICAL when unset (the IUP fork's own
@@ -601,6 +635,9 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 		-- mix; a theme opting into cards turns the lines off explicitly.
 		if cls == "flattabs" and r.showlines == false then
 			attrs.SHOWLINES = "NO"
+		end
+		if cls == "flattabs" and r.tabspadding then
+			attrs.TABSPADDING = r.tabspadding
 		end
 	end
 

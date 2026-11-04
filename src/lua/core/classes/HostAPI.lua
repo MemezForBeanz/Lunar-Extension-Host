@@ -65,6 +65,7 @@ local applog = require("core.lib.log")
 local UI_TOOLKIT = {
     ContextMenu     = require("core.ui.ContextMenu"),
     FlatDropdown    = require("core.ui.FlatDropdown"),
+    FlatField       = require("core.ui.FlatField"),
     ReorderableList = require("core.ui.ReorderableList"),
     CheckList       = require("core.ui.CheckList"),
     SettingsView    = require("core.ui.SettingsView"),
@@ -635,6 +636,7 @@ function HostAPI:_scaleSidePadding(side_padding, opts) return Layout._scaleSideP
 
 function HostAPI:_wrapTabForPadding(widget, opts) return Layout._wrapTabForPadding(self, widget, opts) end
 function HostAPI:_wrapTabForScroll(widget) return Layout._wrapTabForScroll(self, widget) end
+function HostAPI:recenterPages() return Layout.recenterPages(self) end
 
 --- Append a tab to the main tab strip.
 --
@@ -693,6 +695,7 @@ function HostAPI:addStatusElement(widget, opts, owner) return Layout.addStatusEl
 -- @tparam[opt] table owner owning extension
 -- @treturn userdata the supplied `widget`
 function HostAPI:addStatusWidget(widget, owner) return Layout.addStatusWidget(self, widget, owner) end
+function HostAPI:_commandFromMenuItem(title, callback, target, owner) return Menus._commandFromMenuItem(self, title, callback, target, owner) end
 function HostAPI:_ensureFileSeparator() return Menus._ensureFileSeparator(self) end
 function HostAPI:_ensureHelpSeparator() return Menus._ensureHelpSeparator(self) end
 function HostAPI:_resetMenuSeparators() return Menus._resetMenuSeparators(self) end
@@ -711,6 +714,45 @@ function HostAPI:_resetMenuSeparators() return Menus._resetMenuSeparators(self) 
 -- @treturn userdata the created IUP menu item
 -- @usage ctx:addMenuItem("Open Repo...", open_repo, "file", M)
 function HostAPI:addMenuItem(title, callback, target, owner) return Menus.addMenuItem(self, title, callback, target, owner) end
+
+--- Connect the command bar's registry (`core.classes.CommandRegistry`). Host only.
+function HostAPI:setCommands(registry)
+    self._commands = registry
+end
+
+--- Add a command to the command bar (Ctrl+P).
+--
+-- Menu items are added automatically; use this for actions that have no menu item.
+--
+-- @tparam table spec `title` and `run` are required; `category` (defaults to the
+--   extension's name), `id`, `keywords`, `detail` and `when` are optional. See
+--   `core.classes.CommandRegistry`.
+-- @param[opt] owner the extension; pass your module table as usual
+-- @treturn table|nil the stored command
+-- @usage ctx:addCommand({ title = "Clear Output", run = clear }, M)
+function HostAPI:addCommand(spec, owner)
+    if not self._commands or type(spec) ~= "table" then return nil end
+    local manifest = self._manifest_by_owner[owner]
+    if not spec.category and manifest then
+        local copy = {}
+        for k, v in pairs(spec) do copy[k] = v end
+        copy.category = manifest.name
+        spec = copy
+    end
+    return self._commands:register(spec, owner)
+end
+
+--- Answer the command bar from a function instead of a fixed list.
+--
+-- @tparam table spec `id` and `items` (`fn(query) -> { item, ... }`) are required. A
+--   `prefix` such as `"task "` gives the provider that prefix to itself; `title` and
+--   `empty` are the hints shown while it answers. See `core.classes.CommandRegistry`.
+-- @param[opt] owner the extension
+-- @treturn table|nil the stored provider
+function HostAPI:addCommandProvider(spec, owner)
+    if not self._commands then return nil end
+    return self._commands:addProvider(spec, owner)
+end
 
 --- Add a color theme (host API 2).
 --
@@ -934,6 +976,7 @@ end
 -- @treturn boolean `true` once cleanup has run
 -- @treturn number how many steps failed (each was logged)
 function HostAPI:removeOwned(owner)
+    if self._commands then self._commands:removeOwned(owner) end
     local iup = self.iup
     local r = self._owners[owner]
     local host = self

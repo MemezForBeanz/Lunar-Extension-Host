@@ -155,9 +155,73 @@ function TabGroups:initialize(opts)
 	self._refresh_wanted  = false   -- a layout pass is owed at depth 0
 	self._changed_wanted  = false   -- a save + re-scope is owed at depth 0
 
+	self._active_root = self._root
+	self._panes = {}   -- zone -> strip; see setPanes
+
 	if self._root then
 		self:_prepareStrip(self._root)
 	end
+end
+
+--- Add the workspace's extra panes (`core.classes.PaneGrid`) as further roots.
+--
+-- A pane is a root in every way that matters: its tabs are walked, saved and restored
+-- with the main strip's, and tabs drag in and out of it. The serialized form keeps
+-- them apart (`panes`), so a layout read by a build without panes loses nothing but
+-- the panes.
+--
+-- @tparam table panes zone name -> `iup.flattabs`
+function TabGroups:setPanes(panes)
+	self._panes = panes or {}
+	for _, strip in pairs(self._panes) do self:_prepareStrip(strip) end
+end
+
+-- The main strip, then each pane in a stable order.
+function TabGroups:_roots()
+	local roots = { self._root }
+	local zones = {}
+	for zone in pairs(self._panes) do zones[#zones + 1] = zone end
+	table.sort(zones)
+	for _, zone in ipairs(zones) do roots[#roots + 1] = self._panes[zone] end
+	return roots
+end
+
+function TabGroups:_isRoot(strip)
+	for _, root in ipairs(self:_roots()) do
+		if self:_same(strip, root) then return true end
+	end
+	return false
+end
+
+--- The root a page or strip sits under.
+function TabGroups:rootOf(widget)
+	local cur, guard = widget, 0
+	while cur and guard < MAX_DEPTH do
+		if self:_isRoot(cur) then return cur end
+		cur = self:stripOf(cur)
+		guard = guard + 1
+	end
+	return nil
+end
+
+--- Say which root the user is working in: `activeLeaf` answers from it, so an
+-- extension's menus and shortcuts follow the pane that was last touched.
+function TabGroups:setActiveRoot(strip)
+	self._active_root = strip or self._root
+end
+
+--- Every leaf page in every root, in display order.
+-- @treturn {userdata,...}
+function TabGroups:leaves()
+	local out = {}
+	local function walk(strip, depth)
+		if depth > MAX_DEPTH then return end
+		for _, child in ipairs(self:_children(strip)) do
+			if self:isGroupStrip(child) then walk(child, depth + 1) else out[#out + 1] = child end
+		end
+	end
+	for _, root in ipairs(self:_roots()) do walk(root, 0) end
+	return out
 end
 
 -- =======================================================================
@@ -394,7 +458,7 @@ end
 -- @treturn number
 function TabGroups:depthOf(strip)
 	local depth, cur = 0, strip
-	while cur and not self:_same(cur, self._root) and depth < MAX_DEPTH do
+	while cur and not self:_isRoot(cur) and depth < MAX_DEPTH do
 		cur = self:stripOf(cur)
 		depth = depth + 1
 	end
@@ -417,7 +481,9 @@ function TabGroups:stripsDeepestFirst()
 			if self:isGroupStrip(child) then walk(child, depth + 1) end
 		end
 	end
-	if self._root then walk(self._root, 0) end
+	if self._root then
+		for _, root in ipairs(self:_roots()) do walk(root, 0) end
+	end
 	table.sort(out, function(a, b) return a.depth > b.depth end)
 	local strips = {}
 	for _, e in ipairs(out) do strips[#strips + 1] = e.strip end
@@ -450,7 +516,12 @@ function TabGroups:groupPaths()
 			end
 		end
 	end
-	if self._root then walk(self._root, nil, 0) end
+	if self._root then
+		walk(self._root, nil, 0)
+		for _, root in ipairs(self:_roots()) do
+			if not self:_same(root, self._root) then walk(root, nil, 0) end
+		end
+	end
 	return out
 end
 
@@ -817,8 +888,11 @@ end
 function TabGroups:activeLeaf()
 	local iup = self._iup
 	if not self._root then return nil end
-	local ok, active = pcall(iup.GetAttributeHandle, self._root, "VALUE")
-	if not ok or not active then return nil end
+	local ok, active = pcall(iup.GetAttributeHandle, self._active_root or self._root, "VALUE")
+	if not ok or not active then
+		ok, active = pcall(iup.GetAttributeHandle, self._root, "VALUE")
+		if not ok or not active then return nil end
+	end
 	local guard = 0
 	while self:isGroupStrip(active) and guard < MAX_DEPTH do
 		local ok2, inner = pcall(iup.GetAttributeHandle, active, "VALUE")
@@ -850,7 +924,8 @@ function TabGroups:reveal(widget)
 		local pos = self:_posOf(cur)
 		if pos == nil then return false end
 		chain[#chain + 1] = { strip = strip, pos = pos }
-		if self:_same(strip, self._root) then
+		if self:_isRoot(strip) then
+			self._active_root = strip
 			for i = #chain, 1, -1 do
 				local step = chain[i]
 				pcall(iup.SetAttribute, step.strip, "VALUEPOS", tostring(step.pos))
@@ -977,9 +1052,18 @@ function TabGroups:serialize()
 	self:_captureActive()
 	local children = self:_serializeStrip(self._root, 0)
 	self:_mergeAbsent(children)
+	local panes
+	for zone, strip in pairs(self._panes) do
+		local nodes = self:_serializeStrip(strip, 0)
+		if #nodes > 0 then
+			panes = panes or {}
+			panes[zone] = nodes
+		end
+	end
 	return {
 		version  = SCHEMA_VERSION,
 		children = children,
+		panes    = panes,
 	}
 end
 
@@ -1124,6 +1208,13 @@ function TabGroups:_restore()
 	if saved then
 		self._live_index = live
 		self:_restoreInto(self._root, saved.children, placed, 0, {})
+		if type(saved.panes) == "table" then
+			for zone, strip in pairs(self._panes) do
+				if type(saved.panes[zone]) == "table" then
+					self:_restoreInto(strip, saved.panes[zone], placed, 0, {})
+				end
+			end
+		end
 		self._live_index = nil
 	end
 
@@ -1138,9 +1229,11 @@ function TabGroups:_restore()
 		end
 	end
 
-	self:_pruneEmptyGroups(self._root)
-	self:_restoreActive(self._root, 0)
-	self:_syncTitlesDeep(self._root, 0)
+	for _, root in ipairs(self:_roots()) do
+		self:_pruneEmptyGroups(root)
+		self:_restoreActive(root, 0)
+		self:_syncTitlesDeep(root, 0)
+	end
 	self:_requestRefresh()
 
 	self._restored = true
@@ -1173,7 +1266,7 @@ function TabGroups:_flatten()
 			end
 		end
 	end
-	walk(self._root, 0)
+	for _, root in ipairs(self:_roots()) do walk(root, 0) end
 
 	for _, widget in ipairs(leaves) do pcall(iup.Detach, widget) end
 	-- Whatever is left at the root is a group strip (its members were just taken
@@ -1181,9 +1274,11 @@ function TabGroups:_flatten()
 	-- it. Nothing else references them: group state lives on the widget, so there
 	-- is no registry entry to leak or, worse, to be reused by a later group and
 	-- silently shared -- which is exactly how the duplication bug worked.
-	for _, child in ipairs(self:_children(self._root)) do
-		pcall(iup.Detach, child)
-		pcall(iup.Destroy, child)
+	for _, root in ipairs(self:_roots()) do
+		for _, child in ipairs(self:_children(root)) do
+			pcall(iup.Detach, child)
+			pcall(iup.Destroy, child)
+		end
 	end
 	return leaves
 end

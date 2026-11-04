@@ -238,4 +238,20 @@ function M.windowFit(rect)
 	}
 end
 
+--- Ask Windows 11 to round a borderless window's corners and give it a shadow.
+-- Does nothing on anything else: the window just stays square.
+-- @tparam userdata iup
+-- @tparam userdata dialog a mapped dialog
+function M.roundWindow(iup, dialog)
+	if not ffi or ffi.os ~= "Windows" then return end
+	pcall(function()
+		ffi.cdef("int DwmSetWindowAttribute(void*, unsigned long, const void*, unsigned long);")
+		local IupFFI = require("core.classes.IupFFI")
+		local hwnd = IupFFI.getptr(IupFFI.ptr(dialog), "HWND")
+		local DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND = 33, 2
+		local value = ffi.new("int[1]", DWMWCP_ROUND)
+		ffi.load("dwmapi").DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, value, 4)
+	end)
+end
+
 return M

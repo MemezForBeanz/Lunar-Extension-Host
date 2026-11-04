@@ -60,6 +60,21 @@ local winbatch = require("core.lib.winbatch")
 
 local M = {}
 
+-- Positions a dragged divider settles on, in IUP's thousandths, and how close it has
+-- to come. Sizing two panes equally by eye is fiddly; a light pull makes it exact.
+local SNAP_POINTS = { 250, 333, 500, 667, 750 }
+local SNAP_RANGE = 10
+
+--- Pull a split position onto a snap point when it is close to one.
+-- @tparam number value 0 to 1000
+-- @treturn number
+function M.snap(value)
+	for _, point in ipairs(SNAP_POINTS) do
+		if math.abs(value - point) <= SNAP_RANGE then return point end
+	end
+	return value
+end
+
 --- Attach smooth drag behaviour to a split.
 --
 -- `opts` fields:
@@ -83,6 +98,12 @@ function M.attach(iup, split, opts)
 	local on_change = opts.on_change
 
 	function split:valuechanged_cb()
+		local value = tonumber(iup.GetAttribute(split, "VALUE"))
+		local snapped = value and M.snap(value)
+		if snapped and snapped ~= value then
+			pcall(iup.SetAttribute, split, "VALUE", tostring(snapped))
+		end
+
 		-- `RefreshChildren`, never `Refresh`. The latter ignores the widget it is
 		-- given and relays out the whole dialog, which on a drag would be an
 		-- enormous amount of work per mouse sample.

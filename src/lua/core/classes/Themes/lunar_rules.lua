@@ -11,11 +11,11 @@
 --      on (`borderSubtle01`) -- visible, never loud. Vivid color is reserved
 --      for interactive emphasis: the primary action's fill, a semantic
 --      button's outline, selection.
---   2. SELECTIVE ROUNDING. Interactive controls (buttons, toggles,
---      dropbuttons) get a 4px radius; container frames get 6px; structural
---      surfaces (lists, panels, strips) stay square. CORNERRADIUS exists only
---      on the five fork-patched flat classes, so rules never emit a radius a
---      class cannot honour (ThemeManager also guards this).
+--   2. GENEROUS, LIT ROUNDING. Interactive controls get a 6px radius and
+--      container surfaces (frames, lists, panes) 10px, and the corners of a
+--      container catch a little light (`sheen`, fork patch 0005). CORNERRADIUS
+--      exists only on the fork-patched flat classes, so rules never emit a
+--      radius a class cannot honour (ThemeManager also guards this).
 --   3. SOFT GRADIENTS, SPARINGLY. The shell header and the accent strip carry
 --      the only gradients. Buttons are flat fills: the fork keeps
 --      GRADIENTCOLOR fixed while HLCOLOR fills on hover, so a gradient button
@@ -68,8 +68,21 @@ function M.build(p)
     local border   = p.borderSubtle01  or p.border
     local borderS  = p.borderStrong01  or p.borderStrong or border
 
-    local R  = p.radius or 4        -- interactive controls
-    local RF = p.radiusFrame or 6   -- container frames
+    local R  = p.radius or 6        -- interactive controls
+    local RF = p.radiusFrame or 10  -- container surfaces
+    -- The lit corners: a step past the strong border, so they read as light on
+    -- the edge and not as a brighter outline.
+    local sheen = p.sheen or shade(borderS, 0.22)
+    -- The flat scrollbar: a quiet rounded thumb on no track, no arrows. The
+    -- accent is for what the user can act on, so it is kept for the pressed
+    -- thumb instead of every scrollbar at rest.
+    local function scroll(rule)
+        rule.scrollsize  = 10
+        rule.scrollfg    = borderS
+        rule.scrollhi    = p.textMuted
+        rule.scrollpress = p.accent
+        return rule
+    end
 
     -- Buttons at VS Code / Obsidian scale, not Carbon's 40px target: a ~15px
     -- body line plus 5px above and below lands on a ~27px control, and 12px
@@ -113,8 +126,8 @@ function M.build(p)
         -- darker toward the content, Obsidian-style depth without a drawn line.
         shellheader   = { bg = p.bg, fg = p.text, border = border, borderwidth = 1,
                           gradcolor = p.gradShell or shade(p.bg, -0.05) },
-        shellbrand    = { bg = p.bg, fg = p.text, font = sized(p.font, 11, true), padding = "0x0" },
-        shellproduct  = { bg = p.bg, fg = p.text, font = sized(p.font, 11), padding = "0x0" },
+        shellbrand    = { bg = p.bg, fg = p.text, font = sized(p.font, 10, true), padding = "0x0" },
+        shellproduct  = { bg = p.bg, fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
         shellmeta     = { bg = p.bg, fg = p.textMuted, font = sized(p.font, 9), padding = "0x0" },
         -- The 4px band under the header: the signature sweep, violet into
         -- slate, horizontal because the band is only a few pixels tall.
@@ -148,9 +161,10 @@ function M.build(p)
         zbox          = { bg = p.bg,     fg = p.text, font = p.font },
         cbox          = { bg = p.bg,     fg = p.text, font = p.font },
         gridbox       = { bg = p.bg,     fg = p.text, font = p.font },
-        split         = { bg = p.bg,     fg = p.text, border = border },
+        split         = { bg = p.bg,     fg = p.text, border = border, sash = p.accent, barsize = 7 },
         frame         = { bg = p.bg,     fg = p.text, font = p.font, border = border },
-        flatframe     = { bg = p.bg,     fg = p.text, font = p.font, border = border, radius = RF },
+        flatframe     = { bg = layer1,   fg = p.text, font = p.font, border = border, radius = RF,
+                          sheen = sheen, titlealign = "ALEFT" },
         flatseparator = { bg = p.bg, border = border },
         tabs          = { bg = p.bg,     fg = p.text, font = p.font, border = border },
         -- The tab strip: a well one step DARKER than the app floor, so the
@@ -163,15 +177,16 @@ function M.build(p)
             tabsbg = p.gradShellWell or shade(p.bg, -0.35), tabsfg = p.textMuted,
             border = border, borderwidth = 1,
             hover = hover, selbg = selected,
-            radius = 6, focusfeedback = false, showlines = false,
+            radius = R, focusfeedback = false, showlines = false,
+            tabspadding = "12x6",
         },
         scrollbox     = { bg = layer1, fg = p.text, border = border },
-        flatscrollbox = { bg = layer1, fg = p.text, border = border, borderwidth = 1 },
-        tabscroll     = { bg = p.bg, fg = p.text, border = p.bg, borderwidth = 0 },
+        flatscrollbox = scroll({ bg = layer1, fg = p.text, border = border, borderwidth = 1, scrollbg = layer1 }),
+        tabscroll     = scroll({ bg = p.bg, fg = p.text, border = p.bg, borderwidth = 0, scrollbg = p.bg }),
         label         = { fg = p.text, font = p.font },
         settingslabel       = { fg = p.text,      font = p.font },
         settingslabel_muted = { fg = p.textMuted, font = p.font },
-        settingspanel = { bg = layer1 },
+        settingspanel = { bg = layer1, border = layer1, borderwidth = 0, radius = 0 },
         settingsheader = {
             bg = layer1, fg = p.text, font = p.font,
             border = layer1, borderwidth = 0, radius = R,
@@ -236,33 +251,39 @@ function M.build(p)
         dropdown_list = {
             bg = elevated, fg = p.text, font = p.font,
             border = border, borderwidth = 1, radius = R,
-            scrollbg = elevated, scrollfg = p.accent,
-            selbg = selected, seltext = p.accent, selalpha = "255",
+            scrollbg = elevated, scrollfg = borderS,
+            selbg = selected, seltext = p.text, selalpha = "0",
         },
 
         -- Lists and data panes: square by design (rule 2).
-        list_bordered = {
-            bg = layer1, fg = p.text, font = p.font, border = border, borderwidth = 1, radius = R,
-            scrollbg = layer1, scrollfg = p.accent,
-            selbg = layer1, seltext = p.accent, selalpha = "0",
-        },
-        list_plain    = {
+        list_bordered = scroll({
+            bg = layer1, fg = p.text, font = p.font, border = border, borderwidth = 1, radius = RF,
+            scrollbg = layer1, sheen = sheen,
+            selbg = selected, seltext = p.text, selalpha = "0",
+        }),
+        list_plain    = scroll({
             bg = layer1, fg = p.text, font = p.font, border = layer1, borderwidth = 0,
-            scrollbg = layer1, scrollfg = p.accent,
-            selbg = layer1, seltext = p.accent, selalpha = "0",
-        },
+            scrollbg = layer1,
+            selbg = selected, seltext = p.text, selalpha = "0",
+        }),
         outputlog     = {
             bg = layer1, fg = p.text, border = border,
-            scrollbg = layer1, scrollfg = p.accent,
+            scrollbg = layer1, scrollfg = borderS,
         },
-        outputlog_scroll = {
+        outputlog_scroll = scroll({
             bg = layer1, fg = p.text, border = border, borderwidth = 1,
-            scrollbg = layer1, scrollfg = p.accent,
-        },
+            scrollbg = layer1,
+        }),
+        list_bordered_scroll = scroll({
+            bg = layer1, fg = p.text, border = border, borderwidth = 1,
+            scrollbg = layer1,
+        }),
         toggle        = { fg = p.text, font = p.font },
-        flattoggle    = { bg = layer1, fg = p.accent, font = p.font, radius = R },
-        flattoggle_noborder = { bg = layer1, fg = p.accent, font = p.font,
-            border = layer1, borderwidth = 0, radius = R },
+        flattoggle    = { bg = layer1, fg = p.text, font = p.font, radius = R,
+            checkbg = elevated, checkfg = borderS, checkhl = p.textMuted, checkon = p.accent },
+        flattoggle_noborder = { bg = layer1, fg = p.text, font = p.font,
+            border = layer1, borderwidth = 0, radius = R,
+            checkbg = elevated, checkfg = borderS, checkhl = p.textMuted, checkon = p.accent },
 
         -- Fields: a dim box on the raised surface; the strong border marks the
         -- input edge the way VS Code's inputs read against their panels. The
@@ -272,11 +293,32 @@ function M.build(p)
         text      = { bg = layer1, fg = p.text, font = p.font, border = borderS, radius = R },
         multiline = { bg = layer1, fg = p.text, font = p.font, border = borderS, padding = "0x6" },
         list      = { bg = layer1, fg = p.text, font = p.font, border = borderS, padding = "0x6" },
-        flatlist      = {
+        flatlist      = scroll({
             bg = layer1, fg = p.text, font = p.font,
-            border = border, borderwidth = 1, radius = R,
-            selbg = p.accent, seltext = p.accentText, selalpha = "255",
+            border = border, borderwidth = 1, radius = RF, sheen = sheen,
+            scrollbg = layer1,
+            selbg = selected, seltext = p.text, selalpha = "0",
+        }),
+        -- A field edge in focus. core.ui.FlatField swaps its frame to this role.
+        text_focus = { bg = layer1, fg = p.text, font = p.font, border = p.accent, radius = R },
+        -- The bottom bar's command bar: reads as a recessed field, not a button.
+        commandbar = {
+            bg = layer1, fg = p.textMuted, font = sized(p.font, 9),
+            border = border, borderwidth = 1, showborder = true, radius = R,
+            padding = "10x3",
+            hover = hover, hovertext = p.text,
+            pressed = selected, pressedtext = p.text,
         },
+        palette_text = { bg = elevated, fg = p.text, font = sized(p.font, 11) },
+        palette_hint = { bg = elevated, fg = p.textMuted, font = sized(p.font, 9) },
+        snap_preview = { bg = p.accent, fg = p.accent, border = p.accent },
+        palette_frame = { bg = elevated, fg = p.text, font = p.font, border = borderS,
+                          radius = RF, sheen = sheen },
+        palette_list = scroll({
+            bg = elevated, fg = p.text, font = p.font, border = elevated, borderwidth = 0,
+            radius = R, scrollbg = elevated,
+            selbg = selected, seltext = p.text, selalpha = "0",
+        }),
         progressbar   = { bg = layer1, fg = p.accent, border = border },
         gauge         = { bg = layer1, fg = p.accent, border = border },
     }

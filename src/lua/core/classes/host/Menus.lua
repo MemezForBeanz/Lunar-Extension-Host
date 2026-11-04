@@ -42,6 +42,30 @@ function M._resetMenuSeparators(self)
     if self._help_sep then iup.Detach(self._help_sep); iup.Destroy(self._help_sep); self._help_sep = nil end
 end
 
+-- Every menu item is also a command, so the command bar covers an extension that has
+-- never heard of it. A tab-scoped item is only offered while its menu is showing: its
+-- action assumes its tab is the one in front.
+function M._commandFromMenuItem(self, title, callback, target, owner)
+    local commands = self._commands
+    if not (commands and callback) then return end
+    local manifest = self._manifest_by_owner[owner]
+    local record = self._owners[owner or DEFAULT_OWNER]
+    local host = self
+    commands:register({
+        id = "menu." .. tostring(target or "extensions") .. "." .. title,
+        title = (title:gsub("%.%.%.$", "")),
+        category = manifest and manifest.name or "Lunar",
+        run = function()
+            callback()
+            return true
+        end,
+        when = function()
+            if not (record and #record.tabs > 0) then return true end
+            return host:_activeOwner() == (owner or DEFAULT_OWNER)
+        end,
+    }, owner)
+end
+
 function M.addMenuItem(self, title, callback, target, owner)
     local iup = self.iup
     local item = iup.item{ TITLE = title }
@@ -72,6 +96,7 @@ function M.addMenuItem(self, title, callback, target, owner)
         present = true,
     }
     if self._shown then self:_applyMenuScope() end
+    self:_commandFromMenuItem(title, callback, target, owner)
 
     return item
 end

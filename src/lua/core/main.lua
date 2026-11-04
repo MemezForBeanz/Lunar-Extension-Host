@@ -75,6 +75,10 @@ local ThemeManager = require("core.classes.ThemeManager")
 local SystemTheme = require("core.lib.SystemTheme")
 local TabOrder = require("core.classes.TabOrder")
 local TabGroups = require("core.classes.TabGroups")
+local PaneGrid = require("core.classes.PaneGrid")
+local CommandRegistry = require("core.classes.CommandRegistry")
+local CommandPalette = require("core.ui.CommandPalette")
+local VectorIcon = require("core.ui.VectorIcon")
 local MotionDirector = require("core.classes.MotionDirector")
 local Scrim = require("core.ui.Scrim")
 local ModalMotion = require("core.ui.ModalMotion")
@@ -102,12 +106,27 @@ local Updater = require("core.lib.Updater")
 -- neutral Lunar: no org branding, no org endpoints, no update checks. Resolved
 -- from local files only, so startup never waits on the network.
 local ORG_PROFILE, ORG_INFO
+
+-- The pack chosen with the command bar's Load Org Pack. Read straight from the file:
+-- the settings manager is configured from the profile, so it does not exist yet.
+local function saved_pack_pick()
+	local ok, pick = pcall(function()
+		local file = io.open(platform.path:join(platform.config_dir(), "settings.json"), "rb")
+		if not file then return nil end
+		local text = file:read("*a")
+		file:close()
+		return require("cjson").decode(text).org_pack_pick
+	end)
+	return ok and type(pick) == "string" and pick or nil
+end
+
 do
 	-- A broken profile install must never stop the app from starting.
 	-- LUNAR_PROFILE=<id> picks a profile by hand, but only in a dev build: an
 	-- installed build never lets an environment variable choose its org.
 	local ok, profile, info = pcall(OrgProfile.resolve, {
 		dev_select = DEV_BUILD and os.getenv("LUNAR_PROFILE") or nil,
+		user_select = saved_pack_pick(),
 	})
 	if ok then
 		ORG_PROFILE, ORG_INFO = profile, info
@@ -363,6 +382,9 @@ require("core.ui.ThemeReactor").bindThemeManager(theme_mgr)
 status_bar = StatusBar.new({
 	iup = iup,
 	icon_dir = ICON_DIR,
+	search_icon = VectorIcon.imageHandle(iup, {
+		path = platform.path:join(ICON_DIR, "search.svg"), size = 14, color = "#8b90a0",
+	}),
 	-- The org's logo, when its profile ships one; the neutral build shows none.
 	logo = ORG_PROFILE and ORG_PROFILE.brand.logo,
 })
@@ -481,10 +503,14 @@ local WORK_W, WORK_H, TASKBAR = STARTUP.work_w, STARTUP.work_h, STARTUP.taskbar
 -- background show through as a seam, which is how Carbon tile and shell layouts
 -- establish structure without drawn borders. L.gutter() returns the spacing-step-1
 -- pixel value (2) and reads at a glance as "this is a seam, not a margin".
+-- The workspace: the main tab strip plus the panes a tab can be split into. Empty
+-- panes take no space, so with nothing split this is exactly the single strip.
+local pane_grid = PaneGrid:new({ iup = iup, main = tabs, settings = settings_mgr })
+
 local content_box = iup.vbox({
 	shell_header,
 	gradient_strip,
-	tabs,
+	pane_grid:widget(),
 	status_bar:widget(),
 	MARGIN = L.margin(0),
 	GAP = tostring(L.gutter()),
@@ -544,11 +570,28 @@ local function recalc_shell_budget(client_h)
 	local value = "65535x" .. cap
 	if iup.GetAttribute(tabs, "MAXSIZE") == value then return false end
 	iup.SetAttribute(tabs, "MAXSIZE", value)
+	iup.SetAttribute(pane_grid:widget(), "MAXSIZE", value)
 	return true
+end
+
+-- Page widths are only known after the layout pass a resize triggers.
+local recenter_timer = iup.timer({ time = 30 })
+function recenter_timer:action_cb()
+	self.run = "NO"
+	if host then
+		host:recenterPages()
+		iup.Refresh(dlg)
+	end
+	return iup.DEFAULT
+end
+local function schedule_recenter()
+	recenter_timer.run = "NO"
+	recenter_timer.run = "YES"
 end
 
 function dlg:resize_cb(_, h)
 	recalc_shell_budget(h)
+	schedule_recenter()
 	return iup.DEFAULT -- winDialogResize performs the layout after this callback.
 end
 
@@ -626,6 +669,152 @@ local function show_address_dialog()
 		parent = dlg,
 		notify_tree_change = function(w) theme_mgr:themeWidget(w) end,
 	})
+end
+
+-- The command bar. Registered before the menu items below and before extensions
+-- load, so every menu item lands in it (core.classes.host.Menus).
+local commands = CommandRegistry:new({
+	settings = settings_mgr,
+	open_address = function(uri)
+		local ok, err = host:dispatchRoute(uri)
+		if ok then return true end
+		return nil, type(err) == "table" and err.message or tostring(err)
+	end,
+})
+host:setCommands(commands)
+
+local command_palette = CommandPalette.new({
+	iup = iup,
+	registry = commands,
+	parent = dlg,
+	notify_tree_change = function(w) theme_mgr:themeWidget(w) end,
+	on_error = function(message) host:setStatus(message) end,
+	round = function(window) require("core.lib.desktop").roundWindow(iup, window) end,
+	anchor = function()
+		local bar = status_bar:commandWidget()
+		local x, y = tostring(iup.GetAttribute(bar, "SCREENPOSITION") or ""):match("(-?%d+),(-?%d+)")
+		local w = tostring(iup.GetAttribute(bar, "RASTERSIZE") or ""):match("^(%d+)x")
+		if not (x and w) then return nil end
+		return tonumber(x), tonumber(y), tonumber(w)
+	end,
+})
+status_bar:onCommand(function() command_palette:toggle() end)
+host:registerShortcut(iup.K_cP, function() command_palette:toggle() end)
+host:_installKeyDispatch(dlg)
+
+local function add_host_command(id, title, run, extra)
+	local spec = { id = "host." .. id, title = title, category = "Lunar", run = function()
+		run()
+		return true
+	end }
+	for k, v in pairs(extra or {}) do spec[k] = v end
+	commands:register(spec)
+end
+
+add_host_command("address", "Open Lunar Address", function() command_palette:open("lunar://") end,
+	{ keywords = "go to route url link" })
+add_host_command("settings", "Open Settings", function() host:dispatchRoute("lunar://host/settings") end,
+	{ keywords = "preferences options" })
+add_host_command("reload", "Restart Extensions", function() mh.reload_extensions() end,
+	{ keywords = "reload refresh plugins" })
+add_host_command("updates", "Check for Updates", function() update_check:checkNow() end,
+	{ when = function() return update_check ~= nil end })
+add_host_command("tabbars", "Show All Tab Bars", function() tab_groups:showAllTabBars() end)
+add_host_command("splits.reset", "Close All Splits", function() pane_grid:reset() end,
+	{ keywords = "unsplit panes merge" })
+
+local function split_active(zone)
+	return function()
+		local page = tab_groups:activeLeaf()
+		if page then pane_grid:move(page, zone) end
+		host:_applyTabScopes()
+	end
+end
+add_host_command("split.right", "Split Tab Right", split_active("right"), { keywords = "pane side by side" })
+add_host_command("split.down", "Split Tab Down", split_active("bottom"), { keywords = "pane below" })
+
+-- Load Org Pack: the packs this machine has, one of which the user may choose when
+-- nothing else assigns one (see OrgProfile.resolve, step 3).
+add_host_command("orgpack", "Load Org Pack", function()
+	local items = {}
+	for _, id in ipairs(ORG_INFO.available or {}) do
+		local loaded = ORG_PROFILE and ORG_PROFILE.id == id
+		items[#items + 1] = {
+			id = "orgpack." .. id, title = id, category = loaded and "Loaded" or "Org Pack",
+			run = function()
+				settings_mgr:set("org_pack_pick", id)
+				settings_mgr:save()
+				host:setStatus("Restart Lunar to load " .. id)
+				return true
+			end,
+		}
+	end
+	if #items == 0 then
+		host:setStatus("No org packs are installed on this machine")
+		return
+	end
+	command_palette:open("", {
+		items = items, placeholder = "Choose an org pack",
+		hint = "Takes effect the next time Lunar starts",
+	})
+end, { keywords = "profile organization" })
+
+commands:addProvider({
+	id = "tabs",
+	items = function()
+		local out = {}
+		if not tab_groups then return out end
+		for _, page in ipairs(tab_groups:leaves()) do
+			local title = iup.GetAttribute(page, "TABTITLE")
+			if title and title ~= "" then
+				out[#out + 1] = {
+					id = "tab." .. tostring(tab_groups:keyOf(page) or title),
+					title = title, category = "Go to",
+					run = function()
+						host:_activateTabWidget(page)
+						return true
+					end,
+				}
+			end
+		end
+		return out
+	end,
+})
+
+commands:addProvider({
+	id = "themes",
+	items = function()
+		local out = {}
+		for _, theme in ipairs(theme_mgr:themes()) do
+			out[#out + 1] = {
+				id = "theme." .. theme.id, title = theme.label, category = "Theme",
+				run = function()
+					theme_mgr:apply(theme.id)
+					return true
+				end,
+			}
+		end
+		return out
+	end,
+})
+
+-- Tasks answer from here, once they exist. The prefix is reserved now so an extension
+-- can supply them and the bar already knows how to show them.
+commands:addProvider({
+	id = "tasks",
+	prefix = "task ",
+	title = "Tasks",
+	empty = "No tasks are defined yet",
+	items = function() return {} end,
+})
+
+-- For scripts/ui_capture.lua, which drives these from outside.
+if DEV_BUILD then
+	_G.LUNAR_DEV_SHELL = {
+		palette = command_palette,
+		panes = pane_grid,
+		groups = function() return tab_groups end,
+	}
 end
 
 host:addMenuItem("Open Lunar Address...", show_address_dialog, "file")
@@ -769,10 +958,17 @@ tab_groups = TabGroups:new({
 })
 tab_order:setGroups(tab_groups)
 host:setTabGroups(tab_groups)
+tab_groups:setPanes(pane_grid:extraStrips())
+pane_grid:setGroups(tab_groups)
+tab_order:setPanes(pane_grid, dlg)
+for _, strip in pairs(pane_grid:extraStrips()) do theme_mgr:themeWidget(strip) end
+theme_mgr:onApply(function() pane_grid:sync() end)
+pane_grid:onLayout(schedule_recenter)
 
 -- Rebuild the saved arrangement now that every extension tab and the host's own
 -- Settings tab are in the strip, and while the pages are still unmapped.
 tab_groups:restore()
+pane_grid:sync()
 
 -- The first time an org's tool group applies on this machine, move the org's
 -- tools into it whatever the saved layout says (a layout from before tool groups
