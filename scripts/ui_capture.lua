@@ -188,7 +188,7 @@ iup.MainLoop = function()
 			local pages_now = groups:leaves()
 			shell.panes:move(pages_now[3] or pages_now[1], "right")
 			if pages_now[4] then shell.panes:move(pages_now[4], "bottom") end
-		elseif scene == 4 then
+		elseif scene == 5 then -- one tick later: pages recentre after the panes settle
 			snap("91-split")
 			return false
 		end

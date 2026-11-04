@@ -67,8 +67,12 @@ local SettingsView = class("SettingsView")
 -- Width of the column every control is laid into, in pixels. Wide enough for a
 -- path-length text field plus a Browse button, which is the widest thing any
 -- shipped extension puts in a row.
-local CONTROL_COLUMN = 420
-local LABEL_COLUMN = 260
+local CONTROL_COLUMN = 300
+
+-- A description up to this long sits under its label for good, wrapped at WRAP_AT.
+-- Anything longer (a table of shortcuts, say) stays behind Show details.
+local INLINE_DESCRIPTION = 170
+local WRAP_AT = 72
 
 -- Chevron edge length in pixels. Carbon's own accordion uses a 16px icon against
 -- body text; this matches.
@@ -140,8 +144,8 @@ function SettingsView:initialize(opts)
     -- Inner container holds section headers and bodies (direct children, so each
     -- can be individually shown/hidden + floated during filtering).
     self._inner = iup.vbox{
-        GAP     = L.gap(L.ROLE.section_gap),
-        MARGIN  = L.margin(L.ROLE.section, L.ROLE.row),
+        GAP     = L.gap(L.ROLE.row_gap),
+        MARGIN  = "0x" .. L.px(L.ROLE.row),
         EXPAND  = "HORIZONTAL",
     }
 
@@ -158,17 +162,12 @@ function SettingsView:initialize(opts)
         TITLE     = "",
         MARGIN    = L.margin(0),
         EXPAND    = "YES",
-        -- Cap the column rather than letting it span the window. A settings row
-        -- stretched across a maximised display puts the control several thousand
-        -- pixels from the label that names it, and no amount of per-row alignment
-        -- fixes that -- the page itself has to stop growing. Carbon caps content
-        -- for exactly this reason.
-        -- maxSize, not size: MAXSIZE reads a 0 axis as "maximum of zero" and would
-        -- collapse the panel to nothing, so the free axis has to be the 65535
-        -- sentinel instead.
-        MAXSIZE   = L.maxSize(L.CONTENT_MAX.form, nil),
         THEMEROLE = "settingspanel",
     }
+    -- The column's width is capped by the host, which centres it (HostAPI:centerPage):
+    -- a settings row stretched across a maximised display puts the control several
+    -- thousand pixels from the label that names it.
+    self._column = iup.vbox{ self._panel, EXPAND = "YES" }
 
     -- iup.flatlabel (owner-drawn), not native iup.label: a native label given an
     -- explicit color loses the OS's transparent-background painting once nested
@@ -188,7 +187,7 @@ function SettingsView:initialize(opts)
     -- ThemeManager's per-class rule, and hardcoding white would survive theme
     -- switches (this widget is otherwise excluded from re-theming).
     self._scroll = iup.flatscrollbox{
-        self._panel,
+        self._column,
         EXPAND    = "YES",
         SCROLLBAR = "VERTICAL",
         XHIDDEN   = "YES",
@@ -198,13 +197,15 @@ function SettingsView:initialize(opts)
     -- ThemeManager skips re-theming (see ThemeManager's VOID_CONTAINERS comment),
     -- so a hardcoded color here would never update on theme switch. Leaving it
     -- unset lets the color inherit from the dialog, which IS themed.
+    self._search_row = iup.hbox{
+        search_box,
+        -- The scrollbar's width, so the box's edge matches the cards' edge below it.
+        iup.fill{ RASTERSIZE = "12x" },
+        ALIGNMENT = "ACENTER",
+        MARGIN    = L.margin(L.ROLE.page, L.ROLE.row),
+    }
     self._widget = iup.vbox{
-        iup.hbox{
-            search_box,
-            ALIGNMENT = "ACENTER",
-            GAP       = L.gap(L.ROLE.inline_gap),
-            MARGIN    = L.margin(L.ROLE.page, L.ROLE.row),
-        },
+        self._search_row,
         self._scroll,
         EXPAND   = "YES",
         TABTITLE = "Settings",
@@ -220,6 +221,16 @@ end
 -- @treturn ihandle
 function SettingsView:widget()
     return self._widget
+end
+
+--- The search box's row, centred by the host.
+function SettingsView:searchRow()
+    return self._search_row
+end
+
+--- The column of sections inside the scroll area, centred by the host.
+function SettingsView:column()
+    return self._column
 end
 
 -- =======================================================================
@@ -420,12 +431,11 @@ function SettingsView:_buildHeader(section, category)
     -- flatscrollbox (see the flatlabel note in the constructor).
     local btn = iup.flatbutton{
         TITLE         = category,
-        FONT          = "Segoe UI, 11",
         ALIGNMENT     = "ALEFT:ACENTER",
         EXPAND        = "HORIZONTAL",
         IMAGEPOSITION = "LEFT",
         SPACING       = tostring(L.px(L.ROLE.label_gap)),
-        PADDING       = L.margin(L.ROLE.label_gap, L.ROLE.row),
+        PADDING       = L.margin(1, 3),
         BORDER        = "NO",
         THEMEROLE     = "settingsheader",
     }
@@ -437,68 +447,75 @@ function SettingsView:_buildHeader(section, category)
         return iup.DEFAULT
     end
 
-    -- flatseparator (not the native label SEPARATOR) so the rule's color follows
-    -- the active theme instead of drawing an OS-native etched line.
-    local rule = iup.flatseparator{ ORIENTATION = "HORIZONTAL", STYLE = "LINE" }
-
+    -- More air above a heading than below it, so it reads as opening the card it heads.
+    local air = #self._sections > 0 and iup.fill{ RASTERSIZE = "x" .. L.px(L.ROLE.section) } or nil
     return iup.vbox{
-        btn, rule,
+        air,
+        btn,
         GAP    = L.gap(0),
         MARGIN = L.margin(0),
         EXPAND = "HORIZONTAL",
     }
 end
 
--- Build one labelled settings row.
---
--- Returns the row widget, its searchable text, and the description sub-widget
--- (nil when the entry has no description).
-function SettingsView:_buildRow(entry, category)
-    local iup = self._iup
-    local expandable = (entry.description ~= nil and entry.description ~= "")
-
-    -- Rows that have something more to say get a *button* for a label; rows that
-    -- do not get a plain label. That difference is the entire disclosure
-    -- affordance: the expandable rows highlight under the pointer and the rest do
-    -- not, so the user learns which rows reward a click without a column of
-    -- chevrons being added to a surface whose problem is visual noise.
-    --
-    -- A flatbutton rather than a flatlabel with a click handler, because
-    -- IupFlatLabel is a canvas control whose BUTTON_CB is not part of its
-    -- documented contract, while FLAT_ACTION on IupFlatButton is exactly this.
-    -- Both are owner-drawn, so both dodge the white-box problem that rules out
-    -- native labels inside the flatscrollbox (see the constructor).
-    local label
-    if expandable then
-        label = iup.flatbutton{
-            TITLE     = entry.label or "",
-            FONT      = "Segoe UI, 11",
-            ALIGNMENT = "ALEFT:ACENTER",
-            PADDING   = L.margin(L.ROLE.label_gap, L.ROLE.label_gap),
-            BORDER    = "NO",
-            CURSOR    = "HAND",
-            TIP       = "Click for details",
-            THEMEROLE = "settingsrow",
-        }
-        local sv = self
-        function label:flat_action()
-            sv:_toggleRow(entry)
-            return iup.DEFAULT
+-- Break a description into lines a row can hold.
+local function wrap(text)
+    local lines, line = {}, ""
+    for word in tostring(text):gmatch("%S+") do
+        if line ~= "" and #line + 1 + #word > WRAP_AT then
+            lines[#lines + 1] = line
+            line = word
+        else
+            line = line == "" and word or (line .. " " .. word)
         end
-    else
-        -- Same white-box fix as the header/empty labels: this row also lives
-        -- inside the flatscrollbox, so it's a flatlabel, not a native label.
-        label = iup.flatlabel{
-            TITLE     = entry.label or "",
-            FONT      = "Segoe UI, 11",
-            PADDING   = L.margin(L.ROLE.label_gap, L.ROLE.label_gap),
-            THEMEROLE = "settingslabel",
-        }
+    end
+    if line ~= "" then lines[#lines + 1] = line end
+    return table.concat(lines, "\n")
+end
+
+-- Let a field take the column's width whatever size it was built with: a box is never
+-- narrower than what it holds, so a field sized on its own would widen its row and
+-- push every other row's edge out of line.
+local function release_width(iup, widget)
+    if iup.GetClassName(widget) == "text" then
+        iup.SetAttribute(widget, "SIZE", nil)
+        iup.SetAttribute(widget, "RASTERSIZE", "60x")
+        iup.SetAttribute(widget, "EXPAND", "HORIZONTAL")
+    end
+    if not iup.GetChild then return end
+    local i, child = 0, iup.GetChild(widget, 0)
+    while child do
+        release_width(iup, child)
+        i = i + 1
+        child = iup.GetChild(widget, i)
+    end
+end
+
+-- Does this description sit under its label, or behind Show details?
+local function inline_description(text)
+    return #text <= INLINE_DESCRIPTION and not text:find("\n", 1, true)
+end
+
+-- Build one labelled settings row: name and description on the left, control on the
+-- right, in a column whose edge every row in every section shares.
+--
+-- Returns the row widget, its searchable text, and the description sub-widget that
+-- opens and closes (nil unless the description is too long to stay on show).
+function SettingsView:_buildRow(entry, category, first)
+    local iup = self._iup
+    local description = entry.description or ""
+    local inline = description ~= "" and inline_description(description)
+    local expandable = description ~= "" and not inline
+
+    local label = iup.flatlabel{ TITLE = entry.label or "", THEMEROLE = "settingslabel", EXPAND = "HORIZONTAL" }
+    local left = { label, GAP = L.gap(1), EXPAND = "HORIZONTAL" }
+    if inline then
+        left[#left + 1] = iup.flatlabel{ TITLE = wrap(description), THEMEROLE = "settings_description" }
     end
 
-    -- A row with only a description still offers something to press.
+    -- A long description still offers something to press.
     local details_button
-    if expandable and not entry.widget then
+    if expandable then
         details_button = iup.flatbutton{ TITLE = "Show details", THEMEROLE = "link_btn" }
         local view = self
         function details_button:flat_action()
@@ -507,52 +524,47 @@ function SettingsView:_buildRow(entry, category)
         end
     end
 
-    -- Every field ends on the same right edge.
-    if entry.widget and iup.GetClassName(entry.widget) == "flatframe" then
-        iup.SetAttribute(entry.widget, "EXPAND", "HORIZONTAL")
-        iup.SetAttribute(entry.widget, "RASTERSIZE", nil)
+    -- A field fills the column; anything else sits on its right edge.
+    local control = entry.widget or details_button
+    local fills = false
+    if control and (iup.GetClassName(control) == "flatframe" or iup.GetClassName(control) == "hbox") then
+        iup.SetAttribute(control, "EXPAND", "HORIZONTAL")
+        iup.SetAttribute(control, "RASTERSIZE", nil)
+        fills = true
+        release_width(iup, control)
     end
+    -- Width only: the height stays the control's own, which differs between a toggle,
+    -- a text field and a dropdown.
+    local cells = { ALIGNMENT = "ACENTER", RASTERSIZE = L.size(CONTROL_COLUMN), EXPAND = "NO" }
+    if control and not fills then cells[#cells + 1] = iup.fill{} end
+    if control then cells[#cells + 1] = control end
+    local column = iup.hbox(cells)
 
-    -- The control column. Fixing the width here rather than on the control
-    -- itself means an extension's widget keeps whatever EXPAND it was built with
-    -- and simply fills the column, so nothing has to know about this layout.
-    local column = iup.hbox{
-        entry.widget or (expandable and details_button) or iup.fill{},
-        -- Width only: the height component is deliberately empty so IUP still
-        -- measures the control's own height, which differs between a toggle, a
-        -- text field and a dropdown.
-        RASTERSIZE = L.size(CONTROL_COLUMN),
-        ALIGNMENT  = "ACENTER",
-    }
-
-    -- A fixed label column, so every control in every section starts at the same x.
     local top = iup.hbox{
-        iup.hbox{ label, RASTERSIZE = L.size(LABEL_COLUMN), ALIGNMENT = "ACENTER" },
+        iup.vbox(left),
         column,
         ALIGNMENT = "ACENTER",
-        GAP       = L.gap(L.ROLE.inline_gap),
+        GAP       = L.gap(L.ROLE.section),
         EXPAND    = "HORIZONTAL",
     }
 
-    local children = { top }
+    local children = {}
+    if not first then
+        children[1] = iup.flatseparator{ ORIENTATION = "HORIZONTAL", STYLE = "LINE", BARSIZE = "1" }
+    end
+    children[#children + 1] = iup.vbox{ top, MARGIN = L.margin(L.ROLE.section, 3), EXPAND = "HORIZONTAL" }
     local desc
-
     if expandable then
-        desc = iup.flatlabel{
-            TITLE     = entry.description,
-            FONT      = "Segoe UI, 8",
-            THEMEROLE = "settingslabel_muted",
-        }
+        desc = iup.flatlabel{ TITLE = description, THEMEROLE = "settings_description" }
         -- Hidden until the row is opened. FLOATING as well as VISIBLE so the
         -- collapsed row takes exactly the height of its control and the rows
         -- above and below close up against it.
         iup.SetAttribute(desc, "FLOATING", "YES")
         iup.SetAttribute(desc, "VISIBLE", "NO")
-        children[#children + 1] = desc
+        children[#children + 1] = iup.vbox{ desc, MARGIN = L.margin(L.ROLE.section, 0), EXPAND = "HORIZONTAL" }
     end
-
-    children.GAP    = L.gap(L.ROLE.label_gap)
-    children.MARGIN = L.margin(L.ROLE.section, 2)
+    children.GAP    = L.gap(0)
+    children.MARGIN = L.margin(0)
     children.EXPAND = "HORIZONTAL"
 
     local box = iup.vbox(children)
@@ -592,7 +604,7 @@ function SettingsView:addSection(category, opts, mapped)
     -- rows that scroll out of the shrinking container are clipped by the native
     -- window rather than spilling over their neighbours.
     local body_inner = iup.vbox{
-        GAP    = L.gap(L.ROLE.row_gap),
+        GAP    = L.gap(0),
         MARGIN = L.margin(0),
         EXPAND = "HORIZONTAL",
     }
@@ -601,15 +613,15 @@ function SettingsView:addSection(category, opts, mapped)
         TITLE     = "",
         MARGIN    = L.margin(0),
         EXPAND    = "HORIZONTAL",
-        THEMEROLE = "settingspanel",
+        THEMEROLE = "settingscard",
     }
     section.body       = body
     section.body_inner = body_inner
     iup.Append(self._inner, body)
     section.widgets[#section.widgets + 1] = body
 
-    for _, entry in ipairs(opts.entries or {}) do
-        local box, text, desc = self:_buildRow(entry, category)
+    for index, entry in ipairs(opts.entries or {}) do
+        local box, text, desc = self:_buildRow(entry, category, index == 1)
         iup.Append(body_inner, box)
         -- Stashed on the entry so `_toggleRow` can find it from the click
         -- handler, which is the only thing that ever holds the entry.

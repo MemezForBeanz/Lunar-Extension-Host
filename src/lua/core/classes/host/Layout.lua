@@ -163,10 +163,11 @@ function M._wrapTabForPadding(self, widget, opts)
 end
 
 --- Keep a page at `max_width`, centred, whatever space it is given.
-function M.centerPage(self, widget, max_width, side)
+function M.centerPage(self, widget, max_width, side, vertical, page)
     self._centered = self._centered or {}
     self._centered[#self._centered + 1] = {
-        wrapper = widget, max_width = max_width, side = side or 0, vertical = 0,
+        wrapper = widget, max_width = max_width, side = side or 0, vertical = vertical or 0,
+        page = page,
     }
 end
 
@@ -179,7 +180,9 @@ function M.recenterPages(self)
     local iup = self.iup
     for _, entry in ipairs(self._centered or {}) do
         pcall(function()
-            local parent = iup.GetParent(entry.wrapper)
+            -- `page`: the widget that fills the tab, when the wrapper sits deeper inside
+            -- it. Boxes inside a page still hold their old size at this point.
+            local parent = iup.GetParent(entry.page or entry.wrapper)
             local width = parent and tonumber(tostring(iup.GetAttribute(parent, "RASTERSIZE")):match("^(%d+)x"))
             if not width or width <= 0 then return end
             local horizontal = math.max(entry.side, math.floor((width - entry.max_width) / 2))
@@ -312,6 +315,10 @@ function M.addTab(self, title, widget, owner, opts)
     end
 
     iup.SetAttribute(tab_widget, "TABTITLE", title)
+    if opts and opts.icon then
+        require("core.ui.Kit").bindIcon(iup, tab_widget, opts.icon,
+            { attribute = "TABIMAGE", size = 16, role = "neutral" })
+    end
     -- Tag the tab with a unique id so the active owner can be resolved from the
     -- focused control anywhere inside the tab tree. This is more robust than asking
     -- the tab strip for its active handle, because focus may live on a descendant

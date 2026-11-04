@@ -78,6 +78,14 @@ function M.addShellRoles(rules, p)
     local font = p.font
     local defaults = {
         text_focus = { bg = well, fg = p.text, font = font, border = p.accent },
+        settingscard = { bg = floor, border = border },
+        settings_description = { fg = p.textMuted, font = font },
+        empty_title = { fg = p.text, font = font },
+        empty_hint = { fg = p.textMuted, font = font },
+        statusbar_button = {
+            bg = floor, fg = p.textMuted, border = floor, borderwidth = 0,
+            hover = hover, pressed = selected,
+        },
         commandbar = {
             bg = well, fg = p.textMuted, font = font,
             border = border, borderwidth = 1, showborder = true, padding = "10x3",
