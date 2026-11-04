@@ -215,8 +215,8 @@ function M.build(p)
             padding = "12x6", radius = R, hover = hover, hovertext = p.text, pressed = selected,
         },
         settings_nav_on = {
-            bg = selected, fg = p.text, font = p.font, border = selected, borderwidth = 0,
-            padding = "12x6", radius = R, hover = selected, hovertext = p.text, pressed = selected,
+            bg = chosen, fg = p.text, font = p.font, border = chosen, borderwidth = 0,
+            padding = "12x6", radius = R, hover = chosen, hovertext = p.text, pressed = chosen,
         },
         empty_title   = { fg = p.text, font = sized(p.font, 12), padding = "0x0" },
         empty_hint    = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
@@ -334,12 +334,12 @@ function M.build(p)
         }),
         toggle        = { fg = p.text, font = p.font },
         flattoggle    = { bg = layer1, fg = p.text, font = p.font, radius = R,
-            checkbg = well, checkfg = p.textMuted, checkhl = p.text, checkon = p.accent,
-            switchoff = borderS, switchknob = p.text },
+            checkbg = well, checkfg = p.textMuted, checkhl = p.text, checkon = p.accentBright or p.accent,
+            switchon = p.accent, switchoff = borderS, switchknob = p.text },
         flattoggle_noborder = { bg = layer1, fg = p.text, font = p.font,
             border = layer1, borderwidth = 0, radius = R,
-            checkbg = well, checkfg = p.textMuted, checkhl = p.text, checkon = p.accent,
-            switchoff = borderS, switchknob = p.text },
+            checkbg = well, checkfg = p.textMuted, checkhl = p.text, checkon = p.accentBright or p.accent,
+            switchon = p.accent, switchoff = borderS, switchknob = p.text },
 
         -- Fields: a dim box on the raised surface; the strong border marks the
         -- input edge the way VS Code's inputs read against their panels. The
@@ -357,7 +357,7 @@ function M.build(p)
         }),
         -- A field edge in focus. core.ui.FlatField swaps its frame to this role.
         -- A container for content: a recessed fill with the same edge everywhere.
-        well = { bg = well, fg = p.text, font = p.font, border = well, radius = RF },
+        well = { bg = well, fg = p.text, font = p.font, border = border, radius = RF, sheen = sheen },
         text_cue = { bg = well, fg = p.textMuted, font = p.font },
         text_focus = { bg = well, fg = p.text, font = p.font, border = p.accent, radius = R },
         -- The bottom bar's command bar: reads as a recessed field, not a button.
