@@ -166,6 +166,49 @@ local function fill_lists(h)
 	end
 end
 
+-- Work for the Activity shots: two real jobs (a slow tool that can be cancelled, and one
+-- that fails on the spot) and the kinds of entry the org packs make through ctx:activity.
+local activity_scene = {}
+
+local function owner_named(host, name)
+	for owner, manifest in pairs(host._manifest_by_owner) do
+		if manifest.name == name then return owner end
+	end
+end
+
+function activity_scene.start(shell)
+	local host = shell.host
+	-- A batch file, because the JSON's quotes wouldn't survive a command line.
+	local tool = out_dir .. "/activity-job.cmd"
+	local file = assert(io.open(tool, "w"))
+	file:write("@echo {\"v\":1,\"type\":\"progress\",\"done\":46,\"total\":100,\"message\":\"Uploading 675.30\"}\n")
+	file:write("@ping -n 60 127.0.0.1 >nul\n")
+	file:close()
+	activity_scene.job = assert(host:startJob({
+		argv = { "cmd", "/c", (tool:gsub("/", "\\")) },
+		activity = { title = "Black Duck scan", cancel = true },
+	}, owner_named(host, "Black Duck")))
+	assert(host:startJob({
+		argv = { "cmd", "/c", "exit 3" }, activity = { title = "Release check" },
+	}, owner_named(host, "Black Duck Server") or owner_named(host, "Black Duck")))
+	local stop = function() end
+	activity_scene.queue = host:activity({ title = "Build Queue", cancel = stop },
+		owner_named(host, "Build Queue"))
+	activity_scene.queue:progress(3, 12, "Building RomBuilder")
+	activity_scene.flash = host:activity({ title = "Firmware flash" }, owner_named(host, "iLO Redfish"))
+	activity_scene.flash:progress(55, 100, "ilo6_307.fwpkg")
+	host:activity({ title = "Log Parser" }, owner_named(host, "Log Parser"))
+		:finish(true, "12 failures across 4 files in 8.2 s")
+end
+
+function activity_scene.finish(shell)
+	shell.host:activityStore():cancel(shell.host:activityStore():running()[1].id)
+	activity_scene.queue:finish(false, "2 of 12 failed")
+	activity_scene.flash:finish(true, "Firmware flash finished.")
+end
+
+local fixtures = dofile((LUNAR_SOURCE_DIR or ".") .. "/scripts/ui_fixtures.lua")
+
 local real_mainloop = iup.MainLoop
 iup.MainLoop = function()
 	local state, dlg, pages, index = 0, nil, nil, 1
@@ -180,6 +223,12 @@ iup.MainLoop = function()
 		local function snap(name)
 			save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(dlg), "HWND")),
 				string.format("%s/%s-%s.bmp", out_dir, prefix, name), whole_window)
+		end
+		-- One window's own pixels, whatever is over it: a shared desktop can cover the
+		-- status bar, and a screen grab would then show the taskbar instead.
+		local function snap_window(window, name)
+			save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(window), "HWND")),
+				string.format("%s/%s-%s.bmp", out_dir, prefix, name), false)
 		end
 		if scene == 1 then
 			shell.palette:open("")
@@ -200,6 +249,24 @@ iup.MainLoop = function()
 		elseif scene == 7 then
 			snap("92-menu")
 			shell.palette:close()
+			-- Another window taking focus would dismiss the panel between shots.
+			shell.activity._hasFocus = function() return true end
+			shell.activity:open()
+		elseif scene == 8 then
+			snap_window(shell.activity._dialog, "93-activity-empty")
+			shell.activity:close()
+			activity_scene.start(shell)
+		elseif scene == 10 then
+			snap_window(dlg, "94-activity-running") -- the bar's slot, with the panel shut
+			shell.activity:open()
+			shell.activity:_move(2) -- onto the Build Queue row, which offers both actions
+		elseif scene == 11 then
+			snap_window(shell.activity._dialog, "95-activity")
+			snap("95-activity-over-app")
+			shell.activity:close()
+			activity_scene.finish(shell)
+		elseif scene == 12 then
+			snap_window(dlg, "96-activity-result")
 			return false
 		end
 		return true

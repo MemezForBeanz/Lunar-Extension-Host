@@ -47,6 +47,10 @@ local STATES = {
 	build_warn   = { file = "in-progress--warning.svg", role = "warning" },
 	build_skip   = { file = "in-progress--warning.svg", role = "warning" },
 	build_error  = { file = "in-progress--error.svg",  role = "error" },
+	activity_ok      = { file = "checkmark--filled.svg", role = "success" },
+	activity_failed  = { file = "error--filled.svg",     role = "error" },
+	activity_stopped = { file = "stop--outline.svg",     role = "neutral" },
+	activity_dot     = { file = "dot-mark.svg",          role = "error" },
 }
 local SPINNER_FILE = "in-progress.svg"
 local SPINNER_ROLE = "info"

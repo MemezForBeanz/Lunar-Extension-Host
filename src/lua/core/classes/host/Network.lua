@@ -45,6 +45,26 @@ function M.http(self, request, callback, owner)
     return request_handle
 end
 
+-- The Activity entry a started job reports to, and whether the job finishes it.
+--
+-- There is one entry per piece of work. A caller that opened one with ctx:activity
+-- keeps it: the job reports into it, and ending it stays the caller's to do. Cancel
+-- stays opt-in, because whether a tool can be stopped part way is the tool's to say.
+local function job_activity(self, opts, owner, job)
+    local spec = opts.activity
+    if type(spec) == "table" and type(spec.progress) == "function" then return spec, false end
+    local open = self._activity:openManual(owner)
+    if open then return open, false end
+    spec = type(spec) == "table" and spec or {}
+    local cancel = spec.cancel
+    if cancel == true then cancel = function() job:cancel() end end
+    local tool = spec.tool or self:_ownerName(owner)
+    local program = tostring(opts.argv and opts.argv[1] or ""):match("([^/\\]+)$")
+    return self:activity({
+        title = spec.title or tool or program, tool = tool, cancel = cancel, automatic = true,
+    }, owner or false), true
+end
+
 function M.startJob(self, opts, owner)
     assert(type(opts) == "table", "startJob: opts table required")
     local jobs = self:_record(owner).jobs
@@ -53,12 +73,23 @@ function M.startJob(self, opts, owner)
         if type(fn) ~= "function" then return nil end
         return function(...) if entry.alive then return fn(...) end end
     end
+    local activity, finishes   -- set once the job has really started
+    local on_event = guard(opts.on_event)
     local wrapped = setmetatable({
-        on_event = guard(opts.on_event),
+        on_event = function(ev)
+            if activity and type(ev) == "table" and ev.type == "progress" then
+                activity:progress(ev.done, ev.total, ev.message or ev.step)
+            end
+            if on_event then return on_event(ev) end
+        end,
         on_stderr = guard(opts.on_stderr),
         on_protocol_error = guard(opts.on_protocol_error),
         on_exit = function(res)
             jobs[entry] = nil
+            if finishes then
+                local ok = res.status == "ok" or (res.status == "cancelled" and "cancelled") or false
+                activity:finish(ok, res.summary)
+            end
             if entry.alive and type(opts.on_exit) == "function" then return opts.on_exit(res) end
         end,
     }, { __index = opts })
@@ -66,6 +97,7 @@ function M.startJob(self, opts, owner)
     if not job then return nil, err end
     entry.job = job
     jobs[entry] = true
+    if opts.activity ~= false then activity, finishes = job_activity(self, opts, owner, job) end
     if self.iup then
         job:attach_timer(self.iup)
     elseif self.loop then

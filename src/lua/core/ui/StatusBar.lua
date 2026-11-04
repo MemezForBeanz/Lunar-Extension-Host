@@ -1,8 +1,8 @@
---- The bottom status bar: a status line, the update indicator, extension status
--- elements, and the org's logo when its profile ships one.
+--- The bottom status bar: background work, a status line, the update indicator,
+-- extension status elements, and the org's logo when its profile ships one.
 --
 -- Extensions reach it through `HostAPI` (`setStatus`, `setUpdateState`,
--- `addStatusElement`); the host builds it once.
+-- `addStatusElement`, `activity`); the host builds it once.
 --
 -- @classmod core.ui.StatusBar
 
@@ -27,6 +27,14 @@ StatusBar.UPDATE_CLICK_HINT = "\n\nClick to check for updates now."
 StatusBar.COMMAND_HINT = "Search or run a command   Ctrl+P"
 StatusBar.COMMAND_WIDTH = 320
 
+--- How wide the activity slot's text is. Fixed, so that progress ticking over doesn't
+-- lay the whole window out again.
+StatusBar.ACTIVITY_WIDTH = 220
+-- What the activity slot shows once work has ended (`Activity:status`'s states).
+local ACTIVITY_GLYPHS = {
+	ok = "activity_ok", failed = "activity_failed", cancelled = "activity_stopped", attention = "activity_dot",
+}
+
 --- Parse an IUP `"R G B"` colour into three numbers (nil if it isn't one).
 function StatusBar.parse_rgb(value)
 	local r, g, b = tostring(value or ""):match("^(%d+)%s+(%d+)%s+(%d+)")
@@ -45,7 +53,7 @@ function StatusBar.new(opts)
 	-- restyles the bar through the statusbar/statusbar_text roles instead of
 	-- the hardcoded gray this bar carried for years.
 	self._label = iup.label({
-		TITLE = "Ready",
+		TITLE = "",
 		EXPAND = "HORIZONTAL",
 		FONT = "Segoe UI, 9",
 		FGCOLOR = "60 60 60",
@@ -93,8 +101,39 @@ function StatusBar.new(opts)
 		end
 	end
 
+	-- Background work, in place of a word that said nothing. Empty until there is some.
+	-- Sixteen pixels of icon and one line of text, so it fits the bar however slim.
+	-- The state matters even though nothing shows yet: IUP fixes a label as image or text
+	-- when it maps, and one mapped without an image never draws one.
+	self._activity_icon = StatusIcon.new(iup, { dir = opts.icon_dir, size = 16, state = "activity_ok" })
+	self._activity_text = iup.flatbutton({
+		TITLE = "",
+		RASTERSIZE = StatusBar.ACTIVITY_WIDTH .. "x",
+		ALIGNMENT = "ALEFT:ACENTER",
+		TEXTELLIPSIS = "YES",
+		CANFOCUS = "NO",
+		PADDING = "4x0",
+		THEMEROLE = "statusbar_button",
+	})
+	function self._activity_text:flat_action()
+		if bar._on_activity then bar._on_activity() end
+		return iup.DEFAULT
+	end
+	local activity_glyph = self._activity_icon:widget()
+	function activity_glyph:button_cb(button, pressed)
+		if button == iup.BUTTON1 and pressed == 0 and bar._on_activity then bar._on_activity() end
+		return iup.DEFAULT
+	end
+	self._activity_box = iup.hbox({
+		activity_glyph, self._activity_text,
+		ALIGNMENT = "ACENTER", GAP = L.gap(1), FLOATING = "YES", VISIBLE = "NO",
+	})
+
 	self._widget = iup.hbox({
-		iup.hbox({ self._menu_button, self._label, EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER", GAP = L.gap(2) }),
+		iup.hbox({
+			self._menu_button, self._activity_box, self._label,
+			EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER", GAP = L.gap(2),
+		}),
 		iup.hbox({ iup.fill({}), self._command, iup.fill({}), EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER" }),
 		iup.hbox({
 			iup.fill({}),
@@ -127,6 +166,11 @@ function StatusBar:commandWidget() return self._command end
 function StatusBar:onCommand(fn) self._on_command = fn end
 --- Set what the menu button does. Called with the screen position to open at.
 function StatusBar:onMenu(fn) self._on_menu = fn end
+--- Set what a click on the activity slot does.
+function StatusBar:onActivity(fn) self._on_activity = fn end
+--- Where the activity panel opens from: a widget at the bar's left end. The status line
+-- won't do when there's a menu button, because the activity slot pushes it along.
+function StatusBar:activityAnchor() return self._menu_button or self._label end
 --- The box extension status elements go in (HostAPI's `status_box`).
 function StatusBar:extBox() return self._ext_box end
 --- The update indicator (a `core.ui.StatusIcon`).
@@ -135,6 +179,37 @@ function StatusBar:updateIcon() return self._update_icon end
 --- Animate status changes through this director (it is built after the bar).
 function StatusBar:setMotion(director)
 	self._motion = director
+end
+
+--- Show what `core.classes.Activity` says is going on.
+-- @tparam[opt] table view `{ state, text, tip }`; nil empties the slot
+function StatusBar:setActivity(view)
+	local key = view and (view.state .. "|" .. view.text .. "|" .. tostring(view.tip)) or ""
+	if key == self._activity_key then return end
+	self._activity_key = key
+	local iup, box, icon, text = self._iup, self._activity_box, self._activity_icon, self._activity_text
+	-- A status bar that throws would surface as an error in whichever tool reported.
+	pcall(function()
+		if view and view.state == "running" then
+			if not icon:isSpinning() then icon:startSpin() end
+		elseif view then
+			icon:stopSpin(ACTIVITY_GLYPHS[view.state])
+		else
+			icon:stopSpin()
+		end
+		if view then
+			-- A flat button reads & as a mnemonic.
+			iup.SetAttribute(text, "TITLE", (view.text:gsub("&", "&&")))
+			iup.SetAttribute(text, "TIP", view.tip or "")
+		end
+		local shown = view ~= nil
+		if shown ~= (self._activity_shown or false) then
+			self._activity_shown = shown
+			iup.SetAttribute(box, "FLOATING", shown and "NO" or "YES")
+			iup.SetAttribute(box, "VISIBLE", shown and "YES" or "NO")
+			iup.Refresh(box)
+		end
+	end)
 end
 
 --- Show a status message.
