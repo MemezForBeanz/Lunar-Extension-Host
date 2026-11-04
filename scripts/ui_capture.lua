@@ -156,7 +156,7 @@ iup.MainLoop = function()
 		elseif scene == 2 then
 			local palette_dlg = shell.palette._dialog
 			save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(palette_dlg), "HWND")),
-				string.format("%s/%s-90-palette.bmp", out_dir, prefix), true)
+				string.format("%s/%s-90-palette.bmp", out_dir, prefix))
 			shell.palette:close()
 		elseif scene == 3 then
 			local groups = shell.groups()
