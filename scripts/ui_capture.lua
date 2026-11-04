@@ -126,11 +126,18 @@ end
 
 -- Give every empty list some rows, so scrollbars, row height and selection show up in
 -- a run with no real data behind it.
-local SAMPLE_ROWS = {
-	"Boot order regression", "Memory training", "PCIe link width", "Secure boot keys",
-	"Fan curve validation", "NVMe hot plug", "Power cap limits", "TPM attestation",
-	"Thermal throttle", "UEFI variable store", "Watchdog recovery", "BMC failover",
+local SAMPLE_SETS = {
+	{ "Boot order regression", "Memory training", "PCIe link width", "Secure boot keys",
+	  "Fan curve validation", "NVMe hot plug", "Power cap limits", "TPM attestation",
+	  "Thermal throttle", "UEFI variable store", "Watchdog recovery", "BMC failover",
+	  "DIMM population", "USB enumeration", "Option ROM scan", "SMBIOS tables",
+	  "ACPI table checks", "Secure erase", "Sensor calibration", "Redfish conformance" },
+	{ "AmiBcp", "BiosUpdate", "CpuFreq", "CpldTool", "DumpSmbios", "EfiShell", "FwFlash",
+	  "GpioMap", "HpSetup", "IpmiUtil", "LogCollect", "MemTest", "NvramTool", "PcieScan",
+	  "RomBuilder", "SmmDebug", "TpmTool", "UefiPatch", "VpdEdit", "WdtProbe" },
+	{ "Boot order regression", "Fan curve validation", "TPM attestation", "AmiBcp", "RomBuilder" },
 }
+local sample_set = 0
 
 -- Screenshots leave this machine, and org packs prefill internal hosts and addresses.
 local function scrubbed(value)
@@ -148,9 +155,8 @@ local function fill_lists(h)
 	end
 	if class(h) == "flatlist" and (tonumber(iup.GetAttribute(h, "COUNT")) or 0) == 0
 		and iup.GetAttribute(h, "THEMEROLE") ~= "palette_list" then
-		for i = 1, 40 do
-			iup.SetAttribute(h, tostring(i), SAMPLE_ROWS[(i - 1) % #SAMPLE_ROWS + 1])
-		end
+		sample_set = sample_set % #SAMPLE_SETS + 1
+		for i, row in ipairs(SAMPLE_SETS[sample_set]) do iup.SetAttribute(h, tostring(i), row) end
 		iup.SetAttribute(h, "VALUE", "2")
 	end
 	local i, child = 0, iup.GetChild(h, 0)
@@ -180,8 +186,8 @@ iup.MainLoop = function()
 			shell.palette:open("")
 		elseif scene == 2 then
 			local palette_dlg = shell.palette._dialog
-			save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(palette_dlg), "HWND")),
-				string.format("%s/%s-90-palette.bmp", out_dir, prefix), whole_window)
+			snap("90-palette") -- over the app, so the shot shows how it sits on the page
+			local _ = palette_dlg
 			shell.palette:close()
 		elseif scene == 3 then
 			local groups = shell.groups()
@@ -228,9 +234,9 @@ iup.MainLoop = function()
 		end
 		if index % 2 == 1 then
 			for _, s in ipairs(page.path) do iup.SetAttribute(s.strip, "VALUEPOS", tostring(s.pos)) end
-		else
 			fill_lists(dlg) -- an async status may have written a host since the last pass
 			iup.Refresh(dlg)
+		else
 			local slug = page.title:lower():gsub("[^%w]+", "-")
 			local IupFFI = require("core.classes.IupFFI")
 			save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(dlg), "HWND")), string.format("%s/%s-%02d-%s.bmp",

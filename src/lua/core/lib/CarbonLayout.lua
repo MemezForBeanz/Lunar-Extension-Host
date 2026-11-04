@@ -384,9 +384,16 @@ end
 -- @tparam userdata iup the IUP binding
 -- @tparam ihandle gauge
 -- @tparam number value 0 to the gauge's MAX
-function M.setProgress(iup, gauge, value)
+-- @param[opt] anchor an always-visible native control on the same page. With it the idle
+--   gauge takes no space, and progress on a background tab can't show through the front one.
+function M.setProgress(iup, gauge, value, anchor)
 	iup.SetAttribute(gauge, "VALUE", tostring(value))
-	iup.SetAttribute(gauge, "VISIBLE", (tonumber(value) or 0) > 0 and "YES" or "NO")
+	local running = (tonumber(value) or 0) > 0
+	if not anchor then
+		iup.SetAttribute(gauge, "VISIBLE", running and "YES" or "NO")
+		return
+	end
+	require("core.ui.Kit").show(iup, gauge, running, anchor)
 end
 
 --- Snap an arbitrary pixel value to the nearest step on the scale.
