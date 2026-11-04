@@ -69,6 +69,7 @@ local UI_TOOLKIT = {
     ReorderableList = require("core.ui.ReorderableList"),
     CheckList       = require("core.ui.CheckList"),
     SettingsView    = require("core.ui.SettingsView"),
+    Kit             = require("core.ui.Kit"),
 }
 
 local Secrets = require("core.classes.host.Secrets")
@@ -638,7 +639,9 @@ function HostAPI:_wrapTabForPadding(widget, opts) return Layout._wrapTabForPaddi
 function HostAPI:_wrapTabForScroll(widget) return Layout._wrapTabForScroll(self, widget) end
 function HostAPI:recenterPages() return Layout.recenterPages(self) end
 function HostAPI:syncScrollHosts() return Layout.syncScrollHosts(self) end
-function HostAPI:centerPage(widget, max_width, side) return Layout.centerPage(self, widget, max_width, side) end
+function HostAPI:centerPage(widget, max_width, side, vertical, page)
+    return Layout.centerPage(self, widget, max_width, side, vertical, page)
+end
 
 --- Append a tab to the main tab strip.
 --

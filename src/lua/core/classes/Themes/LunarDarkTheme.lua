@@ -25,14 +25,14 @@ function LunarDarkTheme:initialize()
         textMuted       = rgb("#8b90a0"),
         accent          = rgb("#7c6cf2"),  -- lunar violet (interactive)
         accentText      = rgb("#ffffff"),
-        error           = rgb("#e06c75"),
+        error           = rgb("#ff8a93"),
         success         = rgb("#98c379"),
         warning         = rgb("#e5c07b"),
         warningText     = rgb("#1b1d23"),
         info            = rgb("#56b6c2"),
-        font            = "Segoe UI, 11",
+        font            = "Segoe UI, 10",
         well            = rgb("#1b1d23"),   -- recessed: lists, fields, output
-        accentSoft      = rgb("#343259"),   -- a chosen row
+        accentSoft      = rgb("#403c86"),   -- a chosen row
 
         -- The accent strip's sweep: violet into slate.
         gradTop         = rgb("#7c6cf2"),

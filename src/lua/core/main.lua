@@ -89,6 +89,7 @@ local TabDragMotion = require("core.ui.TabDragMotion")
 local NameDialog = require("core.ui.NameDialog")
 local WelcomeTour = require("core.ui.WelcomeTour")
 local WindowChrome = require("core.ui.WindowChrome")
+local Kit = require("core.ui.Kit")
 local AppearanceSettings = require("core.ui.AppearanceSettings")
 local Diagnostics = require("core.ui.Diagnostics")
 local NativeStatus = require("core.lib.NativeStatus")
@@ -165,6 +166,7 @@ end
 -- The status bar logo belongs to the org profile (brand.logo, an SVG inside the
 -- profile folder); the neutral build shows none.
 local ICON_DIR = platform.path:join(APP_DIR, "assets", "Icons")
+Kit.setIconDir(ICON_DIR)
 
 -- Window/taskbar icon: the name of the Win32 ICON RESOURCE in the executable, not
 -- an IupImage handle. assets/Lunar.rc declares `IUP ICON "lunar.ico"`,
@@ -830,6 +832,7 @@ set_status("Ready")   -- the last extension's load message is not news
 
 -- Append the host-owned Settings tab BEFORE restoring tab order, so it participates
 -- in drag-reordering and order persistence alongside the extension tabs.
+Kit.bindIcon(iup, settings_view:widget(), "settings", { attribute = "TABIMAGE", size = 16, role = "neutral" })
 iup.Append(tabs, settings_view:widget())
 host:installKeyDispatch(settings_view:widget())
 host:registerHostTab("settings", settings_view:widget())
@@ -978,7 +981,11 @@ theme_mgr:onApply(function()
 	host:syncScrollHosts()
 end)
 pane_grid:onLayout(schedule_recenter)
-host:centerPage(settings_view:widget(), SETTINGS_MAX_WIDTH, L.px(L.ROLE.page))
+-- Column and search box are centred separately from the scroll area, so the scrollbar
+-- stays on the window's edge rather than floating beside the column.
+host:centerPage(settings_view:searchRow(), SETTINGS_MAX_WIDTH, L.px(L.ROLE.page), L.px(L.ROLE.row),
+	settings_view:widget())
+host:centerPage(settings_view:column(), SETTINGS_MAX_WIDTH, L.px(L.ROLE.page), 0, settings_view:widget())
 
 -- Rebuild the saved arrangement now that every extension tab and the host's own
 -- Settings tab are in the strip, and while the pages are still unmapped.

@@ -382,70 +382,62 @@ describe("SettingsView rows", function()
 		local section = view:addSection("Build Queue", ENTRIES)
 
 		local row = section.rows[1].box
-		local top = row.children[1]
+		local top = row.children[1].children[1]
 		local column = top.children[#top.children]
 		assert.matches("^%d+x0$", column.attrs.RASTERSIZE)
+		assert.are.equal("NO", column.attrs.EXPAND)
 	end)
 
-	it("makes only rows with a description clickable", function()
+	it("keeps a short description on show under its label", function()
 		local view = make()
 		local section = view:addSection("Build Queue", ENTRIES)
+		local left = section.rows[1].box.children[1].children[1].children[1]
 
-		-- Row 1 has a description: its label is a button, so it highlights and
-		-- invites a click. Row 2 has none and stays an inert label.
-		assert.are.equal("flatbutton", section.rows[1].box.children[1].children[1].children[1].kind)
-		assert.are.equal("flatlabel", section.rows[2].box.children[1].children[1].children[1].kind)
+		assert.are.equal("flatlabel", left.children[1].kind)
+		assert.are.equal("settings_description", left.children[2].attrs.THEMEROLE)
+		assert.is_nil(section.rows[1].entry._desc)
 	end)
 
-	it("hides a description until its row is opened", function()
-		local view = make()
-		local section = view:addSection("Build Queue", ENTRIES)
-		local entry = section.rows[1].entry
+	describe("with a long description", function()
+		local LONG = { entries = { { label = "Keys", description = "Ctrl+A" .. string.char(10) .. "Ctrl+B" } } }
 
-		assert.are.equal("YES", entry._desc.attrs.FLOATING)
-		view:_toggleRow(entry)
-		assert.are.equal("NO", entry._desc.attrs.FLOATING)
-		assert.are.equal("YES", entry._desc.attrs.VISIBLE)
-		view:_toggleRow(entry)
-		assert.are.equal("YES", entry._desc.attrs.FLOATING)
-	end)
+		it("hides it until its row is opened", function()
+			local view = make()
+			local section = view:addSection("Build Queue", LONG)
+			local entry = section.rows[1].entry
 
-	it("reveals a description without any per-frame layout", function()
-		-- Carbon's semantic consistency: a row and a section header are the same
-		-- gesture with the same meaning, so they must behave the same way. Since a
-		-- section no longer animates its height, a row does not either -- both
-		-- reveal in a single layout pass.
-		local scheduled
-		local view, iup = make({ motion = {
-			animate = function(_, spec) scheduled = spec end,
-			cancel = function() end,
-		} })
-		local section = view:addSection("Build Queue", ENTRIES)
-		local entry = section.rows[1].entry
+			assert.are.equal("YES", entry._desc.attrs.FLOATING)
+			view:_toggleRow(entry)
+			assert.are.equal("NO", entry._desc.attrs.FLOATING)
+			assert.are.equal("YES", entry._desc.attrs.VISIBLE)
+			view:_toggleRow(entry)
+			assert.are.equal("YES", entry._desc.attrs.FLOATING)
+		end)
 
-		local before = iup.refreshes
-		view:_toggleRow(entry)
+		it("reveals it in one layout pass, with no animation", function()
+			local scheduled
+			local view, iup = make({ motion = {
+				animate = function(_, spec) scheduled = spec end,
+				cancel = function() end,
+			} })
+			local section = view:addSection("Build Queue", LONG)
+			local entry = section.rows[1].entry
 
-		assert.is_nil(scheduled, "a row reveal must not schedule a layout animation")
-		assert.are.equal(1, iup.refreshes - before, "a reveal costs exactly one layout pass")
-		assert.are.equal("NO", entry._desc.attrs.FLOATING)
-		assert.are.equal("YES", entry._desc.attrs.VISIBLE)
-	end)
+			local before = iup.refreshes
+			view:_toggleRow(entry)
 
-	it("never pins a height on a description", function()
-		-- The pinned RASTERSIZE existed only to drive the height animation. Left
-		-- set, a description could not re-measure after a theme switch changed
-		-- its font.
-		local view = make({ motion = {
-			animate = function() end,
-			cancel = function() end,
-		} })
-		local section = view:addSection("Build Queue", ENTRIES)
-		local entry = section.rows[1].entry
+			assert.is_nil(scheduled, "a row reveal must not schedule a layout animation")
+			assert.are.equal(1, iup.refreshes - before, "a reveal costs exactly one layout pass")
+		end)
 
-		view:_toggleRow(entry)
-		assert.is_nil(entry._desc.attrs.RASTERSIZE)
-		assert.are.equal("NO", entry._desc.attrs.FLOATING)
+		it("never pins a height on it", function()
+			local view = make()
+			local section = view:addSection("Build Queue", LONG)
+			local entry = section.rows[1].entry
+
+			view:_toggleRow(entry)
+			assert.is_nil(entry._desc.attrs.RASTERSIZE)
+		end)
 	end)
 
 	it("indexes label, description and category for search", function()

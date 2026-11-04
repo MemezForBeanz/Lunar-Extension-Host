@@ -95,7 +95,8 @@ function M.build(p)
     -- the body font -- text and control are proportionate again, which is the
     -- real fix for "undersized text on oversized buttons".
     local BTN_FONT = p.font
-    local BTN_PAD  = "12x4"
+    local BTN_PAD  = "12x5"
+    local ROW_PAD  = "8x4"   -- one list row height, wherever a list is
     local accent_hover   = p.accentHover   or shade(p.accent, 0.12)
     local accent_pressed = p.accentPressed or shade(p.accent, -0.14)
 
@@ -115,9 +116,9 @@ function M.build(p)
     local rules = {
         -- Type scale (identical to carbon_rules: heading-04 / heading-03 /
         -- body-compact-01 / label-01).
-        pagetitle     = { fg = p.text,      font = sized(p.font, 18, true), padding = "0x0" },
+        pagetitle     = { fg = p.text,      font = sized(p.headingFont or p.font, 18, not p.headingFont), padding = "0x0" },
         pagesubtitle  = { fg = p.textMuted, font = sized(p.font, 11), padding = "0x0" },
-        sectiontitle  = { fg = p.text,      font = sized(p.font, 12, true), padding = "0x0" },
+        sectiontitle  = { fg = p.text,      font = sized(p.headingFont or p.font, 12, not p.headingFont), padding = "0x0" },
         hint          = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
 
         -- Semantic text roles: state colored by meaning, never by literal.
@@ -203,8 +204,12 @@ function M.build(p)
         settingslabel       = { fg = p.text,      font = p.font },
         settingslabel_muted = { fg = p.textMuted, font = p.font },
         settingspanel = { bg = layer1, border = layer1, borderwidth = 0, radius = 0 },
+        settingscard  = { bg = layer1, border = border, radius = RF, sheen = sheen },
+        settings_description = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
+        empty_title   = { fg = p.text, font = sized(p.font, 11), padding = "0x0" },
+        empty_hint    = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
         settingsheader = {
-            bg = layer1, fg = p.text, font = sized(p.font, 12, true),
+            bg = layer1, fg = p.text, font = sized(p.headingFont or p.font, 12, not p.headingFont),
             border = layer1, borderwidth = 0, radius = R,
             hover = hover, hovertext = p.text, pressed = selected,
         },
@@ -295,12 +300,12 @@ function M.build(p)
         -- Lists and data panes: square by design (rule 2).
         list_bordered = scroll({
             bg = well, fg = p.text, font = p.font, border = border, borderwidth = 1, radius = RF,
-            scrollbg = well, sheen = sheen, itemradius = R,
+            scrollbg = well, sheen = sheen, itemradius = R, padding = ROW_PAD,
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         list_plain    = scroll({
             bg = layer1, fg = p.text, font = p.font, border = layer1, borderwidth = 0,
-            scrollbg = layer1, itemradius = R,
+            scrollbg = layer1, itemradius = R, padding = ROW_PAD,
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         outputlog     = {
@@ -333,7 +338,7 @@ function M.build(p)
         flatlist      = scroll({
             bg = well, fg = p.text, font = p.font,
             border = border, borderwidth = 1, radius = RF, sheen = sheen,
-            scrollbg = well, itemradius = R,
+            scrollbg = well, itemradius = R, padding = ROW_PAD,
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         -- A field edge in focus. core.ui.FlatField swaps its frame to this role.
