@@ -1,0 +1,30 @@
+--- a/src/iup_flattoggle.c
++++ b/src/iup_flattoggle.c
+@@ -174,6 +174,27 @@
+                                  border_width, ih->currentheight - 1 - border_width,
+                                  bgcolor, NULL, 1);  /* background is always active */
+ 
++  /* Lunar fork: SWITCH=YES draws a Carbon toggle switch instead of a check box. SWITCHPOS
++     (0 to 100) lets an animation move the knob; without it the knob follows the value. */
++  if (iupAttribGetBoolean(ih, "SWITCH"))
++  {
++    int track_w = 36, track_h = 20, knob = 14;
++    int track_x = (ih->currentwidth - track_w) / 2;
++    int track_y = (ih->currentheight - track_h) / 2;
++    int pos = iupAttribGet(ih, "SWITCHPOS") ? iupAttribGetInt(ih, "SWITCHPOS") : (selected ? 100 : 0);
++    int knob_x = track_x + 3 + (pos * (track_w - knob - 6)) / 100;
++    int knob_y = track_y + 3;
++    char* track_color = iupAttribGetStr(ih, pos >= 50 ? "SWITCHONCOLOR" : "SWITCHOFFCOLOR");
++    char* knob_color = iupAttribGetStr(ih, "SWITCHKNOBCOLOR");
++    iupFlatDrawRoundBox(dc, track_x, track_x + track_w - 1, track_y, track_y + track_h - 1, track_h / 2,
++                        track_color ? track_color : fgcolor, bgcolor, active);
++    iupFlatDrawRoundBox(dc, knob_x, knob_x + knob - 1, knob_y, knob_y + knob - 1, knob / 2,
++                        knob_color ? knob_color : bgcolor, track_color ? track_color : fgcolor, active);
++    iupdrvDrawFlush(dc);
++    iupdrvDrawKillCanvas(dc);
++    return IUP_DEFAULT;
++  }
++
+   /* reserve space for focus feedback (after background draw) */
+   if (iupAttribGetBoolean(ih, "CANFOCUS") && focus_feedback)
+     border_width++;

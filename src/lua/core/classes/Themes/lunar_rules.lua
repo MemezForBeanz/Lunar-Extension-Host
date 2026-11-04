@@ -208,6 +208,7 @@ function M.build(p)
         settingslabel_muted = { fg = p.textMuted, font = p.font },
         settingspanel = { bg = layer1, border = layer1, borderwidth = 0, radius = 0 },
         settingscard  = { bg = layer1, border = border, radius = RF, sheen = sheen },
+        settings_name = { fg = p.text, font = sized(HEADING, 11), padding = "0x0" },
         settings_description = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
         settings_nav  = {
             bg = layer1, fg = p.textMuted, font = p.font, border = layer1, borderwidth = 0,
@@ -333,10 +334,12 @@ function M.build(p)
         }),
         toggle        = { fg = p.text, font = p.font },
         flattoggle    = { bg = layer1, fg = p.text, font = p.font, radius = R,
-            checkbg = well, checkfg = p.textMuted, checkhl = p.text, checkon = p.accent },
+            checkbg = well, checkfg = p.textMuted, checkhl = p.text, checkon = p.accent,
+            switchoff = borderS, switchknob = p.text },
         flattoggle_noborder = { bg = layer1, fg = p.text, font = p.font,
             border = layer1, borderwidth = 0, radius = R,
-            checkbg = well, checkfg = p.textMuted, checkhl = p.text, checkon = p.accent },
+            checkbg = well, checkfg = p.textMuted, checkhl = p.text, checkon = p.accent,
+            switchoff = borderS, switchknob = p.text },
 
         -- Fields: a dim box on the raised surface; the strong border marks the
         -- input edge the way VS Code's inputs read against their panels. The

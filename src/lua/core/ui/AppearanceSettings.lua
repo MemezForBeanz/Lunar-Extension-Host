@@ -125,7 +125,7 @@ function M.register(opts)
 		widget = toggle("motion_respect_system", "respect_system"),
 	}
 
-	opts.host:addSettings("Appearance", { entries = entries })
+	opts.host:addSettings("Appearance", { entries = entries, icon = "color-palette" })
 end
 
 return M

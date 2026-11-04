@@ -43,6 +43,7 @@
 --
 --     opts.entries = { { label =, description = (opt), widget = (opt) }, ... }
 --     opts.widget  = <a single pre-built iup widget>   -- alternative to entries
+--     opts.icon    = <Carbon icon name>                -- beside the category in the list
 --
 -- An entry with a `description` becomes individually expandable; the description
 -- is hidden until the row is opened, so a dense list stays scannable and the
@@ -528,6 +529,33 @@ local function inline_description(text)
     return #text <= INLINE_DESCRIPTION and not text:find("\n", 1, true)
 end
 
+-- An on/off row reads best as a switch, whose knob slides between its two states.
+function SettingsView:_makeSwitch(toggle)
+    local iup, view = self._iup, self
+    iup.SetAttribute(toggle, "SWITCH", "YES")
+    iup.SetAttribute(toggle, "RASTERSIZE", "40x24")
+    local changed = toggle.valuechanged_cb
+    function toggle:valuechanged_cb()
+        local result = changed and changed(self) or iup.DEFAULT
+        local motion, on = view._motion, iup.GetAttribute(self, "VALUE") == "ON"
+        if motion then
+            motion:animate({
+                role = "settings_expand", target = self,
+                from = on and 0 or 100, to = on and 100 or 0,
+                on_frame = function(pos)
+                    iup.SetAttribute(self, "SWITCHPOS", tostring(math.floor(pos)))
+                    iup.Update(self)
+                end,
+                on_done = function()
+                    iup.ResetAttribute(self, "SWITCHPOS")
+                    iup.Update(self)
+                end,
+            })
+        end
+        return result
+    end
+end
+
 -- Build one labelled settings row: name and description on the left, control on the
 -- right, in a column whose edge every row in every section shares.
 --
@@ -539,7 +567,7 @@ function SettingsView:_buildRow(entry, category, first)
     local inline = description ~= "" and inline_description(description)
     local expandable = description ~= "" and not inline
 
-    local label = iup.flatlabel{ TITLE = entry.label or "", THEMEROLE = "settingslabel", EXPAND = "HORIZONTAL" }
+    local label = iup.flatlabel{ TITLE = entry.label or "", THEMEROLE = "settings_name", EXPAND = "HORIZONTAL" }
     local left = { label, GAP = L.gap(1), EXPAND = "HORIZONTAL" }
     if inline then
         left[#left + 1] = iup.flatlabel{ TITLE = wrap(description), THEMEROLE = "settings_description" }
@@ -558,6 +586,7 @@ function SettingsView:_buildRow(entry, category, first)
 
     -- A field fills the column; anything else sits on its right edge.
     local control = entry.widget or details_button
+    if control and iup.GetClassName(control) == "flattoggle" then self:_makeSwitch(control) end
     local fills = false
     if control and (iup.GetClassName(control) == "flatframe" or iup.GetClassName(control) == "hbox") then
         iup.SetAttribute(control, "EXPAND", "HORIZONTAL")
@@ -638,6 +667,7 @@ function SettingsView:addSection(category, opts, mapped)
         TITLE = category, ALIGNMENT = "ALEFT:ACENTER", EXPAND = "HORIZONTAL",
         THEMEROLE = (#self._sections == 0) and "settings_nav_on" or "settings_nav",
     }
+    if opts.icon then Kit.iconize(iup, { { nav_btn, opts.icon } }) end
     function nav_btn:flat_action()
         sv:_goTo(section)
         return iup.DEFAULT

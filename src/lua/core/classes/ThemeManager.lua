@@ -534,6 +534,9 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 		attrs.CHECKFGCOLOR = r.checkfg
 		attrs.CHECKHLCOLOR = r.checkhl
 		attrs.CHECKPSCOLOR = r.checkon
+		attrs.SWITCHONCOLOR = r.checkon
+		attrs.SWITCHOFFCOLOR = r.switchoff
+		attrs.SWITCHKNOBCOLOR = r.switchknob
 		attrs.CHECKRADIUS = "3"
 		attrs.CHECKSIZE = "16"
 	end
