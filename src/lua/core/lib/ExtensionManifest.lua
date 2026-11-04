@@ -19,7 +19,7 @@
 -- | `description`   | string       | Optional free-text description            |
 -- | `group`         | string       | Default tab group; `/` nests (`"A/B"`)    |
 -- | `capabilities`  | string array | Declared capability tokens                |
--- | `provides`      | object       | Sub-arrays: `tabs`, `routes`, `commands`, `settings`, `status` |
+-- | `provides`      | object       | Sub-arrays: `tabs`, `routes`, `commands`, `settings`, `status`, `language_servers` |
 -- | `platforms`     | string array | Schema 2 only. `windows`, `linux`, `macos`; omitted = all |
 -- | `host_api`      | integer      | Schema 2 only. Oldest host API the extension needs (default 1) |
 -- | `modes`         | string array | Schema 2 only. `gui`, `headless`; omitted = `gui` only. Needs host_api 3 |
@@ -34,7 +34,7 @@ M.SCHEMA_VERSION = 2
 
 --- Version of the extension API (`ctx`) this host provides. Raise it when an
 -- extension-visible API is added, so extensions that need it can say so.
-M.HOST_API = 3  -- 2: ctx:registerTheme, ctx:registerFont. 3: manifest `modes`, the headless host (ctx.mode, ctx.loop)
+M.HOST_API = 4  -- 2: ctx:registerTheme, ctx:registerFont. 3: manifest `modes`, the headless host (ctx.mode, ctx.loop). 4: ctx:addLanguageServer, ctx:findLanguageServer
 
 --- Platform names a manifest may list.
 M.PLATFORMS = { windows = true, linux = true, macos = true }
@@ -116,7 +116,7 @@ local function normalize_provides(value)
 		return nil, "provides must be an object"
 	end
 	local out = {}
-	for _, key in ipairs({ "tabs", "routes", "commands", "settings", "status" }) do
+	for _, key in ipairs({ "tabs", "routes", "commands", "settings", "status", "language_servers" }) do
 		local normalized, err = normalize_string_array(value[key], "provides." .. key)
 		if not normalized then
 			return nil, err

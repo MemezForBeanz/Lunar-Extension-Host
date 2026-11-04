@@ -9,7 +9,7 @@
 #   scripts\lint.ps1 -Paths a,b # lint specific paths
 
 param(
-	[string[]]$Paths = @("src/lua", "plugins", "scripts")
+	[string[]]$Paths = @("src/lua", "plugins", "extensions", "scripts")
 )
 
 $ErrorActionPreference = "Stop"
