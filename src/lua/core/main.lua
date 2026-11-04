@@ -936,6 +936,8 @@ tab_groups = TabGroups:new({
 		})
 	end,
 	on_change = function()
+		-- Every way a pane can empty ends here: a drop on a tab bar, a merge, a closed tab.
+		pane_grid:sync()
 		host:_applyTabScopes()
 		refresh_shell_budget()
 	end,

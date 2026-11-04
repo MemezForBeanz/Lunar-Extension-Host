@@ -228,11 +228,13 @@ end
 
 --- Put every pane's tabs back in the main strip.
 function PaneGrid:reset()
-	for _, zone in ipairs({ "right", "bottom", "corner" }) do
-		for _, page in ipairs(self._groups:_children(self._strips[zone])) do
-			self._groups:moveInto(page, self._strips.main)
+	self._groups:_batch(function()
+		for _, zone in ipairs({ "right", "bottom", "corner" }) do
+			for _, page in ipairs(self._groups:_children(self._strips[zone])) do
+				self._groups:moveInto(page, self._strips.main)
+			end
 		end
-	end
+	end)
 	self._groups:setActiveRoot(self._strips.main)
 	self:sync()
 end
@@ -243,8 +245,20 @@ function PaneGrid:_apply(split, value, bar)
 	iup.SetAttribute(split, "VALUE", tostring(value))
 end
 
+-- A tab dropped on another bar can empty the pane being worked in. Work moves to main,
+-- and the accent line goes when only one pane is left.
+function PaneGrid:_settleActive()
+	local active = self._groups:activeRoot()
+	local zone = self:zoneOf(active)
+	if zone and zone ~= "main" and self:_count(zone) == 0 then
+		self._groups:setActiveRoot(self._strips.main)
+	else
+		self:_markActive(active)
+	end
+end
+
 --- Size the splits to the panes in use. Empty panes take no space and show no sash.
--- Run after any move, and after a theme switch (which rewrites BARSIZE).
+-- Run after any change to the tab tree, and after a theme switch (which rewrites BARSIZE).
 function PaneGrid:sync()
 	if not self._groups then return end
 	local used = self:_used()
@@ -259,8 +273,10 @@ function PaneGrid:sync()
 		self._iup.SetAttribute(self._strips[zone], "BGCOLOR", surface)
 	end
 
-	self:_apply(self._grid, has_right and (sizes.grid or HALF) or FULL, has_right)
+	-- MINMAX first: IUP crops VALUE to it when VALUE is set, and widening it afterwards
+	-- does not restore what was cropped, so the main pane would stop at 70%.
 	self._iup.SetAttribute(self._grid, "MINMAX", has_right and PANE_LIMITS or ("0:" .. FULL))
+	self:_apply(self._grid, has_right and (sizes.grid or HALF) or FULL, has_right)
 	self:_apply(self._left, used.bottom and (sizes.left or HALF) or FULL, used.bottom)
 	if used.right and used.corner then
 		self:_apply(self._right, sizes.right or HALF, true)
@@ -271,6 +287,7 @@ function PaneGrid:sync()
 	-- unmapped tree walks handles that are not there yet.
 	if self._iup.GetAttribute(self._grid, "WID") then
 		pcall(self._iup.Refresh, self._grid)
+		self:_settleActive()
 	end
 	if self._on_layout then self._on_layout() end
 end
