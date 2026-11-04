@@ -210,6 +210,84 @@ function M.show(iup, widget, visible, anchor)
 	iup.ResetAttribute(widget, "VISIBLE")
 end
 
+--- One line that says whether a page is ready to use.
+--
+-- A page with prerequisites used to spend a card on them, a row each, whether or not
+-- anything was wrong. This is one line: ready, or the first blocker with the action that
+-- clears it. `Details` lists everything still missing, so nothing is hidden.
+--
+-- @tparam userdata iup
+-- @tparam[opt] table opts `ready` (text when all is well), `anchor` (see `M.show`)
+-- @treturn table `{ widget, set = function(items) }`. Each item: `label`, `ok`, `problem`
+--   (what is wrong), `action_title`, `action`, `optional` (never blocks; listed in Details).
+function M.requirements(iup, opts)
+	opts = opts or {}
+	local line = M.statusLine(iup, "idle", "")
+	local act = iup.flatbutton({ TITLE = "", THEMEROLE = "primary_btn", CANFOCUS = "YES" })
+	local more = iup.flatbutton({ TITLE = "Details", THEMEROLE = "link_btn", CANFOCUS = "YES" })
+	local list = iup.vbox({ GAP = L.gap(2), MARGIN = L.margin(0), EXPAND = "HORIZONTAL" })
+	local rows, current, open = {}, nil, false
+	for i = 1, 6 do
+		rows[i] = M.statusLine(iup, "idle", "")
+		iup.Append(list, rows[i])
+		M.show(iup, rows[i], false)
+	end
+	M.show(iup, list, false)
+	local strip = { widget = iup.vbox({
+		iup.hbox({ line, act, more, GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" }),
+		list, GAP = L.gap(2), EXPAND = "HORIZONTAL",
+	}) }
+
+	local function refresh()
+		local items, blocker, unmet = current or {}, nil, 0
+		for _, item in ipairs(items) do
+			if not item.ok then
+				if not item.optional then
+					unmet = unmet + 1
+					blocker = blocker or item
+				end
+			end
+		end
+		if blocker then
+			M.setStatus(iup, line, "warning", blocker.label .. ": " .. (blocker.problem or "not ready"))
+		else
+			M.setStatus(iup, line, "ok", opts.ready or "Ready")
+		end
+		local has_action = blocker and blocker.action_title
+		if has_action then iup.SetAttribute(act, "TITLE", blocker.action_title) end
+		strip.blocker = blocker
+		M.show(iup, act, has_action and true or false, line)
+		M.show(iup, more, #items > 1, line)
+		M.show(iup, list, open, line)
+		for i, row in ipairs(rows) do
+			local item = items[i]
+			if item and open then
+				M.setStatus(iup, row, item.ok and "ok" or (item.optional and "idle" or "warning"),
+					item.label .. (item.ok and "" or (": " .. (item.problem or "not ready"))))
+			end
+			M.show(iup, row, (item and open) and true or false, line)
+		end
+		if iup.Refresh then pcall(iup.Refresh, strip.widget) end
+	end
+
+	function act:flat_action()
+		if strip.blocker and strip.blocker.action then strip.blocker.action() end
+		return iup.DEFAULT
+	end
+	function more:flat_action()
+		open = not open
+		iup.SetAttribute(more, "TITLE", open and "Hide details" or "Details")
+		refresh()
+		return iup.DEFAULT
+	end
+	--- Replace the list of requirements.
+	function strip.set(items)
+		current = items
+		refresh()
+	end
+	return strip
+end
+
 --- A pane that says what it is for until it has something to show.
 --
 -- @tparam userdata iup

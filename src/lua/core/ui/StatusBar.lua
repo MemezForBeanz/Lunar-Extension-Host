@@ -24,8 +24,8 @@ StatusBar.UPDATE_STATES = {
 StatusBar.UPDATE_CLICK_HINT = "\n\nClick to check for updates now."
 
 --- What the command bar says at rest.
-StatusBar.COMMAND_HINT = "Search commands or lunar:// address   Ctrl+P"
-StatusBar.COMMAND_WIDTH = 360
+StatusBar.COMMAND_HINT = "Search or run a command   Ctrl+P"
+StatusBar.COMMAND_WIDTH = 320
 
 --- Parse an IUP `"R G B"` colour into three numbers (nil if it isn't one).
 function StatusBar.parse_rgb(value)
@@ -47,14 +47,14 @@ function StatusBar.new(opts)
 	self._label = iup.label({
 		TITLE = "Ready",
 		EXPAND = "HORIZONTAL",
-		FONT = "Segoe UI, 11",
+		FONT = "Segoe UI, 9",
 		FGCOLOR = "60 60 60",
 		THEMEROLE = "statusbar_text",
 	})
 	-- Registered with HostAPI by whoever owns update checks (core.ui.UpdateCheck),
 	-- and only when there is a share to check.
 	self._update_icon = StatusIcon.new(iup, {
-		dir = opts.icon_dir, size = 18, state = "upd_complete", tip = StatusBar.UPDATE_STATES.current.tip,
+		dir = opts.icon_dir, size = 16, state = "upd_complete", tip = StatusBar.UPDATE_STATES.current.tip,
 	})
 	self._ext_box = iup.hbox({ GAP = L.gap(2), ALIGNMENT = "ACENTER" })
 	local logo_image = opts.logo and VectorIcon.logoHandle(iup, opts.logo, 20)
@@ -107,7 +107,7 @@ function StatusBar.new(opts)
 		HOMOGENEOUS = "YES",
 		BGCOLOR = "240 240 240",
 		THEMEROLE = "statusbar",
-		MARGIN = L.margin(5, 2),
+		MARGIN = L.margin(4, 1),
 		GAP = L.gap(3),
 		ALIGNMENT = "ACENTER",
 		-- HORIZONTAL, not IupHbox's default YES. A vertically expanding child of
