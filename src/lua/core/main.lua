@@ -75,6 +75,11 @@ local ThemeManager = require("core.classes.ThemeManager")
 local SystemTheme = require("core.lib.SystemTheme")
 local TabOrder = require("core.classes.TabOrder")
 local TabGroups = require("core.classes.TabGroups")
+local PaneGrid = require("core.classes.PaneGrid")
+local CommandRegistry = require("core.classes.CommandRegistry")
+local TaskRunner = require("core.classes.TaskRunner")
+local CommandPalette = require("core.ui.CommandPalette")
+local VectorIcon = require("core.ui.VectorIcon")
 local MotionDirector = require("core.classes.MotionDirector")
 local Scrim = require("core.ui.Scrim")
 local ModalMotion = require("core.ui.ModalMotion")
@@ -102,12 +107,27 @@ local Updater = require("core.lib.Updater")
 -- neutral Lunar: no org branding, no org endpoints, no update checks. Resolved
 -- from local files only, so startup never waits on the network.
 local ORG_PROFILE, ORG_INFO
+
+-- The pack chosen with the command bar's Load Org Pack. Read straight from the file:
+-- the settings manager is configured from the profile, so it does not exist yet.
+local function saved_pack_pick()
+	local ok, pick = pcall(function()
+		local file = io.open(platform.path:join(platform.config_dir(), "settings.json"), "rb")
+		if not file then return nil end
+		local text = file:read("*a")
+		file:close()
+		return require("cjson").decode(text).org_pack_pick
+	end)
+	return ok and type(pick) == "string" and pick or nil
+end
+
 do
 	-- A broken profile install must never stop the app from starting.
 	-- LUNAR_PROFILE=<id> picks a profile by hand, but only in a dev build: an
 	-- installed build never lets an environment variable choose its org.
 	local ok, profile, info = pcall(OrgProfile.resolve, {
 		dev_select = DEV_BUILD and os.getenv("LUNAR_PROFILE") or nil,
+		user_select = saved_pack_pick(),
 	})
 	if ok then
 		ORG_PROFILE, ORG_INFO = profile, info
@@ -251,65 +271,9 @@ end
 -- internal BUTTON_CB, which is what dispatches those arrows. See TabOrder.
 tabs = iup.flattabs({})
 
--- Carbon UI shell header: the band that names the product.
---
--- Carbon's shell is the first thing in its content-entrance order and the last
--- thing that should ever move, which is why it is a static band rather than
--- anything interactive -- the menu bar above it already owns the actions.
---
--- It is what was missing structurally. Without it the window opened straight onto
--- a tab strip, so there was nothing establishing the application's own frame of
--- reference and every tab read as the top of the hierarchy. Carbon puts the shell
--- on $background and the content on $layer-01, and that one step of contrast is
--- most of what makes the layout read as deliberate.
---
--- Brand and product are two labels, not one, so the brand can be semibold and the
--- product name regular -- Carbon's shell treatment, one typeface at two weights.
---
--- ### Height is the text, not Carbon's 48px
---
--- Carbon specifies a 48px shell header, and this used to pin exactly that with a
--- zero-width child carrying an explicit RASTERSIZE. It was wrong here and the
--- reason is worth keeping: Carbon's shell header is the application's *only*
--- chrome -- it carries the nav, the actions and the account menu, so 48px is
--- working space. This app already has a native Win32 menu bar directly above it,
--- so the band holds nothing but a product name, and 48px of it was a third of an
--- inch of empty grey above every screen.
---
--- Following the token here would be following it past the point where it means
--- anything. The band is sized to its text.
---
--- EXPAND is HORIZONTAL only, for the same reason the status bar's is: a
--- vertically-expanding child gets handed `naturalheight + empty`, and `empty` goes
--- negative once the content is taller than the window, which is how the status bar
--- once got squeezed to nothing. Horizontal-only makes this a fixed-height row that
--- the vbox skips when distributing a deficit.
--- The first word of the product name is the brand ("Lunar" | "Extension Host").
-local SHELL_BRAND, SHELL_PRODUCT = APP_TITLE:match("^(%S+)%s*(.*)$")
-local shell_header = iup.hbox({
-	iup.flatlabel({ TITLE = SHELL_BRAND or APP_TITLE, THEMEROLE = "shellbrand" }),
-	iup.flatlabel({ TITLE = SHELL_PRODUCT or "", THEMEROLE = "shellproduct" }),
-	iup.fill({}),
-	iup.flatlabel({ TITLE = "v" .. APP_VERSION, THEMEROLE = "shellmeta" }),
-	THEMEROLE  = "shellheader",
-	-- Horizontal padding only. Vertical is zero so the band is exactly as tall as
-	-- the labels inside it.
-	MARGIN     = L.margin(5, 0),
-	GAP        = L.gap(2),
-	ALIGNMENT  = "ACENTER",
-	EXPAND     = "HORIZONTAL",
-})
-
--- Native gradient accent strip (a thin bar above the tabs). Themes that opt in (via
--- palette.gradEnabled/gradTop/gradBottom) render a real horizontal gradient here through
--- the forked flat controls; non-gradient themes paint it in the dialog background color
--- so it blends away. Themed via the "accentstrip" rule (see fluent_rules).
-local gradient_strip = iup.flatlabel({
-	TITLE      = "",
-	RASTERSIZE = "x4",
-	EXPAND     = "HORIZONTAL",
-	THEMEROLE  = "accentstrip",
-})
+-- No band above the tabs. The window's title bar names the product, the tab strip names
+-- the tool, and a third row saying "Lunar Extension Host" over a coloured line pushed
+-- every page down by another 30px to repeat the title bar.
 
 -- Host-owned, centralized settings surface (search box + collapsible sections).
 -- `settings` persists which categories the user collapsed; `icon_dir` supplies the
@@ -363,6 +327,9 @@ require("core.ui.ThemeReactor").bindThemeManager(theme_mgr)
 status_bar = StatusBar.new({
 	iup = iup,
 	icon_dir = ICON_DIR,
+	search_icon = VectorIcon.imageHandle(iup, {
+		path = platform.path:join(ICON_DIR, "search.svg"), size = 14, color = "#7d8290",
+	}),
 	-- The org's logo, when its profile ships one; the neutral build shows none.
 	logo = ORG_PROFILE and ORG_PROFILE.brand.logo,
 })
@@ -481,10 +448,12 @@ local WORK_W, WORK_H, TASKBAR = STARTUP.work_w, STARTUP.work_h, STARTUP.taskbar
 -- background show through as a seam, which is how Carbon tile and shell layouts
 -- establish structure without drawn borders. L.gutter() returns the spacing-step-1
 -- pixel value (2) and reads at a glance as "this is a seam, not a margin".
+-- The workspace: the main tab strip plus the panes a tab can be split into. Empty
+-- panes take no space, so with nothing split this is exactly the single strip.
+local pane_grid = PaneGrid:new({ iup = iup, main = tabs, settings = settings_mgr })
+
 local content_box = iup.vbox({
-	shell_header,
-	gradient_strip,
-	tabs,
+	pane_grid:widget(),
 	status_bar:widget(),
 	MARGIN = L.margin(0),
 	GAP = tostring(L.gutter()),
@@ -535,8 +504,6 @@ local function recalc_shell_budget(client_h)
 	client_h = client_h or measured_height(dlg, "CLIENTSIZE")
 	if not client_h or client_h <= 0 then return false end
 	local bands = {
-		header = measured_height(shell_header) or 0,
-		accent = measured_height(gradient_strip) or 0,
 		status = measured_height(status_bar:widget()) or 0,
 	}
 	local cap = ShellBudget.cap(client_h, bands, L.gutter(), 4)
@@ -544,11 +511,31 @@ local function recalc_shell_budget(client_h)
 	local value = "65535x" .. cap
 	if iup.GetAttribute(tabs, "MAXSIZE") == value then return false end
 	iup.SetAttribute(tabs, "MAXSIZE", value)
+	iup.SetAttribute(pane_grid:widget(), "MAXSIZE", value)
 	return true
+end
+
+-- Settings reads as a form, so it keeps a form's width on any monitor.
+local SETTINGS_MAX_WIDTH = 940
+
+-- Page widths are only known after the layout pass a resize triggers.
+local recenter_timer = iup.timer({ time = 30 })
+function recenter_timer:action_cb()
+	self.run = "NO"
+	if host then
+		host:recenterPages()
+		iup.Refresh(dlg)
+	end
+	return iup.DEFAULT
+end
+local function schedule_recenter()
+	recenter_timer.run = "NO"
+	recenter_timer.run = "YES"
 end
 
 function dlg:resize_cb(_, h)
 	recalc_shell_budget(h)
+	schedule_recenter()
 	return iup.DEFAULT -- winDialogResize performs the layout after this callback.
 end
 
@@ -628,12 +615,208 @@ local function show_address_dialog()
 	})
 end
 
+-- The command bar. Registered before the menu items below and before extensions
+-- load, so every menu item lands in it (core.classes.host.Menus).
+local commands = CommandRegistry:new({
+	settings = settings_mgr,
+	open_address = function(uri)
+		local ok, err = host:dispatchRoute(uri)
+		if ok then return true end
+		return nil, type(err) == "table" and err.message or tostring(err)
+	end,
+})
+host:setCommands(commands)
+
+local command_palette = CommandPalette.new({
+	iup = iup,
+	registry = commands,
+	parent = dlg,
+	notify_tree_change = function(w) theme_mgr:themeWidget(w) end,
+	on_error = function(message) host:setStatus(message) end,
+	round = function(window) require("core.lib.desktop").roundWindow(iup, window) end,
+	muted = function()
+		return require("core.ui.ThemeReactor").palette().textMuted or "128 128 128"
+	end,
+	anchor = function()
+		local bar = status_bar:commandWidget()
+		local x, y = tostring(iup.GetAttribute(bar, "SCREENPOSITION") or ""):match("(-?%d+),(-?%d+)")
+		local w = tostring(iup.GetAttribute(bar, "RASTERSIZE") or ""):match("^(%d+)x")
+		if not (x and w) then return nil end
+		return tonumber(x), tonumber(y), tonumber(w)
+	end,
+})
+status_bar:onCommand(function() command_palette:toggle() end)
+host:registerShortcut(iup.K_cP, function() command_palette:toggle() end)
+host:_installKeyDispatch(dlg)
+
+local function add_host_command(id, title, run, extra)
+	local spec = { id = "host." .. id, title = title, run = function()
+		run()
+		return true
+	end }
+	for k, v in pairs(extra or {}) do spec[k] = v end
+	commands:register(spec)
+end
+
+add_host_command("address", "Open Lunar Address", function() command_palette:open("lunar://") end,
+	{ keywords = "go to route url link", group = "Navigate" })
+add_host_command("settings", "Open Settings", function() host:dispatchRoute("lunar://host/settings") end,
+	{ keywords = "preferences options", group = "Navigate" })
+add_host_command("reload", "Restart Extensions", function() mh.reload_extensions() end,
+	{ keywords = "reload refresh plugins", group = "Lunar" })
+add_host_command("updates", "Check for Updates", function() update_check:checkNow() end,
+	{ when = function() return update_check ~= nil end, group = "Lunar" })
+add_host_command("tabbars", "Show All Tab Bars", function() tab_groups:showAllTabBars() end,
+	{ group = "Layout" })
+add_host_command("splits.reset", "Close All Splits", function() pane_grid:reset() end,
+	{ keywords = "unsplit panes merge", group = "Layout" })
+
+local function split_active(zone)
+	return function()
+		local page = tab_groups:activeLeaf()
+		if page then pane_grid:move(page, zone) end
+		host:_applyTabScopes()
+	end
+end
+add_host_command("split.right", "Split Tab Right", split_active("right"), { keywords = "pane side by side", group = "Layout" })
+add_host_command("split.down", "Split Tab Down", split_active("bottom"), { keywords = "pane below", group = "Layout" })
+
+-- Load Org Pack: the packs this machine has, one of which the user may choose when
+-- nothing else assigns one (see OrgProfile.resolve, step 3).
+add_host_command("orgpack", "Load Org Pack", function()
+	local items = {}
+	for _, id in ipairs(ORG_INFO.available or {}) do
+		local loaded = ORG_PROFILE and ORG_PROFILE.id == id
+		items[#items + 1] = {
+			id = "orgpack." .. id, title = id, category = loaded and "Loaded" or "Org Pack",
+			run = function()
+				settings_mgr:set("org_pack_pick", id)
+				settings_mgr:save()
+				host:setStatus("Restart Lunar to load " .. id)
+				return true
+			end,
+		}
+	end
+	if #items == 0 then
+		host:setStatus("No org packs are installed on this machine")
+		return
+	end
+	command_palette:open("", {
+		items = items, placeholder = "Choose an org pack",
+		hint = "Takes effect the next time Lunar starts",
+	})
+end, { keywords = "profile organization", group = "Lunar" })
+
+commands:addProvider({
+	id = "tabs",
+	items = function()
+		local out = {}
+		if not tab_groups then return out end
+		for _, page in ipairs(tab_groups:leaves()) do
+			local title = iup.GetAttribute(page, "TABTITLE")
+			if title and title ~= "" then
+				out[#out + 1] = {
+					id = "tab." .. tostring(tab_groups:keyOf(page) or title),
+					title = title, category = "Go to", group = "Go to",
+					run = function()
+						host:_activateTabWidget(page)
+						return true
+					end,
+				}
+			end
+		end
+		return out
+	end,
+})
+
+commands:addProvider({
+	id = "themes",
+	items = function()
+		local out = {}
+		for _, theme in ipairs(theme_mgr:themes()) do
+			out[#out + 1] = {
+				id = "theme." .. theme.id, title = theme.label, category = "Theme", group = "Theme",
+				run = function()
+					theme_mgr:apply(theme.id)
+					return true
+				end,
+			}
+		end
+		return out
+	end,
+})
+
+-- Tasks: `task ` in the bar, from tasks.json and from extensions.
+local tasks_file = platform.path:join(platform.config_dir(), "tasks.json")
+local task_runner = TaskRunner:new({
+	spawn = function(opts) return host:spawn(opts) end,
+	status = function(message) host:setStatus(message) end,
+	after = function(ms, fn)
+		local timer = iup.timer({ time = ms })
+		function timer:action_cb()
+			self.run = "NO"
+			iup.Destroy(self)
+			fn()
+			return iup.DEFAULT
+		end
+		timer.run = "YES"
+	end,
+	load = function()
+		local file = io.open(tasks_file, "rb")
+		if not file then return {} end
+		local text = file:read("*a")
+		file:close()
+		local tasks, problems = TaskRunner.parse(text, require("cjson").decode)
+		if problems[1] then host:setStatus(problems[1]) end
+		return tasks
+	end,
+})
+host:setTasks(task_runner)
+
+commands:addProvider({
+	id = "tasks",
+	prefix = "task ",
+	title = "Enter to run the task",
+	empty = "No tasks yet: add them to tasks.json in your settings folder",
+	items = function(query)
+		local out = {}
+		for _, task in ipairs(task_runner:list()) do
+			if CommandRegistry.score(query, task.label) then
+				out[#out + 1] = {
+					id = "task." .. task.label, title = task.label, group = "Tasks",
+					detail = task_runner:isRunning(task.label) and "running" or nil,
+					run = function()
+						local ok, message = task_runner:run(task)
+						if ok then return true end
+						return nil, message
+					end,
+				}
+			end
+		end
+		return out
+	end,
+})
+add_host_command("tasks", "Run Task", function() command_palette:open("task ") end,
+	{ keywords = "build script job", group = "Lunar" })
+
+-- For scripts/ui_capture.lua, which drives these from outside.
+if DEV_BUILD then
+	_G.LUNAR_DEV_SHELL = {
+		palette = command_palette,
+		panes = pane_grid,
+		groups = function() return tab_groups end,
+		host = host,
+		tasks = task_runner,
+	}
+end
+
 host:addMenuItem("Open Lunar Address...", show_address_dialog, "file")
 host:addMenuItem("Welcome Tour...", show_welcome_tour, "help")
 host:addMenuItem("Feedback...", show_feedback, "help")
 
 -- Load extensions from plugins
 ext_mgr:loadAll(host)
+set_status("Ready")   -- the last extension's load message is not news
 
 -- Append the host-owned Settings tab BEFORE restoring tab order, so it participates
 -- in drag-reordering and order persistence alongside the extension tabs.
@@ -747,7 +930,14 @@ tab_groups = TabGroups:new({
 	iup = iup,
 	root_strip = tabs,
 	settings = settings_mgr,
+	extra_icon = function(name)
+		return VectorIcon.imageHandle(iup, {
+			path = platform.path:join(ICON_DIR, name .. ".svg"), size = 14, color = "#7d8290",
+		})
+	end,
 	on_change = function()
+		-- Every way a pane can empty ends here: a drop on a tab bar, a merge, a closed tab.
+		pane_grid:sync()
 		host:_applyTabScopes()
 		refresh_shell_budget()
 	end,
@@ -769,10 +959,22 @@ tab_groups = TabGroups:new({
 })
 tab_order:setGroups(tab_groups)
 host:setTabGroups(tab_groups)
+tab_groups:setPanes(pane_grid:extraStrips())
+pane_grid:setGroups(tab_groups)
+tab_order:setPanes(pane_grid, dlg)
+for _, strip in pairs(pane_grid:extraStrips()) do theme_mgr:themeWidget(strip) end
+theme_mgr:onApply(function()
+	pane_grid:sync()
+	host:syncScrollHosts()
+end)
+pane_grid:onLayout(schedule_recenter)
+host:centerPage(settings_view:widget(), SETTINGS_MAX_WIDTH, L.px(L.ROLE.page))
 
 -- Rebuild the saved arrangement now that every extension tab and the host's own
 -- Settings tab are in the strip, and while the pages are still unmapped.
 tab_groups:restore()
+pane_grid:sync()
+host:syncScrollHosts()
 
 -- The first time an org's tool group applies on this machine, move the org's
 -- tools into it whatever the saved layout says (a layout from before tool groups

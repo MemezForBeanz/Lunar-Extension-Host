@@ -11,7 +11,7 @@
 -- * `opts.checked_default` `boolean` (default `true`) — initial checkbox state for new items.
 -- * `opts.show_checkboxes` `boolean` (default `true`) — render a textual `[x]`/`[ ]` prefix.
 -- * `opts.show_border` `boolean` (default `true`) — render a themed border.
--- * `opts.font` `string` (default `"Consolas, 9"`) — list font.
+-- * `opts.font` `string` (default `"Segoe UI, 11"`) — list font.
 -- * `opts.menu` `ContextMenu|items-spec` — optional right-click context menu.
 -- * `opts.on_check` `function(index, checked)` — called when a checkbox changes.
 -- * `opts.on_activate` `function(exclusive)` — user interacted with this list (focus hint);
@@ -36,7 +36,6 @@
 
 local class = require("middleclass")
 local ContextMenu = require("core.ui.ContextMenu")
-local Theme = require("core.classes.Theme")
 local ListEntrance = require("core.ui.ListEntrance")
 
 local CheckList = class("CheckList")
@@ -52,7 +51,7 @@ function CheckList:initialize(iup, opts)
     self._format          = opts.format
     self._checked_default = opts.checked_default ~= false
     self._show_checkboxes = opts.show_checkboxes ~= false
-    self._font            = opts.font or "Consolas, 9"
+    self._font            = opts.font or "Segoe UI, 11"
     self._on_check        = opts.on_check
     self._on_activate     = opts.on_activate
     self._role            = opts.role
@@ -83,7 +82,7 @@ function CheckList:initialize(iup, opts)
         BORDER       = "NO",
         CANFOCUS     = "YES",
         VISIBLELINES = "8",
-        FONT         = Theme.color("font", self._font),
+        FONT         = self._font,
     }
     if self._role then iup.SetAttribute(self._list, "BQROLE", self._role) end
     if self._themerole then iup.SetAttribute(self._list, "THEMEROLE", self._themerole) end

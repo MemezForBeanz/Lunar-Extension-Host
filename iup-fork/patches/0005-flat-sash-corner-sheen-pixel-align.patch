@@ -1,0 +1,584 @@
+diff --git a/src/iup_box.c b/src/iup_box.c
+index 63fb1c7..2bb8fda 100644
+--- a/src/iup_box.c
++++ b/src/iup_box.c
+@@ -222,12 +222,14 @@ Iclass* iupBoxNewClassBase(void)
+   iupClassRegisterAttribute(ic, "CLIENTOFFSET", iupBaseGetClientOffsetAttrib, NULL, NULL, NULL, IUPAF_READONLY|IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+ 
+   /* boxes only */
+-  iupClassRegisterAttribute(ic, "GAP", iBoxGetGapAttrib, iBoxSetGapAttrib, IUPAF_SAMEASSYSTEM, "0", IUPAF_NOT_MAPPED);
+-  iupClassRegisterAttribute(ic, "CGAP", iBoxGetCGapAttrib, iBoxSetCGapAttrib, IUPAF_SAMEASSYSTEM, "0", IUPAF_NO_SAVE|IUPAF_NOT_MAPPED);
++  /* Lunar fork: GAP and MARGIN do not inherit. A page's padding was otherwise added again by
++     every box nested inside it, so nothing on a page shared a left edge. */
++  iupClassRegisterAttribute(ic, "GAP", iBoxGetGapAttrib, iBoxSetGapAttrib, IUPAF_SAMEASSYSTEM, "0", IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "CGAP", iBoxGetCGapAttrib, iBoxSetCGapAttrib, IUPAF_SAMEASSYSTEM, "0", IUPAF_NO_SAVE|IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "NGAP", iBoxGetGapAttrib, iBoxSetGapAttrib, IUPAF_SAMEASSYSTEM, "0", IUPAF_NO_SAVE|IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "NCGAP", iBoxGetCGapAttrib, iBoxSetCGapAttrib, IUPAF_SAMEASSYSTEM, "0", IUPAF_NO_SAVE|IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+-  iupClassRegisterAttribute(ic, "MARGIN", iBoxGetMarginAttrib, iBoxSetMarginAttrib, IUPAF_SAMEASSYSTEM, "0x0", IUPAF_NOT_MAPPED);
+-  iupClassRegisterAttribute(ic, "CMARGIN", iBoxGetCMarginAttrib, iBoxSetCMarginAttrib, IUPAF_SAMEASSYSTEM, "0x0", IUPAF_NO_SAVE|IUPAF_NOT_MAPPED);
++  iupClassRegisterAttribute(ic, "MARGIN", iBoxGetMarginAttrib, iBoxSetMarginAttrib, IUPAF_SAMEASSYSTEM, "0x0", IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "CMARGIN", iBoxGetCMarginAttrib, iBoxSetCMarginAttrib, IUPAF_SAMEASSYSTEM, "0x0", IUPAF_NO_SAVE|IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "NMARGIN", iBoxGetMarginAttrib, iBoxSetMarginAttrib, IUPAF_SAMEASSYSTEM, "0x0", IUPAF_NO_SAVE|IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "NCMARGIN", iBoxGetCMarginAttrib, iBoxSetCMarginAttrib, IUPAF_SAMEASSYSTEM, "0x0", IUPAF_NO_SAVE|IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+ 
+diff --git a/src/iup_draw.c b/src/iup_draw.c
+index ddd4729..8d94e3a 100644
+--- a/src/iup_draw.c
++++ b/src/iup_draw.c
+@@ -30,6 +30,8 @@ IUP_SDK_API int iupdrvDrawFlatRoundBox(IdrawCanvas* dc, int x1, int y1, int x2,
+                                        int radius, long color1, long color2, int has_gradient, int vertical);
+ IUP_SDK_API int iupdrvDrawFlatRoundBorder(IdrawCanvas* dc, int x1, int y1, int x2, int y2,
+                                           int radius, int border_width, long color);
++IUP_SDK_API int iupdrvDrawFlatCornerSheen(IdrawCanvas* dc, int x1, int y1, int x2, int y2,
++                                          int radius, long color);
+ #endif
+ 
+ 
+@@ -591,9 +593,13 @@ static long iFlatDrawColorMakeInactive(long color, const char* bgcolor)
+ {
+   unsigned char bg_r = 0, bg_g = 0, bg_b = 0;
+   unsigned char r = iupDrawRed(color), g = iupDrawGreen(color), b = iupDrawBlue(color), a = iupDrawAlpha(color);
++  /* Lunar fork: halfway to the surface behind it. The stock formula assumes a light theme:
++     on a dark surface it brightens a disabled control, and with no background to read it
++     lights the control's border up as the strongest line on the page. */
++  if (!bgcolor || !bgcolor[0])
++    return iupDrawColor(r, g, b, (unsigned char)(a / 2));
+   iupStrToRGB(bgcolor, &bg_r, &bg_g, &bg_b);
+-  iupImageColorMakeInactive(&r, &g, &b, bg_r, bg_g, bg_b);
+-  return iupDrawColor(r, g, b, a);
++  return iupDrawColor((unsigned char)((r + bg_r) / 2), (unsigned char)((g + bg_g) / 2), (unsigned char)((b + bg_b) / 2), a);
+ }
+ 
+ IUP_SDK_API void iupFlatDrawBorder(IdrawCanvas* dc, int xmin, int xmax, int ymin, int ymax, int border_width, const char* fgcolor, const char* bgcolor, int active)
+@@ -846,6 +852,10 @@ IUP_SDK_API void iupFlatDrawBoxAttrib(Ihandle* ih, IdrawCanvas* dc, int xmin, in
+   char* dir = ih ? iupAttribGetStr(ih, "GRADIENTDIRECTION") : NULL;
+   if (dir && iupStrEqualNoCase(dir, "HORIZONTAL"))
+     vertical = 0;
++  /* A fill inset inside a border keeps its corners concentric with that border. The same
++     radius on the smaller box pokes through the border's arc and reads as a nick. */
++  if (radius > 0 && xmin > 0)
++    radius = (radius > xmin) ? radius - xmin : 0;
+   if (radius > 0 || (grad && grad[0] != 0))
+     iupFlatDrawGradientBox(dc, xmin, xmax, ymin, ymax, radius, fillcolor, grad, vertical, bgcolor, active);
+   else
+@@ -858,7 +868,18 @@ IUP_SDK_API void iupFlatDrawBorderAttrib(Ihandle* ih, IdrawCanvas* dc, int xmin,
+ {
+   int radius = ih ? iupAttribGetInt(ih, "CORNERRADIUS") : 0;
+   if (radius > 0)
++  {
++    /* BORDERSHEENCOLOR: light caught by the four corners. Read locally (iupAttribGet) so a
++       frame's sheen does not leak onto every control inside it. */
++    char* sheen = ih ? iupAttribGet(ih, "BORDERSHEENCOLOR") : NULL;
+     iupFlatDrawRoundBorder(dc, xmin, xmax, ymin, ymax, radius, border_width, color, bgcolor, active);
++#ifdef _WIN32
++    if (sheen && sheen[0] && active && border_width > 0)
++      iupdrvDrawFlatCornerSheen(dc, xmin, ymin, xmax, ymax, radius, iupDrawStrToColor(sheen, 0));
++#else
++    (void)sheen;
++#endif
++  }
+   else
+     iupFlatDrawBorder(dc, xmin, xmax, ymin, ymax, border_width, color, bgcolor, active);
+ }
+diff --git a/src/iup_flatlist.c b/src/iup_flatlist.c
+index 231fc46..4b07f5d 100644
+--- a/src/iup_flatlist.c
++++ b/src/iup_flatlist.c
+@@ -25,6 +25,7 @@
+ #include "iup_array.h"
+ #include "iup_drvdraw.h"
+ #include "iup_draw.h"
++#include "iup_childtree.h"
+ #include "iup_register.h"
+ #include "iup_flatscrollbar.h"
+ 
+@@ -302,6 +303,20 @@ static int iFlatListRedraw_CB(Ihandle* ih)
+ 
+   iupdrvDrawGetSize(dc, &width, &height);
+ 
++  /* the corner notches of a rounded body show the colour behind the list, not the
++     uninitialized (black) bitmap. A flat scroll box does not keep its BGCOLOR where
++     iupDrawParentBackground looks, and that lookup then answers with the dialog default. */
++  {
++    Ihandle* native_parent = iupChildTreeGetNativeParent(ih);
++    char* behind = NULL;
++    if (native_parent && IupClassMatch(native_parent, "flatscrollbox"))
++      behind = IupGetAttribute(native_parent, "BGCOLOR");
++    if (behind)
++      iupdrvDrawRectangle(dc, 0, 0, width - 1, height - 1, iupDrawStrToColor(behind, 0), IUP_DRAW_FILL, 1);
++    else
++      iupDrawParentBackground(dc, ih);
++  }
++
+   /* Lunar fork: honors CORNERRADIUS (rounded list body), like the other flat
+      controls. Items are drawn after this fill, so with a small radius only the
+      background's corner pixels round; rows never reach into the border. */
+@@ -338,7 +353,18 @@ static int iFlatListRedraw_CB(Ihandle* ih)
+     }
+ 
+     /* item background */
+-    iupFlatDrawBox(dc, x, x + ih->data->line_width - 1, y, y + ih->data->line_height - 1, bgcolor, bgcolor, 1);
++    {
++      /* Lunar fork: ITEMRADIUS draws a selected row as a rounded pill inset from the list's
++         edges, so it never runs into the rounded corners of the list itself. */
++      int item_radius = iupAttribGetInt(ih, "ITEMRADIUS");
++      if (items[i].selected && item_radius > 0)
++      {
++        iupFlatDrawBox(dc, x, x + ih->data->line_width - 1, y, y + ih->data->line_height - 1, background_color, background_color, 1);
++        iupFlatDrawRoundBox(dc, x + 4, x + ih->data->line_width - 5, y + 1, y + ih->data->line_height - 2, item_radius, bgcolor, background_color, 1);
++      }
++      else
++        iupFlatDrawBox(dc, x, x + ih->data->line_width - 1, y, y + ih->data->line_height - 1, bgcolor, bgcolor, 1);
++    }
+ 
+     iFlatListSetItemFont(ih, items[i].font);
+ 
+@@ -1986,6 +2012,8 @@ Iclass* iupFlatListNewClass(void)
+   iupClassRegisterAttribute(ic, "VALUESTRING", iFlatListGetValueStringAttrib, iFlatListSetValueStringAttrib, NULL, NULL, IUPAF_NO_DEFAULTVALUE | IUPAF_NO_INHERIT);
+ 
+   iupClassRegisterAttribute(ic, "CORNERRADIUS", NULL, iFlatListSetAttribPostRedraw, NULL, NULL, IUPAF_NOT_MAPPED);  /* Lunar fork */
++  iupClassRegisterAttribute(ic, "ITEMRADIUS", NULL, iFlatListSetAttribPostRedraw, NULL, NULL, IUPAF_NOT_MAPPED);  /* Lunar fork */
++  iupClassRegisterAttribute(ic, "ITEMRADIUS", NULL, iFlatListSetAttribPostRedraw, NULL, NULL, IUPAF_NOT_MAPPED);  /* Lunar fork */
+   iupClassRegisterAttribute(ic, "BORDERCOLOR", NULL, NULL, IUPAF_SAMEASSYSTEM, IUP_FLAT_BORDERCOLOR, IUPAF_DEFAULT);  /* inheritable */
+   iupClassRegisterAttribute(ic, "BORDERWIDTH", iFlatListGetBorderWidthAttrib, iFlatListSetBorderWidthAttrib, IUPAF_SAMEASSYSTEM, "0", IUPAF_NOT_MAPPED);  /* inheritable */
+   iupClassRegisterAttribute(ic, "FGCOLOR", NULL, iFlatListSetAttribPostRedraw, IUP_FLAT_FORECOLOR, NULL, IUPAF_NOT_MAPPED);  /* force the new default value */
+diff --git a/src/iup_flatscrollbar.c b/src/iup_flatscrollbar.c
+index 716ecc4..fe9cc0e 100644
+--- a/src/iup_flatscrollbar.c
++++ b/src/iup_flatscrollbar.c
+@@ -1097,8 +1097,11 @@ IUP_SDK_API void iupFlatScrollBarSetChildrenCurrentSize(Ihandle* ih, int shrink)
+   }
+   else
+   {
+-    iupBaseSetCurrentSize(sb_vert, sb_size, ih->currentheight, shrink);  /* sb_vert->currentheight == ih->currentheight */
+-    iupBaseSetCurrentSize(sb_horiz, ih->currentwidth, sb_size, shrink);  /* sb_horiz->currentwidth == ih->currentwidth */
++    /* Lunar fork: SB_INSET keeps the bars inside a rounded border. They are child windows,
++       so at the control's edge they cut straight through the border drawn under them. */
++    int inset = iupAttribGetInt(ih, "SB_INSET");
++    iupBaseSetCurrentSize(sb_vert, sb_size, ih->currentheight - 2 * inset, shrink);  /* sb_vert->currentheight == ih->currentheight */
++    iupBaseSetCurrentSize(sb_horiz, ih->currentwidth - 2 * inset, sb_size, shrink);  /* sb_horiz->currentwidth == ih->currentwidth */
+   }
+ }
+ 
+@@ -1133,8 +1136,9 @@ IUP_SDK_API void iupFlatScrollBarSetChildrenPosition(Ihandle* ih)
+   }
+   else
+   {
+-    iupBaseSetPosition(sb_vert, ih->currentwidth - sb_size, 0);
+-    iupBaseSetPosition(sb_horiz, 0, ih->currentheight - sb_size);
++    int inset = iupAttribGetInt(ih, "SB_INSET");
++    iupBaseSetPosition(sb_vert, ih->currentwidth - sb_size - (inset ? 2 : 0), inset);
++    iupBaseSetPosition(sb_horiz, inset, ih->currentheight - sb_size - (inset ? 2 : 0));
+   }
+ 
+   IupSetAttribute(sb_vert, "ZORDER", "TOP");
+@@ -1290,6 +1294,8 @@ IUP_SDK_API void iupFlatScrollBarRegister(Iclass* ic)
+   iupClassRegisterAttribute(ic, "SB_PRESSCOLOR", NULL, NULL, IUPAF_SAMEASSYSTEM, "96 96 96", IUPAF_NO_INHERIT);
+   /* Lunar fork additions: rounded + gradient flat-scrollbar thumb (see iFlatScrollBarDrawThumb). */
+   iupClassRegisterAttribute(ic, "SB_CORNERRADIUS", NULL, NULL, IUPAF_SAMEASSYSTEM, "0", IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "SB_INSET", NULL, NULL, IUPAF_SAMEASSYSTEM, "0", IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "SB_INSET", NULL, NULL, IUPAF_SAMEASSYSTEM, "0", IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "SB_GRADIENTCOLOR", NULL, NULL, NULL, NULL, IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "SB_GRADIENTDIRECTION", NULL, NULL, IUPAF_SAMEASSYSTEM, "VERTICAL", IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "SHOWARROWS", NULL, NULL, IUPAF_SAMEASSYSTEM, "Yes", IUPAF_NO_INHERIT);
+diff --git a/src/iup_flatseparator.c b/src/iup_flatseparator.c
+index 7ade73e..4d5506d 100644
+--- a/src/iup_flatseparator.c
++++ b/src/iup_flatseparator.c
+@@ -27,7 +27,7 @@
+ 
+ 
+ enum { ISEPARATOR_VERT, ISEPARATOR_HORIZ };
+-enum { ISEPARATOR_FILL, ISEPARATOR_LINE, ISEPARATOR_SUNKENLINE, ISEPARATOR_DUALLINES, ISEPARATOR_GRIP, ISEPARATOR_EMPTY };
++enum { ISEPARATOR_FILL, ISEPARATOR_LINE, ISEPARATOR_SUNKENLINE, ISEPARATOR_DUALLINES, ISEPARATOR_GRIP, ISEPARATOR_EMPTY, ISEPARATOR_SASH };
+ 
+ struct _IcontrolData
+ {
+@@ -56,7 +56,32 @@ static int iFlatSeparatorRedraw_CB(Ihandle* ih)
+ 
+   iupDrawParentBackground(dc, ih);
+ 
+-  if (ih->data->style != ISEPARATOR_FILL && ih->data->style != ISEPARATOR_EMPTY)
++  if (ih->data->style == ISEPARATOR_SASH)
++  {
++    /* Lunar fork: a splitter that behaves like the edge of a panel: a hairline at rest and
++       an HLCOLOR band under the pointer or while dragging, in place of IUP's dotted grip.
++       The hit area stays the full BARSIZE, so the thin line is still easy to grab. */
++    int w, h;
++    int hot = iupAttribGet(ih, "_IUPSASH_HOT") != NULL;
++    char* hlcolor = iupAttribGet(ih, "HLCOLOR");
++    long color = iupDrawStrToColor(iupAttribGetStr(ih, "COLOR"), iupDrawColor(160, 160, 160, 255));
++
++    iupdrvDrawGetSize(dc, &w, &h);
++
++    if (hot && hlcolor)
++    {
++      long hl = iupDrawStrToColor(hlcolor, color);
++      if (ih->data->orientation == ISEPARATOR_VERT)
++        iupdrvDrawRectangle(dc, w / 2 - 1, 0, w / 2 + 1, h - 1, hl, IUP_DRAW_FILL, 1);
++      else
++        iupdrvDrawRectangle(dc, 0, h / 2 - 1, w - 1, h / 2 + 1, hl, IUP_DRAW_FILL, 1);
++    }
++    else if (ih->data->orientation == ISEPARATOR_VERT)
++      iupdrvDrawRectangle(dc, w / 2, 0, w / 2, h - 1, color, IUP_DRAW_FILL, 1);
++    else
++      iupdrvDrawRectangle(dc, 0, h / 2, w - 1, h / 2, color, IUP_DRAW_FILL, 1);
++  }
++  else if (ih->data->style != ISEPARATOR_FILL && ih->data->style != ISEPARATOR_EMPTY)
+   {
+     int x, y, w, h;
+     long color = iupDrawStrToColor(iupAttribGetStr(ih, "COLOR"), iupDrawColor(160, 160, 160, 255));
+@@ -199,7 +224,7 @@ static char* iFlatSeparatorGetOrientationAttrib(Ihandle* ih)
+ 
+ static char* iFlatSeparatorGetStyleAttrib(Ihandle* ih)
+ {
+-  const char* style_str[] = { "FILL", "LINE", "SUNKENLINE", "DUALLINES", "GRIP", "EMPTY" };
++  const char* style_str[] = { "FILL", "LINE", "SUNKENLINE", "DUALLINES", "GRIP", "EMPTY", "SASH" };
+   return (char*)style_str[ih->data->style];
+ }
+ 
+@@ -215,6 +240,8 @@ static int iFlatSeparatorSetStyleAttrib(Ihandle* ih, const char* value)
+     ih->data->style = ISEPARATOR_EMPTY;
+   else if (iupStrEqualNoCase(value, "GRIP"))
+     ih->data->style = ISEPARATOR_GRIP;
++  else if (iupStrEqualNoCase(value, "SASH"))
++    ih->data->style = ISEPARATOR_SASH;
+   else
+     ih->data->style = ISEPARATOR_SUNKENLINE;
+   IupUpdate(ih);
+@@ -299,6 +326,7 @@ Iclass* iupFlatSeparatorNewClass(void)
+   iupClassRegisterAttribute(ic, "ORIENTATION", iFlatSeparatorGetOrientationAttrib, iFlatSeparatorSetOrientationAttrib, IUPAF_SAMEASSYSTEM, "VERTICAL", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "STYLE", iFlatSeparatorGetStyleAttrib, iFlatSeparatorSetStyleAttrib, IUPAF_SAMEASSYSTEM, "SUNKENLINE", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "COLOR", NULL, NULL, IUPAF_SAMEASSYSTEM, "160, 160, 160", IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "HLCOLOR", NULL, NULL, NULL, NULL, IUPAF_NO_INHERIT);  /* Lunar fork: STYLE=SASH */
+   iupClassRegisterAttribute(ic, "BARSIZE", iFlatSeparatorGetBarSizeAttrib, iFlatSeparatorSetBarSizeAttrib, IUPAF_SAMEASSYSTEM, "5", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
+ 
+   return ic;
+diff --git a/src/iup_flattabs.c b/src/iup_flattabs.c
+index afac6ff..115f16c 100644
+--- a/src/iup_flattabs.c
++++ b/src/iup_flattabs.c
+@@ -802,6 +802,13 @@ static int iFlatTabsRedraw_CB(Ihandle* ih)
+           }
+           else
+             iupFlatDrawBox(dc, x1, x2, y1, y2, background_color, NULL, 1);
++
++          /* Lunar fork: TABSACTIVELINE marks the current tab with a 2px underline. */
++          {
++            char* active_line = iupAttribGet(ih, "TABSACTIVELINE");
++            if (active_line && current_child == child && tabType == ITABS_TOP)
++              iupFlatDrawBox(dc, x1 + 8, x2 - 8, y2 - 2, y2 - 1, active_line, NULL, 1);
++          }
+         }
+       }
+       else
+diff --git a/src/iup_flattoggle.c b/src/iup_flattoggle.c
+index 54f7460..8969c7f 100644
+--- a/src/iup_flattoggle.c
++++ b/src/iup_flattoggle.c
+@@ -275,17 +275,17 @@ static int iFlatToggleRedraw_CB(Ihandle* ih)
+       if (radio)
+         iupFlatDrawDrawCircle(dc, xc, yc, radius, 1, 1, check_bgcolor, bgcolor, active);
+       else
+-        iupFlatDrawBox(dc, check_xmin, check_xmin + check_size,
+-                           check_ymin, check_ymin + check_size,
+-                           check_bgcolor, bgcolor, active);
++        iupFlatDrawRoundBox(dc, check_xmin, check_xmin + check_size,
++                                check_ymin, check_ymin + check_size,
++                                iupAttribGetInt(ih, "CHECKRADIUS"), check_bgcolor, bgcolor, active);  /* Lunar fork */
+ 
+       /* check border */
+       if (radio)
+         iupFlatDrawDrawCircle(dc, xc, yc, radius, 0, ITOGGLE_BORDER, check_fgcolor, bgcolor, active);
+       else
+-        iupFlatDrawBorder(dc, check_xmin, check_xmin + check_size,
+-                              check_ymin, check_ymin + check_size,
+-                              ITOGGLE_BORDER, check_fgcolor, bgcolor, active);
++        iupFlatDrawRoundBorder(dc, check_xmin, check_xmin + check_size,
++                                   check_ymin, check_ymin + check_size,
++                                   iupAttribGetInt(ih, "CHECKRADIUS"), ITOGGLE_BORDER, check_fgcolor, bgcolor, active);  /* Lunar fork */
+ 
+       /* check mark */
+       if (selected)
+@@ -935,6 +935,7 @@ Iclass* iupFlatToggleNewClass(void)
+   iupClassRegisterAttribute(ic, "CHECKFGCOLOR", NULL, NULL, NULL, NULL, IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "CHECKHLCOLOR", NULL, NULL, NULL, NULL, IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "CHECKPSCOLOR", NULL, NULL, NULL, NULL, IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "CHECKRADIUS", NULL, NULL, NULL, NULL, IUPAF_NO_INHERIT);  /* Lunar fork */
+ 
+   iupClassRegisterAttribute(ic, "CHECKIMAGE", NULL, NULL, NULL, NULL, IUPAF_IHANDLENAME | IUPAF_NO_DEFAULTVALUE | IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "CHECKIMAGEPRESS", NULL, NULL, NULL, NULL, IUPAF_IHANDLENAME | IUPAF_NO_DEFAULTVALUE | IUPAF_NO_INHERIT);
+diff --git a/src/iup_split.c b/src/iup_split.c
+index 046e880..ed679ae 100644
+--- a/src/iup_split.c
++++ b/src/iup_split.c
+@@ -72,14 +72,14 @@ static void iSplitAutoHide(Ihandle* ih)
+       if (ih->currentwidth <= ih->data->barsize)
+         tol = 50;
+       else
+-        tol = (1000*ih->data->barsize)/ih->currentwidth;
++        tol = ih->currentwidth > 0 ? (1000*ih->data->barsize)/ih->currentwidth : 0;  /* Lunar fork: see iSplitCalcVal */
+     }
+     else
+     {
+       if (ih->currentheight <= ih->data->barsize)
+         tol = 50;
+       else
+-        tol = (1000 * ih->data->barsize) / ih->currentheight;
++        tol = ih->currentheight > 0 ? (1000 * ih->data->barsize) / ih->currentheight : 0;  /* Lunar fork: see iSplitCalcVal */
+     }
+ 
+     iSplitAutoHideChild(child1, ih->data->val<=tol? ISPLIT_HIDE: ISPLIT_SHOW);
+@@ -132,10 +132,12 @@ static int iSplitGetHeight2(Ihandle* ih, int height1)
+ 
+ static void iSplitCalcVal(Ihandle* ih, int size1)
+ {
+-  if (ih->data->orientation == ISPLIT_VERT)
+-    ih->data->val = (size1 * 1000) / (ih->currentwidth - ih->data->barsize);
+-  else
+-    ih->data->val = (size1 * 1000) / (ih->currentheight - ih->data->barsize);
++  /* Lunar fork: a split with nothing to divide yet (before the first layout, or with
++     BARSIZE=0 on a zero-sized parent) has no value to compute; dividing faults. */
++  int total = (ih->data->orientation == ISPLIT_VERT ? ih->currentwidth : ih->currentheight) - ih->data->barsize;
++  if (total <= 0)
++    return;
++  ih->data->val = (size1 * 1000) / total;
+ }
+ 
+ static void iSplitAdjustVal(Ihandle* ih)
+@@ -241,6 +243,8 @@ static void iSplitSetBarPosition(Ihandle* ih)
+ \*****************************************************************************/
+ 
+ 
++static void iSplitSetSashHot(Ihandle* bar, int hot);
++
+ static int iSplitMotion_CB(Ihandle* bar, int x, int y, char *status)
+ {
+   Ihandle* ih = bar->parent;
+@@ -321,6 +325,7 @@ static int iSplitButton_CB(Ihandle* bar, int button, int pressed, int x, int y,
+   else if (ih->data->is_holding && !pressed)  /* DRAG END */
+   {
+     ih->data->is_holding = 0;
++    iSplitSetSashHot(bar, 0);
+ 
+     /* Always refresh when releasing the mouse */
+     IupRefreshChildren(ih);  
+@@ -332,6 +337,29 @@ static int iSplitButton_CB(Ihandle* bar, int button, int pressed, int x, int y,
+   return IUP_DEFAULT;
+ }
+ 
++static void iSplitSetSashHot(Ihandle* bar, int hot)
++{
++  Ihandle* ih = bar->parent;
++  if (!ih || ih->data->showgrip != 3)
++    return;
++  iupAttribSet(bar, "_IUPSASH_HOT", hot ? "1" : NULL);
++  IupUpdate(bar);
++}
++
++static int iSplitEnterWindow_CB(Ihandle* bar)
++{
++  iSplitSetSashHot(bar, 1);
++  return IUP_DEFAULT;
++}
++
++static int iSplitLeaveWindow_CB(Ihandle* bar)
++{
++  /* the pointer outruns the bar while dragging: stay lit until release */
++  if (!bar->parent || !bar->parent->data->is_holding)
++    iSplitSetSashHot(bar, 0);
++  return IUP_DEFAULT;
++}
++
+ static int iSplitFocus_CB(Ihandle* bar, int focus)
+ {
+   Ihandle* ih = bar->parent;
+@@ -375,6 +403,17 @@ static int iSplitSetColorAttrib(Ihandle* ih, const char* value)
+   return 0;
+ }
+ 
++static int iSplitSetHlColorAttrib(Ihandle* ih, const char* value)
++{
++  IupStoreAttribute(ih->firstchild, "HLCOLOR", value);
++  return 0;
++}
++
++static char* iSplitGetHlColorAttrib(Ihandle* ih)
++{
++  return IupGetAttribute(ih->firstchild, "HLCOLOR");
++}
++
+ static char* iSplitGetColorAttrib(Ihandle* ih)
+ {
+   return IupGetAttribute(ih->firstchild, "COLOR");
+@@ -432,13 +471,16 @@ static char* iSplitGetValueAttrib(Ihandle* ih)
+ 
+ static int iSplitSetBarSizeAttrib(Ihandle* ih, const char* value)
+ {
++  int old_barsize = ih->data->barsize;
+   if (iupStrToInt(value, &ih->data->barsize))
+   {
+     IupSetInt(ih->firstchild, "BARSIZE", ih->data->barsize);
+ 
++    /* Lunar fork: only when crossing zero. Forcing VISIBLE=YES on every change put the
++       bar of a split on a hidden tab on top of the tab being shown. */
+     if (ih->data->barsize == 0)
+       IupSetAttribute(ih->firstchild, "VISIBLE", "NO");
+-    else
++    else if (old_barsize == 0)
+       IupSetAttribute(ih->firstchild, "VISIBLE", "YES");
+ 
+     if (ih->data->val != -1)
+@@ -499,7 +541,12 @@ static char* iSplitGetLayoutDragAttrib(Ihandle* ih)
+ 
+ static int iSplitSetShowGripAttrib(Ihandle* ih, const char* value)
+ {
+-  if (iupStrBoolean(value))
++  if (iupStrEqualNoCase(value, "SASH"))  /* Lunar fork: see ISEPARATOR_SASH */
++  {
++    ih->data->showgrip = 3;
++    IupSetAttribute(ih->firstchild, "STYLE", "SASH");
++  }
++  else if (iupStrBoolean(value))
+   {
+     ih->data->showgrip = 1;
+     IupSetAttribute(ih->firstchild, "STYLE", "GRIP");
+@@ -530,7 +577,9 @@ static int iSplitSetShowGripAttrib(Ihandle* ih, const char* value)
+ 
+ static char* iSplitGetShowGripAttrib(Ihandle* ih)
+ {
+-  if (ih->data->showgrip == 2)
++  if (ih->data->showgrip == 3)
++    return "SASH";
++  else if (ih->data->showgrip == 2)
+     return "LINES";
+   else
+     return iupStrReturnBoolean (ih->data->showgrip); 
+@@ -803,6 +852,8 @@ static int iSplitCreateMethod(Ihandle* ih, void** params)
+   IupSetCallback(bar, "BUTTON_CB", (Icallback) iSplitButton_CB);
+   IupSetCallback(bar, "FOCUS_CB",  (Icallback) iSplitFocus_CB);
+   IupSetCallback(bar, "MOTION_CB", (Icallback) iSplitMotion_CB);
++  IupSetCallback(bar, "ENTERWINDOW_CB", (Icallback) iSplitEnterWindow_CB);
++  IupSetCallback(bar, "LEAVEWINDOW_CB", (Icallback) iSplitLeaveWindow_CB);
+ 
+   if (params)
+   {
+@@ -857,6 +908,7 @@ Iclass* iupSplitNewClass(void)
+ 
+   iupClassRegisterAttribute(ic, "COLOR", iSplitGetColorAttrib, iSplitSetColorAttrib, IUPAF_SAMEASSYSTEM, "160 160 160", IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "ORIENTATION", NULL, iSplitSetOrientationAttrib, IUPAF_SAMEASSYSTEM, "VERTICAL", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "HLCOLOR", iSplitGetHlColorAttrib, iSplitSetHlColorAttrib, NULL, NULL, IUPAF_NO_INHERIT);  /* Lunar fork: SHOWGRIP=SASH */
+   iupClassRegisterAttribute(ic, "SHOWGRIP", iSplitGetShowGripAttrib, iSplitSetShowGripAttrib, IUPAF_SAMEASSYSTEM, "YES", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "BARSIZE", iSplitGetBarSizeAttrib, iSplitSetBarSizeAttrib, IUPAF_SAMEASSYSTEM, "5", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
+ 
+diff --git a/src/win/iupwin_draw_gdi.c b/src/win/iupwin_draw_gdi.c
+index 1bcd18d..cc0c35c 100644
+--- a/src/win/iupwin_draw_gdi.c
++++ b/src/win/iupwin_draw_gdi.c
+@@ -349,8 +349,11 @@ IUP_SDK_API int iupdrvDrawFlatRoundBox(IdrawCanvas* dc, int x1, int y1, int x2,
+   fw = (float)(x2 - x1 + 1);
+   fh = (float)(y2 - y1 + 1);
+   if (fw <= 0.0f || fh <= 0.0f) return 1;
+-  fx = (float)x1;
+-  fy = (float)y1;
++  /* GDI+ puts pixel centres on integer coordinates, so pixel x covers [x-0.5, x+0.5].
++     Without this half-pixel offset the shape blurs its near edges and spills its far
++     edges past the canvas: that spill is what cut the bottom of every rounded button. */
++  fx = (float)x1 - 0.5f;
++  fy = (float)y1 - 0.5f;
+   fr = (float)radius;
+   if (fr < 0.0f) fr = 0.0f;
+   if (fr > fw / 2.0f) fr = fw / 2.0f;
+@@ -408,8 +411,8 @@ IUP_SDK_API int iupdrvDrawFlatRoundBorder(IdrawCanvas* dc, int x1, int y1, int x
+   half = bw / 2.0f;
+ 
+   /* inset the geometry by half the (centered) stroke width so the border stays inside */
+-  fx = (float)x1 + half;
+-  fy = (float)y1 + half;
++  fx = (float)x1 + half - 0.5f;   /* -0.5: see iupdrvDrawFlatRoundBox */
++  fy = (float)y1 + half - 0.5f;
+   fw = (float)(x2 - x1 + 1) - bw;
+   fh = (float)(y2 - y1 + 1) - bw;
+   if (fw <= 0.0f || fh <= 0.0f) return 1;
+@@ -440,6 +443,67 @@ IUP_SDK_API int iupdrvDrawFlatRoundBorder(IdrawCanvas* dc, int x1, int y1, int x
+   return 1;
+ }
+ 
++/* Lunar fork: the lit corners of a rounded border. Each corner takes a few 1px strokes of
++ * the sheen colour, each shorter than the last, so the light builds up on the arc and fades
++ * out along both sides of the box. Returns 0 when there is no GDI+ path to draw with. */
++IUP_SDK_API int iupdrvDrawFlatCornerSheen(IdrawCanvas* dc, int x1, int y1, int x2, int y2,
++                                          int radius, long color)
++{
++  static const float reach[5] = { 3.2f, 2.4f, 1.7f, 1.0f, 0.4f };   /* tail length, in radii */
++  dummy_GpGraphics* graphics = NULL;
++  dummy_GpPen* pen = NULL;
++  float l, t, r, b, d, rad, room_x, room_y;
++  int i;
++
++  if (dc->wdl_gc || !gdix_enabled()) return 0;
++
++  iupDrawCheckSwapCoord(x1, x2);
++  iupDrawCheckSwapCoord(y1, y2);
++
++  l = (float)x1; t = (float)y1; r = (float)x2; b = (float)y2;
++  rad = (float)radius;
++  if (rad > (r - l) / 2.0f) rad = (r - l) / 2.0f;
++  if (rad > (b - t) / 2.0f) rad = (b - t) / 2.0f;
++  if (rad < 1.0f) return 1;
++  d = rad * 2.0f;
++  room_x = (r - l) / 2.0f - rad;   /* a tail stops at the middle of its side */
++  room_y = (b - t) / 2.0f - rad;
++
++  if (gdix_vtable->fn_CreateFromHDC(dc->hBitmapDC, &graphics) != 0 || !graphics) return 0;
++  gdix_vtable->fn_SetSmoothingMode(graphics, dummy_SmoothingModeAntiAlias);
++  /* Translucent, so the strokes add up: brightest on the arc, and each tail fades out. */
++  gdix_vtable->fn_CreatePen1(iupColor2ARGB(iupDrawColor(iupDrawRed(color), iupDrawGreen(color), iupDrawBlue(color), 26)),
++                             1.0f, dummy_UnitPixel, &pen);
++
++  if (pen)
++  {
++    for (i = 0; i < 5; i++)
++    {
++      float tx = rad * reach[i], ty = tx;
++      if (tx > room_x) tx = room_x;
++      if (ty > room_y) ty = room_y;
++
++      gdix_vtable->fn_DrawArc(graphics, pen, l,     t,     d, d, 180.0f, 90.0f);
++      gdix_vtable->fn_DrawArc(graphics, pen, r - d, t,     d, d, 270.0f, 90.0f);
++      gdix_vtable->fn_DrawArc(graphics, pen, r - d, b - d, d, d,   0.0f, 90.0f);
++      gdix_vtable->fn_DrawArc(graphics, pen, l,     b - d, d, d,  90.0f, 90.0f);
++
++      gdix_vtable->fn_DrawLine(graphics, pen, l + rad, t, l + rad + tx, t);
++      gdix_vtable->fn_DrawLine(graphics, pen, r - rad, t, r - rad - tx, t);
++      gdix_vtable->fn_DrawLine(graphics, pen, l + rad, b, l + rad + tx, b);
++      gdix_vtable->fn_DrawLine(graphics, pen, r - rad, b, r - rad - tx, b);
++      gdix_vtable->fn_DrawLine(graphics, pen, l, t + rad, l, t + rad + ty);
++      gdix_vtable->fn_DrawLine(graphics, pen, r, t + rad, r, t + rad + ty);
++      gdix_vtable->fn_DrawLine(graphics, pen, l, b - rad, l, b - rad - ty);
++      gdix_vtable->fn_DrawLine(graphics, pen, r, b - rad, r, b - rad - ty);
++    }
++    gdix_vtable->fn_DeletePen(pen);
++  }
++
++  gdix_vtable->fn_DeleteGraphics(graphics);
++  return 1;
++}
++
+ IUP_SDK_API void iupdrvDrawRectangle(IdrawCanvas* dc, int x1, int y1, int x2, int y2, long color, int style, int line_width)
+ {
+   if (dc->wdl_gc)
+diff --git a/src/win/iupwin_text.c b/src/win/iupwin_text.c
+index ddb15f1..706175e 100644
+--- a/src/win/iupwin_text.c
++++ b/src/win/iupwin_text.c
+@@ -1386,7 +1386,8 @@ static int winTextSetCueBannerAttrib(Ihandle *ih, const char *value)
+   if (!ih->data->is_multiline && iupwin_comctl32ver6)
+   {
+     WCHAR* wstr = iupwinStrChar2Wide(value);
+-    SendMessage(ih->handle, EM_SETCUEBANNER, (WPARAM)FALSE, (LPARAM)wstr);  /* always an Unicode string here */
++    SendMessage(ih->handle, EM_SETCUEBANNER, (WPARAM)TRUE, (LPARAM)wstr);  /* Lunar fork: stays up while focused */
++     /* always an Unicode string here */
+     free(wstr);
+     return 1;
+   }

@@ -63,6 +63,50 @@ local function sized(font, points, bold)
     return string.format("%s, %s%d", family, bold and "Bold " or "", points)
 end
 
+--- Add the roles of the command bar, the palette and the snap preview to a rule table
+-- that does not define its own. Shared so a theme built on Carbon or Fluent tokens
+-- gets them without restating them.
+-- @tparam table rules the rule table to extend
+-- @tparam table p the palette
+function M.addShellRoles(rules, p)
+    local floor = p.layer02 or p.surface2 or p.surface or p.bg
+    local well = p.layer01 or p.surface or p.bg
+    local border = p.borderSubtle01 or p.border
+    local strong = p.borderStrong01 or p.borderStrong or border
+    local hover = p.layerHover01 or p.surface2 or floor
+    local selected = p.layerSelected01 or p.surface2 or floor
+    local font = p.font
+    local defaults = {
+        text_focus = { bg = well, fg = p.text, font = font, border = p.accent },
+        commandbar = {
+            bg = well, fg = p.textMuted, font = font,
+            border = border, borderwidth = 1, showborder = true, padding = "10x3",
+            hover = hover, hovertext = p.text,
+            pressed = selected, pressedtext = p.text,
+        },
+        palette_text = { bg = floor, fg = p.text, font = font },
+        palette_prompt = { bg = floor, fg = p.textMuted, font = font },
+        well = { bg = well, fg = p.text, font = font, border = border },
+        danger_solid = {
+            bg = p.error, fg = p.accentText or p.text, font = font, border = p.error,
+            borderwidth = 1, showborder = true, padding = "12x5",
+            hover = p.error, hovertext = p.accentText or p.text,
+        },
+        text_cue = { bg = well, fg = p.textMuted, font = font },
+        palette_hint = { bg = floor, fg = p.textMuted, font = font },
+        palette_frame = { bg = floor, fg = p.text, font = font, border = strong },
+        palette_list = {
+            bg = floor, fg = p.text, font = font, border = floor, borderwidth = 0,
+            scrollbg = floor, scrollfg = strong,
+            selbg = selected, seltext = p.text, selalpha = "255",
+        },
+        snap_preview = { bg = p.accent, fg = p.accent, border = p.accent },
+    }
+    for role, rule in pairs(defaults) do
+        if not rules[role] then rules[role] = rule end
+    end
+end
+
 function M.build(p)
     local accentHover = p.accentHover or p.accent
     -- Native gradient endpoints. `gradOn` is set only by gradient themes (One Dark Pro).
@@ -113,7 +157,7 @@ function M.build(p)
         zbox          = { bg = p.bg,      fg = p.text, font = p.font },
         cbox          = { bg = p.bg,      fg = p.text, font = p.font },
         gridbox       = { bg = p.bg,      fg = p.text, font = p.font },
-        split         = { bg = p.bg,      fg = p.text, border = p.border },
+        split         = { bg = p.bg,      fg = p.text, border = p.border, sash = p.accent or p.border },
         frame         = { bg = p.bg,      fg = p.text, font = p.font, border = p.border },
         flatframe     = { bg = p.bg,      fg = p.text, font = p.font, border = p.border, radius = p.radius },
         flatseparator = { bg = p.bg, border = p.border },
@@ -285,6 +329,7 @@ function M.build(p)
         rules[role].inactivebg = p.layer01 or p.surface or p.bg
         rules[role].inactivefg = p.textMuted
     end
+    M.addShellRoles(rules, p)
     return rules
 end
 

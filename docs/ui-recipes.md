@@ -183,6 +183,66 @@ One known gap: it is a drawn control, so a screen reader announces a button with
 its current caption rather than a list with items. If a choice must be fully
 screen-reader accessible today, a native list is still the safer pick.
 
+## Command bar
+
+The bar in the middle of the status strip opens with a click or Ctrl+P. It searches
+commands, goes to a `lunar://` address, switches tabs and themes, and runs tasks.
+
+Every menu item is already in it. Add anything that has no menu item:
+
+```lua
+ctx:addCommand({ title = "Clear Output", run = clear_output }, M)
+```
+
+`title` and `run` are required; `category` defaults to your extension's name, and
+`keywords`, `detail` and `when` are optional. For a list that changes, answer from a
+function instead:
+
+```lua
+ctx:addCommandProvider({
+    id = "repos",
+    items = function(query) return repo_items(query) end,
+}, M)
+```
+
+Give a provider a `prefix` such as `"repo "` and that text sends everything after it
+to that provider alone.
+
+## Tasks
+
+Typing `task ` in the command bar lists tasks, and Enter runs one. Users add their own
+in `tasks.json` in the settings folder:
+
+```json
+{ "tasks": [ { "label": "Build", "command": ["make", "all"], "cwd": "C:\\src" } ] }
+```
+
+`command` is an argument array, never a shell string. Extensions add theirs with:
+
+```lua
+ctx:addTask({ label = "Rebuild Index", argv = { "tool", "--index" } }, M)
+```
+
+The status line shows that a task is running and how it ended.
+
+## Split panes
+
+Any tab can sit beside any other, with no work from the extension. Drag a tab onto the
+right or bottom edge of the content, or into a corner, and a preview shows where it will
+land; right-click a tab for Split Right and Split Down. The page keeps its windows and
+its state, it simply lays out in a smaller rectangle, so **a page must not assume it
+fills the window**. Dividers settle on quarters, thirds and halves.
+
+## Fields
+
+`ctx.ui.FlatField` is a text field with a themed edge, an accent ring while focused, an
+optional leading icon and a hint shown while it is empty:
+
+```lua
+local field = ctx.ui.FlatField.new(iup, { cue = "Search...", on_change = filter })
+parent:append(field.widget)
+```
+
 ## Lists
 
 - `core.ui.ReorderableList` — multi-select list with drag-to-reorder and a drop

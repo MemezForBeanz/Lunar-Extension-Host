@@ -84,6 +84,39 @@ function TabOrder:initialize(opts)
 	self._hooked = {}     -- strips whose tabchange_cb we have already chained
 end
 
+--- Connect the split workspace, so a tab dragged off the bars snaps into a pane.
+-- @tparam table panes a `core.classes.PaneGrid`
+-- @tparam userdata dialog the main dialog, parent of the snap preview
+function TabOrder:setPanes(panes, dialog)
+	self._panes = panes
+	self._dialog = dialog
+end
+
+-- The pane a drag is over, when it is not over any tab bar.
+function TabOrder:_snapZone(widget)
+	local panes = self._panes
+	if not panes then return nil end
+	local x, y = tostring(self._iup.GetGlobal("CURSORPOS") or ""):match("(-?%d+)x(-?%d+)")
+	if not x then return nil end
+	local zone, rect = panes:zoneAtScreen(tonumber(x), tonumber(y))
+	if zone and panes:canMove(widget, zone) then return zone, rect end
+	return nil
+end
+
+-- Apply outside the mouse callback, for the reason _scheduleDrop gives.
+function TabOrder:_scheduleSnap(widget, zone)
+	local iup, order = self._iup, self
+	local timer = iup.timer({ time = 1 })
+	function timer:action_cb()
+		self.run = "NO"
+		order._panes:move(widget, zone)
+		if order._on_switch then pcall(order._on_switch) end
+		iup.Destroy(self)
+		return iup.DEFAULT
+	end
+	timer.run = "YES"
+end
+
 --- Attach the drag-feedback renderer (`core.ui.TabDragMotion`).
 -- Optional; without it the gestures behave identically but show no feedback.
 -- @tparam TabDragMotion motion the renderer
@@ -540,6 +573,9 @@ function TabOrder:install(strip)
 
 		if pressed == 1 then
 			self_._bounds = nil
+			if self_._groups and self_._groups.setActiveRoot then
+				self_._groups:setActiveRoot(self_._groups:rootOf(strip))
+			end
 			local pos = self_:_posAt(strip, x, y)
 			if pos then
 				local child = self_:_child(strip, pos)
@@ -584,6 +620,7 @@ function TabOrder:install(strip)
 		-- an abandoned drag -- just ends, which is Carbon's "reversing the entrance
 		-- signals cancellation".
 		if self_._motion then self_._motion:clear() end
+		if self_._panes then self_._panes:hidePreview() end
 
 		-- A press and release without travel is a CLICK: let the control switch
 		-- tabs and do nothing else.
@@ -601,7 +638,11 @@ function TabOrder:install(strip)
 		end
 
 		local drop = self_:_resolveDrop(strip, x, y, drag.widget)
-		if not drop then return iup.DEFAULT end
+		if not drop then
+			local zone = self_:_snapZone(drag.widget)
+			if zone then self_:_scheduleSnap(drag.widget, zone) end
+			return iup.DEFAULT
+		end
 
 		-- Apply OUTSIDE this callback. Acting on the drop here means detaching,
 		-- destroying and creating widgets -- and their native windows -- while the
@@ -635,6 +676,15 @@ function TabOrder:install(strip)
 
 		local drop = self_:_resolveDrop(strip, x, y, drag.widget)
 		local motion = self_._motion
+
+		if self_._panes then
+			local _, rect = self_:_snapZone(drag.widget)
+			if rect and not drop then
+				self_._panes:showPreview(self_._dialog, rect)
+			else
+				self_._panes:hidePreview()
+			end
+		end
 
 		if drop and drop.into then
 			-- Hovering a closed group: count down to opening it, and show the
@@ -751,6 +801,23 @@ function TabOrder:_showMenu(strip, pos)
 						if self_._on_switch then pcall(self_._on_switch) end
 					end,
 				}
+			end
+		end
+		if self._panes then
+			local panes = self._panes
+			for _, entry in ipairs({
+				{ "Split Right", "right" }, { "Split Down", "bottom" },
+				{ "Move to Corner Pane", "corner" }, { "Move to Main Pane", "main" },
+			}) do
+				if panes:canMove(child, entry[2]) then
+					items[#items + 1] = {
+						title = entry[1],
+						action = function()
+							panes:move(child, entry[2])
+							if self_._on_switch then pcall(self_._on_switch) end
+						end,
+					}
+				end
 			end
 		end
 		items[#items + 1] = {

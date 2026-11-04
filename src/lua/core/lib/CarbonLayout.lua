@@ -317,12 +317,16 @@ end
 -- @tparam[opt] string subtitle
 -- @treturn ihandle A vbox.
 function M.pageHeader(iup, title, subtitle)
-	local kids = { M.pageTitle(iup, title) }
+	-- The tab above already names the page, so a page with a description opens with
+	-- that one line. A second copy of the name cost 40px on every screen.
+	local kids
 	if subtitle and subtitle ~= "" then
-		kids[#kids + 1] = M.pageSubtitle(iup, subtitle)
+		kids = { M.pageSubtitle(iup, subtitle) }
+	else
+		kids = { M.pageTitle(iup, title) }
 	end
 	kids.GAP    = M.gap(M.ROLE.label_gap)
-	kids.MARGIN = M.margin(0)
+	kids.MARGIN = "0x0"
 	kids.EXPAND = "HORIZONTAL"
 	return iup.vbox(kids)
 end
@@ -373,6 +377,16 @@ function M.page(iup, children)
 	children.MARGIN = children.MARGIN or M.margin(M.ROLE.page)
 	children.GAP    = children.GAP or M.gap(M.ROLE.section_gap)
 	return iup.vbox(children)
+end
+
+--- Set a progress gauge, showing it only while there is progress to show.
+-- An idle gauge is an empty outline that says nothing.
+-- @tparam userdata iup the IUP binding
+-- @tparam ihandle gauge
+-- @tparam number value 0 to the gauge's MAX
+function M.setProgress(iup, gauge, value)
+	iup.SetAttribute(gauge, "VALUE", tostring(value))
+	iup.SetAttribute(gauge, "VISIBLE", (tonumber(value) or 0) > 0 and "YES" or "NO")
 end
 
 --- Snap an arbitrary pixel value to the nearest step on the scale.

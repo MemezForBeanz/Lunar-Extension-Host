@@ -395,13 +395,15 @@ end
 --   dev_select = string }`. `domain` overrides the system DNS domain (tests,
 --   diagnostics). `dev_select` picks a profile by id, trusted or not, ahead of
 --   everything else; main.lua passes it only in a development build.
+--   `user_select` is the pack the user chose (see step 3 below).
 --   `"*"` selects all valid packs in `LUNAR_PROFILE_DIR`, sorted by id, as an
 --   untrusted aggregate with `profiles`, merged defaults and no org identity.
 -- @treturn[1] table The selected profile.
 -- @treturn[2] nil When the install should run neutral.
 -- @treturn table Diagnostics: `{ reason = string, errors = { string, ... },
 --   warnings = { string, ... }, available = { id, ... } }`. `reason` is one of
---   `"assigned"`, `"domain"`, `"none"`, `"ambiguous"` or `"assigned-missing"`.
+--   `"assigned"`, `"domain"`, `"user-selected"`, `"none"`, `"ambiguous"` or
+--   `"assigned-missing"`.
 function M.resolve(opts)
 	opts = opts or {}
 	local fs = opts.fs or default_fs
@@ -556,6 +558,14 @@ function M.resolve(opts)
 				return nil, info
 			end
 		end
+	end
+
+	-- 3. The user's own pick from the command bar. Last on purpose: it only fills in
+	-- for a machine nothing else claims, and only with an admin-installed pack, so it
+	-- can never move a managed install off the pack its admin assigned.
+	if type(opts.user_select) == "string" and trusted_by_id[opts.user_select] then
+		info.reason = "user-selected"
+		return trusted_by_id[opts.user_select], info
 	end
 
 	info.reason = "none"

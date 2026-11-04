@@ -53,7 +53,7 @@ function M.build(deps)
 
     local ext_reload = iup.item{ TITLE = "Reload Extensions" }
 
-    function ext_reload:action()
+    local function reload_extensions()
         local count = ext_mgr:reloadAll(build_ext_ctx())
         if on_reload then pcall(on_reload) end
 
@@ -62,6 +62,10 @@ function M.build(deps)
         else
             set_status("No extensions found in plugins/")
         end
+    end
+
+    function ext_reload:action()
+        reload_extensions()
         return iup.DEFAULT
     end
 
@@ -105,6 +109,7 @@ function M.build(deps)
     return menu, {
         ext_menu     = ext_menu,
         ext_submenu  = ext_submenu,
+        reload_extensions = reload_extensions,
         file_menu    = file_menu,
         file_exit    = file_exit,
         view_menu    = view_menu,

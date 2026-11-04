@@ -216,7 +216,7 @@ function M.build(p)
         zbox          = { bg = p.bg,     fg = p.text, font = p.font },
         cbox          = { bg = p.bg,     fg = p.text, font = p.font },
         gridbox       = { bg = p.bg,     fg = p.text, font = p.font },
-        split         = { bg = p.bg,     fg = p.text, border = p.border },
+        split         = { bg = p.bg,     fg = p.text, border = p.border, sash = p.accent or p.border },
         frame         = { bg = p.bg,     fg = p.text, font = p.font, border = p.border },
         flatframe     = { bg = p.bg,     fg = p.text, font = p.font, border = p.border },
         flatseparator = { bg = p.bg, border = p.border },
@@ -386,6 +386,7 @@ function M.build(p)
         rules[role].inactivebg = p.layer01 or p.surface or p.bg
         rules[role].inactivefg = p.textMuted
     end
+    require("core.classes.Themes.fluent_rules").addShellRoles(rules, p)
     return rules
 end
 
