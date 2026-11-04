@@ -140,7 +140,7 @@ function SettingsView:initialize(opts)
     -- Inner container holds section headers and bodies (direct children, so each
     -- can be individually shown/hidden + floated during filtering).
     self._inner = iup.vbox{
-        GAP     = L.gap(L.ROLE.row_gap),
+        GAP     = L.gap(L.ROLE.section),
         MARGIN  = L.margin(L.ROLE.section, L.ROLE.row),
         EXPAND  = "HORIZONTAL",
     }
@@ -496,13 +496,28 @@ function SettingsView:_buildRow(entry, category)
         }
     end
 
+    -- A row with only a description still offers something to press.
+    local details_button
+    if expandable and not entry.widget then
+        details_button = iup.flatbutton{ TITLE = "Show details", THEMEROLE = "link_btn" }
+        local view = self
+        function details_button:flat_action()
+            view:_toggleRow(entry)
+            return iup.DEFAULT
+        end
+    end
+
+    -- Every field ends on the same right edge.
+    if entry.widget and iup.GetClassName(entry.widget) == "flatframe" then
+        iup.SetAttribute(entry.widget, "EXPAND", "HORIZONTAL")
+        iup.SetAttribute(entry.widget, "RASTERSIZE", nil)
+    end
+
     -- The control column. Fixing the width here rather than on the control
     -- itself means an extension's widget keeps whatever EXPAND it was built with
     -- and simply fills the column, so nothing has to know about this layout.
     local column = iup.hbox{
-        entry.widget or (expandable and iup.flatlabel{
-            TITLE = "Click the name to see them", THEMEROLE = "settingslabel_muted",
-        }) or iup.fill{},
+        entry.widget or (expandable and details_button) or iup.fill{},
         -- Width only: the height component is deliberately empty so IUP still
         -- measures the control's own height, which differs between a toggle, a
         -- text field and a dropdown.

@@ -24,7 +24,7 @@ StatusBar.UPDATE_STATES = {
 StatusBar.UPDATE_CLICK_HINT = "\n\nClick to check for updates now."
 
 --- What the command bar says at rest.
-StatusBar.COMMAND_HINT = "Search commands or lunar:// address                       Ctrl+P"
+StatusBar.COMMAND_HINT = "Search commands or lunar:// address                              Ctrl+P"
 StatusBar.COMMAND_WIDTH = 440
 
 --- Parse an IUP `"R G B"` colour into three numbers (nil if it isn't one).
@@ -54,7 +54,7 @@ function StatusBar.new(opts)
 	-- Registered with HostAPI by whoever owns update checks (core.ui.UpdateCheck),
 	-- and only when there is a share to check.
 	self._update_icon = StatusIcon.new(iup, {
-		dir = opts.icon_dir, size = 24, state = "upd_complete", tip = StatusBar.UPDATE_STATES.current.tip,
+		dir = opts.icon_dir, size = 18, state = "upd_complete", tip = StatusBar.UPDATE_STATES.current.tip,
 	})
 	self._ext_box = iup.hbox({ GAP = L.gap(2), ALIGNMENT = "ACENTER" })
 	local logo_image = opts.logo and VectorIcon.logoHandle(iup, opts.logo, 20)

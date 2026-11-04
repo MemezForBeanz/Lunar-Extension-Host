@@ -141,15 +141,18 @@ function PaneGrid:setGroups(groups)
 	groups:onActiveRoot(function(strip) self:_markActive(strip) end)
 end
 
--- With two panes open, the pane being worked in carries the accent line on its tab bar.
+-- With two panes open, the pane being worked in has the lighter tab bar. The underline
+-- is taken: it marks the current tool inside a group.
 function PaneGrid:_markActive(active)
 	local iup = self._iup
 	local used = self:_used()
 	local split = used.right or used.bottom or used.corner
-	local accent = require("core.ui.ThemeReactor").palette().accent
+	local palette = require("core.ui.ThemeReactor").palette()
+	local lit = palette.layerSelected01
+	self._rest = self._rest or iup.GetAttribute(self._strips.main, "TABSBACKCOLOR")
 	for _, strip in pairs(self._strips) do
-		local on = split and accent and handle.same(iup, strip, active)
-		iup.SetAttribute(strip, "TABSACTIVELINE", on and accent or nil)
+		local on = split and lit and handle.same(iup, strip, active)
+		iup.SetAttribute(strip, "TABSBACKCOLOR", on and lit or self._rest)
 		iup.Update(strip)
 	end
 end

@@ -39,7 +39,7 @@ function LunarLightTheme:initialize()
         gradBottom      = rgb("#8d9ac9"),
 
         radius          = 6,
-        radiusFrame     = 10,
+        radiusFrame     = 8,
     }
     p.surface      = p.layer01
     p.surface2     = p.layerHover01

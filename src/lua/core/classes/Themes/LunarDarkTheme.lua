@@ -32,14 +32,14 @@ function LunarDarkTheme:initialize()
         info            = rgb("#56b6c2"),
         font            = "Segoe UI, 11",
         well            = rgb("#1b1d23"),   -- recessed: lists, fields, output
-        accentSoft      = rgb("#3a3672"),   -- a chosen row
+        accentSoft      = rgb("#343259"),   -- a chosen row
 
         -- The accent strip's sweep: violet into slate.
         gradTop         = rgb("#7c6cf2"),
         gradBottom      = rgb("#4a5578"),
 
         radius          = 6,   -- interactive controls
-        radiusFrame     = 10,   -- container frames
+        radiusFrame     = 8,   -- container frames
     }
     -- Legacy aliases, so widgets reading the six-key palette keep working.
     p.surface      = p.layer01

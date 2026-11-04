@@ -38,7 +38,6 @@ local HINT = "Enter to run    Esc to close"
 -- @tparam[opt] function opts.notify_tree_change themes a new widget tree
 -- @tparam[opt] function opts.on_error `fn(message)`: a command failed
 -- @tparam[opt] function opts.round `fn(dialog)`: rounds the window's corners
--- @tparam[opt] string opts.search_icon image handle shown in front of the field
 function CommandPalette.new(opts)
 	return setmetatable({
 		_iup = opts.iup,
@@ -48,7 +47,6 @@ function CommandPalette.new(opts)
 		_theme = opts.notify_tree_change,
 		_on_error = opts.on_error,
 		_round = opts.round,
-		_search_icon = opts.search_icon,
 		_items = {},
 	}, CommandPalette)
 end
@@ -66,9 +64,8 @@ function CommandPalette:_build()
 	-- A label floated over the empty field. Windows' own cue banner disappears on an edit
 	-- that has focus, and this one always does.
 	local prompt = iup.flatlabel({
-		TITLE = PLACEHOLDER, FLOATING = "YES", POSITION = "46,17", RASTERSIZE = "520x24", THEMEROLE = "palette_prompt",
+		TITLE = PLACEHOLDER, FLOATING = "YES", POSITION = "18,14", RASTERSIZE = "520x24", THEMEROLE = "palette_prompt",
 	})
-	local field_icon = self._search_icon and iup.label({ TITLE = "", IMAGE = self._search_icon, THEMEROLE = "palette_text" })
 	local list = iup.flatlist({
 		EXPAND = "YES",
 		FLATSCROLLBAR = "YES",
@@ -85,7 +82,7 @@ function CommandPalette:_build()
 	})
 	local frame = iup.flatframe({
 		iup.vbox({
-			iup.hbox({ field_icon, field, prompt, MARGIN = L.margin(4, 3), GAP = L.gap(3),
+			iup.hbox({ field, prompt, MARGIN = "14x8", GAP = L.gap(3),
 				ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" }),
 			iup.flatseparator({ ORIENTATION = "HORIZONTAL", STYLE = "LINE", BARSIZE = "1" }),
 			list,
