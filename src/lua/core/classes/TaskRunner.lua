@@ -9,8 +9,8 @@
 -- "cwd": "C:\\src" } ] }`. `command` is an argv array, never a shell string: there is
 -- no quoting to get wrong, and nothing in a task's text is interpreted by a shell.
 --
--- Typing `task ` in the bar lists them; running one reports through the status line,
--- and a second run of a task still going is refused rather than started twice.
+-- Typing `task ` in the bar lists them; running one reports through the status line and
+-- Activity, and a second run of a task still going is refused rather than started twice.
 --
 -- @classmod core.classes.TaskRunner
 
@@ -47,9 +47,12 @@ end
 -- @tparam function opts.status `fn(message)`: reports progress and results
 -- @tparam function opts.after `fn(ms, fn)`: runs `fn` once, later
 -- @tparam[opt] function opts.load `fn() -> { task, ... }`: the user's tasks
+-- @tparam[opt] function opts.activity `fn(spec, owner) -> handle`: records a running task
+--   (`HostAPI:activity`)
 function TaskRunner:initialize(opts)
 	self._spawn, self._status, self._after = opts.spawn, opts.status, opts.after
 	self._load = opts.load
+	self._activity = opts.activity
 	self._extension = {}   -- tasks added by extensions
 	self._running = {}     -- label -> true
 end
@@ -109,6 +112,18 @@ function TaskRunner:run(task)
 	self._running[label] = true
 	self._status(label .. ": running")
 
+	-- A task is the user's own command, so ending it is theirs to ask for. The kill
+	-- takes the whole process tree, and the tick below finds it gone.
+	local cancelled = false
+	local activity = self._activity and self._activity({
+		title = label,
+		tool = "Tasks",
+		cancel = function()
+			cancelled = true
+			proc:kill()
+		end,
+	}, task.owner or false)
+
 	local runner = self
 	local function tick()
 		-- The pipes have to be drained or a chatty task blocks on a full one.
@@ -121,10 +136,16 @@ function TaskRunner:run(task)
 		end
 		runner._running[label] = nil
 		pcall(proc.close, proc)
-		if ok and code == 0 then
+		if cancelled then
+			runner._status(label .. ": cancelled")
+			if activity then activity:finish("cancelled") end
+		elseif ok and code == 0 then
 			runner._status(label .. ": finished")
+			if activity then activity:finish(true) end
 		else
-			runner._status(label .. ": failed (exit " .. tostring(code) .. ")")
+			local why = "failed (exit " .. tostring(code) .. ")"
+			runner._status(label .. ": " .. why)
+			if activity then activity:finish(false, "Exited with code " .. tostring(code)) end
 		end
 	end
 	self._after(200, tick)

@@ -93,6 +93,9 @@ ctx:addStatusElement(icon, {
 `core.ui.StatusIcon` and `core.ui.VectorIcon` build themed, optionally spinning
 status indicators from SVG assets.
 
+The left end of the bar belongs to [Activity](#activity): report long-running work
+there, because a `setStatus` line is overwritten by the next one.
+
 ## Keyboard shortcuts
 
 ```lua
@@ -206,7 +209,7 @@ ctx:addCommandProvider({
 ```
 
 Give a provider a `prefix` such as `"repo "` and that text sends everything after it
-to that provider alone.
+to that provider alone. `task ` and `activity ` work this way.
 
 ## The page kit
 
@@ -251,7 +254,53 @@ in `tasks.json` in the settings folder:
 ctx:addTask({ label = "Rebuild Index", argv = { "tool", "--index" } }, M)
 ```
 
-The status line shows that a task is running and how it ended.
+The status line and Activity show that a task is running and how it ended.
+
+## Activity
+
+Activity is one place for everything running in the background, whichever tab started
+it. Running work shows at the left of the status bar with a spinner and its progress,
+`+2` counts the rest, and a result stays for 8 seconds. A click opens the list, which
+holds the last 50 entries of this session. `Show Activity` and the `activity ` prefix
+reach it from the command bar.
+
+`ctx:startJob` records itself. It takes its progress from the tool's `progress` events
+and its result from how the job ended, so all it may need is a better title:
+
+```lua
+ctx:startJob({
+    argv = { engine, "run" },
+    activity = { title = "Scan 675.30", cancel = true },
+}, M)
+```
+
+Anything else opens an entry itself and drives it through the handle:
+
+```lua
+local work = ctx:activity({ title = "Build Queue", cancel = stop }, M)
+work:progress(3, 12, "Building RomBuilder")
+work:finish(true, "12 of 12 passed")      -- false for a failure, "cancelled" for a stop
+```
+
+Pass your module as usual. It ties the entry to your tab, which is what `Show` reveals
+and what decides on a toast, and unloading your extension ends the entry.
+
+- **Offer Cancel only when stopping part way is safe.** It appears for an entry that
+  has a `cancel` function, or `cancel = true` on a job, which ends the tool. Work that
+  must run to the end, such as a firmware flash, leaves it out. The entry stays running
+  until you call `finish`; a `false` after a cancel reads as cancelled.
+- **One entry per piece of work.** A job started during your own `ctx:activity` reports
+  into that entry, and ending it stays yours to do, so a pipeline of jobs is one row.
+  You can also pass the handle as `activity = work`.
+- **Leave background chores out.** A refresh the user didn't ask for takes
+  `activity = false`, or a list of real work fills with it.
+- **Don't post your own toast for the result.** Activity posts one only when the job
+  ends while its tab isn't on screen, and never for something the user cancelled. A
+  failure also leaves a red dot until the user opens the list or goes to that tab.
+- **A `total` of 100 reads as a percentage**: `Firmware flash 55%`.
+
+Progress can be reported as often as you like, since an unchanged value costs nothing.
+Keep `message` stable, though: a counter in it repaints the bar on every tick.
 
 ## Split panes
 
@@ -314,7 +363,8 @@ ctx:startJob({
 }, M)
 ```
 
-Anything else uses `ctx:spawn`, polled from a host-owned timer:
+A job appears in [Activity](#activity) by itself. Anything else uses `ctx:spawn`, polled
+from a host-owned timer, and reports through `ctx:activity`:
 
 ```lua
 local proc = assert(ctx:spawn({ argv = { "git", "status", "--porcelain" }, cwd = repo }, M))
