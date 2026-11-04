@@ -140,7 +140,7 @@ describe("CarbonLayout builders", function()
 
 	it("omits the subtitle from a page header when there is none", function()
 		local iup = fake_iup()
-		assert.are.equal(2, #L.pageHeader(iup, "Title", "Subtitle").children)
+		assert.are.equal(1, #L.pageHeader(iup, "Title", "Subtitle").children)
 		assert.are.equal(1, #L.pageHeader(iup, "Title").children)
 		assert.are.equal(1, #L.pageHeader(iup, "Title", "").children)
 	end)

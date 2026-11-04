@@ -140,7 +140,7 @@ function SettingsView:initialize(opts)
     -- Inner container holds section headers and bodies (direct children, so each
     -- can be individually shown/hidden + floated during filtering).
     self._inner = iup.vbox{
-        GAP     = L.gap(L.ROLE.section),
+        GAP     = L.gap(L.ROLE.row),
         MARGIN  = L.margin(L.ROLE.section, L.ROLE.row),
         EXPAND  = "HORIZONTAL",
     }

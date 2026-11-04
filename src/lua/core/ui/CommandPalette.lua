@@ -38,6 +38,7 @@ local HINT = "Enter to run    Esc to close"
 -- @tparam[opt] function opts.notify_tree_change themes a new widget tree
 -- @tparam[opt] function opts.on_error `fn(message)`: a command failed
 -- @tparam[opt] function opts.round `fn(dialog)`: rounds the window's corners
+-- @tparam[opt] function opts.muted `fn() -> color`: the colour of group headings
 function CommandPalette.new(opts)
 	return setmetatable({
 		_iup = opts.iup,
@@ -47,6 +48,7 @@ function CommandPalette.new(opts)
 		_theme = opts.notify_tree_change,
 		_on_error = opts.on_error,
 		_round = opts.round,
+		_muted = opts.muted or function() return "128 128 128" end,
 		_items = {},
 	}, CommandPalette)
 end
@@ -207,25 +209,58 @@ function CommandPalette:_refresh()
 	if self._choices then
 		items, provider = self:_filterChoices(text), nil
 	end
-	self._items = items
 	iup.SetAttribute(self._prompt, "VISIBLE", text == "" and "YES" or "NO")
 
-	iup.SetAttribute(list, "REMOVEITEM", "ALL")
-	for i, item in ipairs(items) do
-		local line = self._registry.class.label(item)
-		if item.detail and item.detail ~= "" then
-			line = line .. "    " .. item.detail
+	-- With nothing typed the list is browsed, so it is grouped. A search is ranked, and
+	-- headings would only break the ranking up.
+	local rows = {}
+	if text == "" and not self._choices then
+		local order, buckets = {}, {}
+		for _, item in ipairs(items) do
+			local group = item.group or item.category or "Commands"
+			if not buckets[group] then
+				buckets[group] = {}
+				order[#order + 1] = group
+			end
+			table.insert(buckets[group], item)
 		end
-		iup.SetAttribute(list, tostring(i), ROW_INDENT .. line)
+		for _, group in ipairs(order) do
+			rows[#rows + 1] = { heading = group }
+			for _, item in ipairs(buckets[group]) do rows[#rows + 1] = item end
+		end
+	else
+		rows = items
+	end
+	self._items = rows
+
+	iup.SetAttribute(list, "REMOVEITEM", "ALL")
+	for i, item in ipairs(rows) do
+		if item.heading then
+			iup.SetAttribute(list, tostring(i), ROW_INDENT .. item.heading)
+			iup.SetAttributeId(list, "ITEMFGCOLOR", i, self._muted())
+		else
+			local line = (item.group and item.title) or self._registry.class.label(item)
+			if item.detail and item.detail ~= "" then
+				line = line .. "    " .. item.detail
+			end
+			iup.SetAttribute(list, tostring(i), ROW_INDENT .. line)
+		end
 	end
 	if #items > 0 then
-		iup.SetAttribute(list, "VALUE", "1")
+		iup.SetAttribute(list, "VALUE", tostring(self:_firstRow()))
 		iup.SetAttribute(self._hint, "TITLE", provider and provider.title
 			or (self._choices and self._choices.hint) or HINT)
 	else
 		iup.SetAttribute(self._hint, "TITLE", provider and (provider.empty or "Nothing to show yet")
 			or "No matching commands")
 	end
+end
+
+function CommandPalette:_firstRow()
+	for i, row in ipairs(self._items) do
+		if not row.heading then return i end
+	end
+	return 1
 end
 
 function CommandPalette:_filterChoices(text)
@@ -244,6 +279,14 @@ function CommandPalette:_move(delta)
 	if count == 0 then return end
 	local current = tonumber(self._iup.GetAttribute(self._list, "VALUE")) or 1
 	local target = math.max(1, math.min(count, current + delta))
+	-- Headings are not stops: carry on in the same direction, or back if at the end.
+	local step = delta > 0 and 1 or -1
+	while self._items[target] and self._items[target].heading do target = target + step end
+	if not self._items[target] then
+		target = target - step
+		while self._items[target] and self._items[target].heading do target = target - step end
+	end
+	if not self._items[target] then return end
 	self._iup.SetAttribute(self._list, "VALUE", tostring(target))
 	self._iup.SetAttribute(self._list, "TOPITEM", tostring(math.max(1, target - 8)))
 end
@@ -251,7 +294,7 @@ end
 function CommandPalette:_activate(index)
 	index = index or tonumber(self._iup.GetAttribute(self._list, "VALUE")) or 1
 	local item = self._items[index]
-	if not item then return end
+	if not item or item.heading then return end
 	self:close()
 	-- After the window is gone: a command may open a modal of its own.
 	local iup, palette = self._iup, self

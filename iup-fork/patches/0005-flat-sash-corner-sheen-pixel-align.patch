@@ -472,7 +472,7 @@ index 046e880..ed679ae 100644
    iupClassRegisterAttribute(ic, "BARSIZE", iSplitGetBarSizeAttrib, iSplitSetBarSizeAttrib, IUPAF_SAMEASSYSTEM, "5", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
  
 diff --git a/src/win/iupwin_draw_gdi.c b/src/win/iupwin_draw_gdi.c
-index 1bcd18d..c3e5b24 100644
+index 1bcd18d..cc0c35c 100644
 --- a/src/win/iupwin_draw_gdi.c
 +++ b/src/win/iupwin_draw_gdi.c
 @@ -349,8 +349,11 @@ IUP_SDK_API int iupdrvDrawFlatRoundBox(IdrawCanvas* dc, int x1, int y1, int x2,
@@ -533,7 +533,7 @@ index 1bcd18d..c3e5b24 100644
 +  if (gdix_vtable->fn_CreateFromHDC(dc->hBitmapDC, &graphics) != 0 || !graphics) return 0;
 +  gdix_vtable->fn_SetSmoothingMode(graphics, dummy_SmoothingModeAntiAlias);
 +  /* Translucent, so the strokes add up: brightest on the arc, and each tail fades out. */
-+  gdix_vtable->fn_CreatePen1(iupColor2ARGB(iupDrawColor(iupDrawRed(color), iupDrawGreen(color), iupDrawBlue(color), 36)),
++  gdix_vtable->fn_CreatePen1(iupColor2ARGB(iupDrawColor(iupDrawRed(color), iupDrawGreen(color), iupDrawBlue(color), 26)),
 +                             1.0f, dummy_UnitPixel, &pen);
 +
 +  if (pen)

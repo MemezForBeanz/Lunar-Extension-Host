@@ -787,6 +787,19 @@ function ThemeManager:_applyNativeRoleTheme(ih, theme, cls, role)
 
 	iup.SetAttribute(ih, "NTHEME", role_handle)
 	iup.SetAttribute(ih, "THEMEMGR_NTHEME", "1")
+	self:_writeThrough(ih, lcls, theme:rules()[role])
+end
+
+-- A theme handle does not reach everything. What sits inside a flat scroll box reads
+-- its background from the box's stored BGCOLOR, and a gauge's outline is only redrawn
+-- from a direct write, so these two go straight to the widget.
+function ThemeManager:_writeThrough(ih, cls, rule)
+	if not rule then return end
+	if cls == "flatscrollbox" and rule.bg then
+		self._iup.SetAttribute(ih, "BGCOLOR", rule.bg)
+	elseif cls == "gauge" and rule.border then
+		self._iup.SetAttribute(ih, "FLATCOLOR", rule.border)
+	end
 end
 
 -- Returns (handle_name, attrs) for the bundle of attributes that should be applied

@@ -49,12 +49,18 @@ function M._commandFromMenuItem(self, title, callback, target, owner)
     local commands = self._commands
     if not (commands and callback) then return end
     local manifest = self._manifest_by_owner[owner]
+    local plain = title:gsub("%.%.%.$", "")
+    -- The host's own commands already cover some of its menu.
+    for _, existing in ipairs(commands:commands()) do
+        if existing.title == plain then return end
+    end
     local record = self._owners[owner or DEFAULT_OWNER]
     local host = self
     commands:register({
         id = "menu." .. tostring(target or "extensions") .. "." .. title,
-        title = (title:gsub("%.%.%.$", "")),
-        category = manifest and manifest.name or "Lunar",
+        title = plain,
+        category = manifest and manifest.name or nil,
+        group = (not manifest) and "Lunar" or nil,
         run = function()
             callback()
             return true
