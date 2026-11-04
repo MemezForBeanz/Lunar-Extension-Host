@@ -44,6 +44,19 @@ def main():
         # Never reads stdin: a host that writes it synchronously would hang here.
         emit(type="result", ok=True, summary="ignored stdin")
 
+    elif mode == "echo_stream":
+        # A long-lived stdin: answer each line as it arrives, finish at end of input.
+        count = 0
+        for line in sys.stdin:
+            count += 1
+            emit(type="log", level="info", message=line.rstrip("\n"))
+        emit(type="result", ok=True, summary="echoed %d" % count)
+
+    elif mode == "stall_stdin":
+        # Holds stdin open and never reads it: writes must queue, not block the host.
+        emit(type="log", level="info", message="stalled")
+        time.sleep(600)
+
     elif mode == "crash":
         emit(type="progress", done=1, total=3)
         raise RuntimeError("boom in the engine")

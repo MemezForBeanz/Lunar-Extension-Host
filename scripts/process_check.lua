@@ -427,5 +427,53 @@ if not platform.is_windows then
 	signal_host:close()
 end
 
+-- 22. A stdin stream: writes are answered while the child runs, and closing it
+-- ends the child's input.
+do
+	local p = assert(process.spawn{ argv = { python, "-u", engine, "echo_stream" }, stdin = true })
+	check("stream: first write queued", p:write("one\n") == true)
+	local first, out1 = read_until(p, '"message"%s*:%s*"(one)"', 10)
+	check("stream: answered while stdin stays open", first == "one", out1)
+	p:write("two\n")
+	p:write("three\n")
+	p:close_stdin()
+	local summary, out2 = read_until(p, '"summary"%s*:%s*"(echoed %d+)"', 10)
+	check("stream: later writes delivered in order, then end of input", summary == "echoed 3", out2)
+	local refused, why = p:write("late\n")
+	check("stream: writes after close_stdin are refused", refused == nil and why == "stdin is closed", why)
+	p:close()
+	local one_shot = assert(process.spawn{ argv = { python, "-c", "pass" } })
+	local no_stream, no_why = one_shot:write("x")
+	check("stream: write without stdin = true is refused", no_stream == nil and no_why == "stdin is not a stream", no_why)
+	check("stream: pending is 0 without a stream", one_shot:pending() == 0)
+	one_shot:close()
+end
+
+-- 23. A child that never reads its stdin: writes return at once, the backlog is
+-- visible, it is capped, and close still ends the child promptly.
+do
+	local p = assert(process.spawn{ argv = { python, "-u", engine, "stall_stdin" }, stdin = true })
+	read_until(p, '"message"%s*:%s*"(stalled)"', 10)
+	local block = string.rep("x", 1024 * 1024)
+	local t0 = socket.gettime()
+	local accepted, last_err = 0, nil
+	for _ = 1, 80 do
+		local ok, err = p:write(block)
+		if ok then accepted = accepted + 1 else last_err = err; break end
+	end
+	local write_secs = socket.gettime() - t0
+	check("stall: 64 MB of writes never block", write_secs < 5, write_secs)
+	check("stall: the backlog is capped", accepted == 64 and last_err == "stdin backlog is full",
+		accepted .. " accepted, " .. tostring(last_err))
+	check("stall: pending reports the backlog", p:pending() > 60 * 1024 * 1024, p:pending())
+	local pid = p:pid()
+	t0 = socket.gettime()
+	p:close()
+	local close_secs = socket.gettime() - t0
+	socket.sleep(0.3)
+	check("stall: close is bounded and ends the child", close_secs < 5 and not alive(pid),
+		close_secs .. "s alive=" .. tostring(alive(pid)))
+end
+
 print(failures == 0 and "\nALL PASSED" or ("\n" .. failures .. " FAILED"))
 os.exit(failures == 0 and 0 or 1)

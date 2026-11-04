@@ -5,6 +5,10 @@
  * The child's cwd and environment do not change the host. stdout and stderr
  * are separate; read returns "" while open and empty, nil at EOF.
  *
+ * stdin is one-shot (a string, written and closed) or a stream (`stdin = true`)
+ * that stays open for `process:write`. Either way a thread does the writing, so
+ * a child that stops reading grows a backlog instead of blocking the host.
+ *
  * A supervisor acts as a child subreaper. The child owns a separate process
  * group; the supervisor kills that group and reaps its descendants when the
  * host closes the lifeline, including after host death. Escaped process-group
@@ -50,6 +54,24 @@ enum { REC_PID = 1, REC_EXIT = 2, REC_ERROR = 3, REC_KILLED = 4 };
 enum { ERR_SETUP = 1, ERR_CHDIR = 2, ERR_EXEC = 3 };
 typedef struct { int type, value; } Record;
 typedef struct { int stage, error; } ExecError;
+/* Most bytes process:write holds for a child that is not reading. */
+#define STDIN_BACKLOG_MAX ((size_t)64 * 1024 * 1024)
+/* A long-lived stdin (opts.stdin = true). process:write appends a chunk and
+ * returns; the writer thread owns the pipe's write end. Shared by the userdata
+ * and the thread, so it is reference counted. */
+typedef struct StdinChunk { struct StdinChunk *next; size_t len; char data[]; } StdinChunk;
+typedef struct {
+    pthread_mutex_t lock;
+    pthread_cond_t wake;
+    int fd;                  /* write end; the thread closes it */
+    StdinChunk *head, *tail;
+    size_t queued;           /* bytes accepted and not yet written */
+    int closing;             /* write what is queued, then close */
+    int abort;               /* drop what is queued and close */
+    int failed;              /* a write failed: the child no longer reads */
+    int done;                /* the thread has closed the pipe */
+    int refs;
+} StdinStream;
 typedef struct {
     pid_t supervisor, pid;
     int out_r, err_r, status_r, lifeline_w;
@@ -57,6 +79,7 @@ typedef struct {
     int kill_code, kill_requested, fallback_killed, reaped, supervisor_clean, exit_killed;
     unsigned long long child_start_time;
     unsigned char status_buf[sizeof(Record)];
+    StdinStream *stream;     /* set when stdin is a stream */
 } LProcess;
 typedef struct { int fd; char *data; size_t len; } StdinFeed;
 
@@ -105,6 +128,63 @@ static int write_all(int fd, const void *data, size_t len)
         else return 0;
     }
     return 1;
+}
+static StdinStream *stream_new(void)
+{
+    StdinStream *st = calloc(1, sizeof(*st));
+    if (!st) return NULL;
+    if (pthread_mutex_init(&st->lock, NULL)) { free(st); return NULL; }
+    if (pthread_cond_init(&st->wake, NULL)) { pthread_mutex_destroy(&st->lock); free(st); return NULL; }
+    st->fd = -1;
+    st->refs = 1;
+    return st;
+}
+static void stream_release(StdinStream *st)
+{
+    pthread_mutex_lock(&st->lock);
+    int last = --st->refs == 0;
+    pthread_mutex_unlock(&st->lock);
+    if (!last) return;
+    for (StdinChunk *c = st->head; c;) {
+        StdinChunk *next = c->next;
+        wipe(c->data, c->len);
+        free(c);
+        c = next;
+    }
+    fd_close(&st->fd);
+    pthread_cond_destroy(&st->wake);
+    pthread_mutex_destroy(&st->lock);
+    free(st);
+}
+static void *stream_writer(void *arg)
+{
+    StdinStream *st = arg;
+    for (;;) {
+        pthread_mutex_lock(&st->lock);
+        while (!st->head && !st->closing && !st->abort) pthread_cond_wait(&st->wake, &st->lock);
+        if (st->abort || !st->head) { pthread_mutex_unlock(&st->lock); break; }
+        StdinChunk *c = st->head;
+        st->head = c->next;
+        if (!st->head) st->tail = NULL;
+        pthread_mutex_unlock(&st->lock);
+        /* EPIPE (SIGPIPE is ignored) is normal once the child exits. */
+        int ok = write_all(st->fd, c->data, c->len);
+        pthread_mutex_lock(&st->lock);
+        st->queued -= c->len;
+        if (!ok) st->failed = 1;
+        pthread_mutex_unlock(&st->lock);
+        wipe(c->data, c->len);
+        free(c);
+        if (!ok) break;
+    }
+    pthread_mutex_lock(&st->lock);
+    int fd = st->fd;
+    st->fd = -1;
+    st->done = 1;
+    pthread_mutex_unlock(&st->lock);
+    if (fd >= 0) close(fd); /* the child sees end of input */
+    stream_release(st);
+    return NULL;
 }
 static int read_record(int fd, void *data, size_t len)
 {
@@ -491,6 +571,14 @@ static int fallback_kill(LProcess *p)
 }
 static void close_process(LProcess *p)
 {
+    if (p->stream) {
+        /* Drop what is queued: the process is being ended, not drained. The
+         * writer ends once the killed child's end of the pipe closes. */
+        pthread_mutex_lock(&p->stream->lock);
+        p->stream->abort = 1;
+        pthread_cond_signal(&p->stream->wake);
+        pthread_mutex_unlock(&p->stream->lock);
+    }
     fd_close(&p->out_r); fd_close(&p->err_r);
     if (p->supervisor > 0) {
         fd_close(&p->lifeline_w);
@@ -511,6 +599,7 @@ static void close_process(LProcess *p)
     fd_close(&p->lifeline_w);
     p->supervisor = 0;
     p->out_eof = p->err_eof = 1;
+    if (p->stream) { stream_release(p->stream); p->stream = NULL; }
 }
 static LProcess *check_proc(lua_State *L) { return luaL_checkudata(L, 1, PROCESS_MT); }
 
@@ -520,8 +609,9 @@ static LProcess *check_proc(lua_State *L) { return luaL_checkudata(L, 1, PROCESS
  * @tparam table opts.argv `{ executable, arg1, ... }`; bare executables use the host PATH.
  * @tparam[opt] string opts.cwd Child working directory.
  * @tparam[opt] table opts.env String values set, `false` removes, over the host env.
- * @tparam[opt] string opts.stdin Written and closed by a background thread.
- *   Without it, stdin is empty (/dev/null).
+ * @tparam[opt] string|boolean opts.stdin A string is written and closed by a
+ *   background thread. `true` opens a stream for `process:write` that stays open
+ *   until `process:close_stdin`. Without it, stdin is empty (/dev/null).
  * @treturn[1] process The running process.
  * @treturn[2] nil
  * @treturn[2] string Error message.
@@ -591,11 +681,14 @@ static int l_spawn(lua_State *L)
         if (!feed->data) { err = ENOMEM; goto cleanup; }
         memcpy(feed->data, s, n);
         feed->len = n;
+    } else if (lua_type(L, -1) == LUA_TBOOLEAN && lua_toboolean(L, -1)) {
+        p->stream = stream_new(); /* released by close_process on every later path */
+        if (!p->stream) { err = ENOMEM; goto cleanup; }
     }
     lua_pop(L, 1);
     if (!make_pipe(out) || !make_pipe(serr) || !make_pipe(status) ||
         !make_pipe(life) || !make_pipe(execerr)) { err = errno; reason = "pipe"; goto cleanup; }
-    if (feed) { if (!make_pipe(in)) { err = errno; reason = "pipe"; goto cleanup; } }
+    if (feed || p->stream) { if (!make_pipe(in)) { err = errno; reason = "pipe"; goto cleanup; } }
     else { in[0] = open("/dev/null", O_RDONLY | O_CLOEXEC); if (in[0] < 0) {
         err = errno; reason = "open /dev/null"; goto cleanup;
     } }
@@ -650,6 +743,17 @@ static int l_spawn(lua_State *L)
         pthread_detach(thread);
         feed = NULL;
     }
+    if (p->stream) {
+        p->stream->fd = in[1]; in[1] = -1;
+        p->stream->refs++; /* the thread's reference */
+        pthread_t thread;
+        int thread_err = pthread_create(&thread, NULL, stream_writer, p->stream);
+        if (thread_err) {
+            p->stream->refs--;
+            err = thread_err; reason = "pthread_create"; goto spawned_failure;
+        }
+        pthread_detach(thread);
+    }
     p->out_r = out[0]; p->err_r = serr[0]; p->status_r = status[0];
     out[0] = serr[0] = status[0] = -1;
     rc = 1;
@@ -693,6 +797,76 @@ static int m_read(lua_State *L)
     if (n == 0) { fd_close(fd); lua_pushnil(L); return 1; }
     if (errno == EAGAIN || errno == EWOULDBLOCK) { lua_pushliteral(L, ""); return 1; }
     return error_result(L, "read", errno);
+}
+/*** Queue bytes for the child's stdin (a process started with `stdin = true`).
+ * Returns at once; a writer thread delivers the bytes in order. A child that has
+ * stopped reading grows a backlog (see `process:pending`), up to 64 MB, after
+ * which writes are refused.
+ * @function process:write
+ * @tparam string data
+ * @treturn[1] boolean true once queued
+ * @treturn[2] nil
+ * @treturn[2] string `"stdin is not a stream"`, `"stdin is closed"` or
+ *   `"stdin backlog is full"`
+ */
+static int m_write(lua_State *L)
+{
+    LProcess *p = check_proc(L);
+    size_t n;
+    const char *data = luaL_checklstring(L, 2, &n);
+    StdinStream *st = p->stream;
+    if (!st) { lua_pushnil(L); lua_pushliteral(L, "stdin is not a stream"); return 2; }
+    if (n == 0) { lua_pushboolean(L, 1); return 1; }
+    StdinChunk *c = malloc(sizeof(*c) + n);
+    if (!c) return luaL_error(L, "out of memory");
+    c->next = NULL;
+    c->len = n;
+    memcpy(c->data, data, n);
+    const char *problem = NULL;
+    pthread_mutex_lock(&st->lock);
+    if (st->closing || st->abort || st->failed || st->done) problem = "stdin is closed";
+    else if (st->queued + n > STDIN_BACKLOG_MAX) problem = "stdin backlog is full";
+    else {
+        if (st->tail) st->tail->next = c; else st->head = c;
+        st->tail = c;
+        st->queued += n;
+        pthread_cond_signal(&st->wake);
+    }
+    pthread_mutex_unlock(&st->lock);
+    if (problem) { free(c); lua_pushnil(L); lua_pushstring(L, problem); return 2; }
+    lua_pushboolean(L, 1);
+    return 1;
+}
+/*** Bytes accepted by `process:write` that the child has not taken yet.
+ * @function process:pending
+ * @treturn integer 0 when stdin is not a stream
+ */
+static int m_pending(lua_State *L)
+{
+    LProcess *p = check_proc(L);
+    size_t queued = 0;
+    if (p->stream) {
+        pthread_mutex_lock(&p->stream->lock);
+        queued = p->stream->queued;
+        pthread_mutex_unlock(&p->stream->lock);
+    }
+    lua_pushnumber(L, (lua_Number)queued);
+    return 1;
+}
+/*** Finish a stdin stream: what is queued is still delivered, then the child
+ * sees end of input. Later writes are refused. Idempotent.
+ * @function process:close_stdin
+ */
+static int m_close_stdin(lua_State *L)
+{
+    LProcess *p = check_proc(L);
+    if (p->stream) {
+        pthread_mutex_lock(&p->stream->lock);
+        p->stream->closing = 1;
+        pthread_cond_signal(&p->stream->wake);
+        pthread_mutex_unlock(&p->stream->lock);
+    }
+    return 0;
 }
 /*** Has the direct child exited?
  * @function process:poll
@@ -763,7 +937,8 @@ static int m_close(lua_State *L)
 static int m_tostring(lua_State *L)
 { LProcess *p = check_proc(L); lua_pushfstring(L, "process (pid %d)", (int)p->pid); return 1; }
 static const luaL_Reg methods[] = {
-    { "read", m_read }, { "poll", m_poll }, { "kill", m_kill },
+    { "read", m_read }, { "write", m_write }, { "pending", m_pending },
+    { "close_stdin", m_close_stdin }, { "poll", m_poll }, { "kill", m_kill },
     { "pid", m_pid }, { "close", m_close }, { NULL, NULL }
 };
 static const luaL_Reg functions[] = { { "spawn", l_spawn }, { NULL, NULL } };
