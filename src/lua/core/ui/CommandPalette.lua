@@ -16,7 +16,7 @@ CommandPalette.__index = CommandPalette
 
 -- Nine whole rows of 32px, plus the field, the rule and the hint. A height chosen any
 -- other way leaves a sliced row above the hint line.
-local WIDTH, ROW_HEIGHT, ROWS, CHROME = 640, 32, 9, 88
+local WIDTH, ROW_HEIGHT, ROWS, CHROME = 720, 32, 9, 88
 local HEIGHT = ROW_HEIGHT * ROWS + CHROME
 
 -- A click on the list moves focus from the field to the list, and that fires the
@@ -313,7 +313,7 @@ function CommandPalette:_place()
 	local iup = self._iup
 	local x, y, w = self._anchor()
 	if not x then return iup.CENTERPARENT, iup.CENTERPARENT end
-	return math.floor(x + (w - WIDTH) / 2), y - HEIGHT - 8
+	return math.floor(x + (w - WIDTH) / 2), y
 end
 
 --- Open the palette, or close it if it is already open.

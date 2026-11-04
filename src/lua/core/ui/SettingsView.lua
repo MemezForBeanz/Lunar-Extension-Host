@@ -207,9 +207,9 @@ function SettingsView:initialize(opts)
     -- so a hardcoded color here would never update on theme switch. Leaving it
     -- unset lets the color inherit from the dialog, which IS themed.
     self._search_row = iup.hbox{
-        iup.hbox{ search_box, MAXSIZE = L.maxSize(COLUMN_WIDTH, nil), EXPAND = "HORIZONTAL" },
+        iup.hbox{ search_box, MAXSIZE = L.maxSize(COLUMN_WIDTH - 6, nil), EXPAND = "HORIZONTAL" },
         ALIGNMENT = "ACENTER",
-        MARGIN    = L.margin(L.ROLE.page, L.ROLE.section),
+        MARGIN    = (L.px(L.ROLE.page) + 3) .. "x" .. L.px(L.ROLE.section),   -- 3: the cards' own inset
     }
     self._nav_items = iup.vbox{ GAP = L.gap(1), EXPAND = "HORIZONTAL" }
     self._nav = iup.vbox{

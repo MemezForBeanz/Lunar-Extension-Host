@@ -122,7 +122,7 @@ end
 -- @tparam string side "left" or "right"
 -- @treturn ihandle the wrapped widget
 function M.inset(iup, widget, side)
-	local air = iup.fill({ RASTERSIZE = L.px(4) .. "x" })
+	local air = iup.fill({ RASTERSIZE = L.px(3) .. "x" })   -- 8 + the sash + 8: one 16px gutter
 	if side == "left" then return iup.hbox({ air, widget, EXPAND = "YES" }) end
 	return iup.hbox({ widget, air, EXPAND = "YES" })
 end
@@ -183,6 +183,8 @@ end
 --- Change what a status line says.
 function M.setStatus(iup, line, kind, text)
 	local status = M.STATUS[kind] or M.STATUS.idle
+	iup.SetAttribute(line, "IMAGEPOSITION", "LEFT")
+	iup.SetAttribute(line, "SPACING", "8")
 	M.bindIcon(iup, line, status.icon, { size = M.ICON_STATUS, role = status.role })
 	if text then iup.SetAttribute(line, "TITLE", text) end
 end
