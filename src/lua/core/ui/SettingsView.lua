@@ -516,7 +516,7 @@ function SettingsView:_buildRow(entry, category, first)
     -- A long description still offers something to press.
     local details_button
     if expandable then
-        details_button = iup.flatbutton{ TITLE = "Show details", THEMEROLE = "link_btn" }
+        details_button = iup.flatbutton{ TITLE = "Show details", THEMEROLE = "actionbutton" }
         local view = self
         function details_button:flat_action()
             view:_toggleRow(entry)

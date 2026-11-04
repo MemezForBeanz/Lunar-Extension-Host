@@ -118,7 +118,7 @@ function M.build(p)
         -- body-compact-01 / label-01).
         pagetitle     = { fg = p.text,      font = sized(p.headingFont or p.font, 18, not p.headingFont), padding = "0x0" },
         pagesubtitle  = { fg = p.textMuted, font = sized(p.font, 11), padding = "0x0" },
-        sectiontitle  = { fg = p.text,      font = sized(p.headingFont or p.font, 12, not p.headingFont), padding = "0x0" },
+        sectiontitle  = { fg = p.text,      font = sized(p.headingFont or p.font, 13, not p.headingFont), padding = "0x0" },
         hint          = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
 
         -- Semantic text roles: state colored by meaning, never by literal.
@@ -144,7 +144,7 @@ function M.build(p)
         -- The bottom status bar, finally a themed surface instead of a
         -- hardcoded gray: the shell's floor color with muted text.
         statusbar      = { bg = p.bg, fg = p.textMuted, border = border },
-        statusbar_text = { bg = p.bg, fg = p.text, font = sized(p.font, 10) },
+        statusbar_text = { bg = p.bg, fg = p.textMuted, font = sized(p.font, 10) },
 
         -- Toasts: elevated surface, semantic bar on the left edge.
         toast_bg_info     = { bg = elevated, fg = p.text },
@@ -206,10 +206,10 @@ function M.build(p)
         settingspanel = { bg = layer1, border = layer1, borderwidth = 0, radius = 0 },
         settingscard  = { bg = layer1, border = border, radius = RF, sheen = sheen },
         settings_description = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
-        empty_title   = { fg = p.text, font = sized(p.font, 11), padding = "0x0" },
+        empty_title   = { fg = p.text, font = sized(p.font, 12), padding = "0x0" },
         empty_hint    = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
         settingsheader = {
-            bg = layer1, fg = p.text, font = sized(p.headingFont or p.font, 12, not p.headingFont),
+            bg = layer1, fg = p.text, font = sized(p.headingFont or p.font, 13, not p.headingFont),
             border = layer1, borderwidth = 0, radius = R,
             hover = hover, hovertext = p.text, pressed = selected,
         },
