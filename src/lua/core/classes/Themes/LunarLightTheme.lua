@@ -25,7 +25,7 @@ function LunarLightTheme:initialize()
         textMuted       = rgb("#666a73"),
         accent          = rgb("#6a5ae0"),  -- violet, deepened for light surfaces
         accentText      = rgb("#ffffff"),
-        error           = rgb("#c4314b"),
+        error           = rgb("#b3243d"),
         success         = rgb("#3a7d44"),
         warning         = rgb("#946200"),
         warningText     = rgb("#ffffff"),

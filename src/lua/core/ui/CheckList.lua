@@ -36,7 +36,6 @@
 
 local class = require("middleclass")
 local ContextMenu = require("core.ui.ContextMenu")
-local Theme = require("core.classes.Theme")
 local ListEntrance = require("core.ui.ListEntrance")
 
 local CheckList = class("CheckList")
@@ -83,7 +82,7 @@ function CheckList:initialize(iup, opts)
         BORDER       = "NO",
         CANFOCUS     = "YES",
         VISIBLELINES = "8",
-        FONT         = Theme.color("font", self._font),
+        FONT         = self._font,
     }
     if self._role then iup.SetAttribute(self._list, "BQROLE", self._role) end
     if self._themerole then iup.SetAttribute(self._list, "THEMEROLE", self._themerole) end

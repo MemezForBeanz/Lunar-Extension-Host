@@ -16,7 +16,7 @@ function LunarDarkTheme:initialize()
     local p = {
         bg              = rgb("#1b1d23"),  -- app floor: deep slate
         layer01         = rgb("#22242c"),  -- pages, lists, fields
-        layer02         = rgb("#2a2d37"),  -- raised: buttons, dropdowns, toasts
+        layer02         = rgb("#2f3340"),  -- raised: buttons, dropdowns, toasts
         layerHover01    = rgb("#313542"),  -- pointer-enter, one step lighter
         layerSelected01 = rgb("#3a3f4f"),  -- persistent selection / pressed
         borderSubtle01  = rgb("#30333e"),  -- dim structural lines

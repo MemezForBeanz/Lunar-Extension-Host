@@ -317,9 +317,13 @@ end
 -- @tparam[opt] string subtitle
 -- @treturn ihandle A vbox.
 function M.pageHeader(iup, title, subtitle)
-	local kids = { M.pageTitle(iup, title) }
+	-- The tab above already names the page, so a page with a description opens with
+	-- that one line. A second copy of the name cost 40px on every screen.
+	local kids
 	if subtitle and subtitle ~= "" then
-		kids[#kids + 1] = M.pageSubtitle(iup, subtitle)
+		kids = { M.pageSubtitle(iup, subtitle) }
+	else
+		kids = { M.pageTitle(iup, title) }
 	end
 	kids.GAP    = M.gap(M.ROLE.label_gap)
 	kids.MARGIN = "0x0"

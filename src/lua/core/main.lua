@@ -633,6 +633,9 @@ local command_palette = CommandPalette.new({
 	notify_tree_change = function(w) theme_mgr:themeWidget(w) end,
 	on_error = function(message) host:setStatus(message) end,
 	round = function(window) require("core.lib.desktop").roundWindow(iup, window) end,
+	muted = function()
+		return require("core.ui.ThemeReactor").palette().textMuted or "128 128 128"
+	end,
 	anchor = function()
 		local bar = status_bar:commandWidget()
 		local x, y = tostring(iup.GetAttribute(bar, "SCREENPOSITION") or ""):match("(-?%d+),(-?%d+)")
@@ -655,16 +658,17 @@ local function add_host_command(id, title, run, extra)
 end
 
 add_host_command("address", "Open Lunar Address", function() command_palette:open("lunar://") end,
-	{ keywords = "go to route url link" })
+	{ keywords = "go to route url link", group = "Navigate" })
 add_host_command("settings", "Open Settings", function() host:dispatchRoute("lunar://host/settings") end,
-	{ keywords = "preferences options" })
+	{ keywords = "preferences options", group = "Navigate" })
 add_host_command("reload", "Restart Extensions", function() mh.reload_extensions() end,
-	{ keywords = "reload refresh plugins" })
+	{ keywords = "reload refresh plugins", group = "Lunar" })
 add_host_command("updates", "Check for Updates", function() update_check:checkNow() end,
-	{ when = function() return update_check ~= nil end })
-add_host_command("tabbars", "Show All Tab Bars", function() tab_groups:showAllTabBars() end)
+	{ when = function() return update_check ~= nil end, group = "Lunar" })
+add_host_command("tabbars", "Show All Tab Bars", function() tab_groups:showAllTabBars() end,
+	{ group = "Layout" })
 add_host_command("splits.reset", "Close All Splits", function() pane_grid:reset() end,
-	{ keywords = "unsplit panes merge" })
+	{ keywords = "unsplit panes merge", group = "Layout" })
 
 local function split_active(zone)
 	return function()
@@ -673,8 +677,8 @@ local function split_active(zone)
 		host:_applyTabScopes()
 	end
 end
-add_host_command("split.right", "Split Tab Right", split_active("right"), { keywords = "pane side by side" })
-add_host_command("split.down", "Split Tab Down", split_active("bottom"), { keywords = "pane below" })
+add_host_command("split.right", "Split Tab Right", split_active("right"), { keywords = "pane side by side", group = "Layout" })
+add_host_command("split.down", "Split Tab Down", split_active("bottom"), { keywords = "pane below", group = "Layout" })
 
 -- Load Org Pack: the packs this machine has, one of which the user may choose when
 -- nothing else assigns one (see OrgProfile.resolve, step 3).
@@ -700,7 +704,7 @@ add_host_command("orgpack", "Load Org Pack", function()
 		items = items, placeholder = "Choose an org pack",
 		hint = "Takes effect the next time Lunar starts",
 	})
-end, { keywords = "profile organization" })
+end, { keywords = "profile organization", group = "Lunar" })
 
 commands:addProvider({
 	id = "tabs",
@@ -712,7 +716,7 @@ commands:addProvider({
 			if title and title ~= "" then
 				out[#out + 1] = {
 					id = "tab." .. tostring(tab_groups:keyOf(page) or title),
-					title = title, category = "Go to",
+					title = title, category = "Go to", group = "Go to",
 					run = function()
 						host:_activateTabWidget(page)
 						return true
@@ -730,7 +734,7 @@ commands:addProvider({
 		local out = {}
 		for _, theme in ipairs(theme_mgr:themes()) do
 			out[#out + 1] = {
-				id = "theme." .. theme.id, title = theme.label, category = "Theme",
+				id = "theme." .. theme.id, title = theme.label, category = "Theme", group = "Theme",
 				run = function()
 					theme_mgr:apply(theme.id)
 					return true

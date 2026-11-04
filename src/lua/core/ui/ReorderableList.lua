@@ -75,7 +75,7 @@ function ReorderableList:initialize(iup, opts)
         EXPAND       = "YES",
         MULTIPLE     = "YES",
         VISIBLELINES = tostring(opts.visiblelines or "8"),
-        FONT         = Theme.color("font", opts.font or "Segoe UI, 11"),
+        FONT         = opts.font or "Segoe UI, 11",
     }
     if self._outer_scroll then list_attrs.SCROLLBAR = "NO" end
     -- Drop the native etched border when the list lives inside a themed frame, so

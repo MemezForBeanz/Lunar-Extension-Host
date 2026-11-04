@@ -167,7 +167,7 @@ function M.build(p)
         zbox          = { bg = p.bg,     fg = p.text, font = p.font },
         cbox          = { bg = p.bg,     fg = p.text, font = p.font },
         gridbox       = { bg = p.bg,     fg = p.text, font = p.font },
-        split         = { bg = p.bg,     fg = p.text, border = border, sash = p.accent, barsize = 7 },
+        split         = { bg = p.bg,     fg = p.text, border = border, sash = p.accent, barsize = 17 },
         frame         = { bg = p.bg,     fg = p.text, font = p.font, border = border },
         flatframe     = { bg = layer1,   fg = p.text, font = p.font, border = border, radius = RF,
                           sheen = sheen, titlealign = "ALEFT", titlepad = "12x4" },
@@ -184,7 +184,7 @@ function M.build(p)
             border = border, borderwidth = 1,
             hover = hover, selbg = selected,
             radius = R, focusfeedback = false, showlines = false,
-            tabspadding = "12x6",
+            tabspadding = "16x6",
         },
         -- The bar inside a group: the tool level, so it sits on the page itself and only
         -- the chosen label changes, where the app-level bar above it is a dark well.
@@ -194,7 +194,7 @@ function M.build(p)
             border = border, borderwidth = 1,
             hover = hover, selbg = selected,
             radius = R, focusfeedback = false, showlines = false,
-            tabspadding = "12x6",
+            tabspadding = "16x6",
         },
         scrollbox     = { bg = layer1, fg = p.text, border = border },
         flatscrollbox = scroll({ bg = layer1, fg = p.text, border = border, borderwidth = 1, scrollbg = layer1 }),
@@ -319,7 +319,7 @@ function M.build(p)
         -- flatframe wrappers extensions put around text fields take `text` as
         -- their THEMEROLE, so the radius here rounds the wrapper (flatframe
         -- honours it) while the native field inside ignores it.
-        text      = { bg = well, fg = p.text, font = p.font, border = border, radius = R },
+        text      = { bg = well, fg = p.text, font = p.font, border = border, radius = R, padding = "4x2" },
         multiline = { bg = well, fg = p.text, font = p.font, border = border, padding = "0x6" },
         list      = { bg = layer1, fg = p.text, font = p.font, border = borderS, padding = "0x6" },
         flatlist      = scroll({

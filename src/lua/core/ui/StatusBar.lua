@@ -92,7 +92,7 @@ function StatusBar.new(opts)
 		HOMOGENEOUS = "YES",
 		BGCOLOR = "240 240 240",
 		THEMEROLE = "statusbar",
-		MARGIN = L.margin(3, 2),
+		MARGIN = L.margin(5, 2),
 		GAP = L.gap(3),
 		ALIGNMENT = "ACENTER",
 		-- HORIZONTAL, not IupHbox's default YES. A vertically expanding child of
