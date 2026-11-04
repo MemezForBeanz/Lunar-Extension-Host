@@ -53,7 +53,7 @@ function NameDialog.show(opts)
 		VALUE = opts.value or "",
 		EXPAND = "HORIZONTAL",
 		VISIBLECOLUMNS = "28",
-		FONT = "Segoe UI, 9",
+		FONT = "Segoe UI, 11",
 		-- Drops the native sunken edge; the flatframe below draws a themed one.
 		BORDER = "NO",
 		THEMEROLE = "text",
@@ -98,7 +98,7 @@ function NameDialog.show(opts)
 		iup.vbox({
 			iup.label({
 				TITLE = opts.label or "Name:",
-				FONT = "Segoe UI, 9",
+				FONT = "Segoe UI, 11",
 				THEMEROLE = "settingslabel",
 			}),
 			iup.flatframe({

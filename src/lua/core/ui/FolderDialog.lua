@@ -381,7 +381,7 @@ function FolderDialog.show(opts)
 
 	local filter_text = iup.text({
 		VALUE = "", EXPAND = "HORIZONTAL", VISIBLECOLUMNS = "20",
-		FONT = "Segoe UI, 9", BORDER = "NO", THEMEROLE = "text",
+		FONT = "Segoe UI, 11", BORDER = "NO", THEMEROLE = "text",
 	})
 	local filter_frame = iup.flatframe({
 		filter_text, TITLE = "", MARGIN = L.margin(1),
@@ -409,7 +409,7 @@ function FolderDialog.show(opts)
 			EXPAND = "YES",
 			VISIBLELINES = tostring(lines),
 			VISIBLECOLUMNS = tostring(cols),
-			FONT = "Segoe UI, 9",
+			FONT = "Segoe UI, 11",
 			FLATSCROLLBAR = "YES",
 			SCROLLBAR = "NO",
 			THEMEROLE = themerole,
@@ -422,7 +422,7 @@ function FolderDialog.show(opts)
 
 	local status_lbl = iup.label({
 		TITLE = "", EXPAND = "HORIZONTAL",
-		FONT = "Segoe UI, 9", THEMEROLE = "settingslabel_muted",
+		FONT = "Segoe UI, 11", THEMEROLE = "settingslabel_muted",
 	})
 
 	local function set_status(msg)
@@ -632,7 +632,7 @@ function FolderDialog.show(opts)
 	local function prompt_name(caption)
 		local input = iup.text({
 			VALUE = "", EXPAND = "HORIZONTAL", VISIBLECOLUMNS = "28",
-			FONT = "Segoe UI, 9", BORDER = "NO", THEMEROLE = "text",
+			FONT = "Segoe UI, 11", BORDER = "NO", THEMEROLE = "text",
 		})
 		local ok_btn = iup.flatbutton({
 			TITLE = "Create", THEMEROLE = "primary_btn", PADDING = "12x5",
@@ -660,7 +660,7 @@ function FolderDialog.show(opts)
 
 		prompt_dlg = iup.dialog({
 			iup.vbox({
-				iup.label({ TITLE = caption, FONT = "Segoe UI, 9", THEMEROLE = "settingslabel" }),
+				iup.label({ TITLE = caption, FONT = "Segoe UI, 11", THEMEROLE = "settingslabel" }),
 				iup.flatframe({ input, TITLE = "", MARGIN = L.margin(1),
 					EXPAND = "HORIZONTAL", THEMEROLE = "text" }),
 				iup.hbox({ iup.fill({}), ok_btn, no_btn, GAP = L.gap(3), ALIGNMENT = "ACENTER" }),
@@ -835,7 +835,7 @@ function FolderDialog.show(opts)
 	local search_icon = icon("search.svg", BTN_ICON_SIZE, 0)
 	local filter_lead = search_icon
 		and iup.label({ IMAGE = search_icon })
-		or iup.label({ TITLE = "Filter", FONT = "Segoe UI, 9", THEMEROLE = "settingslabel" })
+		or iup.label({ TITLE = "Filter", FONT = "Segoe UI, 11", THEMEROLE = "settingslabel" })
 
 	-- Toolbar and path share one row (as in the references), but the path box is
 	-- the only element that flexes -- the buttons keep their natural width, so

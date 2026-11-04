@@ -36,7 +36,7 @@ function AddressDialog.show(opts)
 		VALUE = opts.value or "",
 		EXPAND = "HORIZONTAL",
 		VISIBLECOLUMNS = "72",
-		FONT = "Segoe UI, 9",
+		FONT = "Segoe UI, 11",
 		BORDER = "NO",
 		THEMEROLE = "text",
 	})

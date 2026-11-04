@@ -179,7 +179,7 @@ function SettingsView:initialize(opts)
     -- itself directly from BGCOLOR/FGCOLOR every time, like flatbutton/flatframe.
     self._empty = iup.flatlabel{
         TITLE     = "No settings registered. Extensions add their settings here.",
-        FONT      = "Segoe UI, 10",
+        FONT      = "Segoe UI, 11",
         THEMEROLE = "settingslabel_muted",
     }
     iup.Append(self._inner, self._empty)
@@ -472,7 +472,7 @@ function SettingsView:_buildRow(entry, category)
     if expandable then
         label = iup.flatbutton{
             TITLE     = entry.label or "",
-            FONT      = "Segoe UI, 10",
+            FONT      = "Segoe UI, 11",
             ALIGNMENT = "ALEFT:ACENTER",
             PADDING   = L.margin(L.ROLE.label_gap, L.ROLE.label_gap),
             BORDER    = "NO",
@@ -490,7 +490,7 @@ function SettingsView:_buildRow(entry, category)
         -- inside the flatscrollbox, so it's a flatlabel, not a native label.
         label = iup.flatlabel{
             TITLE     = entry.label or "",
-            FONT      = "Segoe UI, 10",
+            FONT      = "Segoe UI, 11",
             PADDING   = L.margin(L.ROLE.label_gap, L.ROLE.label_gap),
             THEMEROLE = "settingslabel",
         }

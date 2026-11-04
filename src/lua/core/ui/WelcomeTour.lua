@@ -102,7 +102,7 @@ function M.show(opts)
 		CANFOCUS = "NO",
 		EXPAND = "YES",
 		VISIBLELINES = "10",
-		FONT = "Segoe UI, 10",
+		FONT = "Segoe UI, 11",
 		THEMEROLE = "text",
 	})
 	local page_lbl = iup.label({

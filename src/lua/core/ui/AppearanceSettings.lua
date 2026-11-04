@@ -69,7 +69,7 @@ function M.register(opts)
 		items = M.SPEEDS,
 		value = M.speed_index(settings:get("motion_scale")),
 		width = 180,   -- the same as the Theme selector above it, so the column lines up
-		font = "Segoe UI, 10",
+		font = "Segoe UI, 11",
 		name = "appearance_motion_speed",
 		on_change = function(index)
 			local scale = M.SPEED_VALUES[index]

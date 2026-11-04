@@ -535,6 +535,7 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 		attrs.CHECKHLCOLOR = r.checkhl
 		attrs.CHECKPSCOLOR = r.checkon
 		attrs.CHECKRADIUS = "3"
+		attrs.CHECKSIZE = "16"
 	end
 
 	-- Light caught by the corners of a rounded box (fork patch 0005).
@@ -858,6 +859,11 @@ function ThemeManager:_applyElementNative(ih, theme, cls, role)
 	local iup = self._iup
 	iup.SetAttribute(ih, "NTHEME", handle)
 	iup.SetAttribute(ih, "THEMEMGR_NTHEME", "1")
+	-- Everything inside a flat scroll box reads its background from here, and only a
+	-- direct write puts the colour where they look.
+	if cls == "flatscrollbox" and attrs.BGCOLOR then
+		iup.SetAttribute(ih, "BGCOLOR", attrs.BGCOLOR)
+	end
 end
 
 function ThemeManager:_beginPaintBatch(root)
