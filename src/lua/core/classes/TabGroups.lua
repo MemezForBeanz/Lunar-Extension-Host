@@ -212,6 +212,11 @@ function TabGroups:setActiveRoot(strip)
 	if self._on_active_root then self._on_active_root(self._active_root) end
 end
 
+--- The root the user is working in.
+function TabGroups:activeRoot()
+	return self._active_root or self._root
+end
+
 --- Run `fn(strip)` when the root being worked in changes.
 function TabGroups:onActiveRoot(fn)
 	self._on_active_root = fn
