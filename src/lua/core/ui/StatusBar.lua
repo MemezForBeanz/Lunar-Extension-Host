@@ -25,7 +25,7 @@ StatusBar.UPDATE_CLICK_HINT = "\n\nClick to check for updates now."
 
 --- What the command bar says at rest.
 StatusBar.COMMAND_HINT = "Search commands or lunar:// address    Ctrl+P"
-StatusBar.COMMAND_WIDTH = 380
+StatusBar.COMMAND_WIDTH = 440
 
 --- Parse an IUP `"R G B"` colour into three numbers (nil if it isn't one).
 function StatusBar.parse_rgb(value)

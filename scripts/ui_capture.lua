@@ -18,6 +18,8 @@ typedef struct { uint32_t biSize; long biWidth, biHeight; uint16_t biPlanes, biB
   uint32_t biCompression, biSizeImage; long biXPelsPerMeter, biYPelsPerMeter;
   uint32_t biClrUsed, biClrImportant; } CAP_BMIH;
 int GetClientRect(void*, CAP_RECT*);
+int GetWindowRect(void*, CAP_RECT*);
+int BitBlt(void*, int, int, int, int, void*, int, int, unsigned);
 void* GetDC(void*);
 int ReleaseDC(void*, void*);
 int PrintWindow(void*, void*, unsigned);
@@ -30,15 +32,21 @@ int DeleteDC(void*);
 ]]
 local user32, gdi32 = ffi.load("user32"), ffi.load("gdi32")
 
-local function save_bmp(hwnd, path)
+-- from_screen copies what is really on screen: a popup, and an edit control's cue
+-- banner, only paint for WM_PAINT, which PrintWindow does not send.
+local function save_bmp(hwnd, path, from_screen)
 	local rc = ffi.new("CAP_RECT")
-	user32.GetClientRect(hwnd, rc)
+	if from_screen then user32.GetWindowRect(hwnd, rc) else user32.GetClientRect(hwnd, rc) end
 	local w, h = rc.right - rc.left, rc.bottom - rc.top
-	local screen = user32.GetDC(hwnd)
+	local screen = user32.GetDC(from_screen and nil or hwnd)
 	local mem = gdi32.CreateCompatibleDC(screen)
 	local bmp = gdi32.CreateCompatibleBitmap(screen, w, h)
 	local old = gdi32.SelectObject(mem, bmp)
-	user32.PrintWindow(hwnd, mem, 3) -- PW_CLIENTONLY | PW_RENDERFULLCONTENT
+	if from_screen then
+		gdi32.BitBlt(mem, 0, 0, w, h, screen, rc.left, rc.top, 0x00CC0020) -- SRCCOPY
+	else
+		user32.PrintWindow(hwnd, mem, 3) -- PW_CLIENTONLY | PW_RENDERFULLCONTENT
+	end
 	gdi32.SelectObject(mem, old)
 	local bi = ffi.new("CAP_BMIH")
 	bi.biSize, bi.biWidth, bi.biHeight, bi.biPlanes, bi.biBitCount = ffi.sizeof(bi), w, h, 1, 32
@@ -47,7 +55,7 @@ local function save_bmp(hwnd, path)
 	gdi32.GetDIBits(mem, bmp, 0, h, px, bi, 0)
 	gdi32.DeleteObject(bmp)
 	gdi32.DeleteDC(mem)
-	user32.ReleaseDC(hwnd, screen)
+	user32.ReleaseDC(from_screen and nil or hwnd, screen)
 	local file = assert(io.open(path, "wb"))
 	local function le(n, count)
 		local t = {}
@@ -148,7 +156,7 @@ iup.MainLoop = function()
 		elseif scene == 2 then
 			local palette_dlg = shell.palette._dialog
 			save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(palette_dlg), "HWND")),
-				string.format("%s/%s-90-palette.bmp", out_dir, prefix))
+				string.format("%s/%s-90-palette.bmp", out_dir, prefix), true)
 			shell.palette:close()
 		elseif scene == 3 then
 			local groups = shell.groups()

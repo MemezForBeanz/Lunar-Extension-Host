@@ -95,7 +95,7 @@ function M.build(p)
     -- the body font -- text and control are proportionate again, which is the
     -- real fix for "undersized text on oversized buttons".
     local BTN_FONT = p.font
-    local BTN_PAD  = "12x5"
+    local BTN_PAD  = "14x6"
     local accent_hover   = p.accentHover   or shade(p.accent, 0.12)
     local accent_pressed = p.accentPressed or shade(p.accent, -0.14)
 
@@ -115,10 +115,10 @@ function M.build(p)
     local rules = {
         -- Type scale (identical to carbon_rules: heading-04 / heading-03 /
         -- body-compact-01 / label-01).
-        pagetitle     = { fg = p.text,      font = sized(p.font, 18, true), padding = "0x0" },
-        pagesubtitle  = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
-        sectiontitle  = { fg = p.text,      font = sized(p.font, 11, true), padding = "0x0" },
-        hint          = { fg = p.textMuted, font = sized(p.font, 9), padding = "0x0" },
+        pagetitle     = { fg = p.text,      font = sized(p.font, 20, true), padding = "0x0" },
+        pagesubtitle  = { fg = p.textMuted, font = sized(p.font, 11), padding = "0x0" },
+        sectiontitle  = { fg = p.text,      font = sized(p.font, 12, true), padding = "0x0" },
+        hint          = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
 
         -- Semantic text roles: state colored by meaning, never by literal.
         error_label   = { fg = p.error,   font = p.font },
@@ -143,7 +143,7 @@ function M.build(p)
         -- The bottom status bar, finally a themed surface instead of a
         -- hardcoded gray: the shell's floor color with muted text.
         statusbar      = { bg = p.bg, fg = p.textMuted, border = border },
-        statusbar_text = { bg = p.bg, fg = p.text, font = sized(p.font, 9) },
+        statusbar_text = { bg = p.bg, fg = p.text, font = sized(p.font, 10) },
 
         -- Toasts: elevated surface, semantic bar on the left edge.
         toast_bg_info     = { bg = elevated, fg = p.text },
@@ -331,14 +331,14 @@ function M.build(p)
         text_focus = { bg = well, fg = p.text, font = p.font, border = p.accent, radius = R },
         -- The bottom bar's command bar: reads as a recessed field, not a button.
         commandbar = {
-            bg = well, fg = p.text, font = sized(p.font, 9),
+            bg = well, fg = p.text, font = sized(p.font, 10),
             border = border, borderwidth = 1, showborder = true, radius = R,
-            padding = "10x3",
+            padding = "12x6",
             hover = hover, hovertext = p.text,
             pressed = selected, pressedtext = p.text,
         },
-        palette_text = { bg = elevated, fg = p.text, font = sized(p.font, 11) },
-        palette_hint = { bg = elevated, fg = p.textMuted, font = sized(p.font, 9) },
+        palette_text = { bg = elevated, fg = p.text, font = sized(p.font, 12) },
+        palette_hint = { bg = elevated, fg = p.textMuted, font = sized(p.font, 10) },
         snap_preview = { bg = p.accent, fg = p.accent, border = p.accent },
         palette_frame = { bg = elevated, fg = p.text, font = p.font, border = borderS,
                           radius = RF, sheen = sheen },
