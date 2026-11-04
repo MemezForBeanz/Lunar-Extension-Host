@@ -207,8 +207,6 @@ function activity_scene.finish(shell)
 	activity_scene.flash:finish(true, "Firmware flash finished.")
 end
 
-local fixtures = dofile((LUNAR_SOURCE_DIR or ".") .. "/scripts/ui_fixtures.lua")
-
 local real_mainloop = iup.MainLoop
 iup.MainLoop = function()
 	local state, dlg, pages, index = 0, nil, nil, 1
