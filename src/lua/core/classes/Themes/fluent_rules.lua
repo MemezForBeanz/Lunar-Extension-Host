@@ -332,7 +332,7 @@ function M.build(p)
             border = p.border, itemradius = 4, itemmarker = p.accent,
             selbg = p.accent, seltext = p.accentText, hover = p.surface2 },
         flatsegmented = { bg = p.surface, fg = p.text, font = p.font,
-            border = p.border, radius = p.radius or 4, selbg = p.accent, seltext = p.accentText },
+            border = p.border, selbg = p.accent, seltext = p.accentText },
         progressbar   = { bg = p.surface, fg = p.accent, border = p.border },
         gauge         = { bg = p.surface, fg = p.accent, border = p.border },
     }

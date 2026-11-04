@@ -686,6 +686,10 @@ local function open_app_menu()
 end
 status_bar:onMenu(open_app_menu)
 host:registerShortcut(iup.K_cP, function() command_palette:toggle() end)
+host._key_fallback = function(c)
+	if c == iup.K_ESC and pane_grid:isFocused() then return pane_grid:restoreFocus() end
+	return false
+end
 host:_installKeyDispatch(dlg)
 
 local function add_host_command(id, title, run, extra)
@@ -709,6 +713,8 @@ add_host_command("tabbars", "Show All Tab Bars", function() tab_groups:showAllTa
 	{ group = "Layout" })
 add_host_command("splits.reset", "Close All Splits", function() pane_grid:reset() end,
 	{ keywords = "unsplit panes merge", group = "Layout" })
+add_host_command("pane.focus", "Focus Pane / Restore Split", function() pane_grid:toggleFocus() end,
+	{ keywords = "maximize zoom pane split restore", group = "Layout" })
 
 local function split_active(zone)
 	return function()
@@ -992,6 +998,7 @@ tab_groups = TabGroups:new({
 		})
 		if name then tab_groups:createGroup(strip, name, "user") end
 	end,
+	on_focus_pane = function(strip) pane_grid:toggleFocus(strip) end,
 	notify_tree_change = function(w) theme_mgr:themeWidget(w) end,
 	-- Same ceiling HostAPI:addTab applies to a top-level page; TabGroups tightens
 	-- it per nesting level, since each sub-bar eats into the page below it.

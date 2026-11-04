@@ -10,7 +10,8 @@
 static lua_State *row_state;
 static int row_callbacks_ref = LUA_NOREF;
 static int segmented_callbacks_ref = LUA_NOREF;
-static char row_value_buffer[4096];
+static char row_value_buffer[16][4096];
+static unsigned row_value_slot;
 
 static int callback_table(lua_State *L, int ref, Ihandle *ih)
 {
@@ -27,6 +28,7 @@ static char *row_value_cb(Ihandle *ih, int row, const char *field)
     lua_State *L = row_state;
     size_t len;
     const char *value;
+    char *buffer;
     if (!L || !callback_table(L, row_callbacks_ref, ih)) { if (L) lua_pop(L, 1); return NULL; }
     lua_getfield(L, -1, "value");
     if (!lua_isfunction(L, -1)) { lua_pop(L, 2); return NULL; }
@@ -35,12 +37,13 @@ static char *row_value_cb(Ihandle *ih, int row, const char *field)
     if (lua_pcall(L, 2, 1, 0) != 0) { lua_pop(L, 2); return NULL; }
     value = lua_tolstring(L, -1, &len);
     if (value) {
-        if (len >= sizeof(row_value_buffer)) len = sizeof(row_value_buffer) - 1;
-        memcpy(row_value_buffer, value, len);
-        row_value_buffer[len] = 0;
+        buffer = row_value_buffer[(row_value_slot++) % 16];
+        if (len >= 4096) len = 4095;
+        memcpy(buffer, value, len);
+        buffer[len] = 0;
     }
     lua_pop(L, 2);
-    return value ? row_value_buffer : NULL;
+    return value ? buffer : NULL;
 }
 
 static int row_event(Ihandle *ih, int row, const char *part, const char *name)

@@ -139,19 +139,46 @@ end
 function PaneGrid:setGroups(groups)
 	self._groups = groups
 	groups:onActiveRoot(function(strip) self:_markActive(strip) end)
+	self:_markActive(groups:activeRoot())
 end
 
 -- With two panes open, the pane being worked in carries the accent line on its tab bar.
 function PaneGrid:_markActive(active)
 	local iup = self._iup
+	if self._focus_zone and self:zoneOf(active) ~= self._focus_zone then
+		self:restoreFocus()
+	end
 	local used = self:_used()
 	local split = used.right or used.bottom or used.corner
 	local accent = require("core.ui.ThemeReactor").palette().accent
-	for _, strip in pairs(self._strips) do
+	for zone, strip in pairs(self._strips) do
 		local on = split and accent and handle.same(iup, strip, active)
 		iup.SetAttribute(strip, "TABSACTIVELINE", on and accent or nil)
+		iup.SetAttribute(strip, "EXTRABUTTONS", self:_count(zone) > 0 and handle.same(iup, strip, active) and "2" or "1")
 		iup.Update(strip)
 	end
+end
+
+--- Focus the active pane, or restore the saved split. This is session state only.
+function PaneGrid:toggleFocus(strip)
+	if self._focus_zone then self:restoreFocus(); return false end
+	if not self._groups then return false end
+	local zone = self:zoneOf(strip or self._groups:activeRoot())
+	if not zone or self:_count(zone) == 0 then return false end
+	local used = self:_used()
+	if not (used.right or used.bottom or used.corner) then return false end
+	self._focus_zone = zone
+	self:sync()
+	return true
+end
+
+function PaneGrid:isFocused() return self._focus_zone ~= nil end
+
+function PaneGrid:restoreFocus()
+	if not self._focus_zone then return false end
+	self._focus_zone = nil
+	self:sync()
+	return true
 end
 
 function PaneGrid:_count(zone)
@@ -220,6 +247,7 @@ end
 -- @treturn boolean moved
 function PaneGrid:move(widget, zone)
 	if not self:canMove(widget, zone) then return false end
+	self:restoreFocus()
 	self._groups:moveInto(widget, self._strips[zone])
 	self._groups:setActiveRoot(self._strips[zone])
 	self:sync()
@@ -228,6 +256,7 @@ end
 
 --- Put every pane's tabs back in the main strip.
 function PaneGrid:reset()
+	self:restoreFocus()
 	self._groups:_batch(function()
 		for _, zone in ipairs({ "right", "bottom", "corner" }) do
 			for _, page in ipairs(self._groups:_children(self._strips[zone])) do
@@ -263,6 +292,8 @@ function PaneGrid:sync()
 	if not self._groups then return end
 	local used = self:_used()
 	local sizes = self._sizes
+	local focus = self._focus_zone
+	if focus and self:_count(focus) == 0 then self._focus_zone = nil; focus = nil end
 	local has_right = used.right or used.corner
 
 	-- Flat controls read their background from the nearest native parent's stored
@@ -275,14 +306,22 @@ function PaneGrid:sync()
 
 	-- MINMAX first: IUP crops VALUE to it when VALUE is set, and widening it afterwards
 	-- does not restore what was cropped, so the main pane would stop at 70%.
-	self._iup.SetAttribute(self._grid, "MINMAX", has_right and PANE_LIMITS or ("0:" .. FULL))
-	self:_apply(self._grid, has_right and (sizes.grid or HALF) or FULL, has_right)
-	self:_apply(self._left, used.bottom and (sizes.left or HALF) or FULL, used.bottom)
-	if used.right and used.corner then
-		self:_apply(self._right, sizes.right or HALF, true)
+	self._applying = true
+	self._iup.SetAttribute(self._grid, "MINMAX", focus and ("0:" .. FULL) or (has_right and PANE_LIMITS or ("0:" .. FULL)))
+	if focus then
+		self:_apply(self._grid, (focus == "right" or focus == "corner") and 0 or FULL, false)
+		self:_apply(self._left, focus == "bottom" and 0 or FULL, false)
+		self:_apply(self._right, focus == "corner" and 0 or FULL, false)
 	else
-		self:_apply(self._right, used.corner and 0 or FULL, false)
+		self:_apply(self._grid, has_right and (sizes.grid or HALF) or FULL, has_right)
+		self:_apply(self._left, used.bottom and (sizes.left or HALF) or FULL, used.bottom)
+		if used.right and used.corner then
+			self:_apply(self._right, sizes.right or HALF, true)
+		else
+			self:_apply(self._right, used.corner and 0 or FULL, false)
+		end
 	end
+	self._applying = false
 	-- Before the window exists there is nothing to lay out, and IupRefresh on an
 	-- unmapped tree walks handles that are not there yet.
 	if self._iup.GetAttribute(self._grid, "WID") then
@@ -293,6 +332,7 @@ function PaneGrid:sync()
 end
 
 function PaneGrid:_sizesChanged(name)
+	if self._focus_zone or self._applying then return end
 	local iup = self._iup
 	local split = ({ left = self._left, right = self._right, grid = self._grid })[name]
 	self._sizes[name] = tonumber(iup.GetAttribute(split, "VALUE"))
