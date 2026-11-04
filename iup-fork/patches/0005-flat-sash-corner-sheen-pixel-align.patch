@@ -254,6 +254,24 @@ index 7ade73e..4d5506d 100644
    iupClassRegisterAttribute(ic, "BARSIZE", iFlatSeparatorGetBarSizeAttrib, iFlatSeparatorSetBarSizeAttrib, IUPAF_SAMEASSYSTEM, "5", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
  
    return ic;
+diff --git a/src/iup_flattabs.c b/src/iup_flattabs.c
+index afac6ff..115f16c 100644
+--- a/src/iup_flattabs.c
++++ b/src/iup_flattabs.c
+@@ -802,6 +802,13 @@ static int iFlatTabsRedraw_CB(Ihandle* ih)
+           }
+           else
+             iupFlatDrawBox(dc, x1, x2, y1, y2, background_color, NULL, 1);
++
++          /* Lunar fork: TABSACTIVELINE marks the current tab with a 2px underline. */
++          {
++            char* active_line = iupAttribGet(ih, "TABSACTIVELINE");
++            if (active_line && current_child == child && tabType == ITABS_TOP)
++              iupFlatDrawBox(dc, x1 + 8, x2 - 8, y2 - 2, y2 - 1, active_line, NULL, 1);
++          }
+         }
+       }
+       else
 diff --git a/src/iup_flattoggle.c b/src/iup_flattoggle.c
 index 54f7460..8969c7f 100644
 --- a/src/iup_flattoggle.c
