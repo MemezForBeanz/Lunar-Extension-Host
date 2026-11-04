@@ -296,7 +296,7 @@ function M.build(p)
             pressed = selected, pressedtext = p.text,
         },
         dropbutton    = {
-            bg = elevated, fg = p.text, font = p.font,
+            bg = well, fg = p.text, font = p.font,
             border = border, borderwidth = 1, showborder = true, radius = R,
             padding = "10x4",
             hover = hover, hovertext = p.text,
