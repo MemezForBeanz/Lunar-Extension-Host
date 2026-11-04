@@ -30,7 +30,6 @@ int GetDIBits(void*, void*, unsigned, unsigned, void*, CAP_BMIH*, unsigned);
 int DeleteObject(void*);
 int DeleteDC(void*);
 long DwmGetWindowAttribute(void*, unsigned, void*, unsigned);
-void keybd_event(unsigned char, unsigned char, unsigned long, uintptr_t);
 ]]
 local user32, gdi32, dwmapi = ffi.load("user32"), ffi.load("gdi32"), ffi.load("dwmapi")
 
@@ -197,17 +196,10 @@ iup.MainLoop = function()
 		elseif scene == 5 then -- one tick later: pages recentre after the panes settle
 			snap("91-split")
 		elseif scene == 6 then
-			-- A popup menu blocks here until it closes, so a timer shoots it and sends Esc.
-			local shot = iup.timer({ time = 500 })
-			function shot:action_cb()
-				self.run = "NO"
-				snap("92-menu")
-				user32.keybd_event(0x1B, 0, 0, 0)
-				user32.keybd_event(0x1B, 0, 2, 0)
-				return iup.DEFAULT
-			end
-			shot.run = "YES"
-			shell.open_menu(24, 1000)
+			shell.open_menu()
+		elseif scene == 7 then
+			snap("92-menu")
+			shell.palette:close()
 			return false
 		end
 		return true

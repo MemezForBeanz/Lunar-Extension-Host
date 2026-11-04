@@ -214,7 +214,7 @@ function CommandPalette:_refresh()
 	-- With nothing typed the list is browsed, so it is grouped. A search is ranked, and
 	-- headings would only break the ranking up.
 	local rows = {}
-	if text == "" and not self._choices then
+	if text == "" and (not self._choices or self._choices.grouped) then
 		local order, buckets = {}, {}
 		for _, item in ipairs(items) do
 			local group = item.group or item.category or "Commands"
@@ -329,7 +329,7 @@ end
 --- Open the palette.
 -- @tparam[opt] string text starting text
 -- @tparam[opt] table choices show this list in place of commands:
---   `{ items = { item, ... }, placeholder = string, hint = string }`
+--   `{ items = { item, ... }, placeholder = string, hint = string, grouped = boolean }`
 function CommandPalette:open(text, choices)
 	self:_build()
 	local iup = self._iup

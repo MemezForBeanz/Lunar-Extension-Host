@@ -652,9 +652,37 @@ local command_palette = CommandPalette.new({
 	end,
 })
 status_bar:onCommand(function() command_palette:toggle() end)
-local function open_app_menu(x, y)
-	iup.SetAttribute(menu_bar, "POPUPALIGN", "ALEFT:ABOTTOM")
-	iup.Popup(menu_bar, x, y)
+-- The application menu, on the palette's own surface: a native popup can't take the theme's
+-- type or colour, and every entry gains search for free.
+local function menu_entries(menu, group, out)
+	out = out or {}
+	local i, child = 0, iup.GetChild(menu, 0)
+	while child do
+		local class = iup.GetClassName(child)
+		local title = (iup.GetAttribute(child, "TITLE") or ""):gsub("&", ""):gsub("%.%.%.$", "")
+		if class == "submenu" then
+			menu_entries(iup.GetChild(child, 0), group or title, out)
+		elseif class == "item" and iup.GetAttribute(child, "ACTIVE") ~= "NO" then
+			local item = child
+			out[#out + 1] = {
+				id = "menu." .. title, title = title, group = group or "Lunar",
+				run = function()
+					local action = item.action
+					if action and action(item) == iup.CLOSE then iup.ExitLoop() end
+					return true
+				end,
+			}
+		end
+		i = i + 1
+		child = iup.GetChild(menu, i)
+	end
+	return out
+end
+local function open_app_menu()
+	command_palette:open("", {
+		items = menu_entries(menu_bar), grouped = true, placeholder = "Search the menu",
+		hint = "Enter to run   Esc to close",
+	})
 end
 status_bar:onMenu(open_app_menu)
 host:registerShortcut(iup.K_cP, function() command_palette:toggle() end)
