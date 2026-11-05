@@ -14,7 +14,7 @@ function M.new(iup, opts)
     local widget = raw.flatrows()
     iup.SetAttribute(widget, "THEMEROLE", opts.role or "flatrows")
     iup.SetAttribute(widget, "ROWHEIGHT", tostring(opts.row_height == 44 and 44 or 32))
-    iup.SetAttribute(widget, "FLATSCROLLBAR", "YES")
+    iup.SetAttribute(widget, "FLATSCROLLBAR", "VERTICAL")
     iup.SetAttribute(widget, "EMPTYTITLE", opts.empty_title or "Nothing here yet")
     iup.SetAttribute(widget, "EMPTYHINT", opts.empty_hint or "")
     for i = 1, 3 do
