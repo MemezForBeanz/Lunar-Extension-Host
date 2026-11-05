@@ -1,5 +1,76 @@
 # Lunar Extension Host release notes
 
+## 1.5.0
+
+Lunar gives your tools more room, with independent top and left toolbars, simpler
+navigation, and commands, background work and code tools in the same window.
+
+| Download | Use it for |
+|---|---|
+| `Lunar-Setup-1.5.0.exe` | Windows: the installer (choose extensions) |
+| `LunarExtensionHost-1.5.0.msi` | Windows: IT deployment and silent installs (`msiexec /i ... /qn`) |
+| `Lunar-portable-1.5.0.zip` | Windows: run without installing |
+| `Lunar-Setup-1.5.0-x86_64.run` | Linux: the installer (just for you, or for everyone) |
+| `lunar-extension-host_1.5.0_amd64.deb` | Ubuntu, Mint, Debian: `sudo apt install ./<file>` |
+| `Lunar-1.5.0-x86_64.AppImage` | Linux: run without installing |
+
+Check downloads against `SHA256SUMS`.
+
+- **GitHub updates:** every installation now checks published GitHub releases at
+  startup and every six hours, with a manual check from the update icon or
+  **Check for Updates** command. Windows downloads the versioned MSI, verifies its
+  published SHA-256, then installs and reopens Lunar after approval. Failed or
+  cancelled downloads leave Lunar running. Linux opens the release's package
+  downloads. Update shares are no longer used or required.
+- **Top and left toolbars:** place tabs or whole groups on either toolbar by
+  dragging them or choosing **Move to Top Toolbar** or **Move to Left Toolbar**
+  from the right-click menu. The sidebar shows icons or first letters until you
+  expand it with the chevron at its foot or Ctrl+B. Ctrl+1 through Ctrl+9 selects
+  sidebar entries. Placement and expansion are remembered across restarts.
+- **Bottom toolbar:** search and the app menu return to the bottom of the window.
+  The menu sits at the far left, search is centered, and Focus Pane is at the
+  right. Settings moves to the upper-left gear; Ctrl+, still opens it, and pressing
+  the gear again returns to the previous tab. Search and menu popups open above
+  the bottom bar.
+- **Nested tabs stay nested:** opening a group on either toolbar reveals a
+  horizontal row of its members. Further groups open further rows. Choosing a top
+  group keeps the sidebar's contents in place. Moving and ungrouping tabs preserves
+  their toolbar placement, and temporarily unavailable extensions retain their
+  saved positions.
+- **Split panes and Focus Pane:** drag tools into side-by-side or stacked panes,
+  then use Focus Pane to work in the active pane alone. Press it again or Esc to
+  restore the split. Fixed a native layout issue that could re-show other panes
+  while one was focused.
+- **Command palette and tasks:** Ctrl+P searches commands, opens `lunar://`
+  addresses and runs configured tasks. Results show categories, shortcuts and
+  recent commands. The application menu uses the same searchable surface.
+- **Code and Problems tabs:** a Scintilla-based code view supports viewing files,
+  optional editing and saving. With a compatible language server installed and
+  configured, it provides diagnostics, hover information, completions and
+  go-to-definition. Extensions can register language servers through the host API.
+- **Background activity:** the status bar shows running work and its outcome.
+  Open the Activity panel for details, cancel supported jobs, or return to the
+  related tool. Sidebar entries also indicate running work and unseen failures.
+- **Appearance and Settings:** more consistent typography, spacing, field borders,
+  selection states and theme-aware icons. Settings uses a category list and
+  breadcrumb navigation, and tool layouts adapt to narrow panes. Resizing is
+  faster, pages no longer paint over each other, and the workspace has rounded
+  upper-left and lower-left junctions with the toolbars.
+- **Microchip org pack:** **Microchip Tools** has four direct child tabs:
+  **Black Duck Scan**, **Black Duck Server**, **Black Duck Review**, and
+  **Time Clock**. Removed the unnecessary intermediate extension groups and gave
+  the Black Duck tabs names that stand on their own. Existing saved layouts are
+  repaired on startup, including old pack names, duplicate groups and misplaced
+  organization groups, while preserving tab identities and selection.
+- **Extension development:** expanded page-layout helpers, themed list and
+  segmented controls, responsive layouts and requirements displays. Added an
+  interactive GUI demo and script-launch tasks for checking populated pages.
+
+**Updating:** earlier builds with the broken share-only updater need one manual
+upgrade to this version; later releases can then be discovered through GitHub.
+Restart Lunar after updating to apply the saved-layout repairs. The Microchip tab
+changes also require the updated Microchip org pack.
+
 ## 1.2.0
 
 Lunar now runs without a window, as a service, and has a new look.

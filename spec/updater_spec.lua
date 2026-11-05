@@ -3,13 +3,23 @@ local Updater = require("core.lib.Updater")
 
 local ROOT = "\\\\files.example\\lunar"
 
--- A share as a table of path -> text.
-local function share(files)
-	return function(path) return files[path] end
-end
-
-local function check(files, installed, version)
-	return Updater.check({ root = ROOT, app_version = version or "1.9.8", installed = installed, read = share(files) })
+local HASH = string.rep("a", 64)
+local function check(opts)
+	opts = opts or {}
+	local release = opts.release or { version = opts.latest or "1.9.9", msi = "LunarExtensionHost-" .. (opts.latest or "1.9.9") .. ".msi",
+		extensions = opts.extensions }
+	local requests = {}
+	local result = Updater.check({ app_version = opts.version or "1.9.8", installed = opts.installed, platform = opts.platform,
+		request = function(req)
+			requests[#requests + 1] = req
+			if opts.transport_error then return nil, opts.transport_error end
+			if opts.http_error then return { status = opts.http_error, body = "error" } end
+			if req.url == Updater.LATEST_METADATA then
+				return { status = 200, body = opts.body or cjson.encode(release) }
+			end
+			return { status = 200, body = opts.sums or HASH .. "  " .. release.msi .. "\n" }
+		end })
+	return result, requests
 end
 
 describe("Updater versions", function()
@@ -46,39 +56,81 @@ describe("Updater.safe_path", function()
 	end)
 end)
 
-describe("Updater.check", function()
-	local MANIFEST = ROOT .. "\\manifest.json"
-
-	it("reports an app update and builds the installer path from the version", function()
-		local r = check({ [MANIFEST] = cjson.encode({ latest = "1.9.9", setup = "evil\" & calc.msi" }) })
-		assert.are.equal("available", r.status)
-		assert.is_true(r.app_update)
-		assert.are.equal(ROOT .. "\\releases\\1.9.9\\LunarExtensionHost-1.9.9.msi", Updater.installer_path(ROOT, r.latest))
+describe("Updater.check GitHub releases", function()
+	it("uses latest release metadata with no share setting or credentials", function()
+		local result, requests = check()
+		assert.equal("available", result.status)
+		assert.equal("https://github.com/MemezForBeanz/Lunar-Extension-Host/releases/latest/download/release.json", requests[1].url)
+		assert.equal("peer", requests[1].verify)
+		assert.is_nil(requests[1].headers.authorization)
 	end)
-
-	it("is current when nothing is newer", function()
-		local r = check({ [MANIFEST] = cjson.encode({ latest = "1.9.8" }) })
-		assert.are.equal("current", r.status)
-		assert.is_false(r.app_update)
+	it("pins installer and checksums to the chosen version", function()
+		local result, requests = check()
+		assert.equal("available", result.status)
+		assert.is_true(result.app_update)
+		assert.equal(Updater.RELEASES .. "/download/v1.9.9/SHA256SUMS", requests[2].url)
+		assert.equal(Updater.RELEASES .. "/download/v1.9.9/LunarExtensionHost-1.9.9.msi", result.installer.url)
+		assert.equal(HASH, result.installer.sha256)
 	end)
-
-	it("lists newer versions of installed extensions", function()
-		local r = check({
-			[MANIFEST] = cjson.encode({ latest = "1.9.8" }),
-			[ROOT .. "\\releases\\1.9.8\\release.json"] = cjson.encode({ extensions = {
-				{ name = "Hello", version = "1.1" }, { name = "Other", version = "9" }, { name = "Hello2", version = "bad" },
-			} }),
-		}, { hello = "1.0", hello2 = "1.0" })
-		assert.are.equal("available", r.status)
-		assert.are.same({ "Hello (1.0 -> 1.1)" }, r.extensions)
+	it("is current without fetching installer checksums when nothing is newer", function()
+		local result, requests = check({ latest = "1.9.8" })
+		assert.equal("current", result.status)
+		assert.is_false(result.app_update)
+		assert.equal(1, #requests)
 	end)
+	it("never downgrades a newer build to update an extension", function()
+		local result = check({ latest = "1.2.0", version = "1.5.0", installed = { hello = "1.0" },
+			extensions = { { name = "Hello", version = "1.1" } } })
+		assert.equal("current", result.status)
+		assert.equal(0, #result.extensions)
+	end)
+	it("compares installed extension versions from the release metadata", function()
+		local result = check({ latest = "1.9.8", installed = { hello = "1.0", broken = "1.0" }, extensions = {
+			{ name = "Hello", version = "1.1" }, { name = "Other", version = "9" }, { name = "Broken", version = "bad" },
+		} })
+		assert.equal("available", result.status)
+		assert.same({ "Hello (1.0 -> 1.1)" }, result.extensions)
+	end)
+	it("does not accept paths or pre-release tags as release versions", function()
+		for _, bad in ipairs({ "../../1.9.9", "1.9.9-rc1", '1.9.9"', "1.9", "123456.0.0" }) do
+			assert.equal("unavailable", check({ release = { version = bad } }).status)
+		end
+	end)
+	it("reports network, HTTP and invalid metadata failures as unavailable", function()
+		assert.equal("unavailable", check({ transport_error = "offline" }).status)
+		assert.equal("unavailable", check({ http_error = 404 }).status)
+		assert.equal("unavailable", check({ http_error = 403 }).status)
+		assert.equal("unavailable", check({ body = "not JSON" }).status)
+		assert.equal("unavailable", check({ body = "null" }).status)
+		assert.equal("unavailable", check({ version = "invalid" }).status)
+	end)
+	it("refuses unexpected installer names instead of trusting a manifest path", function()
+		local result = check({ release = { version = "1.9.9", msi = "evil.msi" } })
+		assert.equal("unavailable", result.status)
+	end)
+	it("requires a published SHA-256 before offering a Windows install", function()
+		local result = check({ sums = HASH .. "  other.msi\n" })
+		assert.equal("unavailable", result.status)
+		assert.is_nil(result.installer)
+	end)
+	it("offers Linux release downloads without trying to install an MSI", function()
+		local result, requests = check({ platform = "linux", release = { version = "1.9.9" } })
+		assert.equal("available", result.status)
+		assert.is_nil(result.installer)
+		assert.equal(Updater.RELEASES .. "/tag/v1.9.9", result.release_url)
+		assert.equal(1, #requests)
+	end)
+end)
 
-	it("is unavailable, not current, when the share can't be read or lies", function()
-		assert.are.equal("unavailable", check({}).status)
-		assert.are.equal("unavailable", check({ [MANIFEST] = "not json" }).status)
-		assert.are.equal("unavailable", check({ [MANIFEST] = cjson.encode({ latest = "..\\..\\x" }) }).status)
-		local bad_root = Updater.check({ root = "relative", app_version = "1.0", read = share({}) })
-		assert.are.equal("unavailable", bad_root.status)
+describe("Updater.checksum", function()
+	it("accepts GNU text and binary formats and normalizes hex", function()
+		assert.equal(HASH, Updater.checksum(HASH:upper() .. "  Lunar.msi\r\n", "Lunar.msi"))
+		assert.equal(HASH, Updater.checksum(HASH .. " *Lunar.msi\n", "Lunar.msi"))
+	end)
+	it("requires an exact filename and a complete unambiguous hash", function()
+		assert.is_nil((Updater.checksum(HASH .. "  not-Lunar.msi", "Lunar.msi")))
+		assert.is_nil((Updater.checksum("abcd  Lunar.msi", "Lunar.msi")))
+		assert.is_nil((Updater.checksum(HASH .. "  Lunar.msi\n" .. string.rep("b", 64) .. "  Lunar.msi", "Lunar.msi")))
 	end)
 end)
 

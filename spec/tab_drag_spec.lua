@@ -278,3 +278,54 @@ describe("TabOrder gestures", function()
 		assert.are.equal(1, #applied)
 	end)
 end)
+
+
+describe("TabOrder top and left views", function()
+	local order, root, children, top, left
+	before_each(function()
+		order, root, children = make_case()
+		top, left = {}, {}
+		local iup = order._iup
+		local get, hit = iup.GetAttribute, iup.ConvertXYToPos
+		function iup.GetAttribute(w, k)
+			if w == top then
+				return ({ SCREENPOSITION = "100,100", RASTERSIZE = "300x24", TABTYPE = "TOP" })[k]
+			elseif w == left then
+				return ({ SCREENPOSITION = "100,124", RASTERSIZE = "48x600", TABTYPE = "LEFT" })[k]
+			end
+			return get(w, k)
+		end
+		function iup.ConvertXYToPos(w, x, y)
+			if w == left then return y >= 0 and y < 32 and 1 or -1 end
+			return hit(w, x, y)
+		end
+		order:setStandIn(root, top, "top")
+		order:setStandIn(root, left, "left")
+	end)
+	it("resolves a top-origin drag onto the vertical toolbar by root identity", function()
+		local drop = order:fromView(top, function() return order:_resolveDrop(root, 20, 40, children[1]) end)
+		assert.equal(left, drop.zone)
+		assert.is_true(drop.vertical)
+		assert.equal("left", drop.toolbar)
+		assert.equal(children[2], order._iup._real(drop.merge))
+	end)
+	it("appends onto an empty part of the sidebar", function()
+		local drop = order:fromView(top, function() return order:_resolveDrop(root, 20, 200, children[1]) end)
+		assert.equal(root, drop.strip)
+		assert.equal("left", drop.toolbar)
+		assert.is_nil(drop.index)
+	end)
+	it("resolves a sidebar-origin drag onto the horizontal toolbar", function()
+		local drop = order:fromView(left, function() return order:_resolveDrop(root, 5, -12, children[2]) end)
+		assert.equal(top, drop.zone)
+		assert.equal("top", drop.toolbar)
+		assert.is_false(drop.vertical)
+		assert.equal(1, drop.index)
+	end)
+	it("changes placement when a toolbar drop is applied", function()
+		local received
+		order._groups.setToolbar = function(_, page, toolbar, index) received = { page, toolbar, index } end
+		order:_applyDrop({ widget = children[1], drop = { strip = root, toolbar = "left", index = 2 } })
+		assert.same({ children[1], "left", 2 }, received)
+	end)
+end)

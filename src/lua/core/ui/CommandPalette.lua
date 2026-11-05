@@ -1,4 +1,4 @@
---- The command bar's popup: a field and a filtered list, opened over the top bar's field.
+--- The command bar's popup: a field and a filtered list, opened above the bottom toolbar.
 --
 -- Opened by Ctrl+P or by clicking that field. What it lists comes
 -- from `core.classes.CommandRegistry`; this module is only the window and the keys.
@@ -44,6 +44,7 @@ function CommandPalette.new(opts)
 		_registry = opts.registry,
 		_parent = opts.parent,
 		_anchor = opts.anchor,
+		_above = opts.above,
 		_settings = opts.settings,
 		_theme = opts.notify_tree_change,
 		_on_error = opts.on_error,
@@ -326,7 +327,7 @@ function CommandPalette:_place()
 	local iup = self._iup
 	local x, y, w = self._anchor()
 	if not x then return iup.CENTERPARENT, iup.CENTERPARENT end
-	return math.floor(x + (w - WIDTH) / 2), y
+	return math.floor(x + (w - WIDTH) / 2), self._above and (y - HEIGHT - 4) or y
 end
 
 --- Open the palette, or close it if it is already open.

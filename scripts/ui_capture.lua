@@ -125,7 +125,8 @@ local function leaves(strip, path, out)
 end
 
 local function find_strip(h)
-	if iup.GetAttribute(h, "THEMEROLE") == "titlebar_tabs" then return nil end
+	local role = iup.GetAttribute(h, "THEMEROLE")
+	if role == "titlebar_tabs" or role == "tool_rail" then return nil end
 	if class(h) == "flattabs" then return h end
 	local i, child = 0, iup.GetChild(h, 0)
 	while child do

@@ -145,7 +145,6 @@ function TabGroups:initialize(opts)
 	self._on_change  = opts.on_change
 	self._on_strip   = opts.on_strip_created
 	self._on_new     = opts.on_new_group
-	self._on_focus_pane = opts.on_focus_pane
 	self._notify     = opts.notify_tree_change
 	self._height_cap = tonumber(opts.height_cap)
 	self._extra_icon = opts.extra_icon
@@ -165,10 +164,26 @@ function TabGroups:initialize(opts)
 	end
 end
 
---- Attach `core.ui.ToolRail`, which takes over the strips it owns.
--- @tparam table rail tool rail controller
-function TabGroups:setRail(rail)
-	self._rail = rail
+--- Toolbar placement is independent of group membership. Missing values retain
+-- the old top-toolbar arrangement; groups always keep horizontal child strips.
+function TabGroups:toolbarOf(widget)
+	return attr.get(self._iup, widget, "_IUPLUNAR_TOOLBAR") == "left" and "left" or "top"
+end
+
+--- Place a tab or whole group on a toolbar, lifting it out of a nested group.
+function TabGroups:setToolbar(widget, toolbar, index)
+	if toolbar ~= "top" and toolbar ~= "left" then return false end
+	if not widget or not self:stripOf(widget) then return false end
+	return self:_batch(function()
+		attr.set(self._iup, widget, "_IUPLUNAR_TOOLBAR", toolbar == "left" and "left" or nil)
+		if not self:_same(self:stripOf(widget), self._root) or index then
+			self:moveInto(widget, self._root, index)
+		end
+		self:reveal(widget)
+		self:_requestRefresh()
+		self:_changed()
+		return true
+	end)
 end
 
 --- Add the workspace's extra panes (`core.classes.PaneGrid`) as further roots.
@@ -573,8 +588,6 @@ end
 
 function TabGroups:setCollapsed(strip, collapsed)
 	if not self:isGroupStrip(strip) then return false end
-	-- A rail narrows rather than hides, and every rail moves together (core.ui.ToolRail).
-	if self._rail and self._rail:owns(strip) then return false end
 	collapsed = collapsed == true
 	if self:isCollapsed(strip) == collapsed then return false end
 	return self:_batch(function()
@@ -584,11 +597,6 @@ function TabGroups:setCollapsed(strip, collapsed)
 		self:_changed() -- persists and invokes the shell-budget hook after layout
 		return true
 	end)
-end
-
---- Forget a hidden tab bar: a strip that has become a rail doesn't hide.
-function TabGroups:clearCollapsed(strip)
-	attr.set(self._iup, strip, COLLAPSED_ATTR, nil)
 end
 
 function TabGroups:toggleCollapsed(strip)
@@ -633,21 +641,13 @@ function TabGroups:_prepareStrip(strip)
 	else
 		extra(1, "+", "add")
 		pcall(iup.SetAttributeId, strip, "EXTRATIP", 1, "New tab group")
-		extra(2, "[]", "view")
-		pcall(iup.SetAttributeId, strip, "EXTRATIP", 2, "Focus or restore pane (Esc to restore)")
 	end
 
 	pcall(function()
 		function strip:extrabutton_cb(id, pressed)
 			-- Act on release, mirroring a normal button click.
-			if self_._rail and self_._rail:owns(strip) then
-				if pressed == 0 then self_._rail:press(strip, id) end
-				return iup.DEFAULT
-			end
 			if id == 1 and pressed == 0 and is_group then
 				self_:setCollapsed(strip, true)
-			elseif id == 2 and pressed == 0 and self_._on_focus_pane then
-				self_._on_focus_pane(strip)
 			elseif id == 1 and pressed == 0 then
 				self_:_newGroup(strip)
 			end
@@ -758,6 +758,9 @@ function TabGroups:dissolveGroup(strip)
 			-- the dying strip without destroying its windows on the way (see
 			-- core.lib.tree). Detaching here would unmap every page in the group and
 			-- hand the reparent nothing left to preserve.
+			if self:_same(parent, self._root) then
+				attr.set(iup, child, "_IUPLUNAR_TOOLBAR", self:toolbarOf(strip) == "left" and "left" or nil)
+			end
 			self:_insertAt(parent, child, at)
 			self:_applyHeightCap(child)
 			at = at + 1
@@ -938,6 +941,7 @@ function TabGroups:groupTogether(first, second, name)
 		local at = (self:_posOf(first) or 0) + 1
 		local strip = self:createGroup(parent, name, "user", at)
 		if not strip then return nil end
+		attr.set(self._iup, strip, "_IUPLUNAR_TOOLBAR", self:toolbarOf(first) == "left" and "left" or nil)
 
 		self:moveInto(first, strip)
 		self:moveInto(second, strip)
@@ -1178,12 +1182,12 @@ function TabGroups:_mergeAbsent(children)
 				end
 				if not found then
 					found = { t = "group", name = g.name, source = g.source, active = g.active,
-						collapsed = g.collapsed or nil, children = {} }
+						collapsed = g.collapsed or nil, toolbar = g.toolbar, children = {} }
 					table.insert(list, math.min(g.index or #list + 1, #list + 1), found)
 				end
 				list = found.children
 			end
-			table.insert(list, math.min(entry.index, #list + 1), { t = "tab", key = entry.key })
+			table.insert(list, math.min(entry.index, #list + 1), { t = "tab", key = entry.key, toolbar = entry.toolbar })
 			live[entry.key] = true
 		end
 	end
@@ -1201,11 +1205,13 @@ function TabGroups:_serializeStrip(strip, depth)
 				source   = record.source,
 				active   = record.active,
 				collapsed = record.collapsed or nil,
+				toolbar  = self:toolbarOf(child) == "left" and "left" or nil,
 				children = self:_serializeStrip(child, depth + 1),
 			}
 		else
 			local key = self:keyOf(child)
-			if key then out[#out + 1] = { t = "tab", key = key } end
+			if key then out[#out + 1] = { t = "tab", key = key,
+				toolbar = self:toolbarOf(child) == "left" and "left" or nil } end
 		end
 	end
 	return out
@@ -1390,7 +1396,10 @@ function TabGroups:_restoreInto(strip, nodes, placed, depth, path)
 				if group_strip and type(node.active) == "string" then
 					pcall(self._iup.SetAttribute, group_strip, ACTIVE_ATTR, node.active)
 				end
-				if group_strip then self:setCollapsed(group_strip, node.collapsed == true) end
+				if group_strip then
+					self:setCollapsed(group_strip, node.collapsed == true)
+					attr.set(self._iup, group_strip, "_IUPLUNAR_TOOLBAR", node.toolbar == "left" and "left" or nil)
+				end
 				local sub = {}
 				for i, g in ipairs(path) do sub[i] = g end
 				-- Its position and selection too: a manifest group left empty is pruned
@@ -1398,17 +1407,19 @@ function TabGroups:_restoreInto(strip, nodes, placed, depth, path)
 				sub[#sub + 1] = {
 					name = node.name, index = index, active = node.active,
 					collapsed = node.collapsed == true,
+					toolbar = node.toolbar,
 					source = node.source == "manifest" and "manifest" or "user",
 				}
 				self:_restoreInto(group_strip, node.children, placed, depth + 1, sub)
 			elseif node.t == "tab" and type(node.key) == "string" then
 				local widget = self:_takeLive(node.key, placed)
 				if widget then
+					attr.set(self._iup, widget, "_IUPLUNAR_TOOLBAR", node.toolbar == "left" and "left" or nil)
 					self:_place(strip, widget)
 					placed[self:_uid(widget)] = true
 				else
 					-- Its extension isn't loaded this session: remember where it was.
-					self._absent[#self._absent + 1] = { key = node.key, path = path, index = index }
+					self._absent[#self._absent + 1] = { key = node.key, path = path, index = index, toolbar = node.toolbar }
 					if not self:_same(strip, self._root) then self._holds_absent[self:_uid(strip)] = true end
 				end
 			end

@@ -29,7 +29,7 @@
           and no execution-policy hassles (an .msi is not a script).
 
     Publishing (-Publish / -PublishGitHub / -PublishShare):
-        -PublishGitHub  Create/refresh the GitHub release v<ver> and upload assets (gh).
+        -PublishGitHub  Stage assets and publish the GitHub release v<ver> (gh).
         -PublishShare   Mirror the versioned payload into <HostRoot>\releases\<ver>\,
                         rebuild manifest.json, and refresh the root LunarExtensionHost-Setup.msi.
         -Publish        Both of the above.
@@ -166,7 +166,14 @@ function Get-ReleaseAssetsForVersion($ver) {
         $assets += $portable
     }
 
-    return $assets
+    # The desktop updater pins this list to the selected tag before downloading.
+    # Publish it for local gh releases as well as the CI release workflow.
+    $checksums = Join-Path $AssetsDir 'SHA256SUMS'
+    @($assets | ForEach-Object {
+        $hash = (Get-FileHash -LiteralPath $_ -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+        $hash + '  ' + [System.IO.Path]::GetFileName($_)
+    }) | Set-Content -LiteralPath $checksums -Encoding ASCII -ErrorAction Stop
+    return @($assets) + @($checksums)
 }
 
 function Get-ReleaseNotesForVersion($text, $ver, $sourcePath) {
@@ -955,24 +962,27 @@ function Publish-GitHubRelease($ver, $notesText) {
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        $null = & gh release view $tag --repo $Repo 2>&1
+        $assets = Get-ReleaseAssetsForVersion $ver
+        $draft = & gh release view $tag --repo $Repo --json isDraft --jq .isDraft 2>$null
         $exists = ($LASTEXITCODE -eq 0)
-
+        if ($exists -and "$draft".Trim() -ne 'true') {
+            throw "Release $tag is already published; refusing to replace assets used by installed clients. Publish a new version."
+        }
         if (-not $exists) {
-            Write-Info "Creating release $tag"
-            & gh release create $tag --repo $Repo --title "Lunar Extension Host $ver" `
+            Write-Info "Staging draft release $tag"
+            & gh release create $tag --repo $Repo --draft --title "Lunar Extension Host $ver" `
                 --notes-file $notesFile 2>&1 | Out-Host
             if ($LASTEXITCODE -ne 0) { throw "gh release create failed ($LASTEXITCODE)" }
         } else {
-            Write-Info "Release $tag exists - updating notes and refreshing assets"
             & gh release edit $tag --repo $Repo --title "Lunar Extension Host $ver" `
                 --notes-file $notesFile 2>&1 | Out-Host
             if ($LASTEXITCODE -ne 0) { throw "gh release edit failed ($LASTEXITCODE)" }
         }
-
-        $assets = Get-ReleaseAssetsForVersion $ver
         & gh release upload $tag --repo $Repo --clobber @assets 2>&1 | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "gh release upload failed ($LASTEXITCODE)" }
+        # Clients only discover the release after every payload and checksum exists.
+        & gh release edit $tag --repo $Repo --draft=false --latest 2>&1 | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "gh release publish failed ($LASTEXITCODE)" }
 
         Write-Info "Uploaded $((@($assets)).Count) asset(s) to $tag"
     }

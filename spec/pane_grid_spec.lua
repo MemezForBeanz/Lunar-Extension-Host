@@ -62,7 +62,12 @@ describe("PaneGrid:sync", function()
 		local iup = { BUTTON1 = 1 }
 		function iup.flattabs() return { kind = "tabs", attrs = {} } end
 		function iup.split(spec)
-			return { kind = "split", attrs = {}, min = 0, max = 1000, val = tonumber(spec.VALUE) }
+			return { kind = "split", attrs = {}, min = 0, max = 1000, val = tonumber(spec.VALUE),
+				first = spec[1], second = spec[2] }
+		end
+		local function visibility(w, visible)
+			w.attrs.VISIBLE = visible and "YES" or "NO"
+			if w.first then visibility(w.first, visible); visibility(w.second, visible) end
 		end
 		function iup.SetAttribute(w, name, value)
 			if w.kind == "split" and name == "MINMAX" then
@@ -71,6 +76,8 @@ describe("PaneGrid:sync", function()
 				w.val = math.max(w.min, math.min(w.max, w.val))
 			elseif w.kind == "split" and name == "VALUE" then
 				w.val = math.max(w.min, math.min(w.max, tonumber(value)))
+				visibility(w.first, w.val > 0)
+				visibility(w.second, w.val < 1000)
 			else
 				w.attrs[name] = value
 			end
@@ -155,6 +162,20 @@ describe("PaneGrid:sync", function()
 		assert.is_true(grid:restoreFocus())
 		grid:sync()
 		assert.same({ 420, 610, 370 }, { grid._grid.val, grid._left.val, grid._right.val })
+	end)
+
+	it("keeps nested splits from re-showing the other pane during focus", function()
+		local grid = grid_with({ main = { "m" }, right = { "r" } })
+		grid:sync()
+		grid:setTestActive("right")
+		grid:toggleFocus()
+		assert.equal("NO", grid._strips.main.attrs.VISIBLE)
+		assert.equal("YES", grid._strips.right.attrs.VISIBLE)
+		grid:sync()
+		assert.equal("NO", grid._strips.main.attrs.VISIBLE)
+		grid:restoreFocus()
+		assert.equal("YES", grid._strips.main.attrs.VISIBLE)
+		assert.equal("YES", grid._strips.right.attrs.VISIBLE)
 	end)
 
 	it("does not focus a lone pane", function()

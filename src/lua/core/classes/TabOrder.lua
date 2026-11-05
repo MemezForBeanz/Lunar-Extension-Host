@@ -175,28 +175,39 @@ function TabOrder:setGroups(groups)
 	self._groups = groups
 end
 
---- Say that another strip draws `strip`'s tabs (`core.ui.TitleBar`), with one tab per
--- position. Everything that asks where a tab is then asks that strip, so drags, drops and
--- their feedback land on the tabs the user can see.
--- @tparam userdata strip the strip whose tabs are hidden
--- @tparam userdata stand_in the strip showing them
-function TabOrder:setStandIn(strip, stand_in)
-	self._stand_in = { strip = strip, widget = stand_in }
+--- Register a toolbar view. Positions match the root, including hidden tabs.
+function TabOrder:setStandIn(strip, stand_in, toolbar)
+	self._stand_ins = self._stand_ins or {}
+	self._stand_ins[#self._stand_ins + 1] = { strip = strip, widget = stand_in, toolbar = toolbar }
 end
 
--- Are this strip's tabs down its side rather than along its top?
+--- Forward a toolbar event using that toolbar's geometry for the captured pointer.
+function TabOrder:fromView(view, fn, ...)
+	local previous = self._event_view
+	self._event_view = view
+	local ok, result = pcall(fn, ...)
+	self._event_view = previous
+	if not ok then error(result, 0) end
+	return result
+end
+
 function TabOrder:_vertical(strip)
-	local _, stood_in = self:_shown(strip)
-	if stood_in then return false end
-	local ok, value = pcall(self._iup.GetAttribute, strip, "TABTYPE")
+	local shown = self:_shown(strip)
+	local ok, value = pcall(self._iup.GetAttribute, shown, "TABTYPE")
 	return ok and value == "LEFT"
 end
 
--- The strip that really shows `widget`'s tabs: usually itself.
 function TabOrder:_shown(widget)
-	local stand_in = self._stand_in
-	if stand_in and handle.same(self._iup, stand_in.strip, widget) then return stand_in.widget, true end
-	return widget, false
+	local default
+	for _, view in ipairs(self._stand_ins or {}) do
+		if handle.same(self._iup, view.strip, widget) then
+			default = default or view.widget
+			if self._event_view and handle.same(self._iup, view.widget, self._event_view) then
+				return view.widget, true
+			end
+		end
+	end
+	return default or widget, default ~= nil
 end
 
 -- =======================================================================
@@ -224,8 +235,8 @@ function TabOrder:_bandHeight(strip)
 	local iup = self._iup
 	local shown, stood_in = self:_shown(strip)
 	if stood_in then
-		local _, _, _, height = self:_rect(strip)
-		return height
+		local _, _, width, height = self:_rect(strip)
+		return self:_vertical(strip) and width or height
 	end
 	strip = shown
 	if self:_vertical(strip) then
@@ -326,58 +337,81 @@ function TabOrder:_resolveDrop(source, x, y, dragged)
 	if not sx then return nil end
 	local gx, gy = sx + x, sy + y
 
+	local candidates = {}
 	for _, strip in ipairs(groups:stripsDeepestFirst()) do
-		local px, py, pw, ph = self:_rect(strip)
-		if px and gx >= px and gx < px + pw and gy >= py and gy < py + ph then
-			local band = self:_bandHeight(strip)
-			local vertical = self:_vertical(strip)
-			if not band or (vertical and gx or gy) >= (vertical and px or py) + band then
-				-- Inside this strip's page area, not its tab bar. Deeper strips
-				-- were already tested, so this is a miss rather than a fall-through.
-				return nil
+		local mirrored = false
+		for _, view in ipairs(self._stand_ins or {}) do
+			if handle.same(self._iup, view.strip, strip) then
+				candidates[#candidates + 1] = view
+				mirrored = true
 			end
+		end
+		if not mirrored then candidates[#candidates + 1] = { strip = strip } end
+	end
+	for _, view in ipairs(candidates) do
+		local drop = self:fromView(view.widget, function()
+			return self:_dropAt(view.strip, gx, gy, dragged)
+		end)
+		if drop then
+			drop.toolbar = view.toolbar
+			return drop
+		end
+	end
+	return nil
+end
 
-			local lx, ly = gx - px, gy - py
-			local pos = self:_posAt(strip, lx, ly)
-			if not pos then
-				-- Past the last tab (or on the "+" button): append here.
-				return { strip = strip, index = nil, zone = (self:_shown(strip)), band = band, vertical = vertical }
-			end
+function TabOrder:_dropAt(strip, gx, gy, dragged)
+	local groups = self._groups
+	local px, py, pw, ph = self:_rect(strip)
+	if px and gx >= px and gx < px + pw and gy >= py and gy < py + ph then
+		local band = self:_bandHeight(strip)
+		local vertical = self:_vertical(strip)
+		if not band or (vertical and gx or gy) >= (vertical and px or py) + band then
+			-- Inside this strip's page area, not its tab bar. Deeper strips
+			-- were already tested, so this is a miss rather than a fall-through.
+			return nil
+		end
 
-			local child = self:_child(strip, pos)
-			-- Handle identity, NOT `==`: the binding hands out a fresh userdata per
-			-- push (core.lib.handle). With `==` this guard never fired, so a plain
-			-- click resolved as dropping a tab on itself and wrapped it in a new
-			-- group -- and dropping a group on itself passed straight through.
-			if not child or handle.same(self._iup, child, dragged) then return nil end
+		local lx, ly = gx - px, gy - py
+		local pos = self:_posAt(strip, lx, ly)
+		if not pos then
+			-- Past the last tab (or on the "+" button): append here.
+			return { strip = strip, index = nil, zone = (self:_shown(strip)), band = band, vertical = vertical }
+		end
 
-			local left, right = self:_tabBounds(strip, pos, lx, ly, vertical and ph or pw, vertical)
-			local width = math.max(1, right - left + 1)
-			local rel = ((vertical and ly or lx) - left) / width
+		local child = self:_child(strip, pos)
+		-- Handle identity, NOT `==`: the binding hands out a fresh userdata per
+		-- push (core.lib.handle). With `==` this guard never fired, so a plain
+		-- click resolved as dropping a tab on itself and wrapped it in a new
+		-- group -- and dropping a group on itself passed straight through.
+		if not child or handle.same(self._iup, child, dragged) then return nil end
 
-			if rel >= EDGE_ZONE and rel <= (1 - EDGE_ZONE) then
-				if groups:isGroupStrip(child) then
-					return {
-						into = child, zone = (self:_shown(strip)), band = band,
-						tab_x = left, tab_w = width,
-						vertical = vertical,
-					}
-				end
+		local left, right = self:_tabBounds(strip, pos, lx, ly, vertical and ph or pw, vertical)
+		local width = math.max(1, right - left + 1)
+		local rel = ((vertical and ly or lx) - left) / width
+
+		if rel >= EDGE_ZONE and rel <= (1 - EDGE_ZONE) then
+			if groups:isGroupStrip(child) then
 				return {
-					merge = child, strip = strip, zone = (self:_shown(strip)), band = band,
+					into = child, zone = (self:_shown(strip)), band = band,
 					tab_x = left, tab_w = width,
 					vertical = vertical,
 				}
 			end
-			local before = (rel < EDGE_ZONE)
-			local index = before and (pos + 1) or (pos + 2)
 			return {
-				strip = strip, index = index, zone = (self:_shown(strip)), band = band,
+				merge = child, strip = strip, zone = (self:_shown(strip)), band = band,
 				tab_x = left, tab_w = width,
 				vertical = vertical,
-				caret_x = before and left or (left + width),
 			}
 		end
+		local before = (rel < EDGE_ZONE)
+		local index = before and (pos + 1) or (pos + 2)
+		return {
+			strip = strip, index = index, zone = (self:_shown(strip)), band = band,
+			tab_x = left, tab_w = width,
+			vertical = vertical,
+			caret_x = before and left or (left + width),
+		}
 	end
 	return nil
 end
@@ -528,7 +562,11 @@ function TabOrder:_applyDropInner(job)
 		self:_applyMerge(job, drop)
 		return
 	elseif drop.strip then
-		groups:moveInto(job.widget, drop.strip, drop.index)
+		if drop.toolbar then
+			groups:setToolbar(job.widget, drop.toolbar, drop.index)
+		else
+			groups:moveInto(job.widget, drop.strip, drop.index)
+		end
 	end
 	if self._on_switch then pcall(self._on_switch) end
 end
@@ -803,6 +841,17 @@ function TabOrder:_showMenu(strip, pos)
 	local child = (pos ~= nil and pos >= 0) and self:_child(strip, pos) or nil
 	local record = child and groups:groupOf(child) or nil
 	local items = {}
+	if child then
+		for _, entry in ipairs({ { "top", "Move to Top Toolbar" }, { "left", "Move to Left Toolbar" } }) do
+			if not handle.same(iup, groups:stripOf(child), groups._root) or groups:toolbarOf(child) ~= entry[1] then
+				items[#items + 1] = { title = entry[2], action = function()
+					groups:setToolbar(child, entry[1])
+					if self_._on_switch then self_._on_switch() end
+				end }
+			end
+		end
+		items[#items + 1] = { separator = true }
+	end
 
 	if not child then
 		-- Right-click landed on the strip background, a scroll arrow or the "+"

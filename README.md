@@ -10,8 +10,7 @@ settings and ships the organization's own extensions. Lunar looks the same in
 every organization; a pack's tools open together in its own tab group (say,
 "Acme Tools"), and its logo sits in the status bar.
 
-The current release is **1.0.0**. Lunar runs on Windows today; Linux (GTK, under
-XWayland first) is in progress.
+Lunar runs on Windows and Linux (GTK 3, under X11 or XWayland).
 
 ## What's in this repository
 
@@ -50,6 +49,16 @@ The process shows as **Lunar** on every platform (Task Manager, `ps`, the taskba
 
 Settings live per user in `%APPDATA%\Lunar Extension Host\settings.json`
 (`~/.config/lunar/` on Linux). Extensions keep their state under the same folder.
+
+## Updates
+
+Lunar checks published GitHub releases on startup and every six hours. Click the
+update icon in the bottom toolbar, or use **Check for Updates** in Ctrl+P, to check
+and accept an update. Windows downloads and verifies the MSI before installing
+and reopening Lunar. Linux opens the release's package downloads. Updates always
+come from GitHub; an organization profile or network share is not required.
+
+Older builds with the share-only updater need one manual upgrade to this version.
 
 ## Org packs
 

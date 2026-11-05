@@ -146,11 +146,7 @@ local ORG_PROFILES = ORG_PROFILE and (ORG_PROFILE.profiles or { ORG_PROFILE }) o
 
 -- The same in every org: an org shows up as its tool group, not a rename.
 local APP_TITLE = "Lunar Extension Host"
-local APP_VERSION = "1.2.0"
--- Folder or share holding the update manifest.json, from the update_share
--- setting once settings load (an org profile supplies it). nil: no update checks.
-local SHARE_ROOT
-
+local APP_VERSION = "1.5.0"
 -- Application install directory: the folder containing the executable, provided by
 -- the C host as the LUNAR_EXE_DIR global. Stable regardless of the process working
 -- directory, so bundled resources like plugins/ resolve reliably (see exe_dir_or_fail).
@@ -195,14 +191,21 @@ local function launch_update_installer(msi)
 		or (APP_DIR .. "\\Lunar.exe")
 	local script, err = Updater.relauncher_script({ msi = msi, exe = exe, pid = LUNAR_PID })
 	if not script then return nil, err end
+	local installer, installer_error = io.open(msi, "rb")
+	if not installer then return nil, "the staged installer is unavailable: " .. tostring(installer_error) end
+	installer:close()
 	local temp_dir = os.getenv("TEMP") or os.getenv("TMP")
 	if not Updater.safe_path(temp_dir) then return nil, "no usable TEMP folder" end
-	local script_path = string.format("%s\\lunar_update_%d.bat", temp_dir, os.time())
+	local script_path = string.format("%s\\lunar_update_%d_%d.bat", temp_dir, tonumber(LUNAR_PID) or 0, os.time())
 	-- Binary mode: the script already has CRLF endings.
 	local f, ferr = io.open(script_path, "wb")
 	if not f then return nil, "unable to write updater script: " .. tostring(ferr) end
-	f:write(script)
-	f:close()
+	local written, write_error = f:write(script)
+	local closed, close_error = f:close()
+	if not written or not closed then
+		os.remove(script_path)
+		return nil, "unable to write updater script: " .. tostring(write_error or close_error)
+	end
 	return subprocess.start_detached('"' .. script_path .. '"', temp_dir)
 end
 
@@ -235,13 +238,6 @@ do
 	end
 	for _, err in ipairs(ORG_INFO.errors) do org_log:warn("skipped profile " .. err) end
 	for _, warning in ipairs(ORG_INFO.warnings) do org_log:warn(warning) end
-
-	-- The updater installs an MSI, so update checks are Windows-only for now;
-	-- Linux builds will update through their package format instead.
-	local share = settings_mgr:get("update_share")
-	if platform.is_windows and type(share) == "string" and share ~= "" then
-		SHARE_ROOT = share:gsub("[/\\]+$", "")
-	end
 end
 -- Where extension code may come from: the built-in plugins folder, then the
 -- selected org pack's extensions/ folder. A pack's code loads only when the pack
@@ -335,6 +331,7 @@ settings_view:setThemeWidget(function(widget) theme_mgr:themeWidget(widget) end)
 status_bar = StatusBar.new({
 	iup = iup,
 	icon_dir = ICON_DIR,
+	bind_icon = function(widget, name) Kit.bindIcon(iup, widget, name, { size = 16, role = "neutral" }) end,
 })
 
 -- The bar across the top. The groups in it mirror the main strip, so it needs that strip.
@@ -346,7 +343,11 @@ local title_bar = TitleBar.new({
 	end,
 	-- The org's logo, when its profile ships one, in place of Lunar's own mark.
 	logo = ORG_PROFILE and ORG_PROFILE.brand.logo and VectorIcon.logoHandle(iup, ORG_PROFILE.brand.logo, 20),
-	is_hidden = function(page) return require("core.lib.handle").same(iup, page, settings_view:widget()) end,
+	is_settings = function(page) return require("core.lib.handle").same(iup, page, settings_view:widget()) end,
+	is_hidden = function(page)
+		return require("core.lib.handle").same(iup, page, settings_view:widget())
+			or (tab_groups and tab_groups:toolbarOf(page) == "left")
+	end,
 })
 
 -- The single host context handed to every extension.
@@ -373,13 +374,13 @@ host = HostAPI:new({
 	status_box = status_bar:extBox(),
 })
 
--- Update checks (core.ui.UpdateCheck), only when there is an update share: on
--- the neutral build the indicator would claim "up to date" about nothing.
-local update_check = SHARE_ROOT and UpdateCheck.new({
+-- Every install discovers updates from published GitHub releases. Windows stages
+-- and verifies the MSI; other platforms open the release's package downloads.
+local update_check = UpdateCheck.new({
 	iup = iup,
 	host = host,
 	status_bar = status_bar,
-	root = SHARE_ROOT,
+	platform = platform.os,
 	app_title = APP_TITLE,
 	app_version = APP_VERSION,
 	installed = function()
@@ -393,7 +394,7 @@ local update_check = SHARE_ROOT and UpdateCheck.new({
 	end,
 	launch = launch_update_installer,
 })
-if update_check then update_check:install() end
+update_check:install()
 
 -- Re-apply the active theme whenever the widget tree changes, so newly added tabs and
 -- settings rows get themed too (fully generic -- no per-extension knowledge). When a
@@ -455,29 +456,33 @@ if not ok_iupffi then IupFFI = nil end
 local STARTUP = MonitorFit.startup(iup)
 local WORK_W, WORK_H, TASKBAR = STARTUP.work_w, STARTUP.work_h, STARTUP.taskbar
 
--- Main dialog
---
--- GAP is set to a 2px Carbon gutter rather than zero. The shell header, accent
--- strip, tab strip and status bar are all painted on $layer-01 surfaces; the vbox
--- background is $background. A 1-step (2px) gap between each band lets that
--- background show through as a seam, which is how Carbon tile and shell layouts
--- establish structure without drawn borders. L.gutter() returns the spacing-step-1
--- pixel value (2) and reads at a glance as "this is a seam, not a margin".
+-- Main dialog: the toolbars share one continuous background around the workspace.
 -- The workspace: the main tab strip plus the panes a tab can be split into. Empty
 -- panes take no space, so with nothing split this is exactly the single strip.
 local pane_grid = PaneGrid:new({ iup = iup, main = tabs, settings = settings_mgr })
+local tool_rail = ToolRail.new({
+	iup = iup, main = tabs, settings = settings_mgr,
+	icon = function(name, size, role) return Kit.icon(iup, name, size, role or "neutral") end,
+	is_settings = function(page) return require("core.lib.handle").same(iup, page, settings_view:widget()) end,
+})
+local workspace = iup.hbox({ tool_rail:widget(), require("core.ui.WorkspaceFrame").wrap(iup, pane_grid:widget()),
+	MARGIN = "0x0", GAP = "0", EXPAND = "YES" })
+status_bar:onFocus(function()
+	pane_grid:toggleFocus()
+	status_bar:setPaneState(pane_grid:isSplit(), pane_grid:isFocused())
+end)
 
 local content_box = iup.vbox({
-	pane_grid:widget(),
+	workspace,
 	status_bar:widget(),
 	MARGIN = L.margin(0),
-	GAP = tostring(L.gutter()),
+	GAP = "0",
 })
 
 local dlg = iup.dialog({
 	iup.vbox({ title_bar:widget(), content_box, MARGIN = L.margin(0), GAP = "0" }),
 	TITLE = APP_TITLE,
-	-- Windows cannot theme a dialog's menu bar, so there the menu opens from the top bar's
+	-- Windows cannot theme a dialog's menu bar, so there the menu opens from the bottom bar's
 	-- menu button.
 	MENU = not platform.is_windows and menu_bar or nil,
 	ICON = APP_ICON_RESOURCE,
@@ -522,6 +527,7 @@ local function recalc_shell_budget(client_h)
 	if not client_h or client_h <= 0 then return false end
 	local bands = {
 		title = TitleBar.HEIGHT,
+		corners = 24,
 		status = measured_height(status_bar:widget()) or 0,
 	}
 	local cap = ShellBudget.cap(client_h, bands, L.gutter(), 2)
@@ -533,13 +539,12 @@ local function recalc_shell_budget(client_h)
 	return true
 end
 
-local tool_rail -- built with the tab groups
 -- Page widths are only known after the layout pass a resize triggers.
 local recenter_timer = iup.timer({ time = 30 })
 function recenter_timer:action_cb()
 	self.run = "NO"
 	if host then
-		if tool_rail then tool_rail:apply() end
+		tool_rail:refresh()
 		host:recenterPages()
 		iup.Refresh(dlg)
 	end
@@ -552,6 +557,7 @@ end
 
 function dlg:resize_cb(w, h)
 	title_bar:fit(w)
+	status_bar:fit(w)
 	recalc_shell_budget(h)
 	schedule_recenter()
 	return iup.DEFAULT -- winDialogResize performs the layout after this callback.
@@ -646,6 +652,7 @@ local commands = CommandRegistry:new({
 host:setCommands(commands)
 
 local command_palette = CommandPalette.new({
+	above = true,
 	iup = iup,
 	registry = commands,
 	settings = settings_mgr,
@@ -656,16 +663,16 @@ local command_palette = CommandPalette.new({
 	muted = function()
 		return require("core.ui.ThemeReactor").palette().textMuted or "128 128 128"
 	end,
-	-- Opened where the field is, so the field is what seems to open.
+	-- Anchor above the bottom field, keeping the popup inside the window.
 	anchor = function()
-		local field = title_bar:commandWidget()
+		local field = status_bar:commandWidget()
 		local x, y = tostring(iup.GetAttribute(field, "SCREENPOSITION") or ""):match("(-?%d+),(-?%d+)")
 		local w = tostring(iup.GetAttribute(field, "RASTERSIZE") or ""):match("^(%d+)x")
 		if not (x and w) then return nil end
 		return tonumber(x), tonumber(y) - 2, tonumber(w)
 	end,
 })
-title_bar:onCommand(function() command_palette:toggle() end)
+status_bar:onCommand(function() command_palette:toggle() end)
 -- The application menu, on the palette's own surface: a native popup can't take the theme's
 -- type or colour, and every entry gains search for free.
 local function menu_entries(menu, group, out)
@@ -698,7 +705,7 @@ local function open_app_menu()
 		hint = "Enter to run   Esc to close",
 	})
 end
-title_bar:onMenu(open_app_menu)
+status_bar:onMenu(open_app_menu)
 host:registerShortcut(iup.K_cP, function() command_palette:toggle() end)
 host._key_fallback = function(c)
 	if c == iup.K_ESC and pane_grid:isFocused() then return pane_grid:restoreFocus() end
@@ -723,7 +730,7 @@ host:registerShortcut(iup.K_cComma or (0x20000000 + 44), function() host:dispatc
 add_host_command("reload", "Restart Extensions", function() mh.reload_extensions() end,
 	{ keywords = "reload refresh plugins", group = "Lunar" })
 add_host_command("updates", "Check for Updates", function() update_check:checkNow() end,
-	{ when = function() return update_check ~= nil end, group = "Lunar" })
+	{ group = "Lunar" })
 add_host_command("tabbars", "Show All Tab Bars", function() tab_groups:showAllTabBars() end,
 	{ group = "Layout" })
 add_host_command("splits.reset", "Close All Splits", function() pane_grid:reset() end,
@@ -1057,16 +1064,17 @@ tab_groups = TabGroups:new({
 		})
 		if name then tab_groups:createGroup(strip, name, "user") end
 	end,
-	on_focus_pane = function(strip) pane_grid:toggleFocus(strip) end,
 	notify_tree_change = function(w) theme_mgr:themeWidget(w) end,
 	-- Same ceiling HostAPI:addTab applies to a top-level page; TabGroups tightens
 	-- it per nesting level, since each sub-bar eats into the page below it.
 	height_cap = math.max(320, WORK_H - 130),
 })
 tab_order:setGroups(tab_groups)
--- The main strip's tabs live in the top bar.
+-- The main strip's tabs are partitioned between the top and left toolbars.
 iup.SetAttribute(tabs, "SHOWTABS", "NO")
-tab_order:setStandIn(tabs, title_bar:groupStrip())
+tab_order:setStandIn(tabs, title_bar:groupStrip(), "top")
+tab_order:setStandIn(tabs, tool_rail:widget(), "left")
+title_bar:setOrder(tab_order)
 host:setTabGroups(tab_groups)
 tab_groups:setPanes(pane_grid:extraStrips())
 pane_grid:setGroups(tab_groups)
@@ -1076,23 +1084,19 @@ theme_mgr:onApply(function()
 	pane_grid:sync()
 	host:syncScrollHosts()
 end)
-pane_grid:onLayout(schedule_recenter)
+pane_grid:onLayout(function()
+	schedule_recenter()
+	status_bar:setPaneState(pane_grid:isSplit(), pane_grid:isFocused())
+end)
 
 local toggle_settings
-tool_rail = ToolRail.new({
-	iup = iup, groups = tab_groups, panes = pane_grid, main = tabs, settings = settings_mgr,
-	icon = function(name, size, role) return Kit.icon(iup, name, size, role or "neutral") end,
-	notify = function(w) theme_mgr:themeWidget(w) end,
-	activity = host:activityStore(),
-	is_settings = function(page) return require("core.lib.handle").same(iup, page, settings_view:widget()) end,
-	on_settings = function() toggle_settings() end,
-	colors = function()
-		local theme = theme_mgr:activeTheme()
-		local r = theme and theme:rules().tool_rail or {}
-		return { hover = r.hover, selected = r.selrow, background = r.tabsbg, padding = r.tabspadding }
+tool_rail:connect({ groups = tab_groups, order = tab_order, activity = host:activityStore(),
+	prompt = function()
+		return NameDialog.show({ iup = iup, title = "New Sidebar Group", label = "Group name:", parent = dlg,
+			notify_tree_change = function(w) theme_mgr:themeWidget(w) end })
 	end,
 })
-tab_groups:setRail(tool_rail)
+title_bar:onSettings(function() toggle_settings() end)
 host:registerShortcut(iup.K_cB, function() tool_rail:toggle() end)
 add_host_command("rail.toggle", "Toggle Sidebar", function() tool_rail:toggle() end,
 	{ keywords = "collapse expand tools rail", group = "Layout", shortcut = "Ctrl+B" })
@@ -1109,6 +1113,7 @@ end
 local function sync_title_bar()
 	title_bar:sync(tab_groups:_children(tabs))
 	tool_rail:refresh()
+	status_bar:setPaneState(pane_grid:isSplit(), pane_grid:isFocused())
 end
 host._after_scopes = sync_title_bar
 -- The groups' width depends on their font, which the theme sets.
@@ -1164,6 +1169,7 @@ if rawget(_G, "LUNAR_DEV_SHELL") then _G.LUNAR_DEV_SHELL.code = code_workbench e
 
 -- Rebuild the saved arrangement now that every extension tab and the host's own
 -- Settings tab are in the strip, and while the pages are still unmapped.
+require("core.lib.OrgGroupMigration").migrate(settings_mgr:get("tab_groups"), ORG_PROFILES)
 tab_groups:restore()
 pane_grid:sync()
 host:syncScrollHosts()
@@ -1197,6 +1203,7 @@ pcall(iup.SetAttribute, dlg, "PLACEMENT", "MAXIMIZED")
 -- Mapped first, so the frame is already dark on the first frame the user sees.
 pcall(iup.Map, dlg)
 title_bar:fit(WORK_W)
+status_bar:fit(WORK_W)
 title_bar:adoptFrame(dlg, theme_mgr)
 sync_title_bar()
 WindowChrome.follow(iup, dlg, theme_mgr)
@@ -1258,7 +1265,7 @@ host:addMenuItem("Window Diagnostics...", function()
 end, "help")
 
 -- The first update check, on the scheduler so the window is usable at once.
-if update_check then update_check:startup() end
+update_check:startup()
 
 -- Extension list popluation
 host:_markShown()
