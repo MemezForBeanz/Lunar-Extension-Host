@@ -12,7 +12,7 @@ local M = {}
 local INSTALL = "Install LLVM (https://releases.llvm.org) or clangd and add it to PATH, "
 	.. "or set its path in Settings > Language servers."
 
-function M.register(ctx)
+function M:register(ctx)
 	local windows = package.config:sub(1, 1) == "\\"
 	local exe_name = windows and "clangd.exe" or "clangd"
 
