@@ -42,7 +42,7 @@ end
 -- @tparam table opts.panes `core.classes.PaneGrid`
 -- @tparam userdata opts.main the main strip
 -- @tparam[opt] table opts.settings `core.classes.SettingsManager`
--- @tparam function opts.icon `(name, size) -> image handle` in the theme's colours
+-- @tparam function opts.icon `(name, size, role) -> image handle` in the theme's colours
 -- @tparam function opts.is_settings `(page) -> bool`
 -- @tparam function opts.on_settings what the gear does
 -- @tparam function opts.colors `() -> { hover, selected }` for the buttons
@@ -66,7 +66,9 @@ function ToolRail:owns(strip)
 		local page = iup.GetAttribute(strip, "VALUE_HANDLE")
 		return page ~= nil and not groups:isGroupStrip(page)
 	end
+	-- A group in another pane sits under that pane's own rail, so it stays horizontal.
 	return groups:isGroupStrip(strip) and groups:depthOf(strip) == 1
+		and require("core.lib.handle").same(iup, groups:rootOf(strip), self._main)
 end
 
 -- Every strip that should be a rail, and every one that was and has stopped.
@@ -109,6 +111,8 @@ function ToolRail:_decorate(strip, narrow, main_pane)
 	for id, name in pairs(icons) do
 		local image = self._icon(name, 16)
 		if image then iup.SetAttributeId(strip, "EXTRAIMAGE", id, image) end
+		local faded = self._icon(name, 16, "disabled")
+		if faded then iup.SetAttributeId(strip, "EXTRAIMAGEINACTIVE", id, faded) end
 		iup.SetAttributeId(strip, "EXTRAALIGNMENT", id, "ALEFT:ACENTER")
 		iup.SetAttributeId(strip, "EXTRAHIGHCOLOR", id, colors.hover)
 		iup.SetAttributeId(strip, "EXTRAPRESSCOLOR", id, colors.selected)
@@ -136,7 +140,12 @@ function ToolRail:apply()
 		local narrow = ToolRail.isNarrow(self._collapsed, self:_paneWidth(strip))
 		local main_pane = handle.same(iup, self._groups:rootOf(strip), self._main)
 		local rowless = handle.same(iup, strip, self._main)
-		local shape = table.concat({ narrow and "n" or "w", #self._groups:_children(strip), self._generation or 0 }, "|")
+		local titles = {}
+		for i in ipairs(self._groups:_children(strip)) do
+			titles[i] = iup.GetAttributeId(strip, "TABTITLE", i - 1) or ""
+		end
+		local shape = table.concat({ narrow and "n" or "w", main_pane and "m" or "s", self._generation or 0,
+			table.concat(titles, "\0") }, "|")
 		if self._state[id] ~= shape then
 			local first = self._state[id] == nil
 			self._state[id] = shape
@@ -154,6 +163,7 @@ function ToolRail:apply()
 				local colors = self._colors and self._colors() or {}
 				iup.SetAttribute(strip, "TABSPADDING", colors.padding)
 				iup.SetAttribute(strip, "TABSBACKCOLOR", colors.background)
+				iup.SetAttribute(strip, "TABSSELCOLOR", colors.selected)
 			end
 			self:_decorate(strip, narrow, main_pane)
 			if first and not rowless then
@@ -239,9 +249,9 @@ end
 function ToolRail:activeStrip()
 	local iup, groups = self._iup, self._groups
 	local root = groups:activeRoot()
-	if self:owns(root) then return root end
+	if not require("core.lib.handle").same(iup, root, self._main) then return root end
 	local page = iup.GetAttribute(root, "VALUE_HANDLE")
-	if page and groups:isGroupStrip(page) and self:owns(page) then return page end
+	if page and groups:isGroupStrip(page) then return page end
 	return nil
 end
 
