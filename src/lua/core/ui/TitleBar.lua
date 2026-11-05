@@ -31,7 +31,6 @@ local MARK = 20
 -- A strip has no natural width of its own: it takes its page's, and these pages are empty.
 -- So the bar works it out, with a little over for what the control adds around a title.
 local TAB_SLACK = 10
-local EXTRA_BUTTON = 40
 
 --- How wide the command field is in a window this wide.
 function TitleBar.fieldWidth(width)
@@ -90,12 +89,8 @@ function TitleBar.new(opts)
 	end
 
 	self._groups = iup.flattabs({
-		EXPAND = "NO", CANFOCUS = "NO", THEMEROLE = "titlebar_tabs", EXTRABUTTONS = "1",
+		EXPAND = "NO", CANFOCUS = "NO", THEMEROLE = "titlebar_tabs",
 	})
-	opts.icon(self._groups, "add", 16, "neutral", "EXTRAIMAGE1")
-	opts.icon(self._groups, "view", 16, "neutral", "EXTRAIMAGE2")
-	iup.SetAttributeId(self._groups, "EXTRATIP", 1, "New tab group")
-	iup.SetAttributeId(self._groups, "EXTRATIP", 2, "Focus or restore pane (Esc to restore)")
 	self:_wireGroups()
 
 	self._hint = iup.flatbutton({
@@ -163,10 +158,6 @@ function TitleBar:onMenu(fn) self._on_menu = fn end
 function TitleBar:onCommand(fn) self._on_command = fn end
 --- What the gear does.
 function TitleBar:onSettings(fn) self._on_settings = fn end
---- What the groups' + does.
-function TitleBar:onNewGroup(fn) self._on_new = fn end
---- What the eye does, shown while the window is split.
-function TitleBar:onFocusPane(fn) self._on_focus = fn end
 
 -- A press is the main strip's: its handlers read positions, and TabOrder resolves them
 -- against this strip. The switch itself reaches the main strip from tabchange_cb.
@@ -195,12 +186,6 @@ function TitleBar:_wireGroups()
 		if not bar._syncing then bar:_select(tonumber(iup.GetAttribute(self, "VALUEPOS"))) end
 		return iup.DEFAULT
 	end
-	function groups:extrabutton_cb(id, pressed)
-		if pressed ~= 0 then return iup.DEFAULT end
-		if id == 1 and bar._on_new then bar._on_new() end
-		if id == 2 and bar._on_focus then bar._on_focus() end
-		return iup.DEFAULT
-	end
 end
 
 -- Show position `pos` of the main strip. IUP doesn't report a change it was told to make,
@@ -226,14 +211,6 @@ end
 function TitleBar:themeChanged()
 	self._shape = nil
 	self._away = nil
-end
-
---- Show the eye beside the +: there is a split to focus.
-function TitleBar:setSplit(split)
-	if split == self._split then return end
-	self._split = split
-	pcall(self._iup.SetAttribute, self._groups, "EXTRABUTTONS", split and "2" or "1")
-	self._shape = nil
 end
 
 --- Bring the groups in line with the main strip.
@@ -304,7 +281,7 @@ end
 function TitleBar:_measureTabs(pages, hidden)
 	local iup = self._iup
 	local pad = tonumber(tostring(iup.GetAttribute(self._groups, "TABSPADDING") or ""):match("^(%d+)")) or 12
-	local total = (tonumber(iup.GetAttribute(self._groups, "EXTRABUTTONS")) or 0) * EXTRA_BUTTON
+	local total = 0
 	for i = 1, #pages do
 		if not hidden[i] then
 			local title = iup.GetAttributeId(self._root, "TABTITLE", i - 1) or ""

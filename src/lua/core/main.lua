@@ -70,6 +70,7 @@ local SettingsView = require("core.ui.SettingsView")
 local MenuBar = require("core.ui.MenuBar")
 local StatusBar = require("core.ui.StatusBar")
 local TitleBar = require("core.ui.TitleBar")
+local ToolRail = require("core.ui.ToolRail")
 local ShellBudget = require("core.ui.ShellBudget")
 local UpdateCheck = require("core.ui.UpdateCheck")
 local ThemeManager = require("core.classes.ThemeManager")
@@ -532,11 +533,13 @@ local function recalc_shell_budget(client_h)
 	return true
 end
 
+local tool_rail -- built with the tab groups
 -- Page widths are only known after the layout pass a resize triggers.
 local recenter_timer = iup.timer({ time = 30 })
 function recenter_timer:action_cb()
 	self.run = "NO"
 	if host then
+		if tool_rail then tool_rail:apply() end
 		host:recenterPages()
 		iup.Refresh(dlg)
 	end
@@ -1039,6 +1042,7 @@ tab_groups = TabGroups:new({
 	on_change = function()
 		-- Every way a pane can empty ends here: a drop on a tab bar, a merge, a closed tab.
 		pane_grid:sync()
+		if tool_rail then tool_rail:refresh() end
 		host:_applyTabScopes()
 		refresh_shell_budget()
 	end,
@@ -1074,20 +1078,37 @@ theme_mgr:onApply(function()
 end)
 pane_grid:onLayout(schedule_recenter)
 
+tool_rail = ToolRail.new({
+	iup = iup, groups = tab_groups, panes = pane_grid, main = tabs, settings = settings_mgr,
+	icon = function(name, size) return Kit.icon(iup, name, size, "neutral") end,
+	notify = function(w) theme_mgr:themeWidget(w) end,
+})
+tab_groups:setRail(tool_rail)
+host:registerShortcut(iup.K_cB, function() tool_rail:toggle() end)
+add_host_command("rail.toggle", "Toggle Sidebar", function() tool_rail:toggle() end,
+	{ keywords = "collapse expand tools rail", group = "Layout", shortcut = "Ctrl+B" })
+add_host_command("group.new", "New Tab Group", function() tab_groups:_newGroup(tab_groups:activeRoot()) end,
+	{ keywords = "add group tabs", group = "Layout" })
+for n = 1, 9 do
+	-- Ctrl+digit, as IUP codes it: there are no named constants for these.
+	host:registerShortcut(0x20000000 + 48 + n, function()
+		if tool_rail:jump(n) then host:_applyTabScopes() end
+	end)
+end
+
 -- Anything that changes what the bar should show also re-scopes the tabs, so that's the hook.
 local function sync_title_bar()
-	title_bar:setSplit(pane_grid:isSplit())
 	title_bar:sync(tab_groups:_children(tabs))
+	tool_rail:refresh()
 end
 host._after_scopes = sync_title_bar
 -- The groups' width depends on their font, which the theme sets.
 theme_mgr:onApply(function()
 	title_bar:themeChanged()
+	tool_rail:themeChanged()
 	sync_title_bar()
 end)
 if rawget(_G, "LUNAR_DEV_SHELL") then _G.LUNAR_DEV_SHELL.sync_title_bar = sync_title_bar end
-title_bar:onNewGroup(function() tab_groups:_newGroup(tabs) end)
-title_bar:onFocusPane(function() pane_grid:toggleFocus() end)
 do
 	-- The gear toggles: a second press goes back to the page Settings replaced, however
 	-- Settings was reached. That page can have gone since, and then there is nowhere to go.

@@ -26,6 +26,15 @@ return function(rules, p, c)
 		radius = c.radius, focusfeedback = false, showlines = false,
 		tabspadding = "12x7",
 	}
+	-- The tool rail continues the bar down the left: one L of chrome around the page.
+	rules.tool_rail = {
+		bg = rules.flattabs_sub and rules.flattabs_sub.bg or c.well, fg = p.text, font = c.font,
+		activeline = p.accent, tabsbg = floor, tabsfg = p.textMuted,
+		border = floor, borderwidth = 0,
+		hover = c.hover, selbg = c.selected,
+		radius = c.radius, focusfeedback = false, showlines = false,
+		tabspadding = "16x8",
+	}
 	rules.pane_split = {}
 	for key, value in pairs(rules.split or {}) do rules.pane_split[key] = value end
 	rules.pane_split.fixedbar = true

@@ -157,8 +157,10 @@ function PaneGrid:_markActive(active)
 	local accent = require("core.ui.ThemeReactor").palette().accent
 	for zone, strip in pairs(self._strips) do
 		local on = split and accent and handle.same(iup, strip, active)
-		iup.SetAttribute(strip, "TABSACTIVELINE", on and accent or nil)
-		iup.SetAttribute(strip, "EXTRABUTTONS", self:_count(zone) > 0 and handle.same(iup, strip, active) and "2" or "1")
+		if not (self._groups._rail and self._groups._rail:owns(strip)) then
+			iup.SetAttribute(strip, "TABSACTIVELINE", on and accent or nil)
+			iup.SetAttribute(strip, "EXTRABUTTONS", self:_count(zone) > 0 and handle.same(iup, strip, active) and "2" or "1")
+		end
 		iup.Update(strip)
 	end
 end
