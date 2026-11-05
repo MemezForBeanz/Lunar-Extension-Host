@@ -400,7 +400,10 @@ function M.build(p)
     end
     require("core.classes.Themes.fluent_rules").addShellRoles(rules, p)
     rules.flattabs_sub = rules.flattabs
-    return rules
+    return require("core.classes.Themes.shell_rules")(rules, p, {
+        well = layer1, hover = hover, selected = selected, border = p.borderSubtle01 or p.border,
+        font = p.font, small_font = sized(p.font, 9),
+    })
 end
 
 return M

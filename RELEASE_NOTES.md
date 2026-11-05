@@ -37,6 +37,10 @@ Check downloads against `SHA256SUMS`.
   double-clicking the group's tab, from its right-click menu, or with View > Show
   all tab bars. The choice is saved.
 - **Status bar fix:** it no longer clips off the bottom of a maximized window.
+- **New top bar:** on Windows 11 the bar is the title bar, with the app menu, tab groups,
+  the command field (Ctrl+P) and the window buttons, and Snap still works. Windows 10 and
+  Linux keep their system title bar above the same bar.
+- **Settings is a gear:** at the right of the bar, or Ctrl+,. Press it again to go back.
 - **New app icon.**
 
 

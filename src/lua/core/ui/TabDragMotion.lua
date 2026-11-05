@@ -201,6 +201,13 @@ function TabDragMotion:_sprites(ox, oy, scale)
 		local s = st.spring
 		fill(sprites, ox + s.x, oy + s.y + s.h - SPRING_BAR_H, s.w * (s.progress or 0), SPRING_BAR_H, c.accent)
 	end
+	-- A strip with its tabs down the side: the same shapes, turned about the corner.
+	if self._vertical then
+		for _, sprite in ipairs(sprites) do
+			sprite.x, sprite.y = ox + (sprite.y - oy), oy + (sprite.x - ox)
+			sprite.w, sprite.h = sprite.h, sprite.w
+		end
+	end
 	-- The compositor rectangle is in device pixels; TabOrder's strip offsets
 	-- remain IUP logical pixels until they are rendered here.
 	for _, sprite in ipairs(sprites) do
@@ -228,6 +235,12 @@ function TabDragMotion:_render()
 			sprites = self:_sprites(r.x, r.y, geometry.unit or 1), regions = {} })
 	end
 	comp:schedule(self._director)
+end
+
+--- Say which way the strip under the pointer runs.
+-- @tparam boolean vertical its tabs are down its side
+function TabDragMotion:setVertical(vertical)
+	self._vertical = vertical == true
 end
 
 function TabDragMotion:_setState(st)
