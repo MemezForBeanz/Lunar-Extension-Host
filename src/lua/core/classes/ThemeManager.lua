@@ -663,6 +663,9 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 			attrs.TABSPADDING = r.tabspadding
 			attrs.TABSIMAGESPACING = "8"
 		end
+		if cls == "flattabs" and r.selrow then
+			attrs.TABSSELCOLOR = r.selrow
+		end
 		if cls == "flattabs" and r.activeline then
 			attrs.TABSACTIVELINE = r.activeline
 		end

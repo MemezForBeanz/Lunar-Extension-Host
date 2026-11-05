@@ -1081,14 +1081,14 @@ pane_grid:onLayout(schedule_recenter)
 local toggle_settings
 tool_rail = ToolRail.new({
 	iup = iup, groups = tab_groups, panes = pane_grid, main = tabs, settings = settings_mgr,
-	icon = function(name, size) return Kit.icon(iup, name, size, "neutral") end,
+	icon = function(name, size, role) return Kit.icon(iup, name, size, role or "neutral") end,
 	notify = function(w) theme_mgr:themeWidget(w) end,
 	is_settings = function(page) return require("core.lib.handle").same(iup, page, settings_view:widget()) end,
 	on_settings = function() toggle_settings() end,
 	colors = function()
 		local theme = theme_mgr:activeTheme()
 		local r = theme and theme:rules().tool_rail or {}
-		return { hover = r.hover, selected = r.selbg, background = r.tabsbg, padding = r.tabspadding }
+		return { hover = r.hover, selected = r.selrow, background = r.tabsbg, padding = r.tabspadding }
 	end,
 })
 tab_groups:setRail(tool_rail)

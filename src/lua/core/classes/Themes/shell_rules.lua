@@ -31,7 +31,7 @@ return function(rules, p, c)
 		bg = rules.flattabs_sub and rules.flattabs_sub.bg or c.well, fg = p.text, font = c.font,
 		activeline = p.accent, tabsbg = floor, tabsfg = p.textMuted,
 		border = floor, borderwidth = 0,
-		hover = c.hover, selbg = c.selected,
+		hover = c.hover, selbg = c.selected, selrow = c.selected,
 		radius = c.radius, focusfeedback = false, showlines = false,
 		tabspadding = "16x8",
 	}
