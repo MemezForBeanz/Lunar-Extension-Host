@@ -36,6 +36,23 @@ function ToolRail.isNarrow(collapsed, pane_width)
 	return collapsed == true or (pane_width or 0) < ToolRail.FULL_FROM
 end
 
+--- What a row should say about its tab's background work. Running wins: it's still going,
+-- and a failure that hasn't been seen waits for it.
+-- @tparam table items `core.classes.Activity:list()`
+-- @param tab the tab's id
+-- @treturn string|nil `"running"`, `"failed"` or nil
+function ToolRail.statusOf(items, tab)
+	local status
+	if tab == nil then return nil end
+	for _, item in ipairs(items) do
+		if item.tab == tab then
+			if item.state == "running" then return "running" end
+			if item.state == "failed" and not item.viewed then status = "failed" end
+		end
+	end
+	return status
+end
+
 --- @tparam table opts
 -- @tparam userdata opts.iup
 -- @tparam table opts.groups `core.classes.TabGroups`
@@ -46,15 +63,18 @@ end
 -- @tparam function opts.is_settings `(page) -> bool`
 -- @tparam function opts.on_settings what the gear does
 -- @tparam function opts.colors `() -> { hover, selected }` for the buttons
+-- @tparam[opt] table opts.activity `core.classes.Activity`: rows show its work
 -- @tparam[opt] function opts.notify themes a widget tree
 function ToolRail.new(opts)
 	local self = setmetatable({
 		_iup = opts.iup, _groups = opts.groups, _panes = opts.panes, _main = opts.main,
 		_settings = opts.settings, _icon = opts.icon, _notify = opts.notify,
 		_is_settings = opts.is_settings, _on_settings = opts.on_settings, _colors = opts.colors,
+		_activity = opts.activity, _dots = {},
 		_state = {},
 	}, ToolRail)
 	self._collapsed = opts.settings and opts.settings:get(SETTING) == true or false
+	if opts.activity then opts.activity:subscribe(function() self:showStatus() end) end
 	return self
 end
 
@@ -151,6 +171,7 @@ function ToolRail:apply()
 			self._state[id] = shape
 			changed = true
 			iup.SetAttribute(strip, "SHOWTABS", "YES")
+			if not rowless then self._groups:clearCollapsed(strip) end
 			iup.SetAttribute(strip, "TABTYPE", "LEFT")
 			iup.SetAttribute(strip, "TABSBREADTH", tostring(narrow and ToolRail.NARROW or ToolRail.WIDE))
 			iup.SetAttribute(strip, "TABSHIDETITLE", narrow and "YES" or "NO")
@@ -189,6 +210,9 @@ function ToolRail:apply()
 			iup.SetAttribute(strip, "TABTYPE", "TOP")
 			iup.SetAttribute(strip, "TABSBREADTH", nil)
 			iup.SetAttribute(strip, "TABSHIDETITLE", nil)
+			for i in ipairs(self._groups:_children(strip)) do
+				iup.SetAttributeId(strip, "TABTIP", i - 1, nil)
+			end
 			iup.SetAttribute(strip, "THEMEROLE", "flattabs_sub")
 			self._groups:_prepareStrip(strip)
 			if self._notify then self._notify(strip) end
@@ -206,6 +230,32 @@ function ToolRail:apply()
 		iup.SetAttribute(self._main, "EXTRATOP", "0")
 	end
 	return changed
+end
+
+--- Put each tab's background work on its row.
+function ToolRail:showStatus()
+	if not self._activity then return end
+	local iup = self._iup
+	local items = self._activity:list()
+	local palette = require("core.ui.ThemeReactor").palette()
+	local colours = { running = palette.accent, failed = palette.error }
+	local words = { running = "running", failed = "failed" }
+	for _, strip in ipairs((self:_strips())) do
+		local any = false
+		for i, page in ipairs(self._groups:_children(strip)) do
+			local pos = i - 1
+			local status = ToolRail.statusOf(items, iup.GetAttribute(page, "HOSTTABOWNERID"))
+			local key = tostring(page)
+			if self._dots[key] ~= (status or false) then
+				self._dots[key] = status or false
+				any = true
+				iup.SetAttributeId(strip, "TABDOTCOLOR", pos, status and colours[status] or nil)
+				local title = iup.GetAttributeId(strip, "TABTITLE", pos) or ""
+				iup.SetAttributeId(strip, "TABTIP", pos, status and (title .. ": " .. words[status]) or title)
+			end
+		end
+		if any then pcall(iup.Update, strip) end
+	end
 end
 
 --- What a button at the foot of a rail does.
@@ -238,11 +288,13 @@ end
 --- Apply, and lay out if that changed anything.
 function ToolRail:refresh()
 	if self:apply() then pcall(self._iup.Refresh, self._panes:widget()) end
+	self:showStatus()
 end
 
 --- A theme pass has repainted the icons and reset the accent.
 function ToolRail:themeChanged()
 	self._generation = (self._generation or 0) + 1
+	self._dots = {}
 end
 
 --- The strip of the pane being worked in: where a number key goes.

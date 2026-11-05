@@ -14,6 +14,25 @@ describe("core.ui.ToolRail", function()
 		end)
 	end)
 
+	describe("statusOf", function()
+		it("says nothing for a tab with no work", function()
+			assert.is_nil(ToolRail.statusOf({ { tab = "a", state = "ok" } }, "a"))
+			assert.is_nil(ToolRail.statusOf({ { tab = "b", state = "running" } }, "a"))
+			assert.is_nil(ToolRail.statusOf({ { tab = "a", state = "running" } }, nil))
+		end)
+
+		it("shows a failure until it has been seen", function()
+			assert.equal("failed", ToolRail.statusOf({ { tab = "a", state = "failed" } }, "a"))
+			assert.is_nil(ToolRail.statusOf({ { tab = "a", state = "failed", viewed = true } }, "a"))
+		end)
+
+		it("lets running work win over an unseen failure", function()
+			assert.equal("running", ToolRail.statusOf({
+				{ tab = "a", state = "failed" }, { tab = "a", state = "running" },
+			}, "a"))
+		end)
+	end)
+
 	describe("press", function()
 		local function rail()
 			local calls = {}
