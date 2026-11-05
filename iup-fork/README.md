@@ -28,6 +28,18 @@ tab, and `GAP` and `MARGIN` no longer inherit, so a page's padding is not added 
 every box inside it. That last one changes how a nested box measures: set `MARGIN` on
 each box that wants one.
 
+Patch 0008 is the layout and repaint work behind live resizing:
+
+- A layout pass commits its window moves together with the top-level window's redraw off,
+  and invalidates only the windows that moved. Tabs behind the current one wait until they
+  are shown (`IUP_LAYOUT_PARKED`), and paints share one DIB backbuffer. `WM_SETREDRAW` wipes
+  pending update regions and drops invalidation while it is off, so `winLayoutCommit` saves
+  and restores them. Changing how this works means keeping that.
+- Boxes give space back in proportion when they are narrower than their content, and a split's
+  sash stops where a side runs out of room. `iupLayoutMinContent` measures what a subtree
+  cannot give up. `IupSplit` gains the `ORIENTATION` getter it never had.
+- `FITCONTENT` on `IupFlatScrollBox`: compress the child to that minimum, and scroll only past it.
+
 The gradient/rounded work replaces the old Lua-side `Gradient*` widgets (GradientKit
 et al.), which drew onto separate `iup.canvas` overlays and caused artefacts such as
 the double-scrollbar bug.

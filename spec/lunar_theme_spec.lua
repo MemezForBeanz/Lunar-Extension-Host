@@ -213,3 +213,18 @@ describe("ThemeManager pressed-state mapping", function()
         assert.equal("1 2 3", attrs.PSCOLOR)
     end)
 end)
+
+describe("lunar_rules heading face", function()
+    it("uses the theme's own heading face on every heading", function()
+        local p = palette()
+        p.headingFont = "Brand Face, 11"
+        local rules = lunar.build(p)
+        assert.is_truthy(rules.pagetitle.font:find("Brand Face", 1, true))
+        assert.is_truthy(rules.sectiontitle.font:find("Brand Face", 1, true))
+    end)
+
+    it("falls back to Segoe UI Semibold without one", function()
+        local rules = lunar.build(palette())
+        assert.is_truthy(rules.sectiontitle.font:find("Segoe UI Semibold", 1, true))
+    end)
+end)
