@@ -237,6 +237,9 @@ local function mix(a, b, t)
 end
 
 --- `color`, pulled toward `text` just far enough to read on `surface`.
+-- @tparam string color
+-- @tparam string surface
+-- @tparam string text
 -- @tparam[opt=4.5] number ratio the contrast to reach
 function CodeView.readable(color, surface, text, ratio)
 	ratio = ratio or 4.5
