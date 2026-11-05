@@ -186,6 +186,8 @@ end
 
 -- Are this strip's tabs down its side rather than along its top?
 function TabOrder:_vertical(strip)
+	local _, stood_in = self:_shown(strip)
+	if stood_in then return false end
 	local ok, value = pcall(self._iup.GetAttribute, strip, "TABTYPE")
 	return ok and value == "LEFT"
 end

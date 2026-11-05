@@ -1,5 +1,4 @@
---- The bar across the top of the window: app menu, mark, tab groups, the command field and
--- the settings gear. On Windows 11 it is the window's caption too (`winframe`); elsewhere it
+--- The bar across the top of the window: app menu, mark, tab groups and the command field. On Windows 11 it is the window's caption too (`winframe`); elsewhere it
 -- sits under the system caption and the window keeps its own buttons.
 --
 -- ### The groups are a mirror
@@ -12,7 +11,7 @@
 -- spring-open and the context menu are all `core.classes.TabOrder`'s code as before.
 --
 -- Positions match one for one. Settings keeps a position with its tab hidden, and with
--- Settings open the gear reads as selected instead of any group.
+-- Settings open the rail's gear reads as selected instead of any group.
 --
 -- @classmod core.ui.TitleBar
 
@@ -47,7 +46,7 @@ end
 -- @treturn table `{ field, left, groups }` in pixels
 function TitleBar.layout(width, reserved, tabs)
 	local field = TitleBar.fieldWidth(width)
-	local right = SIDE_MARGIN + BUTTON + GAP + (reserved or 0)
+	local right = SIDE_MARGIN + (reserved or 0)
 	local before = SIDE_MARGIN + BUTTON + GAP + MARK + GAP
 	local left = math.floor((width - field) / 2)
 	left = math.max(left, before + (tabs or 0))
@@ -120,16 +119,6 @@ function TitleBar.new(opts)
 		TITLE = "", EXPAND = "NO", RASTERSIZE = "360x" .. TitleBar.FIELD_HEIGHT, THEMEROLE = "commandbar",
 	})
 
-	self._gear = iup.flatbutton({
-		TIP = "Settings", CANFOCUS = "YES", TOGGLE = "YES",
-		RASTERSIZE = BUTTON .. "x" .. TitleBar.FIELD_HEIGHT, THEMEROLE = "titlebar_button",
-	})
-	opts.icon(self._gear, "settings")
-	function self._gear:flat_action()
-		if bar._on_settings then bar._on_settings() end
-		return iup.DEFAULT
-	end
-
 	-- A fill, not a label: anything with a window here would cover the painted buttons.
 	self._reserved = iup.fill({ RASTERSIZE = "1x" })
 	self._left = iup.hbox({
@@ -140,7 +129,7 @@ function TitleBar.new(opts)
 	self._widget = iup.hbox({
 		-- The strut holds the bar's height: a box takes its height from its children.
 		iup.label({ TITLE = "", RASTERSIZE = "1x" .. TitleBar.HEIGHT }),
-		self._left, self._field, iup.fill({}), self._gear, self._reserved,
+		self._left, self._field, iup.fill({}), self._reserved,
 		ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL", GAP = "0",
 		MARGIN = "0x0",
 	})
@@ -156,8 +145,6 @@ function TitleBar:groupStrip() return self._groups end
 function TitleBar:onMenu(fn) self._on_menu = fn end
 --- What the command field does.
 function TitleBar:onCommand(fn) self._on_command = fn end
---- What the gear does.
-function TitleBar:onSettings(fn) self._on_settings = fn end
 
 -- A press is the main strip's: its handlers read positions, and TabOrder resolves them
 -- against this strip. The switch itself reaches the main strip from tabchange_cb.
@@ -254,7 +241,6 @@ function TitleBar:sync(pages)
 		iup.SetAttribute(groups, "VALUEPOS", tostring(active))
 	end
 	self:_setAway(hidden_active)
-	iup.SetAttribute(self._gear, "VALUE", hidden_active and "ON" or "OFF")
 	self._syncing = false
 	if changed then
 		-- Natural width follows the titles, and what's left of the bar is a drag handle.

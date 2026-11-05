@@ -50,7 +50,7 @@ describe("core.ui.ToolRail", function()
 
 		it("leaves other buttons alone", function()
 			local r = rail()
-			assert.is_false(r:press("strip", 4))
+			assert.is_false(r:press("strip", 5))
 		end)
 	end)
 end)

@@ -1078,10 +1078,18 @@ theme_mgr:onApply(function()
 end)
 pane_grid:onLayout(schedule_recenter)
 
+local toggle_settings
 tool_rail = ToolRail.new({
 	iup = iup, groups = tab_groups, panes = pane_grid, main = tabs, settings = settings_mgr,
 	icon = function(name, size) return Kit.icon(iup, name, size, "neutral") end,
 	notify = function(w) theme_mgr:themeWidget(w) end,
+	is_settings = function(page) return require("core.lib.handle").same(iup, page, settings_view:widget()) end,
+	on_settings = function() toggle_settings() end,
+	colors = function()
+		local theme = theme_mgr:activeTheme()
+		local r = theme and theme:rules().tool_rail or {}
+		return { hover = r.hover, selected = r.selbg, background = r.tabsbg, padding = r.tabspadding }
+	end,
 })
 tab_groups:setRail(tool_rail)
 host:registerShortcut(iup.K_cB, function() tool_rail:toggle() end)
@@ -1123,7 +1131,7 @@ do
 	end
 	host._after_scopes = sync_title_bar
 	if rawget(_G, "LUNAR_DEV_SHELL") then _G.LUNAR_DEV_SHELL.sync_title_bar = sync_title_bar end
-	title_bar:onSettings(function()
+	toggle_settings = function()
 		if not is_settings(iup.GetAttribute(tabs, "VALUE_HANDLE")) then
 			host:dispatchRoute("lunar://host/settings")
 		else
@@ -1136,7 +1144,7 @@ do
 			end
 		end
 		sync_title_bar()
-	end)
+	end
 end
 host:fitPage(settings_view:widget(), function(width) settings_view:fitWidth(width) end)
 

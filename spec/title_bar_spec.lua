@@ -16,7 +16,7 @@ describe("core.ui.TitleBar", function()
 		it("never lets the field reach the window buttons", function()
 			for width = 480, 1920, 40 do
 				local lay = TitleBar.layout(width, 138)
-				assert.is_true(lay.left + lay.field <= width - (8 + 32 + 8 + 138) or lay.left <= 48,
+				assert.is_true(lay.left + lay.field <= width - (8 + 138) or lay.left <= 48,
 					"field overlaps the right end at " .. width)
 			end
 		end)
