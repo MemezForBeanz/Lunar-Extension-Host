@@ -2,6 +2,7 @@
 -- The C controls draw visible rows only. A virtual provider is called as
 -- value(row_number, field_name), where field_name is TITLE, SECONDARY, IMAGE,
 -- COLUMN1..3 or ACTIONTEXT. Row numbers are 1 based; VALUEPOS is 0 based.
+-- @module core.ui.RowList
 local raw = require("iupraw")
 local M = {}
 
@@ -9,6 +10,11 @@ local fields = { TITLE = "title", SECONDARY = "secondary", IMAGE = "image",
     COLUMN1 = "column1", COLUMN2 = "column2", COLUMN3 = "column3",
     ACTIONTEXT = "action" }
 
+--- Create a row canvas.
+-- @tparam userdata iup
+-- @tparam[opt] table opts `rows` or `value` and `count`, `row_height`, `empty_title`,
+-- `empty_hint`, `column_widths`, `role`, and the `on_*` callbacks
+-- @treturn table `widget`, `setRows`, `setProvider`, `setEmpty`, `select`, `selected`
 function M.new(iup, opts)
     opts = opts or {}
     local widget = raw.flatrows()
@@ -58,6 +64,10 @@ function M.new(iup, opts)
     return api
 end
 
+--- Create a joined option control of two to five labels.
+-- @tparam userdata iup
+-- @tparam[opt] table opts `labels`, `value_pos`, `on_change`, `role`
+-- @return the IUP handle
 function M.segmented(iup, opts)
     opts = opts or {}
     local labels = opts.labels or { "First", "Second" }

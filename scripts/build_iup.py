@@ -5,7 +5,8 @@ Usage: python3 -I scripts/build_iup.py [--fresh] [--clean] [--smoke] [--luajit-p
 
 The source lists below follow the Linux USE_GTK/USE_GTK3/USE_NEW_DRAW branches
 of IUP's src/config.mak and the Lua 5.1/NO_LUAOBJECT branch of
-srclua5/config.mak. The lists are read from those files after extraction.
+srclua5/config.mak. The lists are read from those files after extraction, plus
+the sources the fork's patches add.
 """
 
 import argparse
@@ -151,6 +152,9 @@ def source_lists():
     core += appended_sources(core_config, "ifdef USE_GTK3\n        SRC += gtk/iupgtk_info.c")
     # The first append above includes the entire GTK common list; the latter two
     # name the Linux X11 help/info files and the GTK3-specific info file.
+    # The fork's patches add these and upstream's config.mak does not list them;
+    # build-iup-fork.ps1 names them the same way.
+    core += ["iup_flatrows.c", "iup_flatsegmented.c"]
     lua_scripts = assignment(lua_config, "CTRLUA")
     lua_core = assignment(lua_config, "SRC")
     lua_core = [("elem/il_" + Path(name).stem + ".c") if item == "$(GC)" else item

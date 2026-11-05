@@ -59,6 +59,7 @@ end
 
 --- A value equal for every spelling of the same file.
 -- @tparam string uri
+-- @tparam[opt] boolean windows path rules to use; defaults to the running platform's
 -- @treturn string
 function M.key(uri, windows)
 	if windows == nil then windows = WINDOWS end
