@@ -21,7 +21,7 @@ local function arguments(exe)
 	return {}
 end
 
-function M.register(ctx)
+function M:register(ctx)
 	ctx:addLanguageServer({
 		id = "python",
 		name = "Python",

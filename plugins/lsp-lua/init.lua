@@ -12,7 +12,7 @@ local M = {}
 local INSTALL = "Install lua-language-server (https://luals.github.io) and add it to PATH, "
 	.. "or set its path in Settings > Language servers."
 
-function M.register(ctx)
+function M:register(ctx)
 	local windows = package.config:sub(1, 1) == "\\"
 	local exe_name = windows and "lua-language-server.exe" or "lua-language-server"
 
