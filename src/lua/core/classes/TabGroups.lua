@@ -585,6 +585,11 @@ function TabGroups:setCollapsed(strip, collapsed)
 	end)
 end
 
+--- Forget a hidden tab bar: a strip that has become a rail doesn't hide.
+function TabGroups:clearCollapsed(strip)
+	attr.set(self._iup, strip, COLLAPSED_ATTR, nil)
+end
+
 function TabGroups:toggleCollapsed(strip)
 	return self:setCollapsed(strip, not self:isCollapsed(strip))
 end

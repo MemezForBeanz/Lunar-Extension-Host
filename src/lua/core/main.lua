@@ -1083,6 +1083,7 @@ tool_rail = ToolRail.new({
 	iup = iup, groups = tab_groups, panes = pane_grid, main = tabs, settings = settings_mgr,
 	icon = function(name, size, role) return Kit.icon(iup, name, size, role or "neutral") end,
 	notify = function(w) theme_mgr:themeWidget(w) end,
+	activity = host:activityStore(),
 	is_settings = function(page) return require("core.lib.handle").same(iup, page, settings_view:widget()) end,
 	on_settings = function() toggle_settings() end,
 	colors = function()

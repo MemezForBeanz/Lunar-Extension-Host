@@ -239,8 +239,8 @@ function M.build(p)
             padding = "12x6", radius = R, hover = hover, hovertext = p.text, pressed = selected,
         },
         settings_nav_on = {
-            bg = chosen, fg = p.text, font = p.font, border = chosen, borderwidth = 0,
-            padding = "12x6", radius = R, hover = chosen, hovertext = p.text, pressed = chosen,
+            bg = selected, fg = p.text, font = p.font, border = selected, borderwidth = 0,
+            padding = "12x6", radius = R, hover = selected, hovertext = p.text, pressed = selected,
         },
         settings_crumb = { fg = p.text, font = sized(HEADING, 12), padding = "0x0" },
         settings_nav_group = { fg = p.textFaint or p.textMuted, font = sized(p.font, 9), padding = "12x8" },
