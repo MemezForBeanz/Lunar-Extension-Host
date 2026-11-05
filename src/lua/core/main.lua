@@ -892,6 +892,7 @@ add_host_command("activity", "Show Activity", function() activity_panel:open() e
 if DEV_BUILD then
 	_G.LUNAR_DEV_SHELL = {
 		open_menu = open_app_menu,
+		reload = function() mh.reload_extensions() end,
 		palette = command_palette,
 		panes = pane_grid,
 		groups = function() return tab_groups end,
