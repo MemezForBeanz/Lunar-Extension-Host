@@ -89,12 +89,6 @@ function M.addShellRoles(rules, p)
             bg = floor, fg = p.textMuted, border = floor, borderwidth = 0,
             hover = hover, pressed = selected,
         },
-        commandbar = {
-            bg = well, fg = p.textMuted, font = font,
-            border = border, borderwidth = 1, showborder = true, padding = "10x3",
-            hover = hover, hovertext = p.text,
-            pressed = selected, pressedtext = p.text,
-        },
         settings_crumb = { fg = p.text, font = font, padding = "0x0" },
         settings_nav_group = { fg = p.textMuted, font = font, padding = "12x8" },
         codeview_corner = { bg = floor, fg = p.textMuted, border = floor, borderwidth = 0 },
@@ -354,7 +348,14 @@ function M.build(p)
     end
     M.addShellRoles(rules, p)
     rules.flattabs_sub = rules.flattabs
-    return rules
+    local floor = p.layer02 or p.surface2 or p.surface or p.bg
+    return require("core.classes.Themes.shell_rules")(rules, p, {
+        well = p.layer01 or p.surface or p.bg,
+        hover = p.layerHover01 or p.surface2 or floor,
+        selected = p.layerSelected01 or p.surface2 or floor,
+        border = p.borderSubtle01 or p.border,
+        radius = 4, font = p.font, small_font = p.font,
+    })
 end
 
 return M

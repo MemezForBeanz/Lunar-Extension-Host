@@ -175,6 +175,30 @@ function TabOrder:setGroups(groups)
 	self._groups = groups
 end
 
+--- Say that another strip draws `strip`'s tabs (`core.ui.TitleBar`), with one tab per
+-- position. Everything that asks where a tab is then asks that strip, so drags, drops and
+-- their feedback land on the tabs the user can see.
+-- @tparam userdata strip the strip whose tabs are hidden
+-- @tparam userdata stand_in the strip showing them
+function TabOrder:setStandIn(strip, stand_in)
+	self._stand_in = { strip = strip, widget = stand_in }
+end
+
+-- Are this strip's tabs down its side rather than along its top?
+function TabOrder:_vertical(strip)
+	local _, stood_in = self:_shown(strip)
+	if stood_in then return false end
+	local ok, value = pcall(self._iup.GetAttribute, strip, "TABTYPE")
+	return ok and value == "LEFT"
+end
+
+-- The strip that really shows `widget`'s tabs: usually itself.
+function TabOrder:_shown(widget)
+	local stand_in = self._stand_in
+	if stand_in and handle.same(self._iup, stand_in.strip, widget) then return stand_in.widget, true end
+	return widget, false
+end
+
 -- =======================================================================
 -- GEOMETRY
 -- =======================================================================
@@ -182,6 +206,7 @@ end
 -- Screen-space rectangle of a widget: SCREENPOSITION is "x,y", RASTERSIZE "WxH".
 function TabOrder:_rect(widget)
 	local iup = self._iup
+	widget = self:_shown(widget)
 	local ok, pos = pcall(iup.GetAttribute, widget, "SCREENPOSITION")
 	if not ok or type(pos) ~= "string" then return nil end
 	local px, py = pos:match("^(%-?%d+),(%-?%d+)")
@@ -197,6 +222,20 @@ end
 -- the band -- no need to reproduce the control's padding/font arithmetic here.
 function TabOrder:_bandHeight(strip)
 	local iup = self._iup
+	local shown, stood_in = self:_shown(strip)
+	if stood_in then
+		local _, _, _, height = self:_rect(strip)
+		return height
+	end
+	strip = shown
+	if self:_vertical(strip) then
+		local _, raster = pcall(iup.GetAttribute, strip, "RASTERSIZE")
+		local _, client = pcall(iup.GetAttribute, strip, "CLIENTSIZE")
+		local rw = tonumber(tostring(raster):match("^(%d+)x"))
+		local cw = tonumber(tostring(client):match("^(%d+)x"))
+		local band = rw and cw and rw - cw
+		return band and band > 0 and band or nil
+	end
 	local ok, raster = pcall(iup.GetAttribute, strip, "RASTERSIZE")
 	local ok2, client = pcall(iup.GetAttribute, strip, "CLIENTSIZE")
 	if not ok or not ok2 or type(raster) ~= "string" or type(client) ~= "string" then
@@ -211,21 +250,21 @@ function TabOrder:_bandHeight(strip)
 end
 
 function TabOrder:_posAt(strip, x, y)
-	local ok, p = pcall(self._iup.ConvertXYToPos, strip, x, y)
+	local ok, p = pcall(self._iup.ConvertXYToPos, (self:_shown(strip)), x, y)
 	p = ok and tonumber(p) or nil
 	if p and p >= 0 then return p end
 	return nil
 end
 
--- Horizontal extent of the tab at position `pos`, found by bisecting
+-- Extent of the tab at position `pos` along the strip, found by bisecting
 -- ConvertXYToPos outward from a point known to be inside it.
 --
--- IupFlatTabs exposes no per-tab rectangle, and the width of a tab depends on its
+-- IupFlatTabs exposes no per-tab rectangle, and the size of a tab depends on its
 -- title, font, padding, image and close button. Rather than reimplement
 -- iFlatTabsGetTabSize in Lua and have it drift, this asks the control the same
 -- question it already answers for hit-testing, ~22 times. Each call is a cheap C
 -- hit-test, and it only runs when the hovered tab changes.
-function TabOrder:_tabBounds(strip, pos, x, y, width)
+function TabOrder:_tabBounds(strip, pos, x, y, extent, vertical)
 	-- Motion fires continuously during a drag but the pointer stays over the same
 	-- tab for most of it, so remember the last answer. Cleared on button-down.
 	local cache = self._bounds
@@ -233,17 +272,23 @@ function TabOrder:_tabBounds(strip, pos, x, y, width)
 		return cache.left, cache.right
 	end
 
-	local lo, hi = 0, x
+	local function here(along)
+		if vertical then return self:_posAt(strip, x, along) == pos end
+		return self:_posAt(strip, along, y) == pos
+	end
+	local start = vertical and y or x
+
+	local lo, hi = 0, start
 	while lo < hi do
 		local mid = math.floor((lo + hi) / 2)
-		if self:_posAt(strip, mid, y) == pos then hi = mid else lo = mid + 1 end
+		if here(mid) then hi = mid else lo = mid + 1 end
 	end
 	local left = lo
 
-	lo, hi = x, width - 1
+	lo, hi = start, extent - 1
 	while lo < hi do
 		local mid = math.floor((lo + hi + 1) / 2)
-		if self:_posAt(strip, mid, y) == pos then lo = mid else hi = mid - 1 end
+		if here(mid) then lo = mid else hi = mid - 1 end
 	end
 	self._bounds = { strip = strip, pos = pos, left = left, right = lo }
 	return left, lo
@@ -285,7 +330,8 @@ function TabOrder:_resolveDrop(source, x, y, dragged)
 		local px, py, pw, ph = self:_rect(strip)
 		if px and gx >= px and gx < px + pw and gy >= py and gy < py + ph then
 			local band = self:_bandHeight(strip)
-			if not band or gy >= py + band then
+			local vertical = self:_vertical(strip)
+			if not band or (vertical and gx or gy) >= (vertical and px or py) + band then
 				-- Inside this strip's page area, not its tab bar. Deeper strips
 				-- were already tested, so this is a miss rather than a fall-through.
 				return nil
@@ -295,7 +341,7 @@ function TabOrder:_resolveDrop(source, x, y, dragged)
 			local pos = self:_posAt(strip, lx, ly)
 			if not pos then
 				-- Past the last tab (or on the "+" button): append here.
-				return { strip = strip, index = nil, zone = strip, band = band }
+				return { strip = strip, index = nil, zone = (self:_shown(strip)), band = band, vertical = vertical }
 			end
 
 			local child = self:_child(strip, pos)
@@ -305,27 +351,30 @@ function TabOrder:_resolveDrop(source, x, y, dragged)
 			-- group -- and dropping a group on itself passed straight through.
 			if not child or handle.same(self._iup, child, dragged) then return nil end
 
-			local left, right = self:_tabBounds(strip, pos, lx, ly, pw)
+			local left, right = self:_tabBounds(strip, pos, lx, ly, vertical and ph or pw, vertical)
 			local width = math.max(1, right - left + 1)
-			local rel = (lx - left) / width
+			local rel = ((vertical and ly or lx) - left) / width
 
 			if rel >= EDGE_ZONE and rel <= (1 - EDGE_ZONE) then
 				if groups:isGroupStrip(child) then
 					return {
-						into = child, zone = strip, band = band,
+						into = child, zone = (self:_shown(strip)), band = band,
 						tab_x = left, tab_w = width,
+						vertical = vertical,
 					}
 				end
 				return {
-					merge = child, strip = strip, zone = strip, band = band,
+					merge = child, strip = strip, zone = (self:_shown(strip)), band = band,
 					tab_x = left, tab_w = width,
+					vertical = vertical,
 				}
 			end
 			local before = (rel < EDGE_ZONE)
 			local index = before and (pos + 1) or (pos + 2)
 			return {
-				strip = strip, index = index, zone = strip, band = band,
+				strip = strip, index = index, zone = (self:_shown(strip)), band = band,
 				tab_x = left, tab_w = width,
+				vertical = vertical,
 				caret_x = before and left or (left + width),
 			}
 		end
@@ -495,13 +544,13 @@ function TabOrder:_applyMerge(job, drop)
 	local groups = self._groups
 	local motion = self._motion
 
-	local parent = drop.zone
+	local parent = not drop.vertical and drop.zone or nil
 	local band   = drop.band
 	local from_x, from_w
 
 	if motion and parent and band then
 		local _, _, pw = self:_rect(parent)
-		local dragged_pos = self:_positionOf(parent, job.widget)
+		local dragged_pos = self:_positionOf(drop.strip or parent, job.widget)
 		local dx, dw
 		if pw and dragged_pos then
 			dx, dw = self:_boundsOfPos(parent, dragged_pos, band, pw)
@@ -523,7 +572,7 @@ function TabOrder:_applyMerge(job, drop)
 	if not (motion and strip and parent and band and from_x) then return end
 
 	local _, _, pw = self:_rect(parent)
-	local pos = self:_positionOf(parent, strip)
+	local pos = self:_positionOf(drop.strip or parent, strip)
 	local to_x, to_w
 	if pw and pos then
 		to_x, to_w = self:_boundsOfPos(parent, pos, band, pw)
@@ -676,6 +725,7 @@ function TabOrder:install(strip)
 
 		local drop = self_:_resolveDrop(strip, x, y, drag.widget)
 		local motion = self_._motion
+		if motion and motion.setVertical then motion:setVertical(drop and drop.vertical) end
 
 		if self_._panes then
 			local _, rect = self_:_snapZone(drag.widget)

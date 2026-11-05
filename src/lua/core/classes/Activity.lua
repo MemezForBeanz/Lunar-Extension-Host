@@ -317,7 +317,7 @@ function Activity:status(now)
 	local running = self:running()
 	if running[1] then
 		local text = Activity.label(running[1])
-		if running[2] then text = text .. "  +" .. (#running - 1) end
+		if running[2] then text = text .. "  " .. (#running - 1) .. " more running" end
 		if failed > 0 then text = text .. "  " .. failed .. " failed" end
 		return { state = "running", text = text, tip = running[1].message or running[1].title }
 	end

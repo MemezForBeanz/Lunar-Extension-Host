@@ -228,3 +228,17 @@ describe("lunar_rules heading face", function()
         assert.is_truthy(rules.sectiontitle.font:find("Segoe UI Semibold", 1, true))
     end)
 end)
+
+describe("lunar_rules switch", function()
+    local function knob_clears(accent_text, strong, muted)
+        local p = palette()
+        p.accentText, p.borderStrong01, p.textMuted = accent_text, strong, muted
+        local rule = lunar.build(p).flattoggle
+        return lunar.contrast(rule.switchknob, rule.switchoff)
+    end
+
+    it("keeps the knob 3:1 on the off track, on a dark page and a light one", function()
+        assert.is_true(knob_clears("255 255 255", "80 84 96", "167 172 186") >= 3)
+        assert.is_true(knob_clears("255 255 255", "190 190 200", "90 94 106") >= 3)
+    end)
+end)
