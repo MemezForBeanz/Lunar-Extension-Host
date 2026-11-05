@@ -16,6 +16,7 @@
 -- * `opts.on_check` `function(index, checked)` — called when a checkbox changes.
 -- * `opts.on_activate` `function(exclusive)` — user interacted with this list (focus hint);
 --   `exclusive` is `true` for a plain (non Ctrl/Shift) selection.
+-- * `opts.on_double` `function(index)` — a row was double-clicked.
 -- * `opts.role` `string` — `BQROLE` tag for focus routing.
 -- * `opts.themerole` `string` (default `"list_bordered"`) — `THEMEROLE` for appearance; defaults to the
 --   active-queue accent-text/no-fill selection style.
@@ -54,6 +55,7 @@ function CheckList:initialize(iup, opts)
     self._font            = opts.font or "Segoe UI, 11"
     self._on_check        = opts.on_check
     self._on_activate     = opts.on_activate
+    self._on_double       = opts.on_double
     self._role            = opts.role
     self._show_border     = opts.show_border ~= false
     -- THEMEROLE drives appearance only (BQROLE below drives focus routing). Default
@@ -351,6 +353,9 @@ function CheckList:_installCallbacks()
                     end
                 end
                 self_:_activated(not (shift or ctrl))
+                if pos and self_._on_double and status and status:sub(6, 6) == "D" then
+                    self_._on_double(pos)
+                end
             end
             return iup.IGNORE  -- suppress internal toggle for both press and release
         elseif button == iup.BUTTON3 and pressed == 1 then

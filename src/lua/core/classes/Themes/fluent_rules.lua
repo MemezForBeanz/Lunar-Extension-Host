@@ -95,6 +95,12 @@ function M.addShellRoles(rules, p)
             hover = hover, hovertext = p.text,
             pressed = selected, pressedtext = p.text,
         },
+        settings_crumb = { fg = p.text, font = font, padding = "0x0" },
+        settings_nav_group = { fg = p.textMuted, font = font, padding = "12x8" },
+        codeview_corner = { bg = floor, fg = p.textMuted, border = floor, borderwidth = 0 },
+        palette_rows = { bg = floor, fg = p.text, secondary = p.textMuted, font = font,
+            border = floor, borderwidth = 0, scrollbg = floor,
+            selbg = selected, seltext = p.text, selalpha = "0" },
         palette_text = { bg = floor, fg = p.text, font = font },
         palette_prompt = { bg = floor, fg = p.textMuted, font = font },
         well = { bg = well, fg = p.text, font = font, border = border },
@@ -310,6 +316,7 @@ function M.build(p)
             selbg = p.surface, seltext = p.accent, selalpha = "0",
         },
         outputlog     = {
+            font = "Consolas, 9",
             bg = p.surface, fg = p.text, border = p.border,
             scrollbg = p.surface, scrollfg = sfg, scrollhi = shi, scrollpress = spr,
         },
@@ -328,6 +335,11 @@ function M.build(p)
             border = p.border, borderwidth = 1,
             selbg = p.accent, seltext = p.accentText, selalpha = "255",
         },
+        flatrows = { bg = p.surface, fg = p.text, secondary = p.textMuted, font = p.font,
+            border = p.border, itemradius = 4, itemmarker = p.accent,
+            selbg = p.accent, seltext = p.accentText, hover = p.surface2 },
+        flatsegmented = { bg = p.surface, fg = p.text, font = p.font,
+            border = p.border, selbg = p.accent, seltext = p.accentText },
         progressbar   = { bg = p.surface, fg = p.accent, border = p.border },
         gauge         = { bg = p.surface, fg = p.accent, border = p.border },
     }
@@ -341,6 +353,7 @@ function M.build(p)
         rules[role].inactivefg = p.textMuted
     end
     M.addShellRoles(rules, p)
+    rules.flattabs_sub = rules.flattabs
     return rules
 end
 

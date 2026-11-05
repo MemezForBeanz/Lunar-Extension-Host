@@ -33,7 +33,7 @@ end
 function M._dispatchKey(self, c)
     local iup  = self.iup
     local list = self._shortcuts[c]
-    if not list then return iup.CONTINUE end
+    if not list then list = {} end
     local active_owner = self:_activeOwner()
     local consumed = false
     for i = 1, #list do
@@ -45,6 +45,10 @@ function M._dispatchKey(self, c)
             pcall(e.fn)
             consumed = true
         end
+    end
+    if not consumed and self._key_fallback then
+        local ok, handled = pcall(self._key_fallback, c)
+        consumed = ok and handled or false
     end
     return consumed and iup.IGNORE or iup.CONTINUE
 end

@@ -76,6 +76,9 @@ function M.build(p)
     -- Where content sits: a step recessed from the page, so a list or a field reads by
     -- its fill and the outline can stay faint.
     local well = p.well or p.bg
+    -- A field has to be findable: 3:1 against the page (WCAG 1.4.11), where a structural
+    -- line stays dim.
+    local field_edge = p.fieldBorder or borderS
     local chosen = p.accentSoft or selected
     -- The flat scrollbar: a quiet rounded thumb on no track, no arrows. The
     -- accent is for what the user can act on, so it is kept for the pressed
@@ -123,7 +126,7 @@ function M.build(p)
         pagetitle     = { fg = p.text,      font = sized(HEADING, 18), padding = "0x0" },
         pagesubtitle  = { fg = p.textMuted, font = sized(p.font, 11), padding = "0x0" },
         sectiontitle  = { fg = p.text,      font = sized(HEADING, 14), padding = "0x0" },
-        hint          = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
+        hint          = { fg = p.textFaint or p.textMuted, font = sized(p.font, 10), padding = "0x0" },
 
         -- Semantic text roles: state colored by meaning, never by literal.
         error_label   = { fg = p.error,   font = p.font },
@@ -148,7 +151,7 @@ function M.build(p)
         -- The bottom status bar, finally a themed surface instead of a
         -- hardcoded gray: the shell's floor color with muted text.
         statusbar      = { bg = p.bg, fg = p.textMuted, border = border },
-        statusbar_text = { bg = p.bg, fg = p.textMuted, font = sized(p.font, 10) },
+        statusbar_text = { bg = p.bg, fg = p.textMuted, font = sized(p.font, 9) },
 
         -- Toasts: elevated surface, semantic bar on the left edge.
         toast_bg_info     = { bg = elevated, fg = p.text },
@@ -189,7 +192,7 @@ function M.build(p)
             border = border, borderwidth = 1,
             hover = hover, selbg = selected,
             radius = R, focusfeedback = false, showlines = false,
-            tabspadding = "16x6",
+            tabspadding = "12x6",
         },
         -- The bar inside a group: the tool level, so it sits on the page itself and only
         -- the chosen label changes, where the app-level bar above it is a dark well.
@@ -199,7 +202,7 @@ function M.build(p)
             border = border, borderwidth = 1,
             hover = hover, selbg = selected,
             radius = R, focusfeedback = false, showlines = false,
-            tabspadding = "16x6",
+            tabspadding = "12x6",
         },
         scrollbox     = { bg = layer1, fg = p.text, border = border },
         flatscrollbox = scroll({ bg = layer1, fg = p.text, border = border, borderwidth = 1, scrollbg = layer1 }),
@@ -209,8 +212,8 @@ function M.build(p)
         settingslabel_muted = { fg = p.textMuted, font = p.font },
         settingspanel = { bg = layer1, border = layer1, borderwidth = 0, radius = 0 },
         settingscard  = { bg = layer1, border = border, radius = RF, sheen = sheen },
-        settings_name = { fg = p.text, font = sized(HEADING, 11), padding = "0x0" },
-        settings_description = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
+        settings_name = { fg = p.text, font = sized(HEADING, 10), padding = "0x0" },
+        settings_description = { fg = p.textMuted, font = sized(p.font, 9), padding = "0x0" },
         settings_nav  = {
             bg = layer1, fg = p.textMuted, font = p.font, border = layer1, borderwidth = 0,
             padding = "12x6", radius = R, hover = hover, hovertext = p.text, pressed = selected,
@@ -219,10 +222,12 @@ function M.build(p)
             bg = chosen, fg = p.text, font = p.font, border = chosen, borderwidth = 0,
             padding = "12x6", radius = R, hover = chosen, hovertext = p.text, pressed = chosen,
         },
-        empty_title   = { fg = p.text, font = sized(p.font, 12), padding = "0x0" },
-        empty_hint    = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
+        settings_crumb = { fg = p.text, font = sized(HEADING, 12), padding = "0x0" },
+        settings_nav_group = { fg = p.textFaint or p.textMuted, font = sized(p.font, 9), padding = "12x8" },
+        empty_title   = { fg = p.text, font = sized(HEADING, 11), padding = "0x0" },
+        empty_hint    = { fg = p.textMuted, font = sized(p.font, 9), padding = "0x0" },
         settingsheader = {
-            bg = layer1, fg = p.text, font = sized(HEADING, 14),
+            bg = layer1, fg = p.text, font = sized(HEADING, 12),
             border = layer1, borderwidth = 0, radius = R,
             hover = hover, hovertext = p.text, pressed = selected,
         },
@@ -298,7 +303,7 @@ function M.build(p)
         },
         dropbutton    = {
             bg = well, fg = p.text, font = p.font,
-            border = border, borderwidth = 1, showborder = true, radius = R,
+            border = field_edge, borderwidth = 1, showborder = true, radius = R,
             padding = "10x4",
             hover = hover, hovertext = p.text,
             pressed = selected, pressedtext = p.text,
@@ -322,6 +327,7 @@ function M.build(p)
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         outputlog     = {
+            font = "Consolas, 9",
             bg = layer1, fg = p.text, border = layer1,
             scrollbg = layer1, scrollfg = borderS,
         },
@@ -347,7 +353,7 @@ function M.build(p)
         -- flatframe wrappers extensions put around text fields take `text` as
         -- their THEMEROLE, so the radius here rounds the wrapper (flatframe
         -- honours it) while the native field inside ignores it.
-        text      = { bg = well, fg = p.text, font = p.font, border = border, radius = R, padding = "4x2" },
+        text      = { bg = well, fg = p.text, font = p.font, border = field_edge, radius = R, padding = "4x2" },
         multiline = { bg = well, fg = p.text, font = p.font, border = border, padding = "0x6" },
         list      = { bg = layer1, fg = p.text, font = p.font, border = borderS, padding = "0x6" },
         flatlist      = scroll({
@@ -356,6 +362,11 @@ function M.build(p)
             scrollbg = well, itemradius = R, padding = ROW_PAD, itemmarker = p.accent,
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
+        flatrows = scroll({ bg = well, fg = p.text, secondary = p.textMuted, font = p.font,
+            border = border, radius = RF, itemradius = R, itemmarker = p.accent,
+            selbg = chosen, seltext = p.text, hover = hover, scrollbg = well }),
+        flatsegmented = { bg = layer1, fg = p.textMuted, font = p.font,
+            border = border, radius = R, selbg = chosen, seltext = p.text },
         -- A field edge in focus. core.ui.FlatField swaps its frame to this role.
         -- A container for content: a recessed fill with the same edge everywhere.
         well = { bg = layer1, fg = p.text, font = p.font, border = border, radius = RF, sheen = sheen },
@@ -367,15 +378,15 @@ function M.build(p)
             hover = hover, pressed = selected,
         },
         commandbar = {
-            bg = well, fg = p.textMuted, font = sized(p.font, 10),
+            bg = well, fg = p.textMuted, font = sized(p.font, 9),
             border = border, borderwidth = 1, showborder = true, radius = R,
-            padding = "12x6",
+            padding = "10x3",
             hover = hover, hovertext = p.text,
             pressed = selected, pressedtext = p.text,
         },
-        palette_text = { bg = elevated, fg = p.text, font = sized(p.font, 12) },
-        palette_prompt = { bg = elevated, fg = p.textMuted, font = sized(p.font, 12), padding = "0x0" },
-        palette_hint = { bg = elevated, fg = p.textMuted, font = sized(p.font, 10) },
+        palette_text = { bg = elevated, fg = p.text, font = sized(p.font, 11) },
+        palette_prompt = { bg = elevated, fg = p.textMuted, font = sized(p.font, 11), padding = "0x0" },
+        palette_hint = { bg = elevated, fg = p.textMuted, font = sized(p.font, 9) },
         snap_preview = { bg = p.accent, fg = p.accent, border = p.accent },
         palette_frame = { bg = elevated, fg = p.text, font = p.font, border = borderS,
                           radius = RF, sheen = sheen },
@@ -384,6 +395,10 @@ function M.build(p)
             radius = R, scrollbg = elevated, itemradius = R, itemmarker = p.accent,
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
+        codeview_corner = { bg = layer1, fg = p.textMuted, border = layer1, borderwidth = 0 },
+        palette_rows = scroll({ bg = elevated, fg = p.text, secondary = p.textMuted, font = p.font,
+            border = elevated, borderwidth = 0, radius = R, scrollbg = elevated, itemradius = R,
+            itemmarker = p.accent, selbg = chosen, seltext = p.text, selalpha = "0", hover = hover }),
         progressbar   = { bg = layer1, fg = p.accent, border = border },
         -- An idle gauge is invisible: the track matches the page, so only real progress shows.
         gauge         = { bg = layer1, fg = p.accent, border = layer1, notext = true },

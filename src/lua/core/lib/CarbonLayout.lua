@@ -396,6 +396,31 @@ function M.setProgress(iup, gauge, value, anchor)
 	require("core.ui.Kit").show(iup, gauge, running, anchor)
 end
 
+--- The two widths a page's side column may have. Every rail and master list uses one of
+-- them, so moving between tools does not move the content's left edge.
+M.SIDE = { narrow = 320, wide = 400 }
+
+--- A page with a fixed side column and a main area that takes the rest.
+-- @tparam userdata iup
+-- @tparam table opts `side`, `main`, `width` (default `M.SIDE.narrow`)
+-- @treturn ihandle the row
+function M.railPage(iup, opts)
+	local width = opts.width or M.SIDE.narrow
+	return iup.hbox({
+		-- The width on an empty box inside: a box with children measures itself from them.
+		iup.vbox({ iup.hbox({ RASTERSIZE = M.size(width) }), opts.side, EXPAND = "VERTICAL", MARGIN = "0x0" }),
+		opts.main,
+		GAP = M.gap(5), EXPAND = "YES", MARGIN = "0x0",
+	})
+end
+
+--- A list on the left and what it selects on the right: `railPage` at the wide width.
+-- @tparam userdata iup
+-- @tparam table opts `list`, `detail`, `width` (default `M.SIDE.wide`)
+function M.masterDetail(iup, opts)
+	return M.railPage(iup, { side = opts.list, main = opts.detail, width = opts.width or M.SIDE.wide })
+end
+
 --- Snap an arbitrary pixel value to the nearest step on the scale.
 --
 -- For migrating existing literals: it reports what a hand-tuned value should have

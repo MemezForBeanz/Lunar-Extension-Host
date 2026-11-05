@@ -5,9 +5,16 @@
 --   Lunar scripts/ui_capture.lua <out_dir> [prefix]
 -- Point %APPDATA% at a scratch folder first so the run leaves real settings alone.
 -- Output is 32-bit BMP (<out_dir>/<prefix>-NN-<tab>.bmp); convert with any tool.
+-- A page with a fixture in scripts/ui_fixtures.lua gets a second shot, <tab>-data.
+-- Set LUNAR_CAPTURE_SIZE=680x900 to walk the pages at that window size, not maximized.
 
 local iup = require("iup")
 local ffi = require("ffi")
+
+-- Nobody is there to dismiss a dialog, and one would stop the run with nothing to show for it.
+iup.Message = function(title, text)
+	io.stderr:write("ui_capture: ", tostring(title), ": ", tostring(text), string.char(10))
+end
 
 local out_dir = (arg and arg[1]) or "."
 local prefix = (arg and arg[2]) or "shot"
@@ -23,6 +30,8 @@ int BitBlt(void*, int, int, int, int, void*, int, int, unsigned);
 void* GetDC(void*);
 int ReleaseDC(void*, void*);
 int PrintWindow(void*, void*, unsigned);
+int ShowWindow(void*, int);
+int MoveWindow(void*, int, int, int, int, int);
 void* CreateCompatibleDC(void*);
 void* CreateCompatibleBitmap(void*, int, int);
 void* SelectObject(void*, void*);
@@ -166,6 +175,49 @@ local function fill_lists(h)
 	end
 end
 
+-- Work for the Activity shots: two real jobs (a slow tool that can be cancelled, and one
+-- that fails on the spot) and the kinds of entry the org packs make through ctx:activity.
+local activity_scene = {}
+
+local function owner_named(host, name)
+	for owner, manifest in pairs(host._manifest_by_owner) do
+		if manifest.name == name then return owner end
+	end
+end
+
+function activity_scene.start(shell)
+	local host = shell.host
+	-- A batch file, because the JSON's quotes wouldn't survive a command line.
+	local tool = out_dir .. "/activity-job.cmd"
+	local file = assert(io.open(tool, "w"))
+	file:write("@echo {\"v\":1,\"type\":\"progress\",\"done\":46,\"total\":100,\"message\":\"Uploading 675.30\"}\n")
+	file:write("@ping -n 60 127.0.0.1 >nul\n")
+	file:close()
+	activity_scene.job = assert(host:startJob({
+		argv = { "cmd", "/c", (tool:gsub("/", "\\")) },
+		activity = { title = "Black Duck scan", cancel = true },
+	}, owner_named(host, "Black Duck")))
+	assert(host:startJob({
+		argv = { "cmd", "/c", "exit 3" }, activity = { title = "Release check" },
+	}, owner_named(host, "Black Duck Server") or owner_named(host, "Black Duck")))
+	local stop = function() end
+	activity_scene.queue = host:activity({ title = "Build Queue", cancel = stop },
+		owner_named(host, "Build Queue"))
+	activity_scene.queue:progress(3, 12, "Building RomBuilder")
+	activity_scene.flash = host:activity({ title = "Firmware flash" }, owner_named(host, "iLO Redfish"))
+	activity_scene.flash:progress(55, 100, "ilo6_307.fwpkg")
+	host:activity({ title = "Log Parser" }, owner_named(host, "Log Parser"))
+		:finish(true, "12 failures across 4 files in 8.2 s")
+end
+
+function activity_scene.finish(shell)
+	shell.host:activityStore():cancel(shell.host:activityStore():running()[1].id)
+	activity_scene.queue:finish(false, "2 of 12 failed")
+	activity_scene.flash:finish(true, "Firmware flash finished.")
+end
+
+local fixtures = dofile((LUNAR_SOURCE_DIR or ".") .. "/scripts/ui_fixtures.lua")
+
 local real_mainloop = iup.MainLoop
 iup.MainLoop = function()
 	local state, dlg, pages, index = 0, nil, nil, 1
@@ -180,6 +232,12 @@ iup.MainLoop = function()
 		local function snap(name)
 			save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(dlg), "HWND")),
 				string.format("%s/%s-%s.bmp", out_dir, prefix, name), whole_window)
+		end
+		-- One window's own pixels, whatever is over it: a shared desktop can cover the
+		-- status bar, and a screen grab would then show the taskbar instead.
+		local function snap_window(window, name)
+			save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(window), "HWND")),
+				string.format("%s/%s-%s.bmp", out_dir, prefix, name), false)
 		end
 		if scene == 1 then
 			shell.palette:open("")
@@ -200,6 +258,70 @@ iup.MainLoop = function()
 		elseif scene == 7 then
 			snap("92-menu")
 			shell.palette:close()
+			-- Another window taking focus would dismiss the panel between shots.
+			shell.activity._hasFocus = function() return true end
+			shell.activity:open()
+		elseif scene == 8 then
+			snap_window(shell.activity._dialog, "93-activity-empty")
+			shell.activity:close()
+			activity_scene.start(shell)
+		elseif scene == 10 then
+			snap_window(dlg, "94-activity-running") -- the bar's slot, with the panel shut
+			shell.activity:open()
+			shell.activity:_move(2) -- onto the Build Queue row, which offers both actions
+		elseif scene == 11 then
+			snap_window(shell.activity._dialog, "95-activity")
+			snap("95-activity-over-app")
+			shell.activity:close()
+			activity_scene.finish(shell)
+		elseif scene == 12 then
+			snap_window(dlg, "96-activity-result")
+			-- LUNAR_CAPTURE_CODE=path: a real file in the Code tab, against whatever language
+			-- server this machine has, through the path a user takes.
+			local code_file = os.getenv("LUNAR_CAPTURE_CODE")
+			if not (code_file and shell.code) then return false end
+			local opened, why = shell.code:open(code_file, { line = 1 })
+			io.stderr:write("ui_capture: open ", tostring(opened), " ", tostring(why), string.char(10))
+		elseif scene == 34 then -- about 20 seconds: a server has to index before it reports
+			io.stderr:write("ui_capture: servers ", tostring(shell.code:_serverSummary()), string.char(10))
+			snap_window(dlg, "97-code")
+			shell.code:showProblems()
+		elseif scene == 36 then
+			snap_window(dlg, "98-problems")
+			local doc = shell.code:_current()
+			local say = function(...) io.stderr:write("ui_capture: ", table.concat({ ... }, " "), string.char(10)) end
+			shell.code._scene = { doc = doc, say = say }
+			local point = doc.view:pointOf(1, 0)
+			doc.binder:_hover(tonumber(os.getenv("LUNAR_CAPTURE_HOVER_LINE")) or 7,
+				tonumber(os.getenv("LUNAR_CAPTURE_HOVER_COLUMN")) or 16, point)
+		elseif scene == 39 then
+			local run = shell.code._scene
+			run.say("hover open", tostring(run.doc.binder._popup:isOpen("hover")))
+			snap("99-hover")
+			run.doc.binder._popup:hide("hover")
+			shell.code:toggleEdit()
+			run.doc.view:goTo(tonumber(os.getenv("LUNAR_CAPTURE_LIST_LINE")) or 8,
+				tonumber(os.getenv("LUNAR_CAPTURE_LIST_COLUMN")) or 14)
+			run.say("complete asked", tostring(run.doc.binder:complete()))
+		elseif scene == 42 then
+			local run = shell.code._scene
+			run.say("list open", tostring(run.doc.binder._popup:isOpen("list")),
+				"items", tostring(#(run.doc.binder._list_items or {})))
+			snap("99-list")
+			run.doc.binder:_closeList()
+			run.doc.view:goTo(3, 0)
+			run.doc.binder:definition(tonumber(os.getenv("LUNAR_CAPTURE_HOVER_LINE")) or 7,
+				tonumber(os.getenv("LUNAR_CAPTURE_HOVER_COLUMN")) or 16)
+		elseif scene == 45 then
+			local run = shell.code._scene
+			run.say("definition caret line", tostring((run.doc.view:caret())))
+			run.say("pane focus", tostring(pcall(function() shell.panes:toggleFocus() end)),
+				tostring(shell.panes:isFocused()))
+		elseif scene == 47 then
+			snap_window(dlg, "99-focus")
+			shell.panes:restoreFocus()
+		elseif scene == 49 then
+			snap_window(dlg, "99-focus-restored")
 			return false
 		end
 		return true
@@ -223,6 +345,13 @@ iup.MainLoop = function()
 			dlg = main_dialog()
 			if not dlg then return iup.DEFAULT end
 			pages = leaves(find_strip(dlg), {}, {})
+			local width, height = (os.getenv("LUNAR_CAPTURE_SIZE") or ""):match("^(%d+)x(%d+)$")
+			if width then
+				local IupFFI = require("core.classes.IupFFI")
+				local hwnd = ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(dlg), "HWND"))
+				user32.ShowWindow(hwnd, 9) -- SW_RESTORE
+				user32.MoveWindow(hwnd, 0, 0, tonumber(width), tonumber(height), 1)
+			end
 			fill_lists(dlg)
 			for _, p in ipairs(pages) do
 				for _, s in ipairs(p.path) do iup.SetAttribute(s.strip, "VALUEPOS", tostring(s.pos)) end
@@ -243,8 +372,19 @@ iup.MainLoop = function()
 		else
 			local slug = page.title:lower():gsub("[^%w]+", "-")
 			local IupFFI = require("core.classes.IupFFI")
-			save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(dlg), "HWND")), string.format("%s/%s-%02d-%s.bmp",
-				out_dir, prefix, index / 2, slug), whole_window)
+			local function shoot(suffix)
+				save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(dlg), "HWND")), string.format("%s/%s-%02d-%s%s.bmp",
+					out_dir, prefix, index / 2, slug, suffix), whole_window)
+			end
+			local fixture = fixtures.for_tab(rawget(_G, "LUNAR_DEV_SHELL") or {}, page.title)
+			page.stage = (page.stage or 0) + 1
+			if page.stage == 1 then shoot("") end
+			if fixture and page.stage <= 2 then
+				fixture()
+				iup.Refresh(dlg)
+				return iup.DEFAULT
+			end
+			if fixture then shoot("-data") end
 		end
 		index = index + 1
 		return iup.DEFAULT

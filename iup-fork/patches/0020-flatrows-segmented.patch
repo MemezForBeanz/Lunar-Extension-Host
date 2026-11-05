@@ -1,0 +1,443 @@
+diff --git a/include/iup.h b/include/iup.h
+index 6665b08..8a8b6d1 100644
+--- a/include/iup.h
++++ b/include/iup.h
+@@ -252,6 +252,8 @@ IUP_API Ihandle*  IupThread     (void);
+ IUP_API Ihandle*  IupLabel      (const char* title);
+ IUP_API Ihandle*  IupList       (const char* action);
+ IUP_API Ihandle*  IupFlatList   (void);
++IUP_API Ihandle*  IupFlatRows   (void);
++IUP_API Ihandle*  IupFlatSegmented(void);
+ IUP_API Ihandle*  IupText       (const char* action);
+ IUP_API Ihandle*  IupMultiLine  (const char* action);
+ IUP_API Ihandle*  IupToggle     (const char* title, const char* action);
+diff --git a/src/iup_flatrows.c b/src/iup_flatrows.c
+new file mode 100644
+index 0000000..458d22a
+--- /dev/null
++++ b/src/iup_flatrows.c
+@@ -0,0 +1,277 @@
++/* Lunar virtual row list: only visible rows are queried and painted. */
++#include <stdlib.h>
++#include <stdio.h>
++#include <string.h>
++#include "iup.h"
++#include "iupcbs.h"
++#include "iup_object.h"
++#include "iup_attrib.h"
++#include "iup_str.h"
++#include "iup_drv.h"
++#include "iup_stdcontrols.h"
++#include "iup_register.h"
++#include "iup_drvfont.h"
++#include "iup_drvdraw.h"
++#include "iup_draw.h"
++#include "iup_flatscrollbar.h"
++
++struct _IcontrolData { iupCanvas canvas; int count, selected, hover, focused; };
++
++static int rows_height(Ihandle* ih) { return iupAttribGetInt(ih, "ROWHEIGHT") == 44 ? 44 : 32; }
++static int rows_count(Ihandle* ih) { return ih->data->count; }
++static char* rows_value(Ihandle* ih, const char* field, int pos)
++{
++  char* value = IupGetAttributeId(ih, field, pos);
++  if (!value)
++  {
++    typedef char* (*RowValueCb)(Ihandle*, int, const char*);
++    RowValueCb cb = (RowValueCb)IupGetCallback(ih, "ROWVALUE_CB");
++    if (cb) value = cb(ih, pos, field);
++  }
++  return value;
++}
++static void rows_refresh(Ihandle* ih)
++{
++  int total = rows_count(ih) * rows_height(ih);
++  IupSetInt(ih, "YMAX", total);
++  IupSetInt(ih, "DY", ih->currentheight > 0 ? ih->currentheight : 1);
++  IupSetInt(ih, "XMAX", 0);  /* rows never scroll sideways; this is what hides that bar */
++  IupSetInt(ih, "DX", ih->currentwidth > 0 ? ih->currentwidth : 1);
++  if (ih->handle) iupdrvRedrawNow(ih);
++}
++static int rows_set_count(Ihandle* ih, const char* value)
++{
++  int n = value ? atoi(value) : 0;
++  ih->data->count = n > 0 ? n : 0;
++  if (ih->data->selected > ih->data->count) ih->data->selected = 0;
++  rows_refresh(ih);
++  return 0;
++}
++static char* rows_get_count(Ihandle* ih) { return iupStrReturnInt(ih->data->count); }
++static int rows_set_value(Ihandle* ih, const char* value)
++{
++  int pos = value ? atoi(value) : 0;
++  ih->data->selected = pos >= 1 && pos <= ih->data->count ? pos : 0;
++  if (ih->handle) iupdrvRedrawNow(ih);
++  return 0;
++}
++static char* rows_get_value(Ihandle* ih) { return iupStrReturnInt(ih->data->selected); }
++static char* rows_get_accessible(Ihandle* ih)
++{
++  int pos = ih->data->selected;
++  return pos ? rows_value(ih, "TITLE", pos) : NULL;
++}
++static char* rows_get_idvalue(Ihandle* ih, int pos) { return rows_value(ih, "TITLE", pos); }
++static int rows_redraw(Ihandle* ih)
++{
++  IdrawCanvas* dc = iupdrvDrawCreateCanvas(ih);
++  int w, h, rh = rows_height(ih), scroll = IupGetInt(ih, "POSY"), first, last, pos;
++  char* bg = IupGetAttribute(ih, "BGCOLOR");
++  char* fg = IupGetAttribute(ih, "FGCOLOR");
++  char* font = IupGetAttribute(ih, "FONT");
++  long bgc = iupDrawStrToColor(bg, iupDrawColor(255,255,255,255));
++  long fgc = iupDrawStrToColor(fg, iupDrawColor(30,30,30,255));
++  int charheight;
++  iupdrvFontGetCharSize(ih, NULL, &charheight);
++  iupdrvDrawGetSize(dc, &w, &h);
++  iupdrvDrawRectangle(dc, 0, 0, w-1, h-1, bgc, IUP_DRAW_FILL, 1);
++  if (ih->data->count == 0)
++  {
++    char* empty = IupGetAttribute(ih, "EMPTYTITLE");
++    char* hint = IupGetAttribute(ih, "EMPTYHINT");
++    if (empty) iupdrvDrawText(dc, empty, (int)strlen(empty), 16, h/2-22, w-32, 26, fgc, font,
++      IUP_DRAW_CENTER|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
++    if (hint) iupdrvDrawText(dc, hint, (int)strlen(hint), 16, h/2+5, w-32, 22,
++      iupDrawStrToColor(IupGetAttribute(ih,"SECONDARYCOLOR"), fgc), font,
++      IUP_DRAW_CENTER|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
++  }
++  first = scroll / rh + 1;
++  last = (scroll + h) / rh + 1;
++  if (last > ih->data->count) last = ih->data->count;
++  for (pos = first; pos <= last; pos++)
++  {
++    int y = (pos-1)*rh-scroll, x = 12, right = w-12, slot;
++    int line = y + (rh - charheight)/2;  /* the driver draws from the top of the box it is given */
++    char* title = rows_value(ih, "TITLE", pos);
++    char* image = rows_value(ih, "IMAGE", pos);
++    char* secondary = rh == 44 ? rows_value(ih, "SECONDARY", pos) : NULL;
++    char* action = rows_value(ih, "ACTIONTEXT", pos);
++    long text_color = fgc;
++    if (pos == ih->data->selected)
++    {
++      char* fill = IupGetAttribute(ih, "PSCOLOR");
++      char* marker = IupGetAttribute(ih, "ITEMMARKERCOLOR");
++      char* textps = IupGetAttribute(ih, "TEXTPSCOLOR");
++      long fillc = iupDrawStrToColor(fill, bgc);
++      int radius = IupGetInt(ih, "ITEMRADIUS");
++      if (radius > 0) iupFlatDrawRoundBox(dc, 4, w-5, y+1, y+rh-2, radius, fill, bg, 1);
++      else iupdrvDrawRectangle(dc, 4, y, w-5, y+rh-1, fillc, IUP_DRAW_FILL, 1);
++      if (marker) iupdrvDrawRectangle(dc, 5, y+6, 7, y+rh-7, iupDrawStrToColor(marker, fgc), IUP_DRAW_FILL, 1);
++      if (textps) text_color = iupDrawStrToColor(textps, fgc);
++    }
++    else if (pos == ih->data->hover)
++      iupdrvDrawRectangle(dc, 4, y+1, w-5, y+rh-2,
++        iupDrawStrToColor(IupGetAttribute(ih, "HLCOLOR"), bgc), IUP_DRAW_FILL, 1);
++    if (image) { iupdrvDrawImage(dc, image, 0, bg, x, y+(rh-16)/2, 16, 16); x += 24; }
++    if (action && pos == ih->data->hover)
++    {
++      right -= 54;
++      iupdrvDrawText(dc, action, (int)strlen(action), right, line, 54, charheight, text_color, font,
++        IUP_DRAW_RIGHT|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_CLIP, 0);
++    }
++    for (slot = 3; slot >= 1; slot--)
++    {
++      char field[16], widthfield[16]; char* value; int width;
++      sprintf(field, "COLUMN%d", slot); sprintf(widthfield, "COLUMN%dWIDTH", slot);
++      width = IupGetInt(ih, widthfield);
++      value = width > 0 ? rows_value(ih, field, pos) : NULL;
++      if (width > 0)
++      {
++        right -= width;
++        if (value) iupdrvDrawText(dc, value, (int)strlen(value), right, line, width-8, charheight,
++          iupDrawStrToColor(IupGetAttribute(ih, "SECONDARYCOLOR"), fgc), font,
++          IUP_DRAW_RIGHT|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
++      }
++    }
++    if (title) iupdrvDrawText(dc, title, (int)strlen(title), x, secondary ? y+3 : line, right-x, secondary ? 21 : charheight,
++      text_color, font, IUP_DRAW_LEFT|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
++    if (secondary) iupdrvDrawText(dc, secondary, (int)strlen(secondary), x, y+23, right-x, 16,
++      iupDrawStrToColor(IupGetAttribute(ih, "SECONDARYCOLOR"), fgc), font,
++      IUP_DRAW_LEFT|IUP_DRAW_ELLIPSIS, 0);
++    if (ih->data->focused && pos == ih->data->selected && IupGetInt(ih, "FOCUSFEEDBACK"))
++      iupdrvDrawFocusRect(dc, 4, y+1, w-5, y+rh-2);
++  }
++  iupdrvDrawFlush(dc); iupdrvDrawKillCanvas(dc);
++  return IUP_DEFAULT;
++}
++static int rows_select(Ihandle* ih, int pos)
++{
++  if (pos < 1 || pos > ih->data->count) return IUP_DEFAULT;
++  if (pos != ih->data->selected)
++  {
++    typedef int (*ActionCb)(Ihandle*, int);
++    ih->data->selected = pos;
++    if (IupGetCallback(ih, "ROW_ACTION_CB")) ((ActionCb)IupGetCallback(ih, "ROW_ACTION_CB"))(ih, pos);
++    if (IupGetCallback(ih, "VALUECHANGED_CB")) ((IFn)IupGetCallback(ih, "VALUECHANGED_CB"))(ih);
++  }
++  if ((pos-1)*rows_height(ih) < IupGetInt(ih, "POSY")) IupSetInt(ih, "POSY", (pos-1)*rows_height(ih));
++  else if (pos*rows_height(ih) > IupGetInt(ih, "POSY")+ih->currentheight)
++    IupSetInt(ih, "POSY", pos*rows_height(ih)-ih->currentheight);
++  iupdrvRedrawNow(ih);
++  return IUP_DEFAULT;
++}
++static int rows_button(Ihandle* ih, int button, int pressed, int x, int y, char* status)
++{
++  int pos = (y+IupGetInt(ih, "POSY"))/rows_height(ih)+1;
++  typedef int (*RowCb)(Ihandle*, int, const char*);
++  if (!pressed || pos < 1 || pos > ih->data->count) return IUP_DEFAULT;
++  if (button == IUP_BUTTON3) { if (IupGetCallback(ih, "ROW_CONTEXT_CB")) ((RowCb)IupGetCallback(ih, "ROW_CONTEXT_CB"))(ih,pos,"context"); return IUP_DEFAULT; }
++  if (button != IUP_BUTTON1) return IUP_DEFAULT;
++  rows_select(ih, pos);
++  if (IupGetCallback(ih, "ROW_PART_CB"))
++    ((RowCb)IupGetCallback(ih, "ROW_PART_CB"))(ih,pos,
++      rows_value(ih,"ACTIONTEXT",pos) && x >= ih->currentwidth-66 ? "action" : "row");
++  if (iup_isdouble(status) && IupGetCallback(ih, "ROW_ACTIVATE_CB"))
++    ((RowCb)IupGetCallback(ih, "ROW_ACTIVATE_CB"))(ih,pos,"double");
++  return IUP_DEFAULT;
++}
++static int rows_motion(Ihandle* ih, int x, int y, char* status)
++{
++  int pos = (y+IupGetInt(ih,"POSY"))/rows_height(ih)+1;
++  ih->data->hover = pos <= ih->data->count ? pos : 0;
++  iupFlatScrollBarMotionUpdate(ih,x,y);
++  iupdrvRedrawNow(ih); (void)status; return IUP_DEFAULT;
++}
++static int rows_focus(Ihandle* ih, int focus) { ih->data->focused=focus; iupdrvRedrawNow(ih); return IUP_DEFAULT; }
++static int rows_up(Ihandle* ih) { return rows_select(ih, ih->data->selected > 1 ? ih->data->selected-1 : 1); }
++static int rows_down(Ihandle* ih) { return rows_select(ih, ih->data->selected+1); }
++static int rows_home(Ihandle* ih) { return rows_select(ih,1); }
++static int rows_end(Ihandle* ih) { return rows_select(ih,ih->data->count); }
++static int rows_pgup(Ihandle* ih) { return rows_select(ih,ih->data->selected-ih->currentheight/rows_height(ih)); }
++static int rows_pgdn(Ihandle* ih) { return rows_select(ih,ih->data->selected+ih->currentheight/rows_height(ih)); }
++static int rows_enter(Ihandle* ih)
++{
++  typedef int (*RowCb)(Ihandle*, int, const char*);
++  if (ih->data->selected && IupGetCallback(ih,"ROW_ACTIVATE_CB"))
++    ((RowCb)IupGetCallback(ih,"ROW_ACTIVATE_CB"))(ih,ih->data->selected,"enter");
++  return IUP_IGNORE;
++}
++static int rows_wheel(Ihandle* ih, float delta) { iupFlatScrollBarWheelUpdate(ih,delta); return IUP_DEFAULT; }
++static int rows_scroll(Ihandle* ih, int op, float posx, float posy) { (void)op; (void)posx; (void)posy; iupdrvRedrawNow(ih); return IUP_DEFAULT; }
++static int rows_resize(Ihandle* ih, int w, int h) { (void)w; (void)h; rows_refresh(ih); return IUP_DEFAULT; }
++static int rows_set_scrollbar(Ihandle* ih, const char* value)
++{
++  if (ih->handle) return IUP_DEFAULT;
++  if (value && !iupStrEqualNoCase(value,"NO") && iupFlatScrollBarCreate(ih))
++  { IupSetAttribute(ih,"SCROLLBAR","NO"); IupSetCallback(ih,"WHEEL_CB",(Icallback)rows_wheel); }
++  return 1;
++}
++static int rows_post_redraw(Ihandle* ih, const char* value) { if (ih->handle) iupdrvRedrawNow(ih); return 1; }
++static int rows_set_height(Ihandle* ih, const char* value)
++{
++  int height = value && atoi(value) == 44 ? 44 : 32;
++  IupSetInt(ih,"YMAX",ih->data->count*height);
++  if (ih->handle) iupdrvRedrawNow(ih);
++  return 1;
++}
++static void rows_size(Ihandle* ih, int* w, int* h, int* expand) { *w=240; *h=rows_height(ih)*5; (void)expand; }
++static void rows_child_size(Ihandle* ih, int shrink) { if (iupFlatScrollBarGet(ih)) iupFlatScrollBarSetChildrenCurrentSize(ih,shrink); }
++static void rows_child_pos(Ihandle* ih, int x, int y) { if (iupFlatScrollBarGet(ih)) iupFlatScrollBarSetChildrenPosition(ih); (void)x; (void)y; }
++static void rows_destroy(Ihandle* ih) { iupFlatScrollBarRelease(ih); }
++static int rows_create(Ihandle* ih, void** params)
++{
++  free(ih->data); ih->data=iupALLOCCTRLDATA(); (void)params;
++  IupSetAttribute(ih,"EXPAND","YES"); IupSetAttribute(ih,"SCROLLBAR","VERTICAL");
++  IupSetCallback(ih,"ACTION",(Icallback)rows_redraw);
++  IupSetCallback(ih,"BUTTON_CB",(Icallback)rows_button);
++  IupSetCallback(ih,"MOTION_CB",(Icallback)rows_motion);
++  IupSetCallback(ih,"FOCUS_CB",(Icallback)rows_focus);
++  IupSetCallback(ih,"RESIZE_CB",(Icallback)rows_resize);
++  IupSetCallback(ih,"SCROLL_CB",(Icallback)rows_scroll);
++  IupSetCallback(ih,"K_UP",(Icallback)rows_up); IupSetCallback(ih,"K_DOWN",(Icallback)rows_down);
++  IupSetCallback(ih,"K_HOME",(Icallback)rows_home); IupSetCallback(ih,"K_END",(Icallback)rows_end);
++  IupSetCallback(ih,"K_PGUP",(Icallback)rows_pgup); IupSetCallback(ih,"K_PGDN",(Icallback)rows_pgdn);
++  IupSetCallback(ih,"K_CR",(Icallback)rows_enter);
++  return IUP_NOERROR;
++}
++IUP_API Ihandle* IupFlatRows(void) { return IupCreate("flatrows"); }
++Iclass* iupFlatRowsNewClass(void)
++{
++  Iclass* ic=iupClassNew(iupRegisterFindClass("canvas"));
++  ic->name="flatrows"; ic->cons="FlatRows"; ic->nativetype=IUP_TYPECANVAS;
++  ic->childtype=IUP_CHILDNONE; ic->is_interactive=1; ic->has_attrib_id=1;
++  ic->New=iupFlatRowsNewClass; ic->Create=rows_create; ic->Destroy=rows_destroy;
++  ic->ComputeNaturalSize=rows_size; ic->SetChildrenCurrentSize=rows_child_size; ic->SetChildrenPosition=rows_child_pos;
++  iupClassRegisterReplaceAttribDef(ic,"BORDER","NO",NULL);
++  iupClassRegisterCallback(ic,"ROWVALUE_CB","is");
++  iupClassRegisterCallback(ic,"ROW_ACTION_CB","i");
++  iupClassRegisterCallback(ic,"ROW_PART_CB","is");
++  iupClassRegisterCallback(ic,"ROW_ACTIVATE_CB","is");
++  iupClassRegisterCallback(ic,"ROW_CONTEXT_CB","is");
++  iupClassRegisterCallback(ic,"VALUECHANGED_CB","");
++  iupClassRegisterAttribute(ic,"COUNT",rows_get_count,rows_set_count,"0",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic,"VALUE",rows_get_value,rows_set_value,"0",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic,"ACCESSIBLEVALUE",rows_get_accessible,NULL,NULL,NULL,IUPAF_READONLY|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic,"ROWHEIGHT",NULL,rows_set_height,"32",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttributeId(ic,"IDVALUE",rows_get_idvalue,NULL,IUPAF_READONLY|IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic,"VALUESTRING",rows_get_accessible,NULL,NULL,NULL,IUPAF_READONLY|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic,"FGCOLOR",NULL,rows_post_redraw,IUP_FLAT_FORECOLOR,NULL,IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic,"BGCOLOR",NULL,rows_post_redraw,IUP_FLAT_BACKCOLOR,NULL,IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic,"PSCOLOR",NULL,rows_post_redraw,NULL,NULL,IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic,"HLCOLOR",NULL,rows_post_redraw,NULL,NULL,IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic,"TEXTPSCOLOR",NULL,rows_post_redraw,NULL,NULL,IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic,"SECONDARYCOLOR",NULL,rows_post_redraw,NULL,NULL,IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic,"ITEMMARKERCOLOR",NULL,rows_post_redraw,NULL,NULL,IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic,"ITEMRADIUS",NULL,rows_post_redraw,"6",NULL,IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic,"FOCUSFEEDBACK",NULL,NULL,"YES",NULL,IUPAF_NO_INHERIT);
++  iupClassRegisterAttributeId(ic,"TITLE",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttributeId(ic,"SECONDARY",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttributeId(ic,"IMAGE",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttributeId(ic,"ACTIONTEXT",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttributeId(ic,"COLUMN1",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttributeId(ic,"COLUMN2",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttributeId(ic,"COLUMN3",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic,"FLATSCROLLBAR",NULL,rows_set_scrollbar,"YES",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupFlatScrollBarRegister(ic);
++  return ic;
++}
+diff --git a/src/iup_flatsegmented.c b/src/iup_flatsegmented.c
+new file mode 100644
+index 0000000..ce7bfc7
+--- /dev/null
++++ b/src/iup_flatsegmented.c
+@@ -0,0 +1,115 @@
++/* Lunar joined option control, 2-5 options on one canvas. */
++#include <stdlib.h>
++#include <string.h>
++#include "iup.h"
++#include "iupcbs.h"
++#include "iup_object.h"
++#include "iup_attrib.h"
++#include "iup_str.h"
++#include "iup_drv.h"
++#include "iup_stdcontrols.h"
++#include "iup_register.h"
++#include "iup_drvfont.h"
++#include "iup_drvdraw.h"
++#include "iup_draw.h"
++
++struct _IcontrolData { iupCanvas canvas; int count, value, focused; };
++static int seg_count(Ihandle* ih) { return ih->data->count; }
++static int seg_set_count(Ihandle* ih, const char* value)
++{
++  int n=value ? atoi(value) : 2;
++  ih->data->count=n<2 ? 2 : n>5 ? 5 : n;
++  if (ih->data->value >= ih->data->count) ih->data->value=ih->data->count-1;
++  if (ih->handle) iupdrvRedrawNow(ih);
++  return 0;
++}
++static char* seg_get_count(Ihandle* ih) { return iupStrReturnInt(ih->data->count); }
++static int seg_set_value(Ihandle* ih, const char* value)
++{
++  int n=value ? atoi(value) : 0;
++  ih->data->value=n<0 ? 0 : n>=ih->data->count ? ih->data->count-1 : n;
++  if (ih->handle) iupdrvRedrawNow(ih);
++  return 0;
++}
++static char* seg_get_value(Ihandle* ih) { return iupStrReturnInt(ih->data->value); }
++static int seg_redraw(Ihandle* ih)
++{
++  IdrawCanvas* dc=iupdrvDrawCreateCanvas(ih);
++  int w,h,i,r=IupGetInt(ih,"CORNERRADIUS"), active=IupGetInt(ih,"ACTIVE");
++  char* bg=IupGetAttribute(ih,"BGCOLOR"); char* sel=IupGetAttribute(ih,"PSCOLOR");
++  char* border=IupGetAttribute(ih,"BORDERCOLOR"); char* fg=IupGetAttribute(ih,"FGCOLOR");
++  char* seltext=IupGetAttribute(ih,"TEXTPSCOLOR"); char* font=IupGetAttribute(ih,"FONT");
++  int charheight;
++  iupdrvFontGetCharSize(ih,NULL,&charheight);
++  iupdrvDrawGetSize(dc,&w,&h);
++  iupDrawParentBackground(dc,ih);
++  if (r<1) r=7;
++  iupFlatDrawRoundBox(dc,0,w-1,0,h-1,r,bg,bg,active);
++  for (i=0;i<ih->data->count;i++)
++  {
++    int x1=i*w/ih->data->count, x2=(i+1)*w/ih->data->count-1;
++    char* title=IupGetAttributeId(ih,"TITLE",i);
++    if (i==ih->data->value)
++      iupFlatDrawRoundBox(dc,x1+2,x2-2,2,h-3,r-2,sel,bg,active);
++    if (title) iupdrvDrawText(dc,title,(int)strlen(title),x1+3,(h-charheight)/2,x2-x1-5,charheight,
++      iupDrawStrToColor(i==ih->data->value && seltext ? seltext : fg,0),font,
++      IUP_DRAW_CENTER|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS,0);
++  }
++  iupFlatDrawRoundBorder(dc,0,w-1,0,h-1,r,1,border,bg,active);
++  if (ih->data->focused && IupGetInt(ih,"FOCUSFEEDBACK"))
++    iupdrvDrawFocusRect(dc,2,2,w-3,h-3);
++  iupdrvDrawFlush(dc); iupdrvDrawKillCanvas(dc); return IUP_DEFAULT;
++}
++static int seg_select(Ihandle* ih, int pos)
++{
++  if (pos<0) pos=0; if (pos>=ih->data->count) pos=ih->data->count-1;
++  if (pos!=ih->data->value)
++  {
++    ih->data->value=pos;
++    if (IupGetCallback(ih,"VALUECHANGED_CB")) ((IFn)IupGetCallback(ih,"VALUECHANGED_CB"))(ih);
++    iupdrvRedrawNow(ih);
++  }
++  return IUP_IGNORE;
++}
++static int seg_button(Ihandle* ih,int button,int pressed,int x,int y,char* status)
++{ (void)y; (void)status; if (button==IUP_BUTTON1 && pressed && ih->currentwidth>0) return seg_select(ih,x*ih->data->count/ih->currentwidth); return IUP_DEFAULT; }
++static int seg_left(Ihandle* ih) { return seg_select(ih,ih->data->value-1); }
++static int seg_right(Ihandle* ih) { return seg_select(ih,ih->data->value+1); }
++static int seg_home(Ihandle* ih) { return seg_select(ih,0); }
++static int seg_end(Ihandle* ih) { return seg_select(ih,ih->data->count-1); }
++static int seg_focus(Ihandle* ih,int focused) { ih->data->focused=focused; iupdrvRedrawNow(ih); return IUP_DEFAULT; }
++static int seg_post(Ihandle* ih,const char* value) { (void)value; if (ih->handle) iupdrvRedrawNow(ih); return 1; }
++static void seg_size(Ihandle* ih,int* w,int* h,int* expand) { *w=ih->data->count*88; *h=32; (void)expand; }
++static int seg_create(Ihandle* ih,void** params)
++{
++  free(ih->data); ih->data=iupALLOCCTRLDATA(); ih->data->count=2; (void)params;
++  IupSetAttribute(ih,"EXPAND","NO");
++  IupSetCallback(ih,"ACTION",(Icallback)seg_redraw);
++  IupSetCallback(ih,"BUTTON_CB",(Icallback)seg_button);
++  IupSetCallback(ih,"FOCUS_CB",(Icallback)seg_focus);
++  IupSetCallback(ih,"K_LEFT",(Icallback)seg_left); IupSetCallback(ih,"K_UP",(Icallback)seg_left);
++  IupSetCallback(ih,"K_RIGHT",(Icallback)seg_right); IupSetCallback(ih,"K_DOWN",(Icallback)seg_right);
++  IupSetCallback(ih,"K_HOME",(Icallback)seg_home); IupSetCallback(ih,"K_END",(Icallback)seg_end);
++  return IUP_NOERROR;
++}
++IUP_API Ihandle* IupFlatSegmented(void) { return IupCreate("flatsegmented"); }
++Iclass* iupFlatSegmentedNewClass(void)
++{
++  Iclass* ic=iupClassNew(iupRegisterFindClass("canvas"));
++  ic->name="flatsegmented"; ic->cons="FlatSegmented"; ic->nativetype=IUP_TYPECANVAS;
++  ic->childtype=IUP_CHILDNONE; ic->is_interactive=1;
++  ic->New=iupFlatSegmentedNewClass; ic->Create=seg_create; ic->ComputeNaturalSize=seg_size;
++  iupClassRegisterReplaceAttribDef(ic,"BORDER","NO",NULL);
++  iupClassRegisterCallback(ic,"VALUECHANGED_CB","");
++  iupClassRegisterAttribute(ic,"COUNT",seg_get_count,seg_set_count,"2",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic,"VALUEPOS",seg_get_value,seg_set_value,"0",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic,"BGCOLOR",NULL,seg_post,IUP_FLAT_BACKCOLOR,NULL,IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic,"FGCOLOR",NULL,seg_post,IUP_FLAT_FORECOLOR,NULL,IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic,"PSCOLOR",NULL,seg_post,NULL,NULL,IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic,"TEXTPSCOLOR",NULL,seg_post,NULL,NULL,IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic,"BORDERCOLOR",NULL,seg_post,IUP_FLAT_BORDERCOLOR,NULL,IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic,"CORNERRADIUS",NULL,seg_post,"7",NULL,IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic,"FOCUSFEEDBACK",NULL,NULL,"YES",NULL,IUPAF_NO_INHERIT);
++  iupClassRegisterAttributeId(ic,"TITLE",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  return ic;
++}
+diff --git a/src/iup_register.c b/src/iup_register.c
+index 93bbea4..70fc196 100644
+--- a/src/iup_register.c
++++ b/src/iup_register.c
+@@ -172,6 +172,8 @@ void iupRegisterInternalClasses(void)
+   iupRegisterClassInternal(iupColorBrowserNewClass());
+   iupRegisterClassInternal(iupMultiBoxNewClass());
+   iupRegisterClassInternal(iupFlatListNewClass());
++  iupRegisterClassInternal(iupFlatRowsNewClass());
++  iupRegisterClassInternal(iupFlatSegmentedNewClass());
+   iupRegisterClassInternal(iupFlatValNewClass());
+   iupRegisterClassInternal(iupFlatTreeNewClass());
+ }
+diff --git a/src/iup_stdcontrols.h b/src/iup_stdcontrols.h
+index 6bb0174..23222c1 100644
+--- a/src/iup_stdcontrols.h
++++ b/src/iup_stdcontrols.h
+@@ -75,6 +75,8 @@ Iclass* iupParamBoxNewClass(void);
+ Iclass* iupParamNewClass(void);
+ Iclass* iupMultiBoxNewClass(void);
+ Iclass* iupFlatListNewClass(void);
++Iclass* iupFlatRowsNewClass(void);
++Iclass* iupFlatSegmentedNewClass(void);
+ Iclass* iupFlatValNewClass(void);
+ Iclass* iupFlatTreeNewClass(void);
+ 

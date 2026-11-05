@@ -18,6 +18,10 @@ int luaopen_iupraw(lua_State *L);
 int luaopen_themeapply(lua_State *L);
 int luaopen_svgicon(lua_State *L);
 int luaopen_appimages(lua_State *L);
+#ifdef LUNAR_HAVE_SCINTILLA
+/* IupScintilla for core.ui.CodeView (src/c/libs/scintilla_wrap.c). */
+int luaopen_sci(lua_State *L);
+#endif
 
 /* LuaSec C core (statically linked TLS transport). Registered so require("ssl")
  * and require("ssl.https") resolve for https:// backends. */
@@ -132,6 +136,11 @@ int main(int argc, char **argv)
     preload(L, "themeapply",   luaopen_themeapply);
     preload(L, "svgicon",      luaopen_svgicon);
     preload(L, "appimages",    luaopen_appimages);
+#ifdef LUNAR_HAVE_SCINTILLA
+    /* Opened on first require, so a session that never shows code never
+     * creates the Scintilla window class. */
+    preload(L, "sci",          luaopen_sci);
+#endif
 
     /* LuaSec TLS transport C modules (ssl.lua/https.lua glue is embedded). */
     preload(L, "ssl.core",     luaopen_ssl_core);

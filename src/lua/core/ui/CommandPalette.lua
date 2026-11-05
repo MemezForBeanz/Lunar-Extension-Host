@@ -10,13 +10,15 @@
 -- @classmod core.ui.CommandPalette
 
 local L = require("core.lib.CarbonLayout")
+local Kit = require("core.ui.Kit")
 
 local CommandPalette = {}
 CommandPalette.__index = CommandPalette
 
 -- Nine whole rows of 32px, plus the field, the rule and the hint. A height chosen any
 -- other way leaves a sliced row above the hint line.
-local WIDTH, ROW_HEIGHT, ROWS, CHROME = 720, 32, 9, 88
+local WIDTH, ROW_HEIGHT, ROWS, CHROME = 640, 32, 8, 92
+local CATEGORY_WIDTH, SHORTCUT_WIDTH, RECENT_MAX = 120, 72, 5
 local HEIGHT = ROW_HEIGHT * ROWS + CHROME
 
 -- A click on the list moves focus from the field to the list, and that fires the
@@ -45,6 +47,7 @@ function CommandPalette.new(opts)
 		_registry = opts.registry,
 		_parent = opts.parent,
 		_anchor = opts.anchor,
+		_settings = opts.settings,
 		_theme = opts.notify_tree_change,
 		_on_error = opts.on_error,
 		_round = opts.round,
@@ -66,17 +69,18 @@ function CommandPalette:_build()
 	-- A label floated over the empty field. Windows' own cue banner disappears on an edit
 	-- that has focus, and this one always does.
 	local prompt = iup.flatlabel({
-		TITLE = PLACEHOLDER, FLOATING = "YES", POSITION = "18,14", RASTERSIZE = "520x24", THEMEROLE = "palette_prompt",
+		TITLE = PLACEHOLDER, FLOATING = "YES", POSITION = "18,14", RASTERSIZE = "520x22", THEMEROLE = "palette_prompt",
 	})
-	local list = iup.flatlist({
-		EXPAND = "YES",
-		FLATSCROLLBAR = "YES",
-		SCROLLBAR = "NO",
-		SHOWDRAGDROP = "NO",
-		SPACING = "4",
-		PADDING = "12x4",
-		THEMEROLE = "palette_list",
+	-- Focus stays in the field, so the keyboard keeps typing whichever way a row is chosen.
+	self._rows = Kit.rowList(iup, {
+		role = "palette_rows",
+		column_widths = { CATEGORY_WIDTH, SHORTCUT_WIDTH, 0 },
+		on_part = function(pos) palette:_scheduleActivate(pos) end,
+		empty_title = "", empty_hint = "",
 	})
+	local list = self._rows.widget
+	iup.SetAttribute(list, "EXPAND", "YES")
+	iup.SetAttribute(list, "CANFOCUS", "NO")
 	local hint = iup.flatlabel({
 		EXPAND = "HORIZONTAL",
 		TITLE = HINT,
@@ -115,7 +119,6 @@ function CommandPalette:_build()
 		return iup.DEFAULT
 	end
 
-	-- k_any on both: focus lands on the list after a click, and Esc still has to work.
 	local function on_key(_, c)
 		if c == iup.K_ESC then
 			palette:close()
@@ -139,23 +142,9 @@ function CommandPalette:_build()
 		return iup.CONTINUE
 	end
 	field.k_any = on_key
-	list.k_any = on_key
 
 	function field:killfocus_cb()
 		palette:_scheduleFocusCheck()
-		return iup.DEFAULT
-	end
-	function list:killfocus_cb()
-		palette:_scheduleFocusCheck()
-		return iup.DEFAULT
-	end
-
-	-- The press selects the row; running on release means a press dragged off the
-	-- list cancels, like any other button.
-	function list:flat_button_cb(button, pressed)
-		if button == iup.BUTTON1 and pressed == 0 then
-			palette:_scheduleActivate()
-		end
 		return iup.DEFAULT
 	end
 
@@ -185,12 +174,12 @@ function CommandPalette:_scheduleFocusCheck()
 	self._focus_timer.run = "YES"
 end
 
-function CommandPalette:_scheduleActivate()
+function CommandPalette:_scheduleActivate(pos)
 	local iup, palette = self._iup, self
 	local timer = iup.timer({ time = 10 })
 	function timer:action_cb()
 		self.run = "NO"
-		palette:_activate(tonumber(iup.GetAttribute(palette._list, "VALUE")))
+		palette:_activate(pos)
 		iup.Destroy(self)
 		return iup.DEFAULT
 	end
@@ -211,43 +200,31 @@ function CommandPalette:_refresh()
 	end
 	iup.SetAttribute(self._prompt, "VISIBLE", text == "" and "YES" or "NO")
 
-	-- With nothing typed the list is browsed, so it is grouped. A search is ranked, and
-	-- headings would only break the ranking up.
+	-- With nothing typed the list is browsed: what was used last, then everything in its
+	-- group. A search is ranked, and regrouping would only break the ranking up.
 	local rows = {}
 	if text == "" and (not self._choices or self._choices.grouped) then
-		local order, buckets = {}, {}
-		for _, item in ipairs(items) do
-			local group = item.group or item.category or "Commands"
-			if not buckets[group] then
-				buckets[group] = {}
-				order[#order + 1] = group
-			end
-			table.insert(buckets[group], item)
-		end
-		for _, group in ipairs(order) do
-			rows[#rows + 1] = { heading = group }
-			for _, item in ipairs(buckets[group]) do rows[#rows + 1] = item end
-		end
+		rows = self:_browse(items)
 	else
 		rows = items
 	end
 	self._items = rows
 
-	iup.SetAttribute(list, "REMOVEITEM", "ALL")
+	local cells = {}
 	for i, item in ipairs(rows) do
-		if item.heading then
-			iup.SetAttribute(list, tostring(i), ROW_INDENT .. item.heading:upper())
-			iup.SetAttributeId(list, "ITEMFGCOLOR", i, self._muted())
-		else
-			local line = (item.group and item.title) or self._registry.class.label(item)
-			if item.detail and item.detail ~= "" then
-				line = line .. "    " .. item.detail
-			end
-			iup.SetAttribute(list, tostring(i), ROW_INDENT .. line)
-		end
+		local title = (item.group and item.title) or item.title or self._registry.class.label(item)
+		if item.detail and item.detail ~= "" then title = title .. "    " .. item.detail end
+		cells[i] = {
+			title = title,
+			column1 = item.recent and "Recent" or item.group or item.category,
+			column2 = item.shortcut,
+		}
 	end
+	self._rows:setRows(cells)
+	iup.SetAttribute(list, "POSY", "0")
+	self._top = 1
 	if #items > 0 then
-		iup.SetAttribute(list, "VALUE", tostring(self:_firstRow()))
+		self._rows:select(1)
 		iup.SetAttribute(self._hint, "TITLE", provider and provider.title
 			or (self._choices and self._choices.hint) or HINT)
 	else
@@ -256,11 +233,54 @@ function CommandPalette:_refresh()
 	end
 end
 
-function CommandPalette:_firstRow()
-	for i, row in ipairs(self._items) do
-		if not row.heading then return i end
+function CommandPalette:_recentIds()
+	local stored = self._settings and self._settings:get("palette.recent")
+	return type(stored) == "table" and stored or {}
+end
+
+function CommandPalette:_remember(item)
+	if not (self._settings and item.id) or self._choices then return end
+	local ids = { item.id }
+	for _, id in ipairs(self:_recentIds()) do
+		if id ~= item.id and #ids < RECENT_MAX then ids[#ids + 1] = id end
 	end
-	return 1
+	self._settings:set("palette.recent", ids)
+	self._settings:save()
+end
+
+-- Recents first, then each group together in the order it first appears.
+function CommandPalette:_browse(items)
+	local by_id, used, rows = {}, {}, {}
+	for _, item in ipairs(items) do
+		if item.id then by_id[item.id] = item end
+	end
+	if not self._choices then
+		for _, id in ipairs(self:_recentIds()) do
+			local item = by_id[id]
+			if item then
+				local copy = {}
+				for k, v in pairs(item) do copy[k] = v end
+				copy.recent = true
+				rows[#rows + 1] = copy
+				used[id] = true
+			end
+		end
+	end
+	local order, buckets = {}, {}
+	for _, item in ipairs(items) do
+		if not (item.id and used[item.id]) then
+			local group = item.group or item.category or "Commands"
+			if not buckets[group] then
+				buckets[group] = {}
+				order[#order + 1] = group
+			end
+			table.insert(buckets[group], item)
+		end
+	end
+	for _, group in ipairs(order) do
+		for _, item in ipairs(buckets[group]) do rows[#rows + 1] = item end
+	end
+	return rows
 end
 
 function CommandPalette:_filterChoices(text)
@@ -277,24 +297,20 @@ end
 function CommandPalette:_move(delta)
 	local count = #self._items
 	if count == 0 then return end
-	local current = tonumber(self._iup.GetAttribute(self._list, "VALUE")) or 1
-	local target = math.max(1, math.min(count, current + delta))
-	-- Headings are not stops: carry on in the same direction, or back if at the end.
-	local step = delta > 0 and 1 or -1
-	while self._items[target] and self._items[target].heading do target = target + step end
-	if not self._items[target] then
-		target = target - step
-		while self._items[target] and self._items[target].heading do target = target - step end
-	end
-	if not self._items[target] then return end
-	self._iup.SetAttribute(self._list, "VALUE", tostring(target))
-	self._iup.SetAttribute(self._list, "TOPITEM", tostring(math.max(1, target - 8)))
+	local target = math.max(1, math.min(count, self._rows:selected() + delta))
+	self._rows:select(target)
+	local top = self._top or 1
+	if target < top then top = target end
+	if target >= top + ROWS then top = target - ROWS + 1 end
+	self._top = top
+	self._iup.SetAttribute(self._list, "POSY", tostring((top - 1) * ROW_HEIGHT))
 end
 
 function CommandPalette:_activate(index)
-	index = index or tonumber(self._iup.GetAttribute(self._list, "VALUE")) or 1
+	index = index or self._rows:selected()
 	local item = self._items[index]
-	if not item or item.heading then return end
+	if not item then return end
+	self:_remember(item)
 	self:close()
 	-- After the window is gone: a command may open a modal of its own.
 	local iup, palette = self._iup, self

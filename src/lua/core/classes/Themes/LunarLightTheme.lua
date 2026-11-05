@@ -30,7 +30,8 @@ function LunarLightTheme:initialize()
         warning         = rgb("#946200"),
         warningText     = rgb("#ffffff"),
         info            = rgb("#0b6a78"),
-        font            = "Segoe UI, 11",
+        font            = "Segoe UI, 10",
+        fieldBorder     = rgb("#8a8f9c"),  -- field edges: 3:1 on the page
         well            = rgb("#ffffff"),   -- recessed: lists, fields, output
         accentSoft      = rgb("#d6d0f8"),   -- a chosen row
         gradShellWell   = rgb("#e9e9f1"),   -- tab strip: a whisper off the page, never a grey band

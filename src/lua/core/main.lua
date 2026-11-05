@@ -78,6 +78,7 @@ local TabGroups = require("core.classes.TabGroups")
 local PaneGrid = require("core.classes.PaneGrid")
 local CommandRegistry = require("core.classes.CommandRegistry")
 local TaskRunner = require("core.classes.TaskRunner")
+local ActivityPanel = require("core.ui.ActivityPanel")
 local CommandPalette = require("core.ui.CommandPalette")
 local VectorIcon = require("core.ui.VectorIcon")
 local MotionDirector = require("core.classes.MotionDirector")
@@ -90,6 +91,7 @@ local NameDialog = require("core.ui.NameDialog")
 local WelcomeTour = require("core.ui.WelcomeTour")
 local WindowChrome = require("core.ui.WindowChrome")
 local Kit = require("core.ui.Kit")
+local CodeWorkbench = require("core.ui.CodeWorkbench")
 local AppearanceSettings = require("core.ui.AppearanceSettings")
 local Diagnostics = require("core.ui.Diagnostics")
 local NativeStatus = require("core.lib.NativeStatus")
@@ -636,6 +638,7 @@ host:setCommands(commands)
 local command_palette = CommandPalette.new({
 	iup = iup,
 	registry = commands,
+	settings = settings_mgr,
 	parent = dlg,
 	notify_tree_change = function(w) theme_mgr:themeWidget(w) end,
 	on_error = function(message) host:setStatus(message) end,
@@ -686,6 +689,10 @@ local function open_app_menu()
 end
 status_bar:onMenu(open_app_menu)
 host:registerShortcut(iup.K_cP, function() command_palette:toggle() end)
+host._key_fallback = function(c)
+	if c == iup.K_ESC and pane_grid:isFocused() then return pane_grid:restoreFocus() end
+	return false
+end
 host:_installKeyDispatch(dlg)
 
 local function add_host_command(id, title, run, extra)
@@ -709,6 +716,8 @@ add_host_command("tabbars", "Show All Tab Bars", function() tab_groups:showAllTa
 	{ group = "Layout" })
 add_host_command("splits.reset", "Close All Splits", function() pane_grid:reset() end,
 	{ keywords = "unsplit panes merge", group = "Layout" })
+add_host_command("pane.focus", "Focus Pane / Restore Split", function() pane_grid:toggleFocus() end,
+	{ keywords = "maximize zoom pane split restore", group = "Layout" })
 
 local function split_active(zone)
 	return function()
@@ -790,6 +799,7 @@ local tasks_file = platform.path:join(platform.config_dir(), "tasks.json")
 local task_runner = TaskRunner:new({
 	spawn = function(opts) return host:spawn(opts) end,
 	status = function(message) host:setStatus(message) end,
+	activity = function(spec, owner) return host:activity(spec, owner) end,
 	after = function(ms, fn)
 		local timer = iup.timer({ time = ms })
 		function timer:action_cb()
@@ -838,6 +848,46 @@ commands:addProvider({
 add_host_command("tasks", "Run Task", function() command_palette:open("task ") end,
 	{ keywords = "build script job", group = "Lunar" })
 
+-- Activity: background work, in the status bar and a panel above it.
+local activity_store = host:activityStore()
+local activity_panel = ActivityPanel.new({
+	iup = iup,
+	store = activity_store,
+	status_bar = status_bar,
+	parent = dlg,
+	icon_dir = ICON_DIR,
+	notify_tree_change = function(w) theme_mgr:themeWidget(w) end,
+	round = function(window) require("core.lib.desktop").roundWindow(iup, window) end,
+	role = function(name)
+		local theme = theme_mgr:activeTheme()
+		return theme and theme:rules()[name]
+	end,
+	show = function(item) return host:revealActivity(item) end,
+	can_show = function(item) return host:canRevealActivity(item) end,
+	anchor = function()
+		local at = iup.GetAttribute(status_bar:activityAnchor(), "SCREENPOSITION")
+		local x, y = tostring(at or ""):match("(-?%d+),(-?%d+)")
+		if not x then return nil end
+		return tonumber(x), tonumber(y)
+	end,
+})
+commands:addProvider({
+	id = "activity",
+	prefix = "activity ",
+	title = "Enter to go to the tool",
+	empty = "Nothing has run yet this session",
+	items = function(query)
+		return ActivityPanel.commandItems(activity_store, query, {
+			score = CommandRegistry.score,
+			open = function() activity_panel:open() end,
+			show = function(item) return host:revealActivity(item) end,
+			can_show = function(item) return host:canRevealActivity(item) end,
+		})
+	end,
+})
+add_host_command("activity", "Show Activity", function() activity_panel:open() end,
+	{ keywords = "background jobs running progress", group = "Lunar" })
+
 -- For scripts/ui_capture.lua, which drives these from outside.
 if DEV_BUILD then
 	_G.LUNAR_DEV_SHELL = {
@@ -847,6 +897,7 @@ if DEV_BUILD then
 		groups = function() return tab_groups end,
 		host = host,
 		tasks = task_runner,
+		activity = activity_panel,
 	}
 end
 
@@ -856,7 +907,7 @@ host:addMenuItem("Feedback...", show_feedback, "help")
 
 -- Load extensions from plugins
 ext_mgr:loadAll(host)
-set_status("Ready")   -- the last extension's load message is not news
+set_status("")   -- the last extension's load message is not news
 
 -- Append the host-owned Settings tab BEFORE restoring tab order, so it participates
 -- in drag-reordering and order persistence alongside the extension tabs.
@@ -992,6 +1043,7 @@ tab_groups = TabGroups:new({
 		})
 		if name then tab_groups:createGroup(strip, name, "user") end
 	end,
+	on_focus_pane = function(strip) pane_grid:toggleFocus(strip) end,
 	notify_tree_change = function(w) theme_mgr:themeWidget(w) end,
 	-- Same ceiling HostAPI:addTab applies to a top-level page; TabGroups tightens
 	-- it per nesting level, since each sub-bar eats into the page below it.
@@ -1009,6 +1061,19 @@ theme_mgr:onApply(function()
 end)
 pane_grid:onLayout(schedule_recenter)
 host:fitPage(settings_view:widget(), function(width) settings_view:fitWidth(width) end)
+
+-- Code and language servers (core.ui.CodeWorkbench): the Code and Problems tabs,
+-- which appear the first time they are needed, the problem count in the status
+-- bar, and the lunar://code/... addresses. Extensions have loaded by now, so the
+-- Language servers section of Settings can list what they registered.
+local code_workbench = CodeWorkbench.install({
+	iup = iup, host = host, dialog = dlg, tabs = tabs,
+	groups = function() return tab_groups end, panes = pane_grid,
+	commands = commands, palette = command_palette, settings = settings_mgr,
+	theme_widget = function(w) theme_mgr:themeWidget(w) end,
+})
+code_workbench:refreshSettings()
+if rawget(_G, "LUNAR_DEV_SHELL") then _G.LUNAR_DEV_SHELL.code = code_workbench end
 
 -- Rebuild the saved arrangement now that every extension tab and the host's own
 -- Settings tab are in the strip, and while the pages are still unmapped.
