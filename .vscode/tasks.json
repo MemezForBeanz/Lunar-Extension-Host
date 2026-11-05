@@ -20,6 +20,69 @@
     },
     "tasks": [
         {
+            "label": "Run Lunar with demo data (dev)",
+            "detail": "Interactive UI capture fixtures: leaves Lunar open to explore populated pages. Help > Reload demo data restores the fixtures.",
+            "type": "process",
+            "command": "powershell.exe",
+            "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}/scripts/run-gui-tests.ps1"],
+            "options": {
+                "env": {
+                    "LUNAR_TEST_SCRIPTS": "ui_demo.lua",
+                    "LUNAR_TEST_OVERRIDE": "",
+                    "LUNAR_TEST_ALL_PACKS": "${input:testAllOrgPacks}",
+                    "LUNAR_TEST_PACKS_DIR": "${input:orgPacksDir}"
+                }
+            },
+            "linux": {
+                "command": "/bin/bash",
+                "args": ["${workspaceFolder}/scripts/run-gui-tests.sh"]
+            },
+            "dependsOn": "Build (dev)",
+            "problemMatcher": []
+        },
+        {
+            "label": "Run Lunar with a test script (dev)",
+            "detail": "Choose a script, or override the selection by typing a filename. Scripts own the GUI lifecycle; close interactive harnesses to finish.",
+            "type": "process",
+            "command": "powershell.exe",
+            "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}/scripts/run-gui-tests.ps1"],
+            "options": {
+                "env": {
+                    "LUNAR_TEST_SCRIPTS": "${input:testScript}",
+                    "LUNAR_TEST_OVERRIDE": "${input:testScriptOverride}",
+                    "LUNAR_TEST_ALL_PACKS": "${input:testAllOrgPacks}",
+                    "LUNAR_TEST_PACKS_DIR": "${input:orgPacksDir}"
+                }
+            },
+            "linux": {
+                "command": "/bin/bash",
+                "args": ["${workspaceFolder}/scripts/run-gui-tests.sh"]
+            },
+            "dependsOn": "Build (dev)",
+            "problemMatcher": []
+        },
+        {
+            "label": "Run Lunar with multiple test scripts (dev)",
+            "detail": "Run comma- or semicolon-separated scripts in order, each in a fresh Lunar process. Close interactive harnesses to advance.",
+            "type": "process",
+            "command": "powershell.exe",
+            "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}/scripts/run-gui-tests.ps1"],
+            "options": {
+                "env": {
+                    "LUNAR_TEST_SCRIPTS": "${input:testScripts}",
+                    "LUNAR_TEST_OVERRIDE": "",
+                    "LUNAR_TEST_ALL_PACKS": "${input:testAllOrgPacks}",
+                    "LUNAR_TEST_PACKS_DIR": "${input:orgPacksDir}"
+                }
+            },
+            "linux": {
+                "command": "/bin/bash",
+                "args": ["${workspaceFolder}/scripts/run-gui-tests.sh"]
+            },
+            "dependsOn": "Build (dev)",
+            "problemMatcher": []
+        },
+        {
             "label": "Build (dev)",
             "type": "shell",
             "command": "cmake --preset dev; if ($?) { cmake --build --preset dev }",
@@ -197,6 +260,54 @@
         }
     ],
     "inputs": [
+        {
+            "id": "testScript",
+            "type": "pickString",
+            "description": "Lua script from scripts/ (use the next prompt to type a different filename)",
+            "default": "ui_capture.lua",
+            "options": [
+                "compositor_check.lua",
+                "gtk_compositor_probe.lua",
+                "gtk_overlay_probe.lua",
+                "layout_dump.lua",
+                "ldoc_wiki.lua",
+                "lsp_check.lua",
+                "luarocks-config.lua",
+                "machine_check.lua",
+                "motion_check.lua",
+                "process_check.lua",
+                "process_host_death_helper.lua",
+                "scrim_check.lua",
+                "tls_check.lua",
+                "ui_capture.lua",
+                "ui_demo.lua",
+                "ui_fixtures.lua",
+                "ui_fixtures_net.lua",
+                "win32_overlay_probe.lua"
+            ]
+        },
+        {
+            "id": "testScriptOverride",
+            "type": "promptString",
+            "description": "Optional script filename (with or without .lua); leave blank to use the dropdown selection",
+            "default": ""
+        },
+        {
+            "id": "testScripts",
+            "type": "promptString",
+            "description": "Script filenames from scripts/, separated by commas or semicolons (optional .lua suffix)",
+            "default": "layout_dump.lua, scrim_check.lua"
+        },
+        {
+            "id": "testAllOrgPacks",
+            "type": "pickString",
+            "description": "Load all org packs? The following folder prompt is used only for Yes.",
+            "options": [
+                { "label": "No — normal org-pack selection", "value": "no" },
+                { "label": "Yes — load all org packs", "value": "yes" }
+            ],
+            "default": "no"
+        },
         {
             "id": "orgPacksDir",
             "type": "promptString",
