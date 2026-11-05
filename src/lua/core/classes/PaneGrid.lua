@@ -157,10 +157,7 @@ function PaneGrid:_markActive(active)
 	local accent = require("core.ui.ThemeReactor").palette().accent
 	for zone, strip in pairs(self._strips) do
 		local on = split and accent and handle.same(iup, strip, active)
-		if not (self._groups._rail and self._groups._rail:owns(strip)) then
-			iup.SetAttribute(strip, "TABSACTIVELINE", on and accent or nil)
-			iup.SetAttribute(strip, "EXTRABUTTONS", self:_count(zone) > 0 and handle.same(iup, strip, active) and "2" or "1")
-		end
+		iup.SetAttribute(strip, "TABSACTIVELINE", on and accent or nil)
 		iup.Update(strip)
 	end
 end
@@ -322,9 +319,11 @@ function PaneGrid:sync()
 	self._applying = true
 	self._iup.SetAttribute(self._grid, "MINMAX", focus and ("0:" .. FULL) or (has_right and PANE_LIMITS or ("0:" .. FULL)))
 	if focus then
-		self:_apply(self._grid, (focus == "right" or focus == "corner") and 0 or FULL, false)
 		self:_apply(self._left, focus == "bottom" and 0 or FULL, false)
 		self:_apply(self._right, focus == "corner" and 0 or FULL, false)
+		-- Hide the outer branch last: sizing an inner split can show its children
+		-- again, even after the outer split's AUTOHIDE has hidden that branch.
+		self:_apply(self._grid, (focus == "right" or focus == "corner") and 0 or FULL, false)
 	else
 		self:_apply(self._grid, has_right and (sizes.grid or HALF) or FULL, has_right)
 		self:_apply(self._left, used.bottom and (sizes.left or HALF) or FULL, used.bottom)

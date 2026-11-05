@@ -43,6 +43,29 @@ group was last open — is saved to `tab_groups` in `settings.json` and restored
 the next launch. An arrangement made before groups existed (the old `tab_order`
 setting) is migrated once, by tab title.
 
+## Top and left toolbars
+
+The top and left toolbars are two views of the same root tab tree. A tab or group
+can be placed on either toolbar: drag it to the other toolbar, or right-click and
+choose **Move to Top Toolbar** or **Move to Left Toolbar**. Moving a nested tab to
+a toolbar takes it out of its current group. Dropping on the middle of a tab or
+group still combines tabs or adds to that group.
+
+Selecting a group on either toolbar reveals its members in a horizontal row.
+Nested groups reveal further horizontal rows. The sidebar's contents stay put
+when a top group is selected; the sidebar never becomes that group's child row.
+Ungrouping a sidebar group leaves its members on the sidebar.
+
+The sidebar starts with icons or first letters. Use the chevron at its foot or
+**Ctrl+B** to expand or collapse labels; **Ctrl+1?9** selects sidebar entries.
+Toolbar placement is stored as an optional `toolbar = "left"` on saved tab and
+group nodes. Existing arrangements without it retain their top-toolbar placement.
+Groups and missing extensions keep their saved placement across reloads.
+
+The bottom toolbar holds the app menu at the left, search in the center, and
+Focus Pane at the right. Focus Pane uses the active pane; press it again or Esc
+to restore the split. Settings is the gear at the upper left of the window.
+
 ## Tab scrolling
 
 `IupFlatTabs` scrolls its own strip: once the tabs no longer fit it draws arrow

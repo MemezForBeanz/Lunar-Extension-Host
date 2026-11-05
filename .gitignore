@@ -58,7 +58,7 @@ CMakeUserPresets.json
 *~
 *.log
 luacov.*.out
-.claude/settings.local.json
+.claude/
 .codex/
 
 # Editor and OS cruft

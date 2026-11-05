@@ -1,29 +1,15 @@
---- Update checks against a release share, and the relauncher that installs one.
---
--- The share (the `update_share` setting, from an org profile) holds what
--- `scripts/build.ps1 -HostRoot` publishes:
---
---     <root>\manifest.json                              { latest = "1.9.9", ... }
---     <root>\releases\<version>\release.json            { extensions = {{ name, version }} }
---     <root>\releases\<version>\LunarExtensionHost-<version>.msi
---
--- Everything read from the share is untrusted text. Versions must be plain
--- dotted numbers before they are used in a path, the installer path is built
--- here rather than taken from the manifest, and every path that goes into the
--- relauncher script is refused if cmd or PowerShell would interpret any of it.
---
--- This does not authenticate the installer: whoever can write the share can
--- still publish an MSI. Checking a signing identity before installing is the
--- remaining step (it needs the org's code-signing certificate).
---
--- Pure functions over an injectable `read(path)`, so the logic is testable
--- without a share; `core.main` owns the UI and the launch.
---
+--- Published GitHub release discovery and the Windows install relauncher.
+-- Metadata comes from the latest published release; installer and checksum URLs
+-- are pinned to its validated version, so a release published during a download
+-- cannot change the selected payload. All requests use verified HTTPS.
 -- @module core.lib.Updater
 
 local cjson = require("cjson")
 
 local M = {}
+M.REPOSITORY = "MemezForBeanz/Lunar-Extension-Host"
+M.RELEASES = "https://github.com/" .. M.REPOSITORY .. "/releases"
+M.LATEST_METADATA = M.RELEASES .. "/latest/download/release.json"
 
 local MAX_PARTS, MAX_DIGITS = 4, 5
 
@@ -71,56 +57,76 @@ function M.safe_path(p)
 	return true
 end
 
-local function read_json(read, path)
-	local text = read(path)
-	if not text then return nil end
-	local ok, data = pcall(cjson.decode, text)
-	if ok and type(data) == "table" then return data end
-	return nil
+local function unavailable(message)
+	return { status = "unavailable", error = message }
 end
 
---- The installer for `version` on the share. Built from the version, never
--- read from the manifest.
-function M.installer_path(root, version)
-	return string.format("%s\\releases\\%s\\LunarExtensionHost-%s.msi", root, version, version)
+local function get(request, url, app_version)
+	local response, err = request({ url = url, method = "GET", verify = "peer", timeout = 20,
+		max_bytes = 1024 * 1024, headers = { ["user-agent"] = "Lunar/" .. app_version,
+			accept = "application/octet-stream" } })
+	if not response then return nil, "Could not reach GitHub: " .. tostring(err) end
+	if response.status ~= 200 then return nil, "GitHub returned HTTP " .. tostring(response.status) end
+	if type(response.body) ~= "string" then return nil, "GitHub returned an empty response" end
+	return response.body
 end
 
---- Check the share for a newer app or newer versions of installed extensions.
--- @tparam table opts
--- @tparam string opts.root the share root (no trailing separator)
--- @tparam string opts.app_version this build's version
--- @tparam[opt] table opts.installed `{ [lowercase name] = version }` of loaded extensions
--- @tparam function opts.read `read(path)` returning the file's text or nil
--- @treturn table `{ status = "current"|"available"|"unavailable", latest,
---   app_update = bool, extensions = { "name (1.0 -> 1.1)", ... }, error }`
+--- Read an exact asset's SHA-256 from the release's SHA256SUMS file.
+-- Refuse conflicting entries rather than choosing one arbitrarily.
+function M.checksum(text, filename)
+	local found
+	for line in tostring(text):gmatch("[^\r\n]+") do
+		local hash, name = line:match("^(%x+)%s+%*?(.+)$")
+		if name == filename then
+			if #hash ~= 64 then return nil, "Invalid SHA-256 for " .. filename end
+			hash = hash:lower()
+			if found and found ~= hash then return nil, "Conflicting checksums for " .. filename end
+			found = hash
+		end
+	end
+	return found, not found and ("No SHA-256 published for " .. filename) or nil
+end
+
+--- Check GitHub's latest published stable release. `request` is injectable for
+-- offline tests; the normal transport is the host's cooperative HTTPS client.
+-- @tparam table opts `{ app_version, installed, platform, request }`
+-- @treturn table `{ status, latest, app_update, extensions, release_url, installer, error }`
 function M.check(opts)
-	if not M.safe_path(opts.root) then
-		return { status = "unavailable", error = "the update share path is not usable" }
+	if not M.parse_version(opts.app_version) then return unavailable("The installed version is invalid") end
+	local request = opts.request or require("core.lib.http").request
+	local text, err = get(request, M.LATEST_METADATA, opts.app_version)
+	if not text then return unavailable(err) end
+	local ok, release = pcall(cjson.decode, text)
+	if not ok or type(release) ~= "table" then return unavailable("GitHub release.json is not a JSON object") end
+	local latest = release.version
+	if type(latest) ~= "string" or not latest:match("^%d+%.%d+%.%d+$") or not M.parse_version(latest) then
+		return unavailable("GitHub release.json has no valid release version")
 	end
-	local manifest = read_json(opts.read, opts.root .. "\\manifest.json")
-	if not manifest then
-		return { status = "unavailable", error = "no readable manifest.json on the update share" }
-	end
-	local latest = manifest.latest
-	if not M.parse_version(latest) then
-		return { status = "unavailable", error = "manifest.json has no valid latest version" }
-	end
-
 	local cmp = M.compare(opts.app_version, latest)
-	local result = { status = "current", latest = latest, app_update = cmp ~= nil and cmp < 0, extensions = {} }
-
-	local release = read_json(opts.read, string.format("%s\\releases\\%s\\release.json", opts.root, latest))
-	if release and type(release.extensions) == "table" then
-		for _, e in ipairs(release.extensions) do
-			local name = type(e) == "table" and e.name
+	local result = { status = "current", latest = latest, app_update = cmp < 0, extensions = {},
+		release_url = M.RELEASES .. "/tag/v" .. latest }
+	-- Never offer an older application to update an extension in a newer build.
+	if cmp <= 0 and type(release.extensions) == "table" then
+		for _, extension in ipairs(release.extensions) do
+			local name = type(extension) == "table" and extension.name
 			local have = type(name) == "string" and opts.installed and opts.installed[name:lower()]
-			local c = have and M.compare(have, e.version)
-			if c and c < 0 then
-				result.extensions[#result.extensions + 1] = string.format("%s (%s -> %s)", name, have, e.version)
+			local comparison = have and M.compare(have, extension.version)
+			if comparison and comparison < 0 then
+				result.extensions[#result.extensions + 1] = string.format("%s (%s -> %s)", name, have, extension.version)
 			end
 		end
 	end
-	if result.app_update or #result.extensions > 0 then result.status = "available" end
+	if not result.app_update and #result.extensions == 0 then return result end
+	result.status = "available"
+	if opts.platform and opts.platform ~= "windows" then return result end
+	local name = "LunarExtensionHost-" .. latest .. ".msi"
+	if release.msi ~= name then return unavailable("GitHub release.json does not identify the expected Windows installer") end
+	local base = M.RELEASES .. "/download/v" .. latest .. "/"
+	local sums, sums_error = get(request, base .. "SHA256SUMS", opts.app_version)
+	if not sums then return unavailable(sums_error) end
+	local hash, hash_error = M.checksum(sums, name)
+	if not hash then return unavailable(hash_error) end
+	result.installer = { name = name, url = base .. name, sha256 = hash, version = latest }
 	return result
 end
 

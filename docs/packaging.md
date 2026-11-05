@@ -176,6 +176,33 @@ The process name is `Lunar` and the window class `Lunar`, which the menu entry's
   **draft** GitHub release with every package and `SHA256SUMS`; publish it by hand
   after checking.
 
+## Desktop updates
+
+Every installation checks the latest published stable GitHub release at startup
+and every six hours. Click the status-bar update icon or run **Check for Updates**
+from Ctrl+P to check immediately and accept an update. Drafts and prereleases are
+excluded by GitHub's `/releases/latest/download/release.json` endpoint. No GitHub
+account, token, CLI or organization profile is required.
+
+On Windows, Lunar reads the selected version's `SHA256SUMS`, downloads its
+`LunarExtensionHost-<version>.msi` over HTTPS into the local update cache and
+verifies SHA-256 before closing. Download progress and cancellation appear in
+Activity. The detached relauncher waits for Lunar to exit, requests elevation,
+installs the MSI and reopens the app. A failed download or verification keeps the
+current app open. On Linux, accepting the update opens that release's downloads;
+install the package matching the existing installation.
+
+The release must include `release.json`, the versioned MSI, and `SHA256SUMS`.
+Both the release workflow and `scripts/build.ps1 -PublishGitHub` publish checksums.
+The metadata, checksums and MSI must agree on the version. The checksum and MSI
+URLs are pinned to the selected tag, so publishing another release during a
+download cannot mix assets from different versions.
+
+Lunar never checks an SMB share for updates. Historical `update_share` settings
+are ignored. A share can still hold packages for manual deployment, but it is not
+an application update source. Builds with the earlier share-only updater need one
+manual upgrade to a build containing the GitHub updater.
+
 ## Versioning
 
 - The host version is `APP_VERSION` in `src\lua\core\main.lua`; `build.ps1`
@@ -193,8 +220,11 @@ The process name is `Lunar` and the window class `Lunar`, which the menu entry's
 ```
 
 GitHub Releases is the canonical versioned store (`-Repo owner/name`); an SMB
-share (`-HostRoot`) can mirror it with a stable latest-MSI pointer. Neither has a
-default, so a build never publishes somewhere by accident.
+share (`-HostRoot`) can mirror it for manual deployment with a stable latest-MSI
+pointer. Neither has a default, so a build never publishes somewhere by accident.
+Local GitHub publishing uploads into a draft, then publishes it as latest only
+after all assets are present. Both local publishing and CI refuse to overwrite
+the assets of an already published version.
 
 ## Checklist for a new extension
 

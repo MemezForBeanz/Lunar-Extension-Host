@@ -24,17 +24,17 @@ end
 
 local PROFILE = {
 	id = "acme",
-	settings = { backend_url = "https://lunar.acme.example", theme = "classic", update_share = "\\\\acme\\lunar" },
+	settings = { backend_url = "https://lunar.acme.example", theme = "classic", theme_light = "lunar_light" },
 	locked = { backend_url = true },
 }
 
 describe("SettingsManager layers", function()
-	it("is neutral by default: no backend, no update share, verified TLS", function()
+	it("has neutral backend defaults and verified TLS without an update-share setting", function()
 		with_appdata(nil, function()
 			local s = SettingsManager:new()
 			s:load()
 			assert.are.equal("", s:get("backend_url"))
-			assert.are.equal("", s:get("update_share"))
+			assert.is_nil(s:get("update_share"))
 			assert.are.equal("peer", s:get("backend_tls_verify"))
 			assert.is_nil(s:getProfile())
 		end)
@@ -47,7 +47,7 @@ describe("SettingsManager layers", function()
 			s:applyProfile(PROFILE)
 			assert.are.equal("https://lunar.acme.example", s:get("backend_url")) -- locked beats user
 			assert.are.equal("classic_dark", s:get("theme"))                   -- user beats org default
-			assert.are.equal("\\\\acme\\lunar", s:get("update_share"))          -- org default beats built-in
+			assert.are.equal("lunar_light", s:get("theme_light"))          -- org default beats built-in
 			assert.is_true(s:get("motion_enabled"))                            -- built-in
 			assert.is_true(s:isLocked("backend_url"))
 			assert.is_false(s:isLocked("theme"))
@@ -67,7 +67,7 @@ describe("SettingsManager layers", function()
 			local saved = read_json(path)
 			assert.are.equal("fluent", saved.theme)
 			assert.is_nil(saved.backend_url)
-			assert.is_nil(saved.update_share)
+			assert.is_nil(saved.theme_light)
 		end)
 	end)
 

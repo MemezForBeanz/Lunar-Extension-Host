@@ -14,9 +14,9 @@ StatusBar.__index = StatusBar
 
 --- Update indicator states: the pre-rasterized Carbon icon and its tooltip.
 StatusBar.UPDATE_STATES = {
-	current = { icon = "upd_complete", tip = "Software up to date\nThis app and its installed extensions match the latest release on the update share." },
-	available = { icon = "upd_get", tip = "Update available\nA newer release was found on the update share." },
-	unavailable = { icon = "upd_check", tip = "Couldn't check for updates\nThe update share couldn't be reached or read." },
+	current = { icon = "upd_complete", tip = "Software up to date\nNo newer published GitHub release is available for this app or its bundled extensions." },
+	available = { icon = "upd_get", tip = "Update available\nA newer published release is available on GitHub." },
+	unavailable = { icon = "upd_check", tip = "Couldn't check for updates\nGitHub release metadata could not be retrieved or validated." },
 	checking = { icon = "upd_check", tip = "Checking for updates..." },
 	ready = { icon = "upd_now", tip = "Update ready to install\nThe downloaded update is staged and ready to apply." },
 }
@@ -58,8 +58,7 @@ function StatusBar.new(opts)
 		FGCOLOR = "60 60 60",
 		THEMEROLE = "statusbar_text",
 	})
-	-- Registered with HostAPI by whoever owns update checks (core.ui.UpdateCheck),
-	-- and only when there is a share to check.
+	-- Registered with HostAPI by core.ui.UpdateCheck for every installation.
 	self._update_icon = StatusIcon.new(iup, {
 		dir = opts.icon_dir, size = 16, state = "upd_complete", tip = StatusBar.UPDATE_STATES.current.tip,
 	})
@@ -94,32 +93,58 @@ function StatusBar.new(opts)
 		ALIGNMENT = "ACENTER", GAP = L.gap(1), FLOATING = "YES", VISIBLE = "NO",
 	})
 
+	self._menu = iup.flatbutton({ TIP = "Menu", CANFOCUS = "YES", RASTERSIZE = "48x28",
+		PADDING = "0x0", THEMEROLE = "statusbar_button" })
+	self._command = iup.flatbutton({ TITLE = "Search or run a command", CANFOCUS = "YES",
+		IMAGEPOSITION = "LEFT", ALIGNMENT = "ALEFT:ACENTER", SPACING = "8", EXPAND = "HORIZONTAL",
+		THEMEROLE = "commandbar_text" })
+	self._keycap = iup.flatbutton({ TITLE = "Ctrl+P", CANFOCUS = "NO", THEMEROLE = "keycap" })
+	self._field = iup.flatframe({ iup.hbox({ self._command, self._keycap,
+		MARGIN = "2x1", GAP = "4", ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" }),
+		TITLE = "", RASTERSIZE = "320x24", EXPAND = "NO", THEMEROLE = "commandbar" })
+	self._focus = iup.flatbutton({ TIP = "Focus active pane / restore split (Esc to restore)",
+		CANFOCUS = "YES", RASTERSIZE = "32x28", THEMEROLE = "statusbar_button", ACTIVE = "NO" })
+	if opts.bind_icon then
+		opts.bind_icon(self._menu, "menu")
+		opts.bind_icon(self._command, "search")
+		opts.bind_icon(self._focus, "view")
+	end
+	function self._menu:flat_action() if bar._on_menu then bar._on_menu() end; return iup.DEFAULT end
+	local function command() if bar._on_command then bar._on_command() end; return iup.DEFAULT end
+	self._command.flat_action, self._keycap.flat_action = command, command
+	function self._focus:flat_action() if bar._on_focus then bar._on_focus() end; return iup.DEFAULT end
 	self._widget = iup.hbox({
-		-- Holds the bar's height, whatever the page in front has put in it.
-		iup.label({ TITLE = "", RASTERSIZE = "0x" .. StatusBar.HEIGHT }),
-		self._activity_box,
-		self._label,
-		self._ext_box,
-		BGCOLOR = "240 240 240",
-		THEMEROLE = "statusbar",
-		MARGIN = L.margin(4, 0),
-		GAP = L.gap(3),
-		ALIGNMENT = "ACENTER",
-		-- HORIZONTAL, not IupHbox's default YES. A vertically expanding child of
-		-- the window's vbox is handed `natural height + empty`, and `empty` goes
-		-- negative when the content is taller than the window, which squeezed the
-		-- bar to nothing. Horizontal-only makes it a fixed-height row.
-		EXPAND = "HORIZONTAL",
+		iup.hbox({ self._menu, self._activity_box, self._label,
+			EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER", GAP = "0" }),
+		iup.hbox({ iup.fill({}), self._field, iup.fill({}), EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER" }),
+		iup.hbox({ iup.fill({}), self._ext_box, self._focus,
+			EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER", GAP = L.gap(2), MARGIN = "8x0" }),
+		HOMOGENEOUS = "YES", RASTERSIZE = "x" .. StatusBar.HEIGHT,
+		BGCOLOR = "240 240 240", THEMEROLE = "statusbar", MARGIN = "0x0", GAP = "0",
+		ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL",
 	})
 	return self
 end
 
 --- The bar itself.
 function StatusBar:widget() return self._widget end
+function StatusBar:commandWidget() return self._field end
+function StatusBar:onCommand(fn) self._on_command = fn end
+function StatusBar:onMenu(fn) self._on_menu = fn end
+function StatusBar:onFocus(fn) self._on_focus = fn end
+function StatusBar:setPaneState(split, focused)
+	self._iup.SetAttribute(self._focus, "ACTIVE", split and "YES" or "NO")
+	self._iup.SetAttribute(self._focus, "TIP", focused and "Restore split (Esc)" or "Focus active pane")
+end
+function StatusBar:fit(width)
+	self._iup.SetAttribute(self._field, "RASTERSIZE", math.max(160, math.min(480, math.floor(width / 3) - 16)) .. "x24")
+	self._iup.SetAttribute(self._activity_text, "RASTERSIZE", (width < 1100 and 80 or StatusBar.ACTIVITY_WIDTH) .. "x")
+end
+
 --- Set what a click on the activity slot does.
 function StatusBar:onActivity(fn) self._on_activity = fn end
 --- Where the activity panel opens from: the bar's left end, which nothing pushes along.
-function StatusBar:activityAnchor() return self._widget end
+function StatusBar:activityAnchor() return self._menu end
 --- The box extension status elements go in (HostAPI's `status_box`).
 function StatusBar:extBox() return self._ext_box end
 --- The update indicator (a `core.ui.StatusIcon`).

@@ -34,17 +34,13 @@ local DEFAULTS = {
     welcome_tour_completed = false,
     welcome_tour_dismissed = false,
     -- Shared backend (feedback; extensions may use it too). Empty in the neutral
-    -- build so a fresh install makes no network calls; an org profile
-    -- (core.lib.OrgProfile) supplies the URL. Best-effort: an unreachable server
+    -- build; an org profile supplies the URL (core.lib.OrgProfile). Best-effort: an unreachable server
     -- never affects local operation.
     backend_url          = "",
     -- TLS for the backend. "peer" checks the certificate chain and host name;
     -- "none" only encrypts. backend_ca_file adds a trust anchor (an internal CA).
     backend_tls_verify   = "peer",
     backend_ca_file      = "",
-    -- Folder or share holding manifest.json for update checks. Empty: no update
-    -- checks (the neutral build); an org profile points it at its release share.
-    update_share         = "",
     -- core.ui.FolderDialog places: absolute folder paths. Favourites are pinned by
     -- the user; recents are most-recent-first and capped by the dialog.
     folder_favourites    = {},
