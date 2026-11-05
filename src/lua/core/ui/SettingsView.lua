@@ -281,7 +281,7 @@ function SettingsView:_fitRows(width)
     if control == self._control_width and room == self._wrap_room then return end
     self._control_width, self._wrap_room = control, room
     for _, holder in ipairs(self._control_columns) do
-        iup.SetAttribute(holder, "RASTERSIZE", L.size(control))
+        iup.SetAttribute(holder.widget, "RASTERSIZE", L.size(control))
     end
     for _, row in ipairs(self._wrapped) do
         iup.SetAttribute(row.widget, "TITLE", wrap(row.description, room))
@@ -630,7 +630,7 @@ end
 --
 -- Returns the row widget, its searchable text, and the description sub-widget that
 -- opens and closes (nil unless the description is too long to stay on show).
-function SettingsView:_buildRow(entry, category, first)
+function SettingsView:_buildRow(entry, category, first, section)
     local iup = self._iup
     local description = entry.description or ""
     local inline = description ~= "" and inline_description(description)
@@ -639,9 +639,9 @@ function SettingsView:_buildRow(entry, category, first)
     local label = iup.flatlabel{ TITLE = entry.label or "", THEMEROLE = "settings_name", EXPAND = "HORIZONTAL" }
     local left = { label, GAP = L.gap(1), EXPAND = "HORIZONTAL" }
     if inline then
-        local text = iup.flatlabel{ TITLE = wrap(description), THEMEROLE = "settings_description" }
+        local text = iup.flatlabel{ TITLE = wrap(description, self._wrap_room), THEMEROLE = "settings_description" }
         left[#left + 1] = text
-        self._wrapped[#self._wrapped + 1] = { widget = text, description = description }
+        self._wrapped[#self._wrapped + 1] = { widget = text, description = description, section = section }
     end
 
     -- A long description still offers something to press.
@@ -671,7 +671,7 @@ function SettingsView:_buildRow(entry, category, first)
     if control and not fills then cells[#cells + 1] = iup.fill{} end
     if control then cells[#cells + 1] = control end
     local holder = iup.hbox{ RASTERSIZE = L.size(self._control_width or CONTROL_COLUMN) }
-    self._control_columns[#self._control_columns + 1] = holder
+    self._control_columns[#self._control_columns + 1] = { widget = holder, section = section }
     local column = iup.vbox{
         iup.hbox(cells),
         holder,
@@ -781,7 +781,7 @@ function SettingsView:addSection(category, opts, mapped)
     section.widgets[#section.widgets + 1] = body
 
     for index, entry in ipairs(opts.entries or {}) do
-        local box, text, desc = self:_buildRow(entry, category, index == 1)
+        local box, text, desc = self:_buildRow(entry, category, index == 1, section)
         iup.Append(body_inner, box)
         -- Stashed on the entry so `_toggleRow` can find it from the click
         -- handler, which is the only thing that ever holds the entry.
@@ -829,6 +829,12 @@ function SettingsView:removeSection(section)
     end
     if self._motion then
         pcall(function() self._motion:cancel({ target = section.body }) end)
+    end
+    -- Its rows go with it, so the next fit doesn't reach for destroyed widgets.
+    for _, list in ipairs({ self._wrapped, self._control_columns }) do
+        for i = #list, 1, -1 do
+            if list[i].section == section then table.remove(list, i) end
+        end
     end
     for _, w in ipairs(section.widgets) do
         iup.Detach(w)

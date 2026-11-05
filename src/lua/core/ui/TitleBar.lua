@@ -136,7 +136,7 @@ function TitleBar.new(opts)
 	end
 
 	-- A fill, not a label: anything with a window here would cover the painted buttons.
-	self._reserved = iup.fill({ RASTERSIZE = "0x" })
+	self._reserved = iup.fill({ RASTERSIZE = "1x" })
 	self._left = iup.hbox({
 		self._menu, self._mark,
 		iup.vbox({ iup.fill({}), self._groups, EXPAND = "VERTICALFREE" }),
@@ -324,7 +324,7 @@ function TitleBar:fit(width, force)
 	local reserved = self._frame_dialog and require("winframe").reserved(self._frame_dialog) or 0
 	if reserved ~= self._frame_width then
 		self._frame_width = reserved
-		self._iup.SetAttribute(self._reserved, "RASTERSIZE", reserved .. "x")
+		self._iup.SetAttribute(self._reserved, "RASTERSIZE", math.max(reserved, 1) .. "x") -- 0 means no size at all
 		force = true
 	end
 	if width == self._width and not force then return end
