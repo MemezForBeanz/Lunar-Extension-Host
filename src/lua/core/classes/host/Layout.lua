@@ -170,6 +170,14 @@ function M.centerPage(self, widget, max_width, side)
     }
 end
 
+--- Tell a page how wide it is whenever that may have changed.
+-- @param widget the page
+-- @tparam function fit `fn(width)`
+function M.fitPage(self, widget, fit)
+    self._centered = self._centered or {}
+    self._centered[#self._centered + 1] = { wrapper = widget, fit = fit }
+end
+
 --- Centre each width-capped page in the space it actually has.
 --
 -- The margin computed at creation assumes the page fills the screen. A window that is
@@ -182,6 +190,7 @@ function M.recenterPages(self)
             local parent = iup.GetParent(entry.wrapper)
             local width = parent and tonumber(tostring(iup.GetAttribute(parent, "RASTERSIZE")):match("^(%d+)x"))
             if not width or width <= 0 then return end
+            if entry.fit then return entry.fit(width) end
             local horizontal = math.max(entry.side, math.floor((width - entry.max_width) / 2))
             iup.SetAttribute(entry.wrapper, "MARGIN", horizontal .. "x" .. entry.vertical)
         end)
@@ -244,6 +253,10 @@ function M._wrapTabForScroll(self, widget)
         THEMEROLE = "tabscroll",
         BORDER = "NO",
         BORDERWIDTH = "0",
+        -- Compress the page first and scroll only what really cannot fit (fork patch
+        -- 0008). Measured against natural size, a page of expanding lists would show
+        -- scrollbars long before anything had run out of room.
+        FITCONTENT = "YES",
     })
     if not ok or not box then
         -- Never let a missing/renamed control cost the user their tab.
@@ -264,6 +277,33 @@ function M.syncScrollHosts(self)
     for _, box in ipairs(self._scroll_hosts or {}) do
         pcall(self.iup.SetAttribute, box, "BGCOLOR", surface)
     end
+end
+
+--- Drop what the layout service remembers about a page that is being destroyed.
+--
+-- These lists outlive the page's extension. A handle left in one is a freed Ihandle, and
+-- the next window resize or theme change writes to it: that corrupted the heap on every
+-- extension reload. Call this before the page is detached, while it can still be walked.
+function M.forgetPage(self, page)
+    local iup = self.iup
+    local function inside(widget)
+        local node = widget
+        for _ = 1, 64 do
+            if not node then return false end
+            if handle.same(iup, node, page) then return true end
+            node = iup.GetParent(node)
+        end
+        return false
+    end
+    local function prune(list, handle_of)
+        if not list then return end
+        for i = #list, 1, -1 do
+            local ok, gone = pcall(inside, handle_of(list[i]))
+            if not ok or gone then table.remove(list, i) end
+        end
+    end
+    prune(self._centered, function(entry) return entry.wrapper end)
+    prune(self._scroll_hosts, function(box) return box end)
 end
 
 function M.addTab(self, title, widget, owner, opts)
@@ -312,6 +352,10 @@ function M.addTab(self, title, widget, owner, opts)
     end
 
     iup.SetAttribute(tab_widget, "TABTITLE", title)
+    if opts and opts.icon then
+        require("core.ui.Kit").bindIcon(iup, tab_widget, opts.icon,
+            { attribute = "TABIMAGE", size = 16, role = "neutral" })
+    end
     -- Tag the tab with a unique id so the active owner can be resolved from the
     -- focused control anywhere inside the tab tree. This is more robust than asking
     -- the tab strip for its active handle, because focus may live on a descendant

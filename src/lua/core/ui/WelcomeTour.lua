@@ -12,33 +12,30 @@ local M = {}
 
 local PAGES = {
 	{
-		title = "Welcome to Lunar Extension Host",
+		title = "Welcome to Lunar",
 		body = table.concat({
-			"Lunar Extension Host is a desktop host for tool extensions.",
+			"Lunar puts your team's tools in one window.",
 			"",
-			"Use the tabs for feature work, the host-owned Settings tab for configuration,",
-			"and the Help menu for onboarding, shortcuts, and feedback.",
+			"Each tab is a tool. Settings holds every option in one place,",
+			"and Ctrl+P finds any command.",
 		}, "\n"),
 	},
 	{
-		title = "Extensions and your organization",
+		title = "Your organization's tools",
 		body = table.concat({
 			"Every tab other than Settings comes from an extension.",
-			"Extensions -> Reload Extensions picks up changes without restarting.",
 			"",
-			"Your organization may install a pack that adds its tools, in a tab group of",
-			"their own, and sets defaults. Help -> Window Diagnostics... shows which pack",
-			"is active and why.",
+			"Your organization may install a pack with its own tools and defaults.",
+			"The Window Diagnostics command shows which pack is active.",
 		}, "\n"),
 	},
 	{
 		title = "Help and feedback",
 		body = table.concat({
-			"Need this tour again? Open Help -> Welcome Tour...",
+			"Find this tour again under Help in the menu.",
 			"",
-			"When a feedback backend is configured, Help -> Feedback... sends an editable",
-			"report to it and shows the workstation details attached.",
-			"It never sends anything automatically: you choose whether to copy or save it.",
+			"Feedback shows you the report and the workstation details first.",
+			"Nothing is sent automatically.",
 		}, "\n"),
 	},
 }
@@ -90,26 +87,12 @@ function M.show(opts)
 	local index = 1
 	local result = "dismissed"
 
-	local title_lbl = iup.label({
-		TITLE = "",
-		FONT = "Segoe UI, Bold 13",
-		EXPAND = "HORIZONTAL",
+	local title_lbl = iup.flatlabel({ TITLE = "", THEMEROLE = "sectiontitle", EXPAND = "HORIZONTAL" })
+	-- A label, not a text field: this is reading, and a field brings native scrollbars.
+	local body_text = iup.flatlabel({
+		TITLE = "", THEMEROLE = "settingslabel", EXPAND = "YES", ALIGNMENT = "ALEFT:ATOP",
 	})
-	local body_text = iup.text({
-		MULTILINE = "YES",
-		READONLY = "YES",
-		BORDER = "NO",
-		CANFOCUS = "NO",
-		EXPAND = "YES",
-		VISIBLELINES = "10",
-		FONT = "Segoe UI, 11",
-		THEMEROLE = "text",
-	})
-	local page_lbl = iup.label({
-		TITLE = "",
-		FONT = "Segoe UI, 8",
-		FGCOLOR = "120 120 120",
-	})
+	local page_lbl = iup.flatlabel({ TITLE = "", THEMEROLE = "hint", EXPAND = "HORIZONTAL" })
 
 	local back_btn = iup.flatbutton({
 		TITLE = "Back",
@@ -132,7 +115,7 @@ function M.show(opts)
 	local function render()
 		local page = PAGES[index]
 		iup.SetAttribute(title_lbl, "TITLE", page.title)
-		iup.SetAttribute(body_text, "VALUE", page.body)
+		iup.SetAttribute(body_text, "TITLE", page.body)
 		iup.SetAttribute(page_lbl, "TITLE", string.format("Step %d of %d", index, #PAGES))
 		iup.SetAttribute(back_btn, "ACTIVE", index > 1 and "YES" or "NO")
 		iup.SetAttribute(next_btn, "TITLE", index < #PAGES and "Next" or "Finish")
@@ -167,32 +150,33 @@ function M.show(opts)
 	dlg = iup.dialog({
 		iup.vbox({
 			title_lbl,
-			iup.flatframe({
-				body_text,
-				TITLE = "",
-				MARGIN = L.margin(3),
-				EXPAND = "YES",
-				THEMEROLE = "settingspanel",
-			}),
-			page_lbl,
+			body_text,
 			iup.hbox({
+				page_lbl,
 				back_btn,
-				iup.fill({}),
 				dismiss_btn,
 				next_btn,
 				GAP = L.gap(3),
 				ALIGNMENT = "ACENTER",
 			}),
-			MARGIN = L.margin(4),
-			GAP = L.gap(3),
+			MARGIN = L.margin(6),
+			GAP = L.gap(4),
 		}),
-		TITLE = "Welcome Tour",
+		TITLE = "Welcome",
 		-- Win32 ICON RESOURCE name from assets/Lunar.rc.
 		ICON = "IUP",
-		SIZE = "420x260",
+		SIZE = "300x120",
 		SHRINK = "YES",
+		RESIZE = "NO",
+		MINBOX = "NO",
+		MAXBOX = "NO",
 	})
 
+	-- The primary action starts focused, so its neighbour doesn't wear the focus ring.
+	if iup.SetHandle then
+		iup.SetHandle("welcome_tour_next", next_btn)
+		iup.SetAttribute(dlg, "STARTFOCUS", "welcome_tour_next")
+	end
 	if opts.notify_tree_change then
 		opts.notify_tree_change(dlg)
 	end

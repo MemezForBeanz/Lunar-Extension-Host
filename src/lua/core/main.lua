@@ -88,6 +88,8 @@ local TabTransition = require("core.ui.TabTransition")
 local TabDragMotion = require("core.ui.TabDragMotion")
 local NameDialog = require("core.ui.NameDialog")
 local WelcomeTour = require("core.ui.WelcomeTour")
+local WindowChrome = require("core.ui.WindowChrome")
+local Kit = require("core.ui.Kit")
 local AppearanceSettings = require("core.ui.AppearanceSettings")
 local Diagnostics = require("core.ui.Diagnostics")
 local NativeStatus = require("core.lib.NativeStatus")
@@ -164,6 +166,7 @@ end
 -- The status bar logo belongs to the org profile (brand.logo, an SVG inside the
 -- profile folder); the neutral build shows none.
 local ICON_DIR = platform.path:join(APP_DIR, "assets", "Icons")
+Kit.setIconDir(ICON_DIR)
 
 -- Window/taskbar icon: the name of the Win32 ICON RESOURCE in the executable, not
 -- an IupImage handle. assets/Lunar.rc declares `IUP ICON "lunar.ico"`,
@@ -322,6 +325,7 @@ end
 -- gradients/rounded corners from the ThemeManager attribute walk directly and need no
 -- registration here.
 require("core.ui.ThemeReactor").bindThemeManager(theme_mgr)
+settings_view:setThemeWidget(function(widget) theme_mgr:themeWidget(widget) end)
 
 -- Status bar (built before HostAPI, which takes its extension status box).
 status_bar = StatusBar.new({
@@ -329,6 +333,9 @@ status_bar = StatusBar.new({
 	icon_dir = ICON_DIR,
 	search_icon = VectorIcon.imageHandle(iup, {
 		path = platform.path:join(ICON_DIR, "search.svg"), size = 14, color = "#7d8290",
+	}),
+	menu_icon = VectorIcon.imageHandle(iup, {
+		path = platform.path:join(ICON_DIR, "menu.svg"), size = 16, color = "#a2a7b5",
 	}),
 	-- The org's logo, when its profile ships one; the neutral build shows none.
 	logo = ORG_PROFILE and ORG_PROFILE.brand.logo,
@@ -462,7 +469,9 @@ local content_box = iup.vbox({
 local dlg = iup.dialog({
 	content_box,
 	TITLE = APP_TITLE,
-	MENU = menu_bar,
+	-- Windows cannot theme a dialog's menu bar, so there the menu opens from the status
+	-- bar's menu button and the window frame stays one colour with the tab strip.
+	MENU = not platform.is_windows and menu_bar or nil,
 	ICON = APP_ICON_RESOURCE,
 	MINSIZE = STARTUP.minsize,
 	-- A hard ceiling on the window height. IUP sizes a dialog from its content and
@@ -514,9 +523,6 @@ local function recalc_shell_budget(client_h)
 	iup.SetAttribute(pane_grid:widget(), "MAXSIZE", value)
 	return true
 end
-
--- Settings reads as a form, so it keeps a form's width on any monitor.
-local SETTINGS_MAX_WIDTH = 940
 
 -- Page widths are only known after the layout pass a resize triggers.
 local recenter_timer = iup.timer({ time = 30 })
@@ -637,15 +643,48 @@ local command_palette = CommandPalette.new({
 	muted = function()
 		return require("core.ui.ThemeReactor").palette().textMuted or "128 128 128"
 	end,
+	-- Summoned over the work, in the upper part of the window, the way a modal would be.
 	anchor = function()
-		local bar = status_bar:commandWidget()
-		local x, y = tostring(iup.GetAttribute(bar, "SCREENPOSITION") or ""):match("(-?%d+),(-?%d+)")
-		local w = tostring(iup.GetAttribute(bar, "RASTERSIZE") or ""):match("^(%d+)x")
+		local x, y = tostring(iup.GetAttribute(dlg, "SCREENPOSITION") or ""):match("(-?%d+),(-?%d+)")
+		local w = tostring(iup.GetAttribute(dlg, "RASTERSIZE") or ""):match("^(%d+)x")
 		if not (x and w) then return nil end
-		return tonumber(x), tonumber(y), tonumber(w)
+		return tonumber(x), tonumber(y) + 120, tonumber(w)
 	end,
 })
 status_bar:onCommand(function() command_palette:toggle() end)
+-- The application menu, on the palette's own surface: a native popup can't take the theme's
+-- type or colour, and every entry gains search for free.
+local function menu_entries(menu, group, out)
+	out = out or {}
+	local i, child = 0, iup.GetChild(menu, 0)
+	while child do
+		local class = iup.GetClassName(child)
+		local title = (iup.GetAttribute(child, "TITLE") or ""):gsub("&", ""):gsub("%.%.%.$", "")
+		if class == "submenu" then
+			menu_entries(iup.GetChild(child, 0), group or title, out)
+		elseif class == "item" and iup.GetAttribute(child, "ACTIVE") ~= "NO" then
+			local item = child
+			out[#out + 1] = {
+				id = "menu." .. title, title = title, group = group or "Lunar",
+				run = function()
+					local action = item.action
+					if action and action(item) == iup.CLOSE then iup.ExitLoop() end
+					return true
+				end,
+			}
+		end
+		i = i + 1
+		child = iup.GetChild(menu, i)
+	end
+	return out
+end
+local function open_app_menu()
+	command_palette:open("", {
+		items = menu_entries(menu_bar), grouped = true, placeholder = "Search the menu",
+		hint = "Enter to run   Esc to close",
+	})
+end
+status_bar:onMenu(open_app_menu)
 host:registerShortcut(iup.K_cP, function() command_palette:toggle() end)
 host:_installKeyDispatch(dlg)
 
@@ -802,6 +841,7 @@ add_host_command("tasks", "Run Task", function() command_palette:open("task ") e
 -- For scripts/ui_capture.lua, which drives these from outside.
 if DEV_BUILD then
 	_G.LUNAR_DEV_SHELL = {
+		open_menu = open_app_menu,
 		palette = command_palette,
 		panes = pane_grid,
 		groups = function() return tab_groups end,
@@ -932,7 +972,7 @@ tab_groups = TabGroups:new({
 	settings = settings_mgr,
 	extra_icon = function(name)
 		return VectorIcon.imageHandle(iup, {
-			path = platform.path:join(ICON_DIR, name .. ".svg"), size = 14, color = "#7d8290",
+			path = platform.path:join(ICON_DIR, name .. ".svg"), size = 16, color = "#b4b9c6",
 		})
 	end,
 	on_change = function()
@@ -968,7 +1008,7 @@ theme_mgr:onApply(function()
 	host:syncScrollHosts()
 end)
 pane_grid:onLayout(schedule_recenter)
-host:centerPage(settings_view:widget(), SETTINGS_MAX_WIDTH, L.px(L.ROLE.page))
+host:fitPage(settings_view:widget(), function(width) settings_view:fitWidth(width) end)
 
 -- Rebuild the saved arrangement now that every extension tab and the host's own
 -- Settings tab are in the strip, and while the pages are still unmapped.
@@ -1002,6 +1042,9 @@ end
 -- setting it afterwards is a no-op. MAXIMIZED (not FULLSCREEN) keeps the title
 -- bar, so the window stays restorable and movable.
 pcall(iup.SetAttribute, dlg, "PLACEMENT", "MAXIMIZED")
+-- Mapped first, so the frame is already dark on the first frame the user sees.
+pcall(iup.Map, dlg)
+WindowChrome.follow(iup, dlg, theme_mgr)
 iup.Show(dlg)
 
 -- Build the dialog's compositor NOW, while nothing is happening. The scrim, the tab

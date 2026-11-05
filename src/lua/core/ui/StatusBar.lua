@@ -24,8 +24,8 @@ StatusBar.UPDATE_STATES = {
 StatusBar.UPDATE_CLICK_HINT = "\n\nClick to check for updates now."
 
 --- What the command bar says at rest.
-StatusBar.COMMAND_HINT = "Search commands or lunar:// address                              Ctrl+P"
-StatusBar.COMMAND_WIDTH = 440
+StatusBar.COMMAND_HINT = "Search commands or lunar:// address   Ctrl+P"
+StatusBar.COMMAND_WIDTH = 360
 
 --- Parse an IUP `"R G B"` colour into three numbers (nil if it isn't one).
 function StatusBar.parse_rgb(value)
@@ -77,9 +77,24 @@ function StatusBar.new(opts)
 		if bar._on_command then bar._on_command() end
 		return iup.DEFAULT
 	end
+	-- The application menu, where the platform has no themable menu bar.
+	self._menu_button = opts.menu_icon and iup.flatbutton({
+		IMAGE = opts.menu_icon,
+		TIP = "Menu",
+		CANFOCUS = "NO",
+		PADDING = "6x4",
+		THEMEROLE = "statusbar_button",
+	}) or nil
+	if self._menu_button then
+		function self._menu_button:flat_action()
+			local x, y = tostring(iup.GetAttribute(self, "SCREENPOSITION") or ""):match("(-?%d+),(-?%d+)")
+			if bar._on_menu and x then bar._on_menu(tonumber(x), tonumber(y) - 4) end
+			return iup.DEFAULT
+		end
+	end
 
 	self._widget = iup.hbox({
-		iup.hbox({ self._label, EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER" }),
+		iup.hbox({ self._menu_button, self._label, EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER", GAP = L.gap(2) }),
 		iup.hbox({ iup.fill({}), self._command, iup.fill({}), EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER" }),
 		iup.hbox({
 			iup.fill({}),
@@ -110,6 +125,8 @@ function StatusBar:widget() return self._widget end
 function StatusBar:commandWidget() return self._command end
 --- Set what a click on the command bar does.
 function StatusBar:onCommand(fn) self._on_command = fn end
+--- Set what the menu button does. Called with the screen position to open at.
+function StatusBar:onMenu(fn) self._on_menu = fn end
 --- The box extension status elements go in (HostAPI's `status_box`).
 function StatusBar:extBox() return self._ext_box end
 --- The update indicator (a `core.ui.StatusIcon`).

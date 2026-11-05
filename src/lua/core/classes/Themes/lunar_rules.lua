@@ -95,7 +95,8 @@ function M.build(p)
     -- the body font -- text and control are proportionate again, which is the
     -- real fix for "undersized text on oversized buttons".
     local BTN_FONT = p.font
-    local BTN_PAD  = "12x4"
+    local BTN_PAD  = "12x5"
+    local ROW_PAD  = "14x4"   -- one list row height, wherever a list is
     local accent_hover   = p.accentHover   or shade(p.accent, 0.12)
     local accent_pressed = p.accentPressed or shade(p.accent, -0.14)
 
@@ -112,12 +113,16 @@ function M.build(p)
         }
     end
 
+    -- Semibold, where the face has one, rather than a bold synthesised from the body cut.
+    -- A theme with its own typeface names the cut to use.
+    local HEADING = p.headingFont or "Segoe UI Semibold"
+
     local rules = {
         -- Type scale (identical to carbon_rules: heading-04 / heading-03 /
         -- body-compact-01 / label-01).
-        pagetitle     = { fg = p.text,      font = sized(p.font, 18, true), padding = "0x0" },
+        pagetitle     = { fg = p.text,      font = sized(HEADING, 18), padding = "0x0" },
         pagesubtitle  = { fg = p.textMuted, font = sized(p.font, 11), padding = "0x0" },
-        sectiontitle  = { fg = p.text,      font = sized(p.font, 12, true), padding = "0x0" },
+        sectiontitle  = { fg = p.text,      font = sized(HEADING, 14), padding = "0x0" },
         hint          = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
 
         -- Semantic text roles: state colored by meaning, never by literal.
@@ -143,7 +148,7 @@ function M.build(p)
         -- The bottom status bar, finally a themed surface instead of a
         -- hardcoded gray: the shell's floor color with muted text.
         statusbar      = { bg = p.bg, fg = p.textMuted, border = border },
-        statusbar_text = { bg = p.bg, fg = p.text, font = sized(p.font, 10) },
+        statusbar_text = { bg = p.bg, fg = p.textMuted, font = sized(p.font, 10) },
 
         -- Toasts: elevated surface, semantic bar on the left edge.
         toast_bg_info     = { bg = elevated, fg = p.text },
@@ -203,8 +208,21 @@ function M.build(p)
         settingslabel       = { fg = p.text,      font = p.font },
         settingslabel_muted = { fg = p.textMuted, font = p.font },
         settingspanel = { bg = layer1, border = layer1, borderwidth = 0, radius = 0 },
+        settingscard  = { bg = layer1, border = border, radius = RF, sheen = sheen },
+        settings_name = { fg = p.text, font = sized(HEADING, 11), padding = "0x0" },
+        settings_description = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
+        settings_nav  = {
+            bg = layer1, fg = p.textMuted, font = p.font, border = layer1, borderwidth = 0,
+            padding = "12x6", radius = R, hover = hover, hovertext = p.text, pressed = selected,
+        },
+        settings_nav_on = {
+            bg = chosen, fg = p.text, font = p.font, border = chosen, borderwidth = 0,
+            padding = "12x6", radius = R, hover = chosen, hovertext = p.text, pressed = chosen,
+        },
+        empty_title   = { fg = p.text, font = sized(p.font, 12), padding = "0x0" },
+        empty_hint    = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
         settingsheader = {
-            bg = layer1, fg = p.text, font = sized(p.font, 12, true),
+            bg = layer1, fg = p.text, font = sized(HEADING, 14),
             border = layer1, borderwidth = 0, radius = R,
             hover = hover, hovertext = p.text, pressed = selected,
         },
@@ -279,7 +297,7 @@ function M.build(p)
             pressed = selected, pressedtext = p.text,
         },
         dropbutton    = {
-            bg = elevated, fg = p.text, font = p.font,
+            bg = well, fg = p.text, font = p.font,
             border = border, borderwidth = 1, showborder = true, radius = R,
             padding = "10x4",
             hover = hover, hovertext = p.text,
@@ -295,21 +313,21 @@ function M.build(p)
         -- Lists and data panes: square by design (rule 2).
         list_bordered = scroll({
             bg = well, fg = p.text, font = p.font, border = border, borderwidth = 1, radius = RF,
-            scrollbg = well, sheen = sheen, itemradius = R,
+            scrollbg = well, sheen = sheen, itemradius = R, padding = ROW_PAD, itemmarker = p.accent,
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         list_plain    = scroll({
             bg = layer1, fg = p.text, font = p.font, border = layer1, borderwidth = 0,
-            scrollbg = layer1, itemradius = R,
+            scrollbg = layer1, itemradius = R, padding = ROW_PAD, itemmarker = p.accent,
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         outputlog     = {
-            bg = well, fg = p.text, border = well,
-            scrollbg = well, scrollfg = borderS,
+            bg = layer1, fg = p.text, border = layer1,
+            scrollbg = layer1, scrollfg = borderS,
         },
         outputlog_scroll = scroll({
-            bg = well, fg = p.text, border = well, borderwidth = 0,
-            scrollbg = well,
+            bg = layer1, fg = p.text, border = layer1, borderwidth = 0,
+            scrollbg = layer1,
         }),
         list_bordered_scroll = scroll({
             bg = well, fg = p.text, border = well, borderwidth = 0,
@@ -317,10 +335,12 @@ function M.build(p)
         }),
         toggle        = { fg = p.text, font = p.font },
         flattoggle    = { bg = layer1, fg = p.text, font = p.font, radius = R,
-            checkbg = well, checkfg = p.textMuted, checkhl = p.text, checkon = p.accent },
+            checkbg = well, checkfg = p.textMuted, checkhl = p.text, checkon = p.accentBright or p.accent,
+            switchon = p.accent, switchoff = borderS, switchknob = p.text },
         flattoggle_noborder = { bg = layer1, fg = p.text, font = p.font,
             border = layer1, borderwidth = 0, radius = R,
-            checkbg = well, checkfg = p.textMuted, checkhl = p.text, checkon = p.accent },
+            checkbg = well, checkfg = p.textMuted, checkhl = p.text, checkon = p.accentBright or p.accent,
+            switchon = p.accent, switchoff = borderS, switchknob = p.text },
 
         -- Fields: a dim box on the raised surface; the strong border marks the
         -- input edge the way VS Code's inputs read against their panels. The
@@ -333,15 +353,19 @@ function M.build(p)
         flatlist      = scroll({
             bg = well, fg = p.text, font = p.font,
             border = border, borderwidth = 1, radius = RF, sheen = sheen,
-            scrollbg = well, itemradius = R,
+            scrollbg = well, itemradius = R, padding = ROW_PAD, itemmarker = p.accent,
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         -- A field edge in focus. core.ui.FlatField swaps its frame to this role.
         -- A container for content: a recessed fill with the same edge everywhere.
-        well = { bg = well, fg = p.text, font = p.font, border = well, radius = RF },
+        well = { bg = layer1, fg = p.text, font = p.font, border = border, radius = RF, sheen = sheen },
         text_cue = { bg = well, fg = p.textMuted, font = p.font },
         text_focus = { bg = well, fg = p.text, font = p.font, border = p.accent, radius = R },
         -- The bottom bar's command bar: reads as a recessed field, not a button.
+        statusbar_button = {
+            bg = p.bg, fg = p.textMuted, border = p.bg, borderwidth = 0, radius = R,
+            hover = hover, pressed = selected,
+        },
         commandbar = {
             bg = well, fg = p.textMuted, font = sized(p.font, 10),
             border = border, borderwidth = 1, showborder = true, radius = R,
@@ -357,7 +381,7 @@ function M.build(p)
                           radius = RF, sheen = sheen },
         palette_list = scroll({
             bg = elevated, fg = p.text, font = p.font, border = elevated, borderwidth = 0,
-            radius = R, scrollbg = elevated, itemradius = R,
+            radius = R, scrollbg = elevated, itemradius = R, itemmarker = p.accent,
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         progressbar   = { bg = layer1, fg = p.accent, border = border },
