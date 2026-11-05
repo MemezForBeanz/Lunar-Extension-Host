@@ -529,7 +529,7 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 	-- dotted grip without touching any extension (fork patch 0005).
 	if cls == "split" then
 		attrs.SHOWGRIP = "SASH"
-		attrs.BARSIZE = tostring(r.barsize or 7)
+		if not r.fixedbar then attrs.BARSIZE = tostring(r.barsize or 7) end
 		if r.border then attrs.COLOR = r.border end
 		attrs.HLCOLOR = r.sash or r.border
 	end
@@ -662,6 +662,9 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 		if cls == "flattabs" and r.tabspadding then
 			attrs.TABSPADDING = r.tabspadding
 			attrs.TABSIMAGESPACING = "8"
+		end
+		if cls == "flattabs" and r.selrow then
+			attrs.TABSSELCOLOR = r.selrow
 		end
 		if cls == "flattabs" and r.activeline then
 			attrs.TABSACTIVELINE = r.activeline

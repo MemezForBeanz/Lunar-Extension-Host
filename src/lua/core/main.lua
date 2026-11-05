@@ -69,6 +69,8 @@ local HostAPI = require("core.classes.HostAPI")
 local SettingsView = require("core.ui.SettingsView")
 local MenuBar = require("core.ui.MenuBar")
 local StatusBar = require("core.ui.StatusBar")
+local TitleBar = require("core.ui.TitleBar")
+local ToolRail = require("core.ui.ToolRail")
 local ShellBudget = require("core.ui.ShellBudget")
 local UpdateCheck = require("core.ui.UpdateCheck")
 local ThemeManager = require("core.classes.ThemeManager")
@@ -333,14 +335,18 @@ settings_view:setThemeWidget(function(widget) theme_mgr:themeWidget(widget) end)
 status_bar = StatusBar.new({
 	iup = iup,
 	icon_dir = ICON_DIR,
-	search_icon = VectorIcon.imageHandle(iup, {
-		path = platform.path:join(ICON_DIR, "search.svg"), size = 14, color = "#7d8290",
-	}),
-	menu_icon = VectorIcon.imageHandle(iup, {
-		path = platform.path:join(ICON_DIR, "menu.svg"), size = 16, color = "#a2a7b5",
-	}),
-	-- The org's logo, when its profile ships one; the neutral build shows none.
-	logo = ORG_PROFILE and ORG_PROFILE.brand.logo,
+})
+
+-- The bar across the top. The groups in it mirror the main strip, so it needs that strip.
+local title_bar = TitleBar.new({
+	iup = iup,
+	root = tabs,
+	icon = function(widget, name, size, role, attribute)
+		Kit.bindIcon(iup, widget, name, { size = size or 16, role = role or "neutral", attribute = attribute })
+	end,
+	-- The org's logo, when its profile ships one, in place of Lunar's own mark.
+	logo = ORG_PROFILE and ORG_PROFILE.brand.logo and VectorIcon.logoHandle(iup, ORG_PROFILE.brand.logo, 20),
+	is_hidden = function(page) return require("core.lib.handle").same(iup, page, settings_view:widget()) end,
 })
 
 -- The single host context handed to every extension.
@@ -469,10 +475,10 @@ local content_box = iup.vbox({
 })
 
 local dlg = iup.dialog({
-	content_box,
+	iup.vbox({ title_bar:widget(), content_box, MARGIN = L.margin(0), GAP = "0" }),
 	TITLE = APP_TITLE,
-	-- Windows cannot theme a dialog's menu bar, so there the menu opens from the status
-	-- bar's menu button and the window frame stays one colour with the tab strip.
+	-- Windows cannot theme a dialog's menu bar, so there the menu opens from the top bar's
+	-- menu button.
 	MENU = not platform.is_windows and menu_bar or nil,
 	ICON = APP_ICON_RESOURCE,
 	MINSIZE = STARTUP.minsize,
@@ -515,9 +521,10 @@ local function recalc_shell_budget(client_h)
 	client_h = client_h or measured_height(dlg, "CLIENTSIZE")
 	if not client_h or client_h <= 0 then return false end
 	local bands = {
+		title = TitleBar.HEIGHT,
 		status = measured_height(status_bar:widget()) or 0,
 	}
-	local cap = ShellBudget.cap(client_h, bands, L.gutter(), 4)
+	local cap = ShellBudget.cap(client_h, bands, L.gutter(), 2)
 	shell_budget.bands, shell_budget.cap = bands, cap
 	local value = "65535x" .. cap
 	if iup.GetAttribute(tabs, "MAXSIZE") == value then return false end
@@ -526,11 +533,13 @@ local function recalc_shell_budget(client_h)
 	return true
 end
 
+local tool_rail -- built with the tab groups
 -- Page widths are only known after the layout pass a resize triggers.
 local recenter_timer = iup.timer({ time = 30 })
 function recenter_timer:action_cb()
 	self.run = "NO"
 	if host then
+		if tool_rail then tool_rail:apply() end
 		host:recenterPages()
 		iup.Refresh(dlg)
 	end
@@ -541,7 +550,8 @@ local function schedule_recenter()
 	recenter_timer.run = "YES"
 end
 
-function dlg:resize_cb(_, h)
+function dlg:resize_cb(w, h)
+	title_bar:fit(w)
 	recalc_shell_budget(h)
 	schedule_recenter()
 	return iup.DEFAULT -- winDialogResize performs the layout after this callback.
@@ -646,15 +656,16 @@ local command_palette = CommandPalette.new({
 	muted = function()
 		return require("core.ui.ThemeReactor").palette().textMuted or "128 128 128"
 	end,
-	-- Summoned over the work, in the upper part of the window, the way a modal would be.
+	-- Opened where the field is, so the field is what seems to open.
 	anchor = function()
-		local x, y = tostring(iup.GetAttribute(dlg, "SCREENPOSITION") or ""):match("(-?%d+),(-?%d+)")
-		local w = tostring(iup.GetAttribute(dlg, "RASTERSIZE") or ""):match("^(%d+)x")
+		local field = title_bar:commandWidget()
+		local x, y = tostring(iup.GetAttribute(field, "SCREENPOSITION") or ""):match("(-?%d+),(-?%d+)")
+		local w = tostring(iup.GetAttribute(field, "RASTERSIZE") or ""):match("^(%d+)x")
 		if not (x and w) then return nil end
-		return tonumber(x), tonumber(y) + 120, tonumber(w)
+		return tonumber(x), tonumber(y) - 2, tonumber(w)
 	end,
 })
-status_bar:onCommand(function() command_palette:toggle() end)
+title_bar:onCommand(function() command_palette:toggle() end)
 -- The application menu, on the palette's own surface: a native popup can't take the theme's
 -- type or colour, and every entry gains search for free.
 local function menu_entries(menu, group, out)
@@ -687,7 +698,7 @@ local function open_app_menu()
 		hint = "Enter to run   Esc to close",
 	})
 end
-status_bar:onMenu(open_app_menu)
+title_bar:onMenu(open_app_menu)
 host:registerShortcut(iup.K_cP, function() command_palette:toggle() end)
 host._key_fallback = function(c)
 	if c == iup.K_ESC and pane_grid:isFocused() then return pane_grid:restoreFocus() end
@@ -707,7 +718,8 @@ end
 add_host_command("address", "Open Lunar Address", function() command_palette:open("lunar://") end,
 	{ keywords = "go to route url link", group = "Navigate" })
 add_host_command("settings", "Open Settings", function() host:dispatchRoute("lunar://host/settings") end,
-	{ keywords = "preferences options", group = "Navigate" })
+	{ keywords = "preferences options", group = "Navigate", shortcut = "Ctrl+," })
+host:registerShortcut(iup.K_cComma or (0x20000000 + 44), function() host:dispatchRoute("lunar://host/settings") end)
 add_host_command("reload", "Restart Extensions", function() mh.reload_extensions() end,
 	{ keywords = "reload refresh plugins", group = "Lunar" })
 add_host_command("updates", "Check for Updates", function() update_check:checkNow() end,
@@ -1030,6 +1042,7 @@ tab_groups = TabGroups:new({
 	on_change = function()
 		-- Every way a pane can empty ends here: a drop on a tab bar, a merge, a closed tab.
 		pane_grid:sync()
+		if tool_rail then tool_rail:refresh() end
 		host:_applyTabScopes()
 		refresh_shell_budget()
 	end,
@@ -1051,6 +1064,9 @@ tab_groups = TabGroups:new({
 	height_cap = math.max(320, WORK_H - 130),
 })
 tab_order:setGroups(tab_groups)
+-- The main strip's tabs live in the top bar.
+iup.SetAttribute(tabs, "SHOWTABS", "NO")
+tab_order:setStandIn(tabs, title_bar:groupStrip())
 host:setTabGroups(tab_groups)
 tab_groups:setPanes(pane_grid:extraStrips())
 pane_grid:setGroups(tab_groups)
@@ -1061,6 +1077,76 @@ theme_mgr:onApply(function()
 	host:syncScrollHosts()
 end)
 pane_grid:onLayout(schedule_recenter)
+
+local toggle_settings
+tool_rail = ToolRail.new({
+	iup = iup, groups = tab_groups, panes = pane_grid, main = tabs, settings = settings_mgr,
+	icon = function(name, size, role) return Kit.icon(iup, name, size, role or "neutral") end,
+	notify = function(w) theme_mgr:themeWidget(w) end,
+	activity = host:activityStore(),
+	is_settings = function(page) return require("core.lib.handle").same(iup, page, settings_view:widget()) end,
+	on_settings = function() toggle_settings() end,
+	colors = function()
+		local theme = theme_mgr:activeTheme()
+		local r = theme and theme:rules().tool_rail or {}
+		return { hover = r.hover, selected = r.selrow, background = r.tabsbg, padding = r.tabspadding }
+	end,
+})
+tab_groups:setRail(tool_rail)
+host:registerShortcut(iup.K_cB, function() tool_rail:toggle() end)
+add_host_command("rail.toggle", "Toggle Sidebar", function() tool_rail:toggle() end,
+	{ keywords = "collapse expand tools rail", group = "Layout", shortcut = "Ctrl+B" })
+add_host_command("group.new", "New Tab Group", function() tab_groups:_newGroup(tab_groups:activeRoot()) end,
+	{ keywords = "add group tabs", group = "Layout" })
+for n = 1, 9 do
+	-- Ctrl+digit, as IUP codes it: there are no named constants for these.
+	host:registerShortcut(0x20000000 + 48 + n, function()
+		if tool_rail:jump(n) then host:_applyTabScopes() end
+	end)
+end
+
+-- Anything that changes what the bar should show also re-scopes the tabs, so that's the hook.
+local function sync_title_bar()
+	title_bar:sync(tab_groups:_children(tabs))
+	tool_rail:refresh()
+end
+host._after_scopes = sync_title_bar
+-- The groups' width depends on their font, which the theme sets.
+theme_mgr:onApply(function()
+	title_bar:themeChanged()
+	tool_rail:themeChanged()
+	sync_title_bar()
+end)
+if rawget(_G, "LUNAR_DEV_SHELL") then _G.LUNAR_DEV_SHELL.sync_title_bar = sync_title_bar end
+do
+	-- The gear toggles: a second press goes back to the page Settings replaced, however
+	-- Settings was reached. That page can have gone since, and then there is nowhere to go.
+	local handle = require("core.lib.handle")
+	local last
+	local function is_settings(page) return page and handle.same(iup, page, settings_view:widget()) end
+	local sync = sync_title_bar
+	sync_title_bar = function()
+		local page = iup.GetAttribute(tabs, "VALUE_HANDLE")
+		if page and not is_settings(page) then last = page end
+		sync()
+	end
+	host._after_scopes = sync_title_bar
+	if rawget(_G, "LUNAR_DEV_SHELL") then _G.LUNAR_DEV_SHELL.sync_title_bar = sync_title_bar end
+	toggle_settings = function()
+		if not is_settings(iup.GetAttribute(tabs, "VALUE_HANDLE")) then
+			host:dispatchRoute("lunar://host/settings")
+		else
+			for _, page in ipairs(tab_groups:_children(tabs)) do
+				if last and not is_settings(page) and handle.same(iup, page, last) then
+					tab_groups:reveal(page)
+					host:_applyTabScopes()
+					break
+				end
+			end
+		end
+		sync_title_bar()
+	end
+end
 host:fitPage(settings_view:widget(), function(width) settings_view:fitWidth(width) end)
 
 -- Code and language servers (core.ui.CodeWorkbench): the Code and Problems tabs,
@@ -1110,6 +1196,9 @@ end
 pcall(iup.SetAttribute, dlg, "PLACEMENT", "MAXIMIZED")
 -- Mapped first, so the frame is already dark on the first frame the user sees.
 pcall(iup.Map, dlg)
+title_bar:fit(WORK_W)
+title_bar:adoptFrame(dlg, theme_mgr)
+sync_title_bar()
 WindowChrome.follow(iup, dlg, theme_mgr)
 iup.Show(dlg)
 

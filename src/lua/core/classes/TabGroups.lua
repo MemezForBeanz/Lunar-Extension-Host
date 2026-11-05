@@ -173,6 +173,11 @@ end
 -- the panes.
 --
 -- @tparam table panes zone name -> `iup.flattabs`
+--- Attach `core.ui.ToolRail`, which takes over the strips it owns.
+function TabGroups:setRail(rail)
+	self._rail = rail
+end
+
 function TabGroups:setPanes(panes)
 	self._panes = panes or {}
 	for _, strip in pairs(self._panes) do self:_prepareStrip(strip) end
@@ -567,6 +572,8 @@ end
 
 function TabGroups:setCollapsed(strip, collapsed)
 	if not self:isGroupStrip(strip) then return false end
+	-- A rail narrows rather than hides, and every rail moves together (core.ui.ToolRail).
+	if self._rail and self._rail:owns(strip) then return false end
 	collapsed = collapsed == true
 	if self:isCollapsed(strip) == collapsed then return false end
 	return self:_batch(function()
@@ -576,6 +583,11 @@ function TabGroups:setCollapsed(strip, collapsed)
 		self:_changed() -- persists and invokes the shell-budget hook after layout
 		return true
 	end)
+end
+
+--- Forget a hidden tab bar: a strip that has become a rail doesn't hide.
+function TabGroups:clearCollapsed(strip)
+	attr.set(self._iup, strip, COLLAPSED_ATTR, nil)
 end
 
 function TabGroups:toggleCollapsed(strip)
@@ -605,7 +617,7 @@ function TabGroups:_prepareStrip(strip)
 	local is_group = self:isGroupStrip(strip)
 	-- A strip in a group only needs its collapse control: "New tab group" lives on the
 	-- bar at the top, and a second + beside it says nothing about how the two differ.
-	pcall(iup.SetAttribute, strip, "EXTRABUTTONS", is_group and "2" or "1")
+	pcall(iup.SetAttribute, strip, "EXTRABUTTONS", "1")
 	local function extra(id, text, icon)
 		local image = self._extra_icon and self._extra_icon(icon)
 		if image then
@@ -614,12 +626,12 @@ function TabGroups:_prepareStrip(strip)
 			pcall(iup.SetAttributeId, strip, "EXTRATITLE", id, text)
 		end
 	end
-	extra(1, "+", "add")
-	pcall(iup.SetAttributeId, strip, "EXTRATIP", 1, "New tab group")
 	if is_group then
-		extra(2, "^", "chevron--up")
-		pcall(iup.SetAttributeId, strip, "EXTRATIP", 2, "Hide tab bar (double-click the parent tab to restore)")
+		extra(1, "^", "chevron--up")
+		pcall(iup.SetAttributeId, strip, "EXTRATIP", 1, "Hide tab bar (double-click the parent tab to restore)")
 	else
+		extra(1, "+", "add")
+		pcall(iup.SetAttributeId, strip, "EXTRATIP", 1, "New tab group")
 		extra(2, "[]", "view")
 		pcall(iup.SetAttributeId, strip, "EXTRATIP", 2, "Focus or restore pane (Esc to restore)")
 	end
@@ -627,22 +639,31 @@ function TabGroups:_prepareStrip(strip)
 	pcall(function()
 		function strip:extrabutton_cb(id, pressed)
 			-- Act on release, mirroring a normal button click.
-			if id == 2 and pressed == 0 and is_group then
+			if self_._rail and self_._rail:owns(strip) then
+				if pressed == 0 then self_._rail:press(strip, id) end
+				return iup.DEFAULT
+			end
+			if id == 1 and pressed == 0 and is_group then
 				self_:setCollapsed(strip, true)
 			elseif id == 2 and pressed == 0 and self_._on_focus_pane then
 				self_._on_focus_pane(strip)
 			elseif id == 1 and pressed == 0 then
-				if self_._on_new then
-					self_._on_new(strip)
-				else
-					self_:createGroup(strip)
-				end
+				self_:_newGroup(strip)
 			end
 			return iup.DEFAULT
 		end
 	end)
 
 	if self._on_strip then self._on_strip(strip) end
+end
+
+-- The + on a tab bar.
+function TabGroups:_newGroup(strip)
+	if self._on_new then
+		self._on_new(strip)
+	else
+		self:createGroup(strip)
+	end
 end
 
 --- Create a group and append (or insert) it into `parent_strip`.
