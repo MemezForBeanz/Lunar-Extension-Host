@@ -17,6 +17,11 @@ local L = require("core.lib.CarbonLayout")
 function M.rowList(iup, opts) return require("core.ui.RowList").new(iup, opts) end
 function M.segmented(iup, opts) return require("core.ui.RowList").segmented(iup, opts) end
 
+--- The edge a row list sits in: the look of a bordered list, and room for its rounded corners.
+function M.rowFrame(iup, widget)
+	return iup.flatframe({ widget, TITLE = "", EXPAND = "YES", MARGIN = "4x4", THEMEROLE = "list_bordered" })
+end
+
 M.ICON_BUTTON = 16
 M.ICON_TAB = 16
 M.ICON_STATUS = 16
@@ -197,10 +202,26 @@ end
 -- while its tab is behind shows through the tab in front, and stays there. So the attribute
 -- is only ever written while the page is in front, then cleared to rejoin the tab's
 -- own showing and hiding. A hide stays stored: it has to survive the tab being reselected.
+-- Clearing the attribute on a box clears it all the way down, so the hidden parts inside a
+-- box being shown are hidden again here.
 -- @tparam userdata iup
 -- @param widget
 -- @tparam boolean visible
 -- @param anchor any always-visible native control on the same page
+local function keep_hidden(iup, widget)
+	if not iup.GetChild then return end
+	local i, child = 0, iup.GetChild(widget, 0)
+	while child do
+		if iup.GetAttribute(child, "FLOATING") == "YES" then
+			iup.SetAttribute(child, "VISIBLE", "NO")
+		else
+			keep_hidden(iup, child)
+		end
+		i = i + 1
+		child = iup.GetChild(widget, i)
+	end
+end
+
 function M.show(iup, widget, visible, anchor)
 	iup.SetAttribute(widget, "FLOATING", visible and "NO" or "YES")
 	if not visible then
@@ -210,33 +231,45 @@ function M.show(iup, widget, visible, anchor)
 	local in_front = anchor and iup.GetAttribute(anchor, "VISIBLE") == "YES"
 	if in_front then iup.SetAttribute(widget, "VISIBLE", "YES") end
 	iup.ResetAttribute(widget, "VISIBLE")
+	keep_hidden(iup, widget)
 end
 
 --- One line that says whether a page is ready to use.
 --
 -- A page with prerequisites used to spend a card on them, a row each, whether or not
 -- anything was wrong. This is one line: ready, or the first blocker with the action that
--- clears it. `Details` lists everything still missing, so nothing is hidden.
+-- clears it. `Details` lists every item with its action, so nothing is hidden.
 --
 -- @tparam userdata iup
 -- @tparam[opt] table opts `ready` (text when all is well), `anchor` (see `M.show`)
--- @treturn table `{ widget, set = function(items) }`. Each item: `label`, `ok`, `problem`
---   (what is wrong), `action_title`, `action`, `optional` (never blocks; listed in Details).
+-- @treturn table `{ widget, anchor, blocker, set = function(items[, ready]) }`. `blocker` is the
+--   first item in the way, if any; `ready` replaces the text for when all is well; `anchor` is
+--   a native control that is always on the page. Each item: `label`, `ok`, `problem` (what is
+--   wrong), `action_title`, `action`, `optional` (never blocks; listed in Details).
 function M.requirements(iup, opts)
 	opts = opts or {}
 	local line = M.statusLine(iup, "idle", "")
+	iup.SetAttribute(line, "EXPAND", "NO")   -- its action sits right after the words
 	local act = iup.flatbutton({ TITLE = "", THEMEROLE = "primary_btn", CANFOCUS = "YES" })
 	local more = iup.flatbutton({ TITLE = "Details", THEMEROLE = "link_btn", CANFOCUS = "YES" })
 	local list = iup.vbox({ GAP = L.gap(2), MARGIN = L.margin(0), EXPAND = "HORIZONTAL" })
-	local rows, current, open = {}, nil, false
-	for i = 1, 6 do
-		rows[i] = M.statusLine(iup, "idle", "")
-		iup.Append(list, rows[i])
-		M.show(iup, rows[i], false)
+	local rows, current, ready_text, open = {}, nil, nil, false
+	for i = 1, 8 do
+		local row = { line = M.statusLine(iup, "idle", "") }
+		row.act = iup.flatbutton({ TITLE = "", THEMEROLE = "link_btn", CANFOCUS = "YES" })
+		function row.act:flat_action()
+			if row.item and row.item.action then row.item.action() end
+			return iup.DEFAULT
+		end
+		row.box = iup.hbox({ row.line, row.act, GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" })
+		rows[i] = row
+		iup.Append(list, row.box)
+		M.show(iup, row.box, false)
 	end
 	M.show(iup, list, false)
-	local strip = { widget = iup.vbox({
-		iup.hbox({ line, act, more, GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" }),
+	local strip = { anchor = line, widget = iup.vbox({
+		iup.hbox({ line, act, more, iup.fill({}), iup.vbox({ RASTERSIZE = L.size(1, 32) }), GAP = L.gap(3),
+			ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" }),
 		list, GAP = L.gap(2), EXPAND = "HORIZONTAL",
 	}) }
 
@@ -253,7 +286,7 @@ function M.requirements(iup, opts)
 		if blocker then
 			M.setStatus(iup, line, "warning", blocker.label .. ": " .. (blocker.problem or "not ready"))
 		else
-			M.setStatus(iup, line, "ok", opts.ready or "Ready")
+			M.setStatus(iup, line, "ok", ready_text or opts.ready or "Ready")
 		end
 		local has_action = blocker and blocker.action_title
 		if has_action then iup.SetAttribute(act, "TITLE", blocker.action_title) end
@@ -263,11 +296,14 @@ function M.requirements(iup, opts)
 		M.show(iup, list, open, line)
 		for i, row in ipairs(rows) do
 			local item = items[i]
+			row.item = item
 			if item and open then
-				M.setStatus(iup, row, item.ok and "ok" or (item.optional and "idle" or "warning"),
+				M.setStatus(iup, row.line, item.ok and "ok" or (item.optional and "idle" or "warning"),
 					item.label .. (item.ok and "" or (": " .. (item.problem or "not ready"))))
+				iup.SetAttribute(row.act, "TITLE", item.action_title or "")
 			end
-			M.show(iup, row, (item and open) and true or false, line)
+			M.show(iup, row.act, (item and open and item.action_title) and true or false, line)
+			M.show(iup, row.box, (item and open) and true or false, line)
 		end
 		if iup.Refresh then pcall(iup.Refresh, strip.widget) end
 	end
@@ -283,8 +319,8 @@ function M.requirements(iup, opts)
 		return iup.DEFAULT
 	end
 	--- Replace the list of requirements.
-	function strip.set(items)
-		current = items
+	function strip.set(items, ready)
+		current, ready_text = items, ready
 		refresh()
 	end
 	return strip
