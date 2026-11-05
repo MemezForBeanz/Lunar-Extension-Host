@@ -175,6 +175,22 @@ function TabOrder:setGroups(groups)
 	self._groups = groups
 end
 
+--- Say that another strip draws `strip`'s tabs (`core.ui.TitleBar`), with one tab per
+-- position. Everything that asks where a tab is then asks that strip, so drags, drops and
+-- their feedback land on the tabs the user can see.
+-- @tparam userdata strip the strip whose tabs are hidden
+-- @tparam userdata stand_in the strip showing them
+function TabOrder:setStandIn(strip, stand_in)
+	self._stand_in = { strip = strip, widget = stand_in }
+end
+
+-- The strip that really shows `widget`'s tabs: usually itself.
+function TabOrder:_shown(widget)
+	local stand_in = self._stand_in
+	if stand_in and handle.same(self._iup, stand_in.strip, widget) then return stand_in.widget, true end
+	return widget, false
+end
+
 -- =======================================================================
 -- GEOMETRY
 -- =======================================================================
@@ -182,6 +198,7 @@ end
 -- Screen-space rectangle of a widget: SCREENPOSITION is "x,y", RASTERSIZE "WxH".
 function TabOrder:_rect(widget)
 	local iup = self._iup
+	widget = self:_shown(widget)
 	local ok, pos = pcall(iup.GetAttribute, widget, "SCREENPOSITION")
 	if not ok or type(pos) ~= "string" then return nil end
 	local px, py = pos:match("^(%-?%d+),(%-?%d+)")
@@ -197,6 +214,12 @@ end
 -- the band -- no need to reproduce the control's padding/font arithmetic here.
 function TabOrder:_bandHeight(strip)
 	local iup = self._iup
+	local shown, stood_in = self:_shown(strip)
+	if stood_in then
+		local _, _, _, height = self:_rect(strip)
+		return height
+	end
+	strip = shown
 	local ok, raster = pcall(iup.GetAttribute, strip, "RASTERSIZE")
 	local ok2, client = pcall(iup.GetAttribute, strip, "CLIENTSIZE")
 	if not ok or not ok2 or type(raster) ~= "string" or type(client) ~= "string" then
@@ -211,7 +234,7 @@ function TabOrder:_bandHeight(strip)
 end
 
 function TabOrder:_posAt(strip, x, y)
-	local ok, p = pcall(self._iup.ConvertXYToPos, strip, x, y)
+	local ok, p = pcall(self._iup.ConvertXYToPos, (self:_shown(strip)), x, y)
 	p = ok and tonumber(p) or nil
 	if p and p >= 0 then return p end
 	return nil
@@ -295,7 +318,7 @@ function TabOrder:_resolveDrop(source, x, y, dragged)
 			local pos = self:_posAt(strip, lx, ly)
 			if not pos then
 				-- Past the last tab (or on the "+" button): append here.
-				return { strip = strip, index = nil, zone = strip, band = band }
+				return { strip = strip, index = nil, zone = (self:_shown(strip)), band = band }
 			end
 
 			local child = self:_child(strip, pos)
@@ -312,19 +335,19 @@ function TabOrder:_resolveDrop(source, x, y, dragged)
 			if rel >= EDGE_ZONE and rel <= (1 - EDGE_ZONE) then
 				if groups:isGroupStrip(child) then
 					return {
-						into = child, zone = strip, band = band,
+						into = child, zone = (self:_shown(strip)), band = band,
 						tab_x = left, tab_w = width,
 					}
 				end
 				return {
-					merge = child, strip = strip, zone = strip, band = band,
+					merge = child, strip = strip, zone = (self:_shown(strip)), band = band,
 					tab_x = left, tab_w = width,
 				}
 			end
 			local before = (rel < EDGE_ZONE)
 			local index = before and (pos + 1) or (pos + 2)
 			return {
-				strip = strip, index = index, zone = strip, band = band,
+				strip = strip, index = index, zone = (self:_shown(strip)), band = band,
 				tab_x = left, tab_w = width,
 				caret_x = before and left or (left + width),
 			}

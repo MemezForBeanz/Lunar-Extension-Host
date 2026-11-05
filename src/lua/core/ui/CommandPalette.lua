@@ -1,6 +1,6 @@
---- The command bar's popup: a field and a filtered list, anchored above the bar.
+--- The command bar's popup: a field and a filtered list, opened over the top bar's field.
 --
--- Opened by Ctrl+P or by clicking the bar in the status strip. What it lists comes
+-- Opened by Ctrl+P or by clicking that field. What it lists comes
 -- from `core.classes.CommandRegistry`; this module is only the window and the keys.
 --
 -- It is a borderless child dialog rather than a modal. A modal would dim the app and

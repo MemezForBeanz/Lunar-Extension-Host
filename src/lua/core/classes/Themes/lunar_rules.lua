@@ -377,13 +377,6 @@ function M.build(p)
             bg = p.bg, fg = p.textMuted, border = p.bg, borderwidth = 0, radius = R,
             hover = hover, pressed = selected,
         },
-        commandbar = {
-            bg = well, fg = p.textMuted, font = sized(p.font, 9),
-            border = border, borderwidth = 1, showborder = true, radius = R,
-            padding = "10x3",
-            hover = hover, hovertext = p.text,
-            pressed = selected, pressedtext = p.text,
-        },
         palette_text = { bg = elevated, fg = p.text, font = sized(p.font, 11) },
         palette_prompt = { bg = elevated, fg = p.textMuted, font = sized(p.font, 11), padding = "0x0" },
         palette_hint = { bg = elevated, fg = p.textMuted, font = sized(p.font, 9) },
@@ -413,7 +406,10 @@ function M.build(p)
         rules[role].inactiveborder = border
         rules[role].inactivefg = p.textMuted
     end
-    return rules
+    return require("core.classes.Themes.shell_rules")(rules, p, {
+        well = well, hover = hover, selected = selected, border = border, radius = R,
+        font = p.font, small_font = sized(p.font, 9),
+    })
 end
 
 return M
