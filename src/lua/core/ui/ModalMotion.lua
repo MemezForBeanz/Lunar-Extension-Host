@@ -169,6 +169,9 @@ function M.popup(iup, dlg, opts)
 		return ret or iup.DEFAULT
 	end
 
+	-- Mapped here so the frame is themed before the dialog's first frame.
+	pcall(iup.Map, dlg)
+	require("core.ui.WindowChrome").adopt(iup, dlg)
 	local ok = pcall(iup.Popup, dlg, x, y)
 
 	-- Cancel the entrance the instant `Popup` returns, and BEFORE this function

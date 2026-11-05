@@ -16,7 +16,7 @@ CommandPalette.__index = CommandPalette
 
 -- Nine whole rows of 32px, plus the field, the rule and the hint. A height chosen any
 -- other way leaves a sliced row above the hint line.
-local WIDTH, ROW_HEIGHT, ROWS, CHROME = 640, 32, 9, 88
+local WIDTH, ROW_HEIGHT, ROWS, CHROME = 720, 32, 9, 88
 local HEIGHT = ROW_HEIGHT * ROWS + CHROME
 
 -- A click on the list moves focus from the field to the list, and that fires the
@@ -214,7 +214,7 @@ function CommandPalette:_refresh()
 	-- With nothing typed the list is browsed, so it is grouped. A search is ranked, and
 	-- headings would only break the ranking up.
 	local rows = {}
-	if text == "" and not self._choices then
+	if text == "" and (not self._choices or self._choices.grouped) then
 		local order, buckets = {}, {}
 		for _, item in ipairs(items) do
 			local group = item.group or item.category or "Commands"
@@ -313,7 +313,7 @@ function CommandPalette:_place()
 	local iup = self._iup
 	local x, y, w = self._anchor()
 	if not x then return iup.CENTERPARENT, iup.CENTERPARENT end
-	return math.floor(x + (w - WIDTH) / 2), y - HEIGHT - 8
+	return math.floor(x + (w - WIDTH) / 2), y
 end
 
 --- Open the palette, or close it if it is already open.
@@ -329,7 +329,7 @@ end
 --- Open the palette.
 -- @tparam[opt] string text starting text
 -- @tparam[opt] table choices show this list in place of commands:
---   `{ items = { item, ... }, placeholder = string, hint = string }`
+--   `{ items = { item, ... }, placeholder = string, hint = string, grouped = boolean }`
 function CommandPalette:open(text, choices)
 	self:_build()
 	local iup = self._iup

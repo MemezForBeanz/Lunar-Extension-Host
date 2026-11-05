@@ -1,0 +1,1094 @@
+diff --git a/src/iup_flatscrollbox.c b/src/iup_flatscrollbox.c
+index 08113f8..7bccc49 100644
+--- a/src/iup_flatscrollbox.c
++++ b/src/iup_flatscrollbox.c
+@@ -354,7 +354,7 @@ static void iFlatScrollBoxSetChildrenCurrentSizeMethod(Ihandle* ih, int shrink)
+   Ihandle* child = iFlatScrollBoxGetChild(ih);
+   if (child)
+   {
+-    int w, h, has_sb_horiz=0, has_sb_vert=0;
++    int w, h, need_w, need_h, has_sb_horiz=0, has_sb_vert=0;
+     int sb = iupFlatScrollBarGet(ih);
+     int sb_vert = sb & IUP_SB_VERT;
+     int sb_horiz = sb & IUP_SB_HORIZ;
+@@ -397,9 +397,19 @@ static void iFlatScrollBoxSetChildrenCurrentSizeMethod(Ihandle* ih, int shrink)
+        So this will let the child be greater than the scrollbox,
+        or let the child expand to the scrollbox.  */
+ 
+-    if (child->naturalwidth > ih->currentwidth)
++    /* Lunar fork: FITCONTENT measures against what the child cannot give up, not what it
++       would like. It compresses first and only scrolls past that point. */
++    need_w = child->naturalwidth;
++    need_h = child->naturalheight;
++    if (iupAttribGetBoolean(ih, "FITCONTENT"))
+     {
+-      w = child->naturalwidth;
++      need_w = iupMIN(need_w, iupLayoutMinContent(child, 1));
++      need_h = iupMIN(need_h, iupLayoutMinContent(child, 0));
++    }
++
++    if (need_w > ih->currentwidth)
++    {
++      w = need_w;
+ 
+       if (sb_horiz)
+         has_sb_horiz = 1;
+@@ -407,9 +417,9 @@ static void iFlatScrollBoxSetChildrenCurrentSizeMethod(Ihandle* ih, int shrink)
+     else
+       w = ih->currentwidth;  /* expand space */
+ 
+-    if (child->naturalheight > ih->currentheight)
++    if (need_h > ih->currentheight)
+     {
+-      h = child->naturalheight;
++      h = need_h;
+ 
+       if (sb_vert)
+         has_sb_vert = 1;
+diff --git a/src/iup_flatseparator.c b/src/iup_flatseparator.c
+index 4d5506d..6e38cae 100644
+--- a/src/iup_flatseparator.c
++++ b/src/iup_flatseparator.c
+@@ -17,6 +17,7 @@
+ #include "iup_attrib.h"
+ #include "iup_str.h"
+ #include "iup_drv.h"
++#include "iup_drvinfo.h"
+ #include "iup_drvfont.h"
+ #include "iup_image.h"
+ #include "iup_stdcontrols.h"
+@@ -68,6 +69,19 @@ static int iFlatSeparatorRedraw_CB(Ihandle* ih)
+ 
+     iupdrvDrawGetSize(dc, &w, &h);
+ 
++    /* A bar hidden or covered under the pointer never hears the pointer leave. */
++    if (hot && !iupAttribGet(ih, "_IUPSASH_HELD"))
++    {
++      int cx, cy;
++      iupdrvGetCursorPos(&cx, &cy);
++      iupdrvScreenToClient(ih, &cx, &cy);
++      if (cx < 0 || cy < 0 || cx >= w || cy >= h)
++      {
++        hot = 0;
++        iupAttribSet(ih, "_IUPSASH_HOT", NULL);
++      }
++    }
++
+     if (hot && hlcolor)
+     {
+       long hl = iupDrawStrToColor(hlcolor, color);
+diff --git a/src/iup_flattabs.c b/src/iup_flattabs.c
+index 115f16c..f00cca1 100644
+--- a/src/iup_flattabs.c
++++ b/src/iup_flattabs.c
+@@ -219,11 +219,20 @@ static void iFlatTabsSetCurrentTab(Ihandle* ih, Ihandle* child)
+ {
+   Ihandle* current_child = iFlatTabsGetCurrentTab(ih);
+   if (current_child)
++  {
+     IupSetAttribute(current_child, "VISIBLE", "No");
++    current_child->flags |= IUP_LAYOUT_PARKED;
++  }
+ 
+   iupAttribSet(ih, "_IUPFTABS_VALUE_HANDLE", (char*)child);
+   if (child)
+   {
++    /* Lunar fork: its windows sat out every layout since it was last shown. They catch up
++       before they appear, so the page never shows at a size it no longer has. */
++    child->flags &= ~IUP_LAYOUT_PARKED;
++    if (child->handle)
++      iupLayoutUpdate(child);
++
+     IupSetAttribute(child, "VISIBLE", "Yes");
+ 
+     iFlatTabsUpdateScrollPos(ih, child);
+@@ -2335,6 +2344,7 @@ static void iFlatTabsChildAddedMethod(Ihandle* ih, Ihandle* child)
+   else
+   {
+     IupSetAttribute(child, "VISIBLE", "No");
++    child->flags |= IUP_LAYOUT_PARKED;
+     if (ih->handle)
+       iupdrvPostRedraw(ih);
+   }
+@@ -2344,6 +2354,8 @@ static void iFlatTabsChildRemovedMethod(Ihandle* ih, Ihandle* child, int pos)
+ {
+   int p, i, count;
+ 
++  child->flags &= ~IUP_LAYOUT_PARKED;  /* Lunar fork: it may be going to another strip, in front */
++
+   iFlatTabsCheckCurrentTab(ih, child, pos, 1);
+ 
+   count = IupGetChildCount(ih);  /* does not include the removed tab */
+diff --git a/src/iup_hbox.c b/src/iup_hbox.c
+index c0f60d6..ac36054 100644
+--- a/src/iup_hbox.c
++++ b/src/iup_hbox.c
+@@ -189,6 +189,7 @@ static void iHboxSetChildrenCurrentSizeMethod(Ihandle* ih, int shrink)
+   /* update children */
+   Ihandle* child;
+   int empty_w0 = 0, empty_w1 = 0, client_height;
++  int deficit = 0, slack_total = 0;
+ 
+   if (ih->data->is_homogeneous)
+     ih->data->homogeneous_size = iHboxCalcHomogeneousWidth(ih);
+@@ -203,6 +204,20 @@ static void iHboxSetChildrenCurrentSizeMethod(Ihandle* ih, int shrink)
+     /* Not W1 and W0 means that EXPAND is not enabled but there are some IupFill inside */
+     else if (ih->expand & IUP_EXPAND_W0)
+       empty_w0 = iHboxCalcEmptyWidth(ih, IUP_EXPAND_W0);
++
++    /* Lunar fork: a box narrower than its content. The stock box hands out nothing below the
++       natural size, so expanding children stay full width and run over whatever is beside the
++       box. They give it back instead, each in proportion to what it can spare. */
++    if (shrink)
++      deficit = ih->data->total_natural_size - ih->currentwidth;
++    if (deficit > 0)
++    {
++      for (child = ih->firstchild; child; child = child->brother)
++      {
++        if (!(child->flags & IUP_FLOATING) && child->expand & IUP_EXPAND_W1)
++          slack_total += child->naturalwidth - iupLayoutMinContent(child, 1);
++      }
++    }
+   }
+ 
+   client_height = ih->currentheight - 2*ih->data->margin_vert;
+@@ -224,6 +239,11 @@ static void iHboxSetChildrenCurrentSizeMethod(Ihandle* ih, int shrink)
+           if (iupStrToDouble(weight_str, &weight))
+             empty = iupRound(empty * weight);
+         }
++        if (deficit > 0 && slack_total > 0 && child->expand & IUP_EXPAND_W1)
++        {
++          int slack = child->naturalwidth - iupLayoutMinContent(child, 1);
++          empty = -iupMIN(slack, (deficit * slack) / slack_total);
++        }
+         iupBaseSetCurrentSize(child, child->naturalwidth+empty, client_height, shrink);
+       }
+     }
+diff --git a/src/iup_layout.c b/src/iup_layout.c
+index 6b43c6e..6e24a92 100644
+--- a/src/iup_layout.c
++++ b/src/iup_layout.c
+@@ -138,7 +138,15 @@ IUP_API void IupRedraw(Ihandle* ih, int children)
+     iLayoutDisplayRedrawChildren(ih);
+ }
+ 
+-IUP_SDK_API void iupLayoutUpdate(Ihandle* ih)
++#ifdef _WIN32
++void iupwinLayoutBatchBegin(void);
++void iupwinLayoutBatchEnd(void);
++#else
++#define iupwinLayoutBatchBegin()
++#define iupwinLayoutBatchEnd()
++#endif
++
++static void iLayoutUpdateTree(Ihandle* ih)
+ {
+   Ihandle* child;
+ 
+@@ -151,8 +159,76 @@ IUP_SDK_API void iupLayoutUpdate(Ihandle* ih)
+   /* update its children */
+   for (child = ih->firstchild; child; child = child->brother)
+   {
+-    if (child->handle)
+-      iupLayoutUpdate(child);
++    /* Lunar fork: a tab behind the current one catches up when it is shown (iFlatTabsSetCurrentTab).
++       A window costs a trip through the kernel whether it can be seen or not, and most of
++       them are on tabs that cannot. */
++    if (child->handle && !(child->flags & IUP_LAYOUT_PARKED))
++      iLayoutUpdateTree(child);
++  }
++}
++
++IUP_SDK_API void iupLayoutUpdate(Ihandle* ih)
++{
++  iupwinLayoutBatchBegin();
++  iLayoutUpdateTree(ih);
++  iupwinLayoutBatchEnd();
++}
++
++/* Lunar fork: what a subtree cannot give up along one axis. Everything that expands can
++   compress away; what is left is the fixed controls and the gaps between them. A native
++   container that clips or scrolls its content gives up everything. */
++IUP_SDK_API int iupLayoutMinContent(Ihandle* ih, int horizontal)
++{
++  int natural = horizontal ? ih->naturalwidth : ih->naturalheight;
++  int expands = ih->expand & (horizontal ? (IUP_EXPAND_WIDTH | IUP_EXPAND_WFREE) : (IUP_EXPAND_HEIGHT | IUP_EXPAND_HFREE));
++  int along, natural_kids = 0, min_kids = 0, margins;
++  const char* name = ih->iclass->name;
++  Ihandle* child;
++
++  if (ih->flags & (IUP_FLOATING | IUP_FLOATING_IGNORE))
++    return 0;
++
++  if (!expands)
++    return natural;
++
++  if (!ih->firstchild || iupStrEqual(name, "flattabs") || iupStrEqual(name, "tabs") ||
++      iupStrEqual(name, "flatscrollbox") || iupStrEqual(name, "scrollbox"))
++  {
++    int w = 0, h = 0;
++    iupLayoutApplyMinMaxSize(ih, &w, &h);
++    return horizontal ? w : h;
++  }
++
++  if (iupStrEqual(name, "split"))
++    along = (iupStrEqualNoCase(IupGetAttribute(ih, "ORIENTATION"), "VERTICAL") != 0) == (horizontal != 0);
++  else
++    along = iupStrEqual(name, horizontal ? "hbox" : "vbox");
++
++  for (child = ih->firstchild; child; child = child->brother)
++  {
++    int child_natural, child_min;
++    if (child->flags & (IUP_FLOATING | IUP_FLOATING_IGNORE | IUP_INTERNAL))
++      continue;
++    child_natural = horizontal ? child->naturalwidth : child->naturalheight;
++    child_min = iupLayoutMinContent(child, horizontal);
++    if (along)
++    {
++      natural_kids += child_natural;
++      min_kids += child_min;
++    }
++    else
++    {
++      natural_kids = iupMAX(natural_kids, child_natural);
++      min_kids = iupMAX(min_kids, child_min);
++    }
++  }
++
++  margins = natural - natural_kids;  /* padding and gaps; negative when MAXSIZE caps the natural size */
++  {
++    /* MINSIZE on a container is a floor too: the box is never laid out below it */
++    int w = min_kids + iupMAX(margins, 0), h = w;
++    iupLayoutApplyMinMaxSize(ih, &w, &h);
++    return horizontal ? w : h;
+   }
+ }
+ 
+diff --git a/src/iup_layout.h b/src/iup_layout.h
+index ffca64c..457b222 100644
+--- a/src/iup_layout.h
++++ b/src/iup_layout.h
+@@ -16,6 +16,7 @@ void iupLayoutCompute(Ihandle* ih);  /* can be called before map */
+ IUP_SDK_API void iupLayoutUpdate(Ihandle* ih);   /* called after map */
+ 
+ IUP_SDK_API void iupLayoutApplyMinMaxSize(Ihandle* ih, int *w, int *h);
++IUP_SDK_API int iupLayoutMinContent(Ihandle* ih, int horizontal);  /* Lunar fork */
+ 
+ /* Other functions declared in <iup.h> and implemented here. 
+ IupRefresh
+diff --git a/src/iup_object.h b/src/iup_object.h
+index 52b895f..f0dbda5 100644
+--- a/src/iup_object.h
++++ b/src/iup_object.h
+@@ -107,7 +107,8 @@ enum Iflags {
+   IUP_FLOATING_IGNORE  = 0x02,   /**< is a floating element. FLOATING=Ignore. Do not compute layout. */
+   IUP_MAXSIZE     = 0x04,   /**< has the MAXSIZE attribute set */
+   IUP_MINSIZE     = 0x08,   /**< has the MAXSIZE attribute set */
+-  IUP_INTERNAL    = 0x10    /**< it is an internal element of the container */
++  IUP_INTERNAL    = 0x10,   /**< it is an internal element of the container */
++  IUP_LAYOUT_PARKED = 0x20  /**< Lunar fork: on a tab behind the current one. Its windows wait for the tab. */
+ };
+ 
+ 
+diff --git a/src/iup_split.c b/src/iup_split.c
+index ed679ae..701fb5c 100644
+--- a/src/iup_split.c
++++ b/src/iup_split.c
+@@ -36,8 +36,54 @@ struct _IcontrolData
+   int orientation;  /* one of the types: ISPLIT_VERT, ISPLIT_HORIZ */
+   int val;  /* split value: 0-1000, default 500 */
+   int min, max;  /* used only to crop val */
++  int content1, content2;  /* Lunar fork: what each child cannot give up, see iSplitCropSize1 */
+ };
+ 
++/* Lunar fork: the sash stops where a side runs out of room to compress. Its children hold
++   no window of their own, so nothing clips them; a side squeezed below its fixed controls
++   paints straight over the other side. VALUE is left alone, so the sash comes back to
++   where the user put it when the space returns. When the two sides cannot both fit the
++   first keeps its room and the second runs off the edge of the pane, which does clip. */
++static int iSplitCropSize1(Ihandle* ih, int size1, int total)
++{
++  if (size1 > total - ih->data->content2)
++    size1 = total - ih->data->content2;
++  if (size1 < ih->data->content1)
++    size1 = ih->data->content1;
++  return size1;
++}
++
++static void iSplitUpdateContent(Ihandle* ih)
++{
++  Ihandle* child1 = ih->firstchild->brother;
++  Ihandle* child2 = child1 ? child1->brother : NULL;
++  int horizontal = (ih->data->orientation == ISPLIT_VERT);
++  ih->data->content1 = child1 ? iupLayoutMinContent(child1, horizontal) : 0;
++  ih->data->content2 = child2 ? iupLayoutMinContent(child2, horizontal) : 0;
++}
++
++/* Lunar fork: IupFlatTabs hides a page by writing VISIBLE at its top and letting it flow down,
++   and that stops at any child storing its own value. The bar must never be that child, or it
++   stays on screen over whichever tab is shown next. */
++static int iSplitSetVisibleAttrib(Ihandle* ih, const char* value)
++{
++  if (ih->data->barsize != 0)
++    iupAttribSet(ih->firstchild, "VISIBLE", NULL);
++  (void)value;
++  return 1;
++}
++
++static int iSplitIsShowing(Ihandle* ih)
++{
++  for (; ih; ih = ih->parent)
++  {
++    char* value = iupAttribGet(ih, "VISIBLE");
++    if (value)
++      return iupStrBoolean(value);
++  }
++  return 1;
++}
++
+ 
+ static void iSplitAutoHideChild(Ihandle* child, int flag)
+ {
+@@ -98,7 +144,8 @@ static int iSplitGetWidth1(Ihandle* ih)
+ {
+   /* This is the space available for the child,
+      It does NOT depends on the child. */
+-  int width1 = iupRoundUp(((ih->currentwidth - ih->data->barsize)*ih->data->val) / 1000.0);
++  int total = ih->currentwidth - ih->data->barsize;
++  int width1 = iSplitCropSize1(ih, iupRoundUp((total*ih->data->val) / 1000.0), total);
+   if (width1 < 0) width1 = 0;
+   return width1;
+ }
+@@ -116,7 +163,8 @@ static int iSplitGetHeight1(Ihandle* ih)
+ {
+   /* This is the space available for the child,
+      It does NOT depends on the child. */
+-  int height1 = iupRoundUp(((ih->currentheight - ih->data->barsize)*ih->data->val) / 1000.0);
++  int total = ih->currentheight - ih->data->barsize;
++  int height1 = iSplitCropSize1(ih, iupRoundUp((total*ih->data->val) / 1000.0), total);
+   if (height1 < 0) height1 = 0;
+   return height1;
+ }
+@@ -305,6 +353,7 @@ static int iSplitButton_CB(Ihandle* bar, int button, int pressed, int x, int y,
+     int cur_x, cur_y;
+ 
+     ih->data->is_holding = 1;
++    iupAttribSet(bar, "_IUPSASH_HELD", "1");
+ 
+     iupStrToIntInt(IupGetGlobal("CURSORPOS"), &cur_x, &cur_y, 'x');
+ 
+@@ -325,6 +374,7 @@ static int iSplitButton_CB(Ihandle* bar, int button, int pressed, int x, int y,
+   else if (ih->data->is_holding && !pressed)  /* DRAG END */
+   {
+     ih->data->is_holding = 0;
++    iupAttribSet(bar, "_IUPSASH_HELD", NULL);
+     iSplitSetSashHot(bar, 0);
+ 
+     /* Always refresh when releasing the mouse */
+@@ -419,6 +469,13 @@ static char* iSplitGetColorAttrib(Ihandle* ih)
+   return IupGetAttribute(ih->firstchild, "COLOR");
+ }
+ 
++/* Lunar fork: without a getter this answered the registered default, VERTICAL, whatever the
++   split really was. */
++static char* iSplitGetOrientationAttrib(Ihandle* ih)
++{
++  return ih->data->orientation == ISPLIT_HORIZ ? "HORIZONTAL" : "VERTICAL";
++}
++
+ static int iSplitSetOrientationAttrib(Ihandle* ih, const char* value)
+ {
+   if (ih->handle) /* only before map */
+@@ -476,12 +533,17 @@ static int iSplitSetBarSizeAttrib(Ihandle* ih, const char* value)
+   {
+     IupSetInt(ih->firstchild, "BARSIZE", ih->data->barsize);
+ 
+-    /* Lunar fork: only when crossing zero. Forcing VISIBLE=YES on every change put the
+-       bar of a split on a hidden tab on top of the tab being shown. */
++    /* Lunar fork: only when crossing zero, and coming back it takes the state of the split
++       around it and goes back to inheriting. VISIBLE=YES put the bar of a split on a hidden
++       tab on top of the tab being shown, and kept it there: see iSplitSetVisibleAttrib. */
+     if (ih->data->barsize == 0)
+       IupSetAttribute(ih->firstchild, "VISIBLE", "NO");
+     else if (old_barsize == 0)
+-      IupSetAttribute(ih->firstchild, "VISIBLE", "YES");
++    {
++      iupAttribSet(ih->firstchild, "VISIBLE", NULL);
++      if (ih->firstchild->handle)
++        iupdrvSetVisible(ih->firstchild, iSplitIsShowing(ih));
++    }
+ 
+     if (ih->data->val != -1)
+       iSplitAdjustVal(ih);  /* because of autohide */
+@@ -704,6 +766,8 @@ static void iSplitSetChildrenCurrentSizeMethod(Ihandle* ih, int shrink)
+   if (child1)
+     child2 = child1->brother;
+ 
++  iSplitUpdateContent(ih);
++
+   if (ih->data->orientation == ISPLIT_VERT)
+   {
+     int width1 = iSplitGetWidth1(ih);
+@@ -728,7 +792,7 @@ static void iSplitSetChildrenCurrentSizeMethod(Ihandle* ih, int shrink)
+ 
+     if (child2 && !(child2->flags & IUP_FLOATING_IGNORE))
+     {
+-      int width2 = iSplitGetWidth2(ih, width1);
++      int width2 = iupMAX(iSplitGetWidth2(ih, width1), ih->data->content2);
+       iupBaseSetCurrentSize(child2, width2, ih->currentheight, shrink);
+ 
+       if (child2->currentwidth > width2)
+@@ -766,7 +830,7 @@ static void iSplitSetChildrenCurrentSizeMethod(Ihandle* ih, int shrink)
+ 
+     if (child2 && !(child2->flags & IUP_FLOATING_IGNORE))
+     {
+-      int height2 = iSplitGetHeight2(ih, height1);
++      int height2 = iupMAX(iSplitGetHeight2(ih, height1), ih->data->content2);
+       iupBaseSetCurrentSize(child2, ih->currentwidth, height2, shrink);
+ 
+       if (child2->currentheight > height2)
+@@ -907,8 +971,9 @@ Iclass* iupSplitNewClass(void)
+ 
+ 
+   iupClassRegisterAttribute(ic, "COLOR", iSplitGetColorAttrib, iSplitSetColorAttrib, IUPAF_SAMEASSYSTEM, "160 160 160", IUPAF_NO_INHERIT);
+-  iupClassRegisterAttribute(ic, "ORIENTATION", NULL, iSplitSetOrientationAttrib, IUPAF_SAMEASSYSTEM, "VERTICAL", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "ORIENTATION", iSplitGetOrientationAttrib, iSplitSetOrientationAttrib, IUPAF_SAMEASSYSTEM, "VERTICAL", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "HLCOLOR", iSplitGetHlColorAttrib, iSplitSetHlColorAttrib, NULL, NULL, IUPAF_NO_INHERIT);  /* Lunar fork: SHOWGRIP=SASH */
++  iupClassRegisterAttribute(ic, "VISIBLE", NULL, iSplitSetVisibleAttrib, IUPAF_SAMEASSYSTEM, "YES", IUPAF_NO_SAVE);  /* Lunar fork */
+   iupClassRegisterAttribute(ic, "SHOWGRIP", iSplitGetShowGripAttrib, iSplitSetShowGripAttrib, IUPAF_SAMEASSYSTEM, "YES", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic, "BARSIZE", iSplitGetBarSizeAttrib, iSplitSetBarSizeAttrib, IUPAF_SAMEASSYSTEM, "5", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
+ 
+diff --git a/src/iup_vbox.c b/src/iup_vbox.c
+index a85ea86..c988693 100644
+--- a/src/iup_vbox.c
++++ b/src/iup_vbox.c
+@@ -190,6 +190,7 @@ static void iVboxSetChildrenCurrentSizeMethod(Ihandle* ih, int shrink)
+ {
+   Ihandle* child;
+   int empty_h0 = 0, empty_h1 = 0, client_width;
++  int deficit = 0, slack_total = 0;
+ 
+   if (ih->data->is_homogeneous)
+     ih->data->homogeneous_size = iHboxCalcHomogeneousHeight(ih);
+@@ -204,6 +205,18 @@ static void iVboxSetChildrenCurrentSizeMethod(Ihandle* ih, int shrink)
+     /* Not H1 and H0 means that EXPAND is not enabled, but there are some IupFill inside */
+     else if (ih->expand & IUP_EXPAND_H0)
+       empty_h0 = iVboxCalcEmptyHeight(ih, IUP_EXPAND_H0);
++
++    /* Lunar fork: see iHboxSetChildrenCurrentSizeMethod */
++    if (shrink)
++      deficit = ih->data->total_natural_size - ih->currentheight;
++    if (deficit > 0)
++    {
++      for (child = ih->firstchild; child; child = child->brother)
++      {
++        if (!(child->flags & IUP_FLOATING) && child->expand & IUP_EXPAND_H1)
++          slack_total += child->naturalheight - iupLayoutMinContent(child, 0);
++      }
++    }
+   }
+ 
+   client_width = ih->currentwidth - 2*ih->data->margin_horiz;
+@@ -225,6 +238,11 @@ static void iVboxSetChildrenCurrentSizeMethod(Ihandle* ih, int shrink)
+           if (iupStrToDouble(weight_str, &weight))
+             empty = iupRound(empty * weight);
+         }
++        if (deficit > 0 && slack_total > 0 && child->expand & IUP_EXPAND_H1)
++        {
++          int slack = child->naturalheight - iupLayoutMinContent(child, 0);
++          empty = -iupMIN(slack, (deficit * slack) / slack_total);
++        }
+         iupBaseSetCurrentSize(child, client_width, child->naturalheight+empty, shrink);
+       }
+     }
+diff --git a/src/win/iupwin_common.c b/src/win/iupwin_common.c
+index 97d7bbd..1c9b093 100644
+--- a/src/win/iupwin_common.c
++++ b/src/win/iupwin_common.c
+@@ -57,10 +57,15 @@ int iupwinClassExist(const TCHAR* name)
+ int iupwinGetScreenRes(void)
+ {
+   /* same as iupdrvGetScreenDpi, but returns an integer value */
+-  int res;
+-  HDC ScreenDC = GetDC(NULL);
+-  res = GetDeviceCaps(ScreenDC, LOGPIXELSY);
+-  ReleaseDC(NULL, ScreenDC);
++  /* Lunar fork: this is the system DPI, fixed for the life of the process, and every font
++     lookup asks for it. The screen DC is a kernel lock; see winFontGetDC. */
++  static int res = 0;
++  if (!res)
++  {
++    HDC ScreenDC = GetDC(NULL);
++    res = GetDeviceCaps(ScreenDC, LOGPIXELSY);
++    ReleaseDC(NULL, ScreenDC);
++  }
+   return res;
+ }
+ 
+@@ -144,19 +149,270 @@ IUP_SDK_API void iupdrvReparent(Ihandle* ih)
+   }
+ }
+ 
++/* Lunar fork: one layout pass, one change on screen.
++ *
++ * Moving a window under a visible parent is the most expensive thing a layout does. For
++ * each child the kernel recomputes the visible regions of its siblings, carries the valid
++ * bits across and invalidates what was exposed: about half a millisecond a window, and
++ * DeferWindowPos only groups the calls without avoiding any of that. A resize that moved
++ * seventy windows spent 34 ms there, against 7 ms measuring the whole tree.
++ *
++ * So a pass queues its moves, and commits them with the top-level window's redraw off.
++ * WM_SETREDRAW clears WS_VISIBLE internally, nothing underneath counts as on screen for
++ * the length of the commit, and the kernel has nothing to recompute: the same moves take
++ * 6 ms. The price is that it also invalidates nothing, so the commit does it afterwards,
++ * for the windows that really moved and the parents they moved in. A window the pass left
++ * alone keeps its pixels, which is what makes a sash drag cheap in the other panes.
++ *
++ * WM_SETREDRAW is not free of side effects. Turning it off first validates the whole tree,
++ * so a repaint still pending anywhere is thrown away; and while it is off, invalidating
++ * or hiding a window does nothing at all. Two tab strips switched in a row left the first
++ * strip showing the previous page for good. So what is pending is recorded first
++ * (winLayoutKeepPending), and redraws and visibility changes that arrive during the
++ * commit join the list (see iupdrvPostRedraw, iupdrvRedrawNow, iupdrvSetVisible). */
++typedef struct _IwinLayoutMove
++{
++  HWND hwnd, parent;
++  int x, y, w, h;
++  UINT flags;
++} IwinLayoutMove;
++
++/* Below this it is not worth a round trip: the moves are few and the kernel does the rest. */
++#define WIN_LAYOUT_SUSPEND_MIN 4
++
++static IwinLayoutMove* win_layout_moves = NULL;
++static int win_layout_count = 0, win_layout_max = 0, win_layout_depth = 0;
++
++/* What the commit under way has to repaint. A move can run a resize callback that starts a
++   layout pass of its own, so a nested commit adds to this instead of repainting early. */
++typedef struct _IwinLayoutDirty
++{
++  HWND hwnd;
++  UINT flags;
++} IwinLayoutDirty;
++
++static HWND win_layout_suspended = NULL;
++static IwinLayoutDirty* win_layout_dirty = NULL;
++static int win_layout_dirty_count = 0, win_layout_dirty_max = 0;
++
++#define WIN_LAYOUT_REDRAW_MOVED  (RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN)
++#define WIN_LAYOUT_REDRAW_PARENT (RDW_INVALIDATE | RDW_ERASE | RDW_NOCHILDREN)
++#define WIN_LAYOUT_REDRAW_POST   (RDW_ERASE | RDW_INVALIDATE | RDW_INTERNALPAINT)
++
++static void winLayoutMarkDirty(HWND hwnd, UINT flags)
++{
++  if (win_layout_dirty_count == win_layout_dirty_max)
++  {
++    int max = win_layout_dirty_max ? win_layout_dirty_max * 2 : 128;
++    IwinLayoutDirty* dirty = (IwinLayoutDirty*)realloc(win_layout_dirty, max * sizeof(IwinLayoutDirty));
++    if (!dirty)
++      return;
++    win_layout_dirty = dirty;
++    win_layout_dirty_max = max;
++  }
++  win_layout_dirty[win_layout_dirty_count].hwnd = hwnd;
++  win_layout_dirty[win_layout_dirty_count].flags = flags;
++  win_layout_dirty_count++;
++}
++
++static void winLayoutFlushDirty(void)
++{
++  int i;
++  for (i = 0; i < win_layout_dirty_count; i++)
++  {
++    HWND hwnd = win_layout_dirty[i].hwnd;
++    if (!IsWindow(hwnd))
++      continue;
++
++    /* Nearly every flat control is a bare leaf, and has no frame or subtree to walk. */
++    if (win_layout_dirty[i].flags == WIN_LAYOUT_REDRAW_MOVED && !GetWindow(hwnd, GW_CHILD) &&
++        !(GetWindowLong(hwnd, GWL_STYLE) & (WS_BORDER | WS_THICKFRAME)) &&
++        !(GetWindowLong(hwnd, GWL_EXSTYLE) & (WS_EX_CLIENTEDGE | WS_EX_STATICEDGE)))
++      InvalidateRect(hwnd, NULL, TRUE);
++    else
++      RedrawWindow(hwnd, NULL, NULL, win_layout_dirty[i].flags);
++  }
++  win_layout_dirty_count = 0;
++}
++
++static BOOL CALLBACK winLayoutKeepPendingProc(HWND hwnd, LPARAM lParam)
++{
++  (void)lParam;
++  if (GetUpdateRect(hwnd, NULL, FALSE))
++    winLayoutMarkDirty(hwnd, WIN_LAYOUT_REDRAW_PARENT);
++  return TRUE;
++}
++
++static void winLayoutKeepPending(HWND root)
++{
++  winLayoutKeepPendingProc(root, 0);
++  EnumChildWindows(root, winLayoutKeepPendingProc, 0);  /* walks the whole tree */
++}
++
++/* The top-level window to suspend for these moves, if it is worth it and they share one. */
++static HWND winLayoutCommitRoot(IwinLayoutMove* moves, int count)
++{
++  HWND root;
++  int i;
++
++  if (win_layout_suspended || count < WIN_LAYOUT_SUSPEND_MIN)
++    return NULL;
++
++  root = GetAncestor(moves[0].parent, GA_ROOT);
++  if (!root || !IsWindowVisible(root))
++    return NULL;
++
++  for (i = 1; i < count; i++)
++  {
++    if (moves[i].parent != moves[i - 1].parent && GetAncestor(moves[i].parent, GA_ROOT) != root)
++      return NULL;
++  }
++  return root;
++}
++
++static void winLayoutCommit(IwinLayoutMove* moves, int count)
++{
++  HWND root = winLayoutCommitRoot(moves, count);
++  int i, j;
++
++  if (root)
++  {
++    winLayoutKeepPending(root);
++    SendMessage(root, WM_SETREDRAW, FALSE, 0);
++    win_layout_suspended = root;
++  }
++
++  for (i = 0; i < count; i++)
++  {
++    HWND parent = moves[i].parent;
++    HDWP hdwp;
++    int members = 0;
++
++    if (!moves[i].hwnd)
++      continue;  /* went with an earlier parent */
++
++    for (j = i; j < count; j++)
++    {
++      if (moves[j].hwnd && moves[j].parent == parent)
++        members++;
++    }
++
++    hdwp = members > 1 ? BeginDeferWindowPos(members) : NULL;
++    for (j = i; j < count; j++)
++    {
++      IwinLayoutMove* move = moves + j;
++      if (!move->hwnd || move->parent != parent)
++        continue;
++
++      if (IsWindow(move->hwnd))
++      {
++        if (hdwp)
++          hdwp = DeferWindowPos(hdwp, move->hwnd, NULL, move->x, move->y, move->w, move->h, move->flags);
++        if (!hdwp)  /* a single window, or a batch the system gave up on */
++          SetWindowPos(move->hwnd, NULL, move->x, move->y, move->w, move->h, move->flags);
++
++        if (win_layout_suspended)
++          winLayoutMarkDirty(move->hwnd, WIN_LAYOUT_REDRAW_MOVED);
++      }
++      move->hwnd = NULL;
++    }
++
++    if (hdwp)
++      EndDeferWindowPos(hdwp);
++
++    if (win_layout_suspended)
++      winLayoutMarkDirty(parent, WIN_LAYOUT_REDRAW_PARENT);  /* what the children uncovered */
++  }
++
++  if (root)
++  {
++    /* Back on first: a window that is not visible discards RedrawWindow. */
++    win_layout_suspended = NULL;
++    SendMessage(root, WM_SETREDRAW, TRUE, 0);
++    winLayoutFlushDirty();
++  }
++}
++
++void iupwinLayoutBatchBegin(void)
++{
++  win_layout_depth++;
++}
++
++void iupwinLayoutBatchEnd(void)
++{
++  win_layout_depth--;
++  if (win_layout_depth == 0 && win_layout_count > 0)
++  {
++    /* The commit sends WM_SIZE, and a resize callback can start a layout pass of its own. */
++    IwinLayoutMove* moves = win_layout_moves;
++    int count = win_layout_count;
++    win_layout_moves = NULL;
++    win_layout_count = win_layout_max = 0;
++    winLayoutCommit(moves, count);
++    free(moves);
++  }
++}
++
+ IUP_SDK_API void iupdrvBaseLayoutUpdateMethod(Ihandle *ih)
+ {
+-  if (ih->currentwidth > 0 && ih->currentheight > 0)
+-    SetWindowPos(ih->handle, NULL, ih->x, ih->y, ih->currentwidth, ih->currentheight,
+-                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+-  else /* move only */
+-    SetWindowPos(ih->handle, NULL, ih->x, ih->y, 0, 0,
+-                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
++  HWND hwnd = ih->handle;
++  HWND parent = GetParent(hwnd);
++  /* A FLOATING element with no size keeps the one it has. Anything else laid out at zero really
++     is zero: left at its last size, it sits over whatever took its place. */
++  int move_only = (ih->currentwidth <= 0 || ih->currentheight <= 0) && (ih->flags & IUP_FLOATING);
++  UINT flags = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | (move_only ? SWP_NOSIZE : 0);
++  int w = ih->currentwidth > 0 ? ih->currentwidth : 0;
++  int h = ih->currentheight > 0 ? ih->currentheight : 0;
++  RECT rect;
++
++  /* Most windows did not move: a sash only changes one side. Comparing costs no kernel call. */
++  if (parent && GetWindowRect(hwnd, &rect))
++  {
++    MapWindowPoints(NULL, parent, (LPPOINT)&rect, 2);
++    if (rect.left == ih->x && rect.top == ih->y &&
++        (move_only || (rect.right - rect.left == w && rect.bottom - rect.top == h)))
++      return;
++  }
++
++  if (win_layout_depth > 0 && parent)
++  {
++    if (win_layout_count == win_layout_max)
++    {
++      int max = win_layout_max ? win_layout_max * 2 : 64;
++      IwinLayoutMove* moves = (IwinLayoutMove*)realloc(win_layout_moves, max * sizeof(IwinLayoutMove));
++      if (moves)
++      {
++        win_layout_moves = moves;
++        win_layout_max = max;
++      }
++    }
++    if (win_layout_count < win_layout_max)
++    {
++      IwinLayoutMove* move = win_layout_moves + win_layout_count++;
++      move->hwnd = hwnd;
++      move->parent = parent;
++      move->x = ih->x;
++      move->y = ih->y;
++      move->w = w;
++      move->h = h;
++      move->flags = flags;
++      return;
++    }
++  }
++
++  SetWindowPos(hwnd, NULL, ih->x, ih->y, w, h, flags);
++  if (win_layout_suspended)
++    winLayoutMarkDirty(hwnd, WIN_LAYOUT_REDRAW_MOVED);
+ }
+ 
+ IUP_SDK_API void iupdrvRedrawNow(Ihandle *ih)
+ {
+   /* REDRAW Now - IupRedraw */
++  if (win_layout_suspended)  /* Lunar fork: it would be discarded, see winLayoutCommit */
++  {
++    winLayoutMarkDirty(ih->handle, WIN_LAYOUT_REDRAW_POST);
++    return;
++  }
+   RedrawWindow(ih->handle,NULL,NULL,RDW_ERASE|RDW_INVALIDATE|RDW_INTERNALPAINT|RDW_UPDATENOW);
+ }
+ 
+@@ -164,6 +420,11 @@ IUP_SDK_API void iupdrvPostRedraw(Ihandle *ih)
+ {
+   /* Post a REDRAW - IupUpdate */
+   /* can NOT use RDW_NOCHILDREN because IupList has internal children that needs to be redraw */
++  if (win_layout_suspended)  /* Lunar fork: it would be discarded, see winLayoutCommit */
++  {
++    winLayoutMarkDirty(ih->handle, WIN_LAYOUT_REDRAW_POST);
++    return;
++  }
+   RedrawWindow(ih->handle,NULL,NULL,RDW_ERASE|RDW_INVALIDATE|RDW_INTERNALPAINT);  
+ }
+ 
+@@ -697,8 +958,12 @@ IUP_SDK_API int iupdrvBaseSetZorderAttrib(Ihandle* ih, const char* value)
+   if (IsWindowVisible(ih->handle))
+   {
+     if (iupStrEqualNoCase(value, "TOP"))
+-      SetWindowPos(ih->handle, HWND_TOP, 0, 0, 0, 0, 
+-                  SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE);
++    {
++      /* Lunar fork: flat scrollbars ask for this on every layout pass */
++      if (GetWindow(ih->handle, GW_HWNDPREV))
++        SetWindowPos(ih->handle, HWND_TOP, 0, 0, 0, 0,
++                     SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE);
++    }
+     else
+       SetWindowPos(ih->handle, HWND_BOTTOM, 0, 0, 0, 0, 
+                   SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE);
+@@ -710,6 +975,15 @@ IUP_SDK_API int iupdrvBaseSetZorderAttrib(Ihandle* ih, const char* value)
+ IUP_SDK_API void iupdrvSetVisible(Ihandle* ih, int visible)
+ {
+   ShowWindow(ih->handle, visible? SW_SHOWNORMAL: SW_HIDE);
++
++  if (win_layout_suspended)  /* Lunar fork: nothing was exposed or invalidated, see winLayoutCommit */
++  {
++    HWND parent = GetParent(ih->handle);
++    if (visible)
++      winLayoutMarkDirty(ih->handle, WIN_LAYOUT_REDRAW_MOVED);
++    if (parent)
++      winLayoutMarkDirty(parent, WIN_LAYOUT_REDRAW_PARENT);
++  }
+ }
+ 
+ IUP_SDK_API int iupdrvIsVisible(Ihandle* ih)
+diff --git a/src/win/iupwin_dialog.c b/src/win/iupwin_dialog.c
+index 5871ca8..2c97bca 100644
+--- a/src/win/iupwin_dialog.c
++++ b/src/win/iupwin_dialog.c
+@@ -436,6 +436,11 @@ static void winDialogResize(Ihandle* ih, int width, int height)
+     ih->data->ignore_resize = 1;
+     IupRefresh(ih);
+     ih->data->ignore_resize = 0;
++
++    /* Lunar fork: paint what the new size invalidated before the sizing loop takes the next
++       mouse message. WM_PAINT is the lowest priority there is, so a drag can starve it
++       and the content trails the frame. Paints only what changed, not the whole dialog. */
++    RedrawWindow(ih->handle, NULL, NULL, RDW_UPDATENOW | RDW_ALLCHILDREN);
+   }
+ }
+ 
+diff --git a/src/win/iupwin_draw_gdi.c b/src/win/iupwin_draw_gdi.c
+index cc0c35c..6a81bad 100644
+--- a/src/win/iupwin_draw_gdi.c
++++ b/src/win/iupwin_draw_gdi.c
+@@ -56,6 +56,7 @@ struct _IdrawCanvas{
+   int release_dc;
+   HBITMAP hBitmap, hOldBitmap;
+   HDC hBitmapDC, hDC;
++  int shared_back;  /* Lunar fork: paints in win_draw_back */
+ 
+   int clip_x1, clip_y1, clip_x2, clip_y2;
+ 
+@@ -64,6 +65,119 @@ struct _IdrawCanvas{
+   IdrawCanvas* wdl_gc;
+ };
+ 
++/* Lunar fork: one backbuffer for every paint, and a DIB rather than a device bitmap.
++ *
++ * Each paint used to create, select and delete a bitmap the size of its control. Worse, GDI+
++ * cannot touch a device bitmap directly, so every antialiased primitive read its destination
++ * back through StretchBlt and wrote it out again. On a resize, where every control repaints,
++ * that was most of the cost of a frame. GDI+ writes straight into a DIB section, and painting
++ * is strictly one control at a time, so they can all share one that only ever grows. A paint
++ * that starts inside another paint gets a bitmap of its own. */
++typedef struct _IwinDrawBack
++{
++  HDC hDC;
++  HBITMAP hBitmap, hOldBitmap;
++  int w, h, busy;
++} IwinDrawBack;
++
++static IwinDrawBack win_draw_back = { NULL, NULL, NULL, 0, 0, 0 };
++
++static HBITMAP winDrawCreateDIB(int w, int h)
++{
++  BITMAPINFO bmi;
++  void* bits = NULL;
++
++  memset(&bmi, 0, sizeof(bmi));
++  bmi.bmiHeader.biSize = sizeof(bmi.bmiHeader);
++  bmi.bmiHeader.biWidth = w > 0 ? w : 1;
++  bmi.bmiHeader.biHeight = -(h > 0 ? h : 1);  /* top-down */
++  bmi.bmiHeader.biPlanes = 1;
++  bmi.bmiHeader.biBitCount = 32;
++  bmi.bmiHeader.biCompression = BI_RGB;
++  return CreateDIBSection(NULL, &bmi, DIB_RGB_COLORS, &bits, NULL, 0);
++}
++
++static int winDrawBackFits(int w, int h)
++{
++  IwinDrawBack* back = &win_draw_back;
++
++  if (!back->hDC)
++    back->hDC = CreateCompatibleDC(NULL);
++  if (!back->hDC)
++    return 0;
++
++  if (w > back->w || h > back->h)
++  {
++    /* Grows in steps, so a window being dragged wider does not reallocate on every pixel. */
++    int new_w = (iupMAX(w, back->w) + 255) & ~255;
++    int new_h = (iupMAX(h, back->h) + 255) & ~255;
++    HBITMAP hBitmap = winDrawCreateDIB(new_w, new_h);
++    if (!hBitmap)
++      return 0;
++
++    if (back->hBitmap)
++    {
++      SelectObject(back->hDC, back->hOldBitmap);
++      DeleteObject(back->hBitmap);
++    }
++    back->hBitmap = hBitmap;
++    back->hOldBitmap = SelectObject(back->hDC, hBitmap);
++    back->w = new_w;
++    back->h = new_h;
++  }
++  return 1;
++}
++
++static void winDrawBackFree(void)
++{
++  IwinDrawBack* back = &win_draw_back;
++  if (back->hBitmap)
++  {
++    SelectObject(back->hDC, back->hOldBitmap);
++    DeleteObject(back->hBitmap);
++  }
++  if (back->hDC)
++    DeleteDC(back->hDC);
++  memset(back, 0, sizeof(IwinDrawBack));
++}
++
++static void winDrawAttachBitmap(IdrawCanvas* dc)
++{
++  if (dc->shared_back || (!win_draw_back.busy && winDrawBackFits(dc->w, dc->h)))
++  {
++    if (dc->shared_back && !winDrawBackFits(dc->w, dc->h))
++    {
++      /* could not grow: paint what fits rather than fail */
++      dc->w = iupMIN(dc->w, win_draw_back.w);
++      dc->h = iupMIN(dc->h, win_draw_back.h);
++    }
++    win_draw_back.busy = 1;
++    dc->shared_back = 1;
++    dc->hBitmapDC = win_draw_back.hDC;
++    dc->hBitmap = win_draw_back.hBitmap;
++    SelectClipRgn(dc->hBitmapDC, NULL);  /* the last control may have left one */
++  }
++  else
++  {
++    dc->hBitmap = winDrawCreateDIB(dc->w, dc->h);
++    dc->hBitmapDC = CreateCompatibleDC(dc->hDC);
++    dc->hOldBitmap = SelectObject(dc->hBitmapDC, dc->hBitmap);
++  }
++
++  SetBkMode(dc->hBitmapDC, TRANSPARENT);
++  SetTextAlign(dc->hBitmapDC, TA_TOP|TA_LEFT);
++}
++
++static void winDrawDetachBitmap(IdrawCanvas* dc)
++{
++  if (dc->shared_back)
++    return;
++
++  SelectObject(dc->hBitmapDC, dc->hOldBitmap);
++  DeleteObject(dc->hBitmap);
++  DeleteDC(dc->hBitmapDC);  /* to match CreateCompatibleDC */
++}
++
+ void iupwinDrawInit(void)
+ {
+   iupwinDrawThemeInit();
+@@ -74,6 +188,8 @@ void iupwinDrawInit(void)
+ 
+ void iupwinDrawFinish(void)
+ {
++  winDrawBackFree();
++
+   if (iupwinDrawFinishWDL())  /* if WDL is using Direct2D must manually terminates GDI+ */
+     gdix_fini();
+ }
+@@ -105,12 +221,7 @@ IUP_SDK_API IdrawCanvas* iupdrvDrawCreateCanvas(Ihandle* ih)
+   dc->w = rect.right - rect.left;
+   dc->h = rect.bottom - rect.top;
+ 
+-  dc->hBitmap = CreateCompatibleBitmap(dc->hDC, dc->w, dc->h);
+-  dc->hBitmapDC = CreateCompatibleDC(dc->hDC);
+-  dc->hOldBitmap = SelectObject(dc->hBitmapDC, dc->hBitmap);
+-
+-  SetBkMode(dc->hBitmapDC, TRANSPARENT);
+-  SetTextAlign(dc->hBitmapDC, TA_TOP|TA_LEFT);
++  winDrawAttachBitmap(dc);
+ 
+   iupAttribSet(ih, "DRAWDRIVER", "GDI");
+   dc->sim_aa = iupAttribGetInt(ih, "DRAWANTIALIAS");
+@@ -129,9 +240,9 @@ IUP_SDK_API void iupdrvDrawKillCanvas(IdrawCanvas* dc)
+     return;
+   }
+ 
+-  SelectObject(dc->hBitmapDC, dc->hOldBitmap);
+-  DeleteObject(dc->hBitmap);
+-  DeleteDC(dc->hBitmapDC);  /* to match CreateCompatibleDC */
++  winDrawDetachBitmap(dc);
++  if (dc->shared_back)
++    win_draw_back.busy = 0;
+   if (dc->release_dc)
+     ReleaseDC(dc->hWnd, dc->hDC);  /* to match GetDC */
+ 
+@@ -158,16 +269,8 @@ IUP_SDK_API void iupdrvDrawUpdateSize(IdrawCanvas* dc)
+     dc->w = w;
+     dc->h = h;
+ 
+-    SelectObject(dc->hBitmapDC, dc->hOldBitmap);
+-    DeleteObject(dc->hBitmap);
+-    DeleteDC(dc->hBitmapDC);  /* to match CreateCompatibleDC */
+-
+-    dc->hBitmap = CreateCompatibleBitmap(dc->hDC, dc->w, dc->h);
+-    dc->hBitmapDC = CreateCompatibleDC(dc->hDC);
+-    dc->hOldBitmap = SelectObject(dc->hBitmapDC, dc->hBitmap);
+-
+-    SetBkMode(dc->hBitmapDC, TRANSPARENT);
+-    SetTextAlign(dc->hBitmapDC, TA_TOP|TA_LEFT);
++    winDrawDetachBitmap(dc);
++    winDrawAttachBitmap(dc);
+   }
+ }
+ 
+diff --git a/src/win/iupwin_font.c b/src/win/iupwin_font.c
+index 20c3132..739dbb6 100644
+--- a/src/win/iupwin_font.c
++++ b/src/win/iupwin_font.c
+@@ -225,8 +225,18 @@ IUP_SDK_API int iupdrvSetFontAttrib(Ihandle* ih, const char* value)
+   return 1;
+ }
+ 
++/* Lunar fork: measuring text used to take and release the screen DC for every string, and
++   a layout pass measures every label in the dialog: a sixth of a live resize went on that
++   lock alone. A memory DC measures the same and never has to be given back. */
++static HDC win_font_measure_dc = NULL;
++
+ static HDC winFontGetDC(Ihandle* ih)
+ {
++  if (!win_font_measure_dc)
++    win_font_measure_dc = CreateCompatibleDC(NULL);
++  if (win_font_measure_dc)
++    return win_font_measure_dc;
++
+   if (!ih || ih->iclass->nativetype == IUP_TYPEVOID)
+     return GetDC(NULL);
+   else
+@@ -235,6 +245,9 @@ static HDC winFontGetDC(Ihandle* ih)
+ 
+ static void winFontReleaseDC(Ihandle* ih, HDC hdc)
+ {
++  if (hdc == win_font_measure_dc)
++    return;
++
+   if (!ih || ih->iclass->nativetype == IUP_TYPEVOID)
+     ReleaseDC(NULL, hdc);
+   else
+@@ -397,4 +410,10 @@ void iupdrvFontFinish(void)
+     fonts[i].hFont = NULL;
+   }
+   iupArrayDestroy(win_fonts);
++
++  if (win_font_measure_dc)
++  {
++    DeleteDC(win_font_measure_dc);
++    win_font_measure_dc = NULL;
++  }
+ }

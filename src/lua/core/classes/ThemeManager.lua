@@ -534,6 +534,9 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 		attrs.CHECKFGCOLOR = r.checkfg
 		attrs.CHECKHLCOLOR = r.checkhl
 		attrs.CHECKPSCOLOR = r.checkon
+		attrs.SWITCHONCOLOR = r.switchon or r.checkon
+		attrs.SWITCHOFFCOLOR = r.switchoff
+		attrs.SWITCHKNOBCOLOR = r.switchknob
 		attrs.CHECKRADIUS = "3"
 		attrs.CHECKSIZE = "16"
 	end
@@ -549,6 +552,7 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 
 	if cls == "flatlist" then
 		if r.itemradius then attrs.ITEMRADIUS = tostring(r.itemradius) end
+		if r.itemmarker then attrs.ITEMMARKERCOLOR = r.itemmarker end
 		local sel_bg = r.selbg or r.hover or r.bg
 		local sel_text = r.seltext or r.hovertext or r.fg
 		if sel_bg then
@@ -646,6 +650,7 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 		end
 		if cls == "flattabs" and r.tabspadding then
 			attrs.TABSPADDING = r.tabspadding
+			attrs.TABSIMAGESPACING = "8"
 		end
 		if cls == "flattabs" and r.activeline then
 			attrs.TABSACTIVELINE = r.activeline
@@ -1036,7 +1041,7 @@ function ThemeManager:_applyElement(ih, rules, cls, role, p)
 		-- flatlabels created with a THEMEROLE and no FONT (see
 		-- core.lib.CarbonLayout.pageTitle), so every heading in the app rendered
 		-- at body size and weight and the scale existed only on paper.
-		if attrs.FONT == self._theme_font and not self:_hasLocalFont(ih, p) then
+		if not role and attrs.FONT == self._theme_font and not self:_hasLocalFont(ih, p) then
 			attrs.FONT = nil
 		end
 	end

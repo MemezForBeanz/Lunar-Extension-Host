@@ -29,16 +29,27 @@ void* SelectObject(void*, void*);
 int GetDIBits(void*, void*, unsigned, unsigned, void*, CAP_BMIH*, unsigned);
 int DeleteObject(void*);
 int DeleteDC(void*);
+long DwmGetWindowAttribute(void*, unsigned, void*, unsigned);
 ]]
-local user32, gdi32 = ffi.load("user32"), ffi.load("gdi32")
+local user32, gdi32, dwmapi = ffi.load("user32"), ffi.load("gdi32"), ffi.load("dwmapi")
 
--- from_screen copies what is really on screen: a popup, and an edit control's cue
--- banner, only paint for WM_PAINT, which PrintWindow does not send.
+-- from_screen copies what is really on screen, title bar and menu included: a popup,
+-- and an edit control's cue banner, only paint for WM_PAINT, which PrintWindow does not
+-- send. Set LUNAR_CAPTURE_CLIENT=1 for the old client-only shot of a covered window.
 local function save_bmp(hwnd, path, from_screen)
 	local rc = ffi.new("CAP_RECT")
-	if from_screen then user32.GetWindowRect(hwnd, rc) else user32.GetClientRect(hwnd, rc) end
+	if from_screen then
+		-- The visible frame: GetWindowRect also counts the invisible resize border.
+		if dwmapi.DwmGetWindowAttribute(hwnd, 9, rc, ffi.sizeof(rc)) ~= 0 then -- EXTENDED_FRAME_BOUNDS
+			user32.GetWindowRect(hwnd, rc)
+		end
+	else
+		user32.GetClientRect(hwnd, rc)
+	end
 	local w, h = rc.right - rc.left, rc.bottom - rc.top
-	local screen = user32.GetDC(from_screen and nil or hwnd)
+	local dc_owner = hwnd
+	if from_screen then dc_owner = nil end -- nil is the whole screen
+	local screen = user32.GetDC(dc_owner)
 	local mem = gdi32.CreateCompatibleDC(screen)
 	local bmp = gdi32.CreateCompatibleBitmap(screen, w, h)
 	local old = gdi32.SelectObject(mem, bmp)
@@ -55,7 +66,7 @@ local function save_bmp(hwnd, path, from_screen)
 	gdi32.GetDIBits(mem, bmp, 0, h, px, bi, 0)
 	gdi32.DeleteObject(bmp)
 	gdi32.DeleteDC(mem)
-	user32.ReleaseDC(from_screen and nil or hwnd, screen)
+	user32.ReleaseDC(dc_owner, screen)
 	local file = assert(io.open(path, "wb"))
 	local function le(n, count)
 		local t = {}
@@ -66,6 +77,8 @@ local function save_bmp(hwnd, path, from_screen)
 	file:write(ffi.string(bi, ffi.sizeof(bi)):sub(1, 40), ffi.string(px, bytes))
 	file:close()
 end
+
+local whole_window = os.getenv("LUNAR_CAPTURE_CLIENT") ~= "1"
 
 local function class(h) return iup.GetClassName(h) end
 
@@ -113,20 +126,37 @@ end
 
 -- Give every empty list some rows, so scrollbars, row height and selection show up in
 -- a run with no real data behind it.
+local SAMPLE_SETS = {
+	{ "Boot order regression", "Memory training", "PCIe link width", "Secure boot keys",
+	  "Fan curve validation", "NVMe hot plug", "Power cap limits", "TPM attestation",
+	  "Thermal throttle", "UEFI variable store", "Watchdog recovery", "BMC failover",
+	  "DIMM population", "USB enumeration", "Option ROM scan", "SMBIOS tables",
+	  "ACPI table checks", "Secure erase", "Sensor calibration", "Redfish conformance" },
+	{ "AmiBcp", "BiosUpdate", "CpuFreq", "CpldTool", "DumpSmbios", "EfiShell", "FwFlash",
+	  "GpioMap", "HpSetup", "IpmiUtil", "LogCollect", "MemTest", "NvramTool", "PcieScan",
+	  "RomBuilder", "SmmDebug", "TpmTool", "UefiPatch", "VpdEdit", "WdtProbe" },
+	{ "Boot order regression", "Fan curve validation", "TPM attestation", "AmiBcp", "RomBuilder" },
+}
+local sample_set = 0
+
+-- Screenshots leave this machine, and org packs prefill internal hosts and addresses.
+local function scrubbed(value)
+	return (value:gsub([[\[%w%.%-_]+[%w%.%-_\%$]*]], [[\server\share]])
+		:gsub("https?://[%w%.%-_:]+", "https://backend.example:8000")
+		:gsub("%d+%.%d+%.%d+%.%d+", "192.0.2.10"))
+end
+
 local function fill_lists(h)
-	-- Screenshots leave this machine, and org packs prefill internal hosts and addresses.
-	if class(h) == "text" then
-		local value = iup.GetAttribute(h, "VALUE") or ""
-		if value:match("^\\\\") then
-			iup.SetAttribute(h, "VALUE", "\\\\server\\share")
-		elseif value:match("%d+%.%d+%.%d+%.%d+") then
-			iup.SetAttribute(h, "VALUE", "https://backend.example:8000")
-		end
+	local attr = class(h) == "text" and "VALUE"
+		or ((class(h) == "label" or class(h) == "flatlabel" or class(h) == "flatbutton") and "TITLE")
+	local value = attr and iup.GetAttribute(h, attr)
+	if type(value) == "string" and value ~= "" and scrubbed(value) ~= value then
+		iup.SetAttribute(h, attr, scrubbed(value))
 	end
 	if class(h) == "flatlist" and (tonumber(iup.GetAttribute(h, "COUNT")) or 0) == 0
 		and iup.GetAttribute(h, "THEMEROLE") ~= "palette_list" then
-		for i = 1, 40 do iup.SetAttribute(h, tostring(i), string.format("sample-item-%02d", i)) end
-		iup.SetAttribute(h, "VALUE", "2")
+		sample_set = sample_set % #SAMPLE_SETS + 1
+		for i, row in ipairs(SAMPLE_SETS[sample_set]) do iup.SetAttribute(h, tostring(i), row) end
 	end
 	local i, child = 0, iup.GetChild(h, 0)
 	while child do
@@ -149,22 +179,27 @@ iup.MainLoop = function()
 		local IupFFI = require("core.classes.IupFFI")
 		local function snap(name)
 			save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(dlg), "HWND")),
-				string.format("%s/%s-%s.bmp", out_dir, prefix, name))
+				string.format("%s/%s-%s.bmp", out_dir, prefix, name), whole_window)
 		end
 		if scene == 1 then
 			shell.palette:open("")
 		elseif scene == 2 then
 			local palette_dlg = shell.palette._dialog
-			save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(palette_dlg), "HWND")),
-				string.format("%s/%s-90-palette.bmp", out_dir, prefix))
+			snap("90-palette") -- over the app, so the shot shows how it sits on the page
+			local _ = palette_dlg
 			shell.palette:close()
 		elseif scene == 3 then
 			local groups = shell.groups()
 			local pages_now = groups:leaves()
 			shell.panes:move(pages_now[3] or pages_now[1], "right")
 			if pages_now[4] then shell.panes:move(pages_now[4], "bottom") end
-		elseif scene == 4 then
+		elseif scene == 5 then -- one tick later: pages recentre after the panes settle
 			snap("91-split")
+		elseif scene == 6 then
+			shell.open_menu()
+		elseif scene == 7 then
+			snap("92-menu")
+			shell.palette:close()
 			return false
 		end
 		return true
@@ -203,11 +238,13 @@ iup.MainLoop = function()
 		end
 		if index % 2 == 1 then
 			for _, s in ipairs(page.path) do iup.SetAttribute(s.strip, "VALUEPOS", tostring(s.pos)) end
+			fill_lists(dlg) -- an async status may have written a host since the last pass
+			iup.Refresh(dlg)
 		else
 			local slug = page.title:lower():gsub("[^%w]+", "-")
 			local IupFFI = require("core.classes.IupFFI")
 			save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(dlg), "HWND")), string.format("%s/%s-%02d-%s.bmp",
-				out_dir, prefix, index / 2, slug))
+				out_dir, prefix, index / 2, slug), whole_window)
 		end
 		index = index + 1
 		return iup.DEFAULT

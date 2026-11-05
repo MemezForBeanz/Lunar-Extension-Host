@@ -22,17 +22,18 @@ function LunarDarkTheme:initialize()
         borderSubtle01  = rgb("#30333e"),  -- dim structural lines
         borderStrong01  = rgb("#464b5c"),  -- field edges, emphasis
         text            = rgb("#d6d9e0"),
-        textMuted       = rgb("#8b90a0"),
-        accent          = rgb("#7c6cf2"),  -- lunar violet (interactive)
+        textMuted       = rgb("#a7acba"),
+        accent          = rgb("#6c5ce7"),
+        accentBright    = rgb("#a99eff"),  -- a mark on a dark field: 7:1  -- lunar violet (interactive)
         accentText      = rgb("#ffffff"),
-        error           = rgb("#e06c75"),
+        error           = rgb("#ff8a93"),
         success         = rgb("#98c379"),
         warning         = rgb("#e5c07b"),
         warningText     = rgb("#1b1d23"),
         info            = rgb("#56b6c2"),
         font            = "Segoe UI, 11",
         well            = rgb("#1b1d23"),   -- recessed: lists, fields, output
-        accentSoft      = rgb("#343259"),   -- a chosen row
+        accentSoft      = rgb("#35345c"),   -- a chosen row
 
         -- The accent strip's sweep: violet into slate.
         gradTop         = rgb("#7c6cf2"),
