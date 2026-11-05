@@ -529,7 +529,7 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 	-- dotted grip without touching any extension (fork patch 0005).
 	if cls == "split" then
 		attrs.SHOWGRIP = "SASH"
-		attrs.BARSIZE = tostring(r.barsize or 7)
+		if not r.fixedbar then attrs.BARSIZE = tostring(r.barsize or 7) end
 		if r.border then attrs.COLOR = r.border end
 		attrs.HLCOLOR = r.sash or r.border
 	end

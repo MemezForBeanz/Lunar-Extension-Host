@@ -101,9 +101,13 @@ function PaneGrid:initialize(opts)
 		bottom = iup.flattabs({}),
 		corner = iup.flattabs({}),
 	}
+	-- The splits' role below would otherwise come down to these: attributes inherit.
+	for _, strip in pairs(self._strips) do iup.SetAttribute(strip, "THEMEROLE", "flattabs") end
 
 	local function split(first, second, orientation, name)
-		local s = iup.split({ first, second, ORIENTATION = orientation, AUTOHIDE = "YES", VALUE = tostring(FULL) })
+		local s = iup.split({ first, second, ORIENTATION = orientation, AUTOHIDE = "YES", VALUE = tostring(FULL),
+			-- This module sets the bar: 0 for an empty pane, which a theme pass must not undo.
+			THEMEROLE = "pane_split" })
 		SplitMotion.attach(iup, s, { on_change = function() self:_sizesChanged(name) end })
 		return s
 	end
@@ -173,6 +177,13 @@ function PaneGrid:toggleFocus(strip)
 end
 
 function PaneGrid:isFocused() return self._focus_zone ~= nil end
+
+--- Is more than one pane open?
+function PaneGrid:isSplit()
+	if not self._groups then return false end
+	local used = self:_used()
+	return (used.right or used.bottom or used.corner) == true
+end
 
 function PaneGrid:restoreFocus()
 	if not self._focus_zone then return false end

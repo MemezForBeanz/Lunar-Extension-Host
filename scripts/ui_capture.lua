@@ -25,6 +25,7 @@ typedef struct { uint32_t biSize; long biWidth, biHeight; uint16_t biPlanes, biB
   uint32_t biCompression, biSizeImage; long biXPelsPerMeter, biYPelsPerMeter;
   uint32_t biClrUsed, biClrImportant; } CAP_BMIH;
 int GetClientRect(void*, CAP_RECT*);
+int ClientToScreen(void*, CAP_RECT*);
 int GetWindowRect(void*, CAP_RECT*);
 int BitBlt(void*, int, int, int, int, void*, int, int, unsigned);
 void* GetDC(void*);
@@ -65,7 +66,20 @@ local function save_bmp(hwnd, path, from_screen)
 	if from_screen then
 		gdi32.BitBlt(mem, 0, 0, w, h, screen, rc.left, rc.top, 0x00CC0020) -- SRCCOPY
 	else
-		user32.PrintWindow(hwnd, mem, 3) -- PW_CLIENTONLY | PW_RENDERFULLCONTENT
+		-- PW_CLIENTONLY trims a standard caption off the top, which this window may not have,
+		-- so take the whole window and cut the client area out of it.
+		local win, origin = ffi.new("CAP_RECT"), ffi.new("CAP_RECT")
+		user32.GetWindowRect(hwnd, win)
+		user32.ClientToScreen(hwnd, origin)
+		local whole_w, whole_h = win.right - win.left, win.bottom - win.top
+		local whole_dc = gdi32.CreateCompatibleDC(screen)
+		local whole = gdi32.CreateCompatibleBitmap(screen, whole_w, whole_h)
+		local previous = gdi32.SelectObject(whole_dc, whole)
+		user32.PrintWindow(hwnd, whole_dc, 2) -- PW_RENDERFULLCONTENT
+		gdi32.BitBlt(mem, 0, 0, w, h, whole_dc, origin.left - win.left, origin.top - win.top, 0x00CC0020)
+		gdi32.SelectObject(whole_dc, previous)
+		gdi32.DeleteObject(whole)
+		gdi32.DeleteDC(whole_dc)
 	end
 	gdi32.SelectObject(mem, old)
 	local bi = ffi.new("CAP_BMIH")
@@ -111,6 +125,7 @@ local function leaves(strip, path, out)
 end
 
 local function find_strip(h)
+	if iup.GetAttribute(h, "THEMEROLE") == "titlebar_tabs" then return nil end
 	if class(h) == "flattabs" then return h end
 	local i, child = 0, iup.GetChild(h, 0)
 	while child do
@@ -244,6 +259,7 @@ iup.MainLoop = function()
 		elseif scene == 2 then
 			local palette_dlg = shell.palette._dialog
 			snap("90-palette") -- over the app, so the shot shows how it sits on the page
+			snap_window(palette_dlg, "90-palette-window")
 			local _ = palette_dlg
 			shell.palette:close()
 		elseif scene == 3 then
@@ -367,6 +383,8 @@ iup.MainLoop = function()
 		end
 		if index % 2 == 1 then
 			for _, s in ipairs(page.path) do iup.SetAttribute(s.strip, "VALUEPOS", tostring(s.pos)) end
+			local dev_shell = rawget(_G, "LUNAR_DEV_SHELL")
+			if dev_shell and dev_shell.sync_title_bar then dev_shell.sync_title_bar() end
 			fill_lists(dlg) -- an async status may have written a host since the last pass
 			iup.Refresh(dlg)
 		else
