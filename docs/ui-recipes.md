@@ -302,6 +302,29 @@ and what decides on a toast, and unloading your extension ends the entry.
 Progress can be reported as often as you like, since an unchanged value costs nothing.
 Keep `message` stable, though: a counter in it repaints the bar on every tick.
 
+## Pages that fit their pane
+
+A tab can land in a split pane a third of the window wide, so a page answers to the
+pane's width, not the screen's. `core.ui.Adaptive` holds the breakpoints:
+
+```lua
+local Adaptive = require("core.ui.Adaptive")
+
+local content, fit = Adaptive.railPage(iup, { side = rail, main = results })
+local panel = L.page(iup, { content, EXPAND = "YES" })
+ctx:addTab("Example", panel, M)
+ctx:fitPage(panel, fit)   -- the rail stacks over the results below Adaptive.NARROW (720)
+```
+
+Wide labels push a page past its pane, because a box measures itself from what it holds:
+give a label that can run long `RASTERSIZE = L.size(1)`, `EXPAND = "HORIZONTAL"` and
+`TEXTELLIPSIS = "YES"`. `Adaptive.segmented` is `Kit.segmented` filling its row.
+
+`Adaptive.setSecondPane` opens and closes the second pane of an `iup.split`. Use it and not
+`AUTOHIDE`, which stores `VISIBLE=YES` on the panes and shows them through other tabs. For
+the same reason, add a child to a row before putting the row in a `zbox` or an `emptyPane`:
+one appended after doesn't get hidden along with the rest.
+
 ## Split panes
 
 Any tab can sit beside any other, with no work from the extension. Drag a tab onto the

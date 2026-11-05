@@ -91,6 +91,7 @@ local NameDialog = require("core.ui.NameDialog")
 local WelcomeTour = require("core.ui.WelcomeTour")
 local WindowChrome = require("core.ui.WindowChrome")
 local Kit = require("core.ui.Kit")
+local CodeWorkbench = require("core.ui.CodeWorkbench")
 local AppearanceSettings = require("core.ui.AppearanceSettings")
 local Diagnostics = require("core.ui.Diagnostics")
 local NativeStatus = require("core.lib.NativeStatus")
@@ -637,6 +638,7 @@ host:setCommands(commands)
 local command_palette = CommandPalette.new({
 	iup = iup,
 	registry = commands,
+	settings = settings_mgr,
 	parent = dlg,
 	notify_tree_change = function(w) theme_mgr:themeWidget(w) end,
 	on_error = function(message) host:setStatus(message) end,
@@ -1059,6 +1061,19 @@ theme_mgr:onApply(function()
 end)
 pane_grid:onLayout(schedule_recenter)
 host:fitPage(settings_view:widget(), function(width) settings_view:fitWidth(width) end)
+
+-- Code and language servers (core.ui.CodeWorkbench): the Code and Problems tabs,
+-- which appear the first time they are needed, the problem count in the status
+-- bar, and the lunar://code/... addresses. Extensions have loaded by now, so the
+-- Language servers section of Settings can list what they registered.
+local code_workbench = CodeWorkbench.install({
+	iup = iup, host = host, dialog = dlg, tabs = tabs,
+	groups = function() return tab_groups end, panes = pane_grid,
+	commands = commands, palette = command_palette, settings = settings_mgr,
+	theme_widget = function(w) theme_mgr:themeWidget(w) end,
+})
+code_workbench:refreshSettings()
+if rawget(_G, "LUNAR_DEV_SHELL") then _G.LUNAR_DEV_SHELL.code = code_workbench end
 
 -- Rebuild the saved arrangement now that every extension tab and the host's own
 -- Settings tab are in the strip, and while the pages are still unmapped.

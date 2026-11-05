@@ -1,11 +1,14 @@
 --- Serializer and parser for `lunar://` route URIs.
 -- Route URIs are the mechanism by which extensions and the host address
 -- each other's registered handlers. The scheme is `lunar`; the authority is
--- `host` or `plugin`; the path identifies the target and, optionally, an
+-- `host`, `plugin` or `code`; the path identifies the target and, optionally, an
 -- action sub-path. Query parameters carry arbitrary
 -- string-valued arguments.
 --
--- **URI form**: `lunar://{host|plugin}/{target}[/{action}][?key=value&...]`
+-- **URI form**: `lunar://{host|plugin|code}/{target}[/{action}][?key=value&...]`
+--
+-- `code` addresses the host's code surfaces: `lunar://code/open?path=...&line=...`
+-- opens a file in the Code tab, `lunar://code/problems` shows the Problems tab.
 --
 -- All path segments and parameter names are restricted to letters, digits,
 -- `.`, `_`, and `-`. Parameter values are percent-encoded using standard
@@ -23,6 +26,9 @@
 local M = {}
 
 local SCHEME = "lunar"
+-- Authorities beyond host and plugin: each is a host service that takes the
+-- route whole (see HostAPI:registerRouteService).
+local SERVICES = { code = true }
 local SEGMENT_PATTERN = "^[A-Za-z0-9._%-]+$"
 local KEY_PATTERN = "^[A-Za-z0-9._%-]+$"
 
@@ -145,8 +151,15 @@ function M.serialize(route)
 			end
 			parts[#parts + 1] = action
 		end
+	elseif SERVICES[kind] then
+		authority = kind
+		local target, target_err = validate_segment(route.target, kind .. " target")
+		if not target then
+			return nil, target_err
+		end
+		parts[#parts + 1] = target
 	else
-		return nil, "route kind must be 'host' or 'plugin'"
+		return nil, "route kind must be 'host', 'plugin' or 'code'"
 	end
 
 	local query = {}
@@ -188,8 +201,8 @@ function M.parse(uri)
 	if not scheme or scheme ~= SCHEME then
 		return nil, "route URI must start with lunar://"
 	end
-	if authority ~= "host" and authority ~= "plugin" then
-		return nil, "route authority must be host or plugin"
+	if authority ~= "host" and authority ~= "plugin" and not SERVICES[authority] then
+		return nil, "route authority must be host, plugin or code"
 	end
 
 	local path, query = rest:match("^([^?]*)%??(.*)$")
@@ -206,7 +219,7 @@ function M.parse(uri)
 	end
 
 	local route = {
-		kind = authority == "host" and "host" or "plugin",
+		kind = authority,
 		target = segments[1],
 		action = segments[2],
 		params = {},
