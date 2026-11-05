@@ -82,6 +82,14 @@ local NAV_MIN_PAGE = NAV_WIDTH + COLUMN_WIDTH + 64
 -- Anything longer (a table of shortcuts, say) stays behind Show details.
 local INLINE_DESCRIPTION = 170
 local WRAP_AT = 72
+-- Below this page width the controls take a narrower column.
+local NARROW_PAGE = 760
+local NARROW_CONTROL = 160
+-- What a row spends beside its text and control: card edges, margins and the gap.
+local ROW_CHROME = 110
+local CHAR_WIDTH = 7
+local MIN_WRAP = 24
+local wrap -- defined with the row builders below
 
 -- Chevron edge length in pixels. Carbon's own accordion uses a 16px icon against
 -- body text; this matches.
@@ -138,6 +146,8 @@ function SettingsView:initialize(opts)
 
     local iup = self._iup
     self._sections = {}   -- ordered list of section records
+    self._wrapped = {}    -- descriptions kept on show, to rewrap in a thin pane
+    self._control_columns = {}
     self._query    = ""
 
     local sv = self
@@ -257,7 +267,25 @@ function SettingsView:fitWidth(width)
     Kit.show(iup, self._nav, wide, self._search)
     local lead = wide and math.floor((width - NAV_WIDTH - COLUMN_WIDTH) / 2) or 1 -- 0 means no size at all
     iup.SetAttribute(self._lead, "RASTERSIZE", lead .. "x")
+    self:_fitRows(width)
     self:_applyCategory()
+end
+
+-- A row is never narrower than what it holds, so in a thin pane the words have to give:
+-- the controls take a narrower column and the descriptions wrap to what is left.
+function SettingsView:_fitRows(width)
+    local iup = self._iup
+    local control = width < NARROW_PAGE and NARROW_CONTROL or CONTROL_COLUMN
+    local room = math.min(WRAP_AT, math.floor((math.min(width, COLUMN_WIDTH) - control - ROW_CHROME) / CHAR_WIDTH))
+    room = math.max(MIN_WRAP, room)
+    if control == self._control_width and room == self._wrap_room then return end
+    self._control_width, self._wrap_room = control, room
+    for _, holder in ipairs(self._control_columns) do
+        iup.SetAttribute(holder, "RASTERSIZE", L.size(control))
+    end
+    for _, row in ipairs(self._wrapped) do
+        iup.SetAttribute(row.widget, "TITLE", wrap(row.description, room))
+    end
 end
 
 -- With the list beside it the page shows one category, named by the breadcrumb. In a
@@ -532,10 +560,11 @@ function SettingsView:_buildHeader(section, category)
 end
 
 -- Break a description into lines a row can hold.
-local function wrap(text)
+wrap = function(text, at)
+    at = at or WRAP_AT
     local lines, line = {}, ""
     for word in tostring(text):gmatch("%S+") do
-        if line ~= "" and #line + 1 + #word > WRAP_AT then
+        if line ~= "" and #line + 1 + #word > at then
             lines[#lines + 1] = line
             line = word
         else
@@ -610,7 +639,9 @@ function SettingsView:_buildRow(entry, category, first)
     local label = iup.flatlabel{ TITLE = entry.label or "", THEMEROLE = "settings_name", EXPAND = "HORIZONTAL" }
     local left = { label, GAP = L.gap(1), EXPAND = "HORIZONTAL" }
     if inline then
-        left[#left + 1] = iup.flatlabel{ TITLE = wrap(description), THEMEROLE = "settings_description" }
+        local text = iup.flatlabel{ TITLE = wrap(description), THEMEROLE = "settings_description" }
+        left[#left + 1] = text
+        self._wrapped[#self._wrapped + 1] = { widget = text, description = description }
     end
 
     -- A long description still offers something to press.
@@ -639,9 +670,11 @@ function SettingsView:_buildRow(entry, category, first)
     local cells = { ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" }
     if control and not fills then cells[#cells + 1] = iup.fill{} end
     if control then cells[#cells + 1] = control end
+    local holder = iup.hbox{ RASTERSIZE = L.size(self._control_width or CONTROL_COLUMN) }
+    self._control_columns[#self._control_columns + 1] = holder
     local column = iup.vbox{
         iup.hbox(cells),
-        iup.hbox{ RASTERSIZE = L.size(CONTROL_COLUMN) },
+        holder,
         EXPAND = "NO",
     }
 

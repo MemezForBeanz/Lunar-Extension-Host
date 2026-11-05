@@ -22,6 +22,8 @@ StatusBar.UPDATE_STATES = {
 }
 StatusBar.UPDATE_CLICK_HINT = "\n\nClick to check for updates now."
 
+StatusBar.HEIGHT = 28
+
 --- How wide the activity slot's text is. Fixed, so that progress ticking over doesn't
 -- lay the whole window out again.
 StatusBar.ACTIVITY_WIDTH = 220
@@ -92,12 +94,14 @@ function StatusBar.new(opts)
 	})
 
 	self._widget = iup.hbox({
+		-- Holds the bar's height, whatever the page in front has put in it.
+		iup.label({ TITLE = "", RASTERSIZE = "0x" .. StatusBar.HEIGHT }),
 		self._activity_box,
 		self._label,
 		self._ext_box,
 		BGCOLOR = "240 240 240",
 		THEMEROLE = "statusbar",
-		MARGIN = L.margin(4, 1),
+		MARGIN = L.margin(4, 0),
 		GAP = L.gap(3),
 		ALIGNMENT = "ACENTER",
 		-- HORIZONTAL, not IupHbox's default YES. A vertically expanding child of
