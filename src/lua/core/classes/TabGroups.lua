@@ -173,6 +173,11 @@ end
 -- the panes.
 --
 -- @tparam table panes zone name -> `iup.flattabs`
+--- Attach `core.ui.ToolRail`, which takes over the strips it owns.
+function TabGroups:setRail(rail)
+	self._rail = rail
+end
+
 function TabGroups:setPanes(panes)
 	self._panes = panes or {}
 	for _, strip in pairs(self._panes) do self:_prepareStrip(strip) end
@@ -567,6 +572,8 @@ end
 
 function TabGroups:setCollapsed(strip, collapsed)
 	if not self:isGroupStrip(strip) then return false end
+	-- A rail narrows rather than hides, and every rail moves together (core.ui.ToolRail).
+	if self._rail and self._rail:owns(strip) then return false end
 	collapsed = collapsed == true
 	if self:isCollapsed(strip) == collapsed then return false end
 	return self:_batch(function()
@@ -627,6 +634,10 @@ function TabGroups:_prepareStrip(strip)
 	pcall(function()
 		function strip:extrabutton_cb(id, pressed)
 			-- Act on release, mirroring a normal button click.
+			if self_._rail and self_._rail:owns(strip) then
+				if pressed == 0 then self_._rail:press(strip, id) end
+				return iup.DEFAULT
+			end
 			if id == 1 and pressed == 0 and is_group then
 				self_:setCollapsed(strip, true)
 			elseif id == 2 and pressed == 0 and self_._on_focus_pane then
