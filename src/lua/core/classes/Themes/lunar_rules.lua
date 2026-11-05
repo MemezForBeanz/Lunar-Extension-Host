@@ -114,12 +114,13 @@ function M.build(p)
     end
 
     -- Semibold, where the face has one, rather than a bold synthesised from the body cut.
-    local HEADING = "Segoe UI Semibold"
+    -- A theme with its own typeface names the cut to use.
+    local HEADING = p.headingFont or "Segoe UI Semibold"
 
     local rules = {
         -- Type scale (identical to carbon_rules: heading-04 / heading-03 /
         -- body-compact-01 / label-01).
-        pagetitle     = { fg = p.text,      font = sized(p.headingFont or HEADING, 18), padding = "0x0" },
+        pagetitle     = { fg = p.text,      font = sized(HEADING, 18), padding = "0x0" },
         pagesubtitle  = { fg = p.textMuted, font = sized(p.font, 11), padding = "0x0" },
         sectiontitle  = { fg = p.text,      font = sized(HEADING, 14), padding = "0x0" },
         hint          = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },

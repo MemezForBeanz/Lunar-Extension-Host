@@ -1,53 +1,53 @@
---- Atomic repaint batching for a burst of window moves.
+--- Paint a burst of window moves at once.
 --
 -- ### The problem
 --
--- IUP repositions a container's children one window at a time
--- (`iupdrvBaseLayoutUpdateMethod` is a single `SetWindowPos` per child). None of
--- those calls paint; they invalidate, and the resulting `WM_PAINT`s are
--- dispatched **individually** by the message loop afterwards. Each child
--- therefore appears at its new position at a slightly different moment, and on a
--- split drag -- where this happens continuously -- the panes visibly tear.
+-- A layout pass moves many child windows, and the `WM_PAINT`s that follow are
+-- dispatched **individually** by the message loop. Each child therefore appears at
+-- its new position at a slightly different moment, and on a split drag -- where this
+-- happens continuously -- the panes visibly tear.
 --
--- `WS_CLIPCHILDREN` (which IUP always sets on native parents) does not help: it
--- stops the parent painting over its children, and says nothing about children
--- painting at different times from each other.
+-- `WS_CLIPCHILDREN` (which IUP always sets on native parents) does not help: it stops
+-- the parent painting over its children, and says nothing about children painting at
+-- different times from each other.
 --
--- ### The fix, and the detail that matters
+-- ### The fix
 --
--- Suppress painting on the parent, move everything, then force **one
--- synchronous** repaint of the whole subtree:
+-- The moves themselves are already atomic. IUP's layout pass commits them together
+-- with the top-level window's redraw off, and invalidates exactly the windows that
+-- moved (fork patch 0008, `winLayoutCommit` in `iupwin_common.c`). That leaves the
+-- paints, so this runs the layout and then paints what it left dirty, synchronously:
 --
---     WM_SETREDRAW 0  ->  move children  ->  WM_SETREDRAW 1
---     RedrawWindow(RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW)
+--     move children  ->  RedrawWindow(RDW_UPDATENOW | RDW_ALLCHILDREN)
 --
--- `RDW_UPDATENOW` is the load-bearing flag and the reason an earlier version of
--- this module did not fix the tearing. Without it `RedrawWindow` only marks the
--- subtree dirty and returns; the paints are then delivered one per child by the
--- message loop -- precisely the behaviour being removed. With it, every child is
--- painted before `RedrawWindow` returns, so the subtree reaches the screen as a
--- single visual state.
+-- `RDW_UPDATENOW` is the load-bearing flag: without it the paints are delivered one
+-- per child by the message loop -- precisely the behaviour being removed. With it,
+-- every dirty window is painted before `RedrawWindow` returns, so the subtree reaches
+-- the screen as a single visual state.
 --
--- IUP itself uses exactly this flag set for its own synchronous redraw
--- (`iupdrvRedrawNow`: `RDW_ERASE|RDW_INVALIDATE|RDW_INTERNALPAINT|RDW_UPDATENOW`).
+-- There is deliberately no `RDW_INVALIDATE` here. This module used to suppress
+-- painting itself and then invalidate the nearest native ancestor's whole subtree,
+-- which for a pane split is the dialog: every control in every pane repainted on every
+-- mouse sample, whichever panes the sash had actually moved, and that is what made a
+-- drag stutter once two tabs were open.
 --
 -- ### Why not the alternatives
 --
---   * `LockWindowUpdate` -- what `winredraw` uses -- is **process-global**, holds
---     one window system-wide, and is documented for drag-feedback rendering only.
---     Right for `ThemeManager`'s one-shot whole-dialog walk; wrong at drag rate.
---   * `WS_EX_COMPOSITED` (IUP's `COMPOSITED=YES`) double-buffers all children,
---     which would also solve this, but it is incompatible with `CS_OWNDC` windows
---     and IupCanvas uses `CS_OWNDC` -- every flat control in this application is
+--   * `LockWindowUpdate` -- what `winredraw` uses -- is **process-global**, holds one
+--     window system-wide, and is documented for drag-feedback rendering only. Right
+--     for `ThemeManager`'s one-shot whole-dialog walk; wrong at drag rate.
+--   * `WS_EX_COMPOSITED` (IUP's `COMPOSITED=YES`) double-buffers all children, which
+--     would also solve this, but it is incompatible with `CS_OWNDC` windows and
+--     IupCanvas uses `CS_OWNDC` -- every flat control in this application is
 --     canvas-backed. `core.main` sets `COMPOSITED=NO` deliberately, having already
 --     found it made tearing worse here.
 --
 -- ### The target is an ANCESTOR, not the widget itself
 --
--- Most IUP containers own no window (`ic->nativetype = IUP_TYPEVOID`), and
--- `IupSplit` -- the caller this exists for -- is one of them. The target is
--- resolved by walking up to the nearest ancestor that does have an `HWND`, which
--- is the window whose children are actually moving.
+-- Most IUP containers own no window (`ic->nativetype = IUP_TYPEVOID`), and `IupSplit`
+-- -- the caller this exists for -- is one of them. The target is resolved by walking up
+-- to the nearest ancestor that does have an `HWND`, which is the window whose children
+-- are actually moving.
 --
 -- ### Degradation
 --
@@ -73,13 +73,11 @@ if ffi and IupFFI and IupFFI.available then
 	-- cdef is per-Lua-state and raises on redeclaration. require caches this
 	-- module so it normally runs once; pcall keeps a stray re-require harmless.
 	pcall(ffi.cdef, [[
-		long SendMessageA(void *hwnd, unsigned int msg, unsigned int wparam, long lparam);
 		int  RedrawWindow(void *hwnd, const void *rect, void *rgn, unsigned int flags);
 	]])
 
 	local ok = pcall(function()
 		user32 = ffi.load("user32")
-		local _ = user32.SendMessageA
 		local _ = user32.RedrawWindow
 	end)
 
@@ -87,10 +85,6 @@ if ffi and IupFFI and IupFFI.available then
 	if not ok then user32 = nil end
 end
 
-local WM_SETREDRAW = 0x000B
-
-local RDW_INVALIDATE  = 0x0001
-local RDW_ERASE       = 0x0004
 local RDW_ALLCHILDREN = 0x0080
 local RDW_UPDATENOW   = 0x0100
 
@@ -126,19 +120,15 @@ function M.batchable(iup, widget)
 	return hwnd_of(iup, widget) ~= nil
 end
 
--- Depth per HWND, so nested batches issue one suspend and one repaint. Keyed by
--- the pointer's string form: two cdata pointers to the same address are not
--- equal as table keys. Entries are removed as they unwind, so this cannot grow.
+-- Depth per HWND, so nested batches issue one repaint. Keyed by the pointer's string
+-- form: two cdata pointers to the same address are not equal as table keys. Entries
+-- are removed as they unwind, so this cannot grow.
 local depth = {}
 
---- Run `fn`, then repaint `widget`'s nearest native ancestor in one pass.
+--- Run `fn`, then paint what it left dirty under `widget`'s nearest native ancestor.
 --
--- Re-entrant; nested calls join the outer batch rather than repainting early.
---
--- Exception-safe, which matters more than usual here: a window left with
--- `WM_SETREDRAW` off never paints again, so an error escaping this would freeze
--- part of the UI permanently. Redraws are always restored, then the error is
--- re-raised.
+-- Re-entrant; nested calls join the outer batch rather than repainting early. An error
+-- from `fn` still paints, then is re-raised.
 --
 -- @tparam userdata iup the IUP binding
 -- @tparam ihandle widget the widget whose layout is changing
@@ -157,22 +147,14 @@ function M.batch(iup, widget, fn)
 	local d = (depth[key] or 0) + 1
 	depth[key] = d
 
-	if d == 1 then
-		pcall(function() user32.SendMessageA(hwnd, WM_SETREDRAW, 0, 0) end)
-	end
-
 	local ok, a, b = pcall(fn)
 
 	if d > 1 then
 		depth[key] = d - 1
 	else
 		depth[key] = nil
-		-- Order matters: redraws must be back ON before the repaint is requested,
-		-- or the RedrawWindow is discarded and the window stays blank.
-		pcall(function() user32.SendMessageA(hwnd, WM_SETREDRAW, 1, 0) end)
 		pcall(function()
-			user32.RedrawWindow(hwnd, nil, nil,
-				RDW_INVALIDATE + RDW_ERASE + RDW_ALLCHILDREN + RDW_UPDATENOW)
+			user32.RedrawWindow(hwnd, nil, nil, RDW_UPDATENOW + RDW_ALLCHILDREN)
 		end)
 	end
 
