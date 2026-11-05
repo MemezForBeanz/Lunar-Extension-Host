@@ -639,6 +639,7 @@ function HostAPI:_wrapTabForPadding(widget, opts) return Layout._wrapTabForPaddi
 function HostAPI:_wrapTabForScroll(widget) return Layout._wrapTabForScroll(self, widget) end
 function HostAPI:recenterPages() return Layout.recenterPages(self) end
 function HostAPI:syncScrollHosts() return Layout.syncScrollHosts(self) end
+function HostAPI:_forgetPage(page) return Layout.forgetPage(self, page) end
 function HostAPI:centerPage(widget, max_width, side) return Layout.centerPage(self, widget, max_width, side) end
 function HostAPI:fitPage(widget, fit) return Layout.fitPage(self, widget, fit) end
 
@@ -662,8 +663,8 @@ function HostAPI:fitPage(widget, fit) return Layout.fitPage(self, widget, fit) e
 -- @tparam[opt] string opts.group default tab group for this tab, e.g. `"Diagnostics"`
 --   or `"Tools/Parsers"` to nest. Overrides the manifest's `group` field. Applied
 --   only on first run — a user who moves the tab keeps their arrangement.
--- @tparam[opt=false] boolean opts.scroll wrap the tab in a scroll host so content taller
---   than the window stays reachable. Off by default: the scroll host is a native
+-- @tparam[opt=false] boolean opts.scroll wrap the tab in a scroll host so content that
+--   cannot compress into a small window or split pane stays reachable. Off by default: the scroll host is a native
 --   container and becomes the background parent for every flat control inside it
 --   (see `_wrapTabForScroll`), so opt in per tab and check the result visually.
 -- @treturn userdata the original `widget` (not the padding/scroll wrappers)
@@ -1127,6 +1128,7 @@ function HostAPI:removeOwned(owner)
                 -- this tab was in should survive losing it, which it can only work out
                 -- while the tab is still attached.
                 if self._tab_groups then pcall(function() self._tab_groups:forget(tab) end) end
+                self:_forgetPage(tab)
                 iup.Detach(tab)
                 iup.Destroy(tab)
             end)

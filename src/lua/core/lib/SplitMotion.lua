@@ -29,10 +29,10 @@
 -- `LAYOUTDRAG=NO` stops IUP relaying out and flushing; it then tracks the drag by
 -- moving only the divider bar (`iSplitSetBarPosition`). We relayout the panes
 -- ourselves from `VALUECHANGED_CB` -- on **every** sample, exactly as IUP did --
--- and never flush. Each relayout is wrapped in `core.lib.winbatch`, which
--- suppresses painting while the children move and then repaints the subtree in
--- one synchronous pass, so the panes reach the screen as a single visual state
--- instead of child by child.
+-- and never flush. Each relayout is wrapped in `core.lib.winbatch`, which paints
+-- what the pass left dirty in one synchronous step, so the panes reach the screen
+-- as a single visual state instead of child by child, and a pane the sash did not
+-- touch is not repainted at all.
 --
 -- ### Why the panes are not relaid out at a reduced rate
 --

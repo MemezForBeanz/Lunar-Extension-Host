@@ -254,11 +254,19 @@ describe("HostAPI:_applyTabScopes", function()
 			local iup = {}
 
 			function iup.flatscrollbox(def)
-				return { kind = "flatscrollbox", child = def[1] }
+				return { kind = "flatscrollbox", child = def[1], fitcontent = def.FITCONTENT }
 			end
 
 			function iup.SetAttribute(widget, name, value)
 				widget[name] = value
+			end
+
+			function iup.GetAttribute(widget, name)
+				return widget[name]
+			end
+
+			function iup.GetParent()
+				return nil
 			end
 
 			function iup.GetChild()
@@ -290,6 +298,25 @@ describe("HostAPI:_applyTabScopes", function()
 
 			assert.are.equal("flatscrollbox", tabs.children[1].kind)
 			assert.are.equal(panel, tabs.children[1].child)
+		end)
+
+		it("asks a page's scroll host to compress before it scrolls", function()
+			local host, tabs = make_tab_host()
+
+			host:addTab("Scrollable", {}, nil, { scroll = true })
+
+			assert.are.equal("YES", tabs.children[1].fitcontent)
+		end)
+
+		it("forgets a page's scroll host before the page is destroyed", function()
+			local host, tabs = make_tab_host()
+			host:addTab("Staying", {}, nil, { scroll = true })
+			host:addTab("Going", {}, nil, { scroll = true })
+			local staying, going = tabs.children[1], tabs.children[2]
+
+			host:_forgetPage(going)
+
+			assert.are.same({ staying }, host._scroll_hosts)
 		end)
 
 		it("puts an org pack's tabs inside the pack's tool group", function()
