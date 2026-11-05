@@ -70,6 +70,9 @@ local UI_TOOLKIT = {
     CheckList       = require("core.ui.CheckList"),
     SettingsView    = require("core.ui.SettingsView"),
     Kit             = require("core.ui.Kit"),
+    -- Monospaced text with line numbers and syntax colour, for output a tool
+    -- shows as code (JSON, a script, a log excerpt). See docs/language-servers.md.
+    CodeView        = require("core.ui.CodeView"),
 }
 
 local Secrets = require("core.classes.host.Secrets")
@@ -1115,6 +1118,39 @@ function HostAPI:registerRouteHandler(action, fn, owner) return Routing.register
 -- @treturn func the registered serializer
 -- @raise when `fn` is not a function
 function HostAPI:registerRouteSerializer(fn, owner) return Routing.registerRouteSerializer(self, fn, owner) end
+
+--- Take every address under one authority (`lunar://code/...`). Host-internal.
+-- @local
+function HostAPI:registerRouteService(kind, fn) return Routing.registerRouteService(self, kind, fn) end
+
+--- Say what a host tab's current address is. Host-internal.
+-- @local
+function HostAPI:setHostTabRoute(id, fn) return Routing.setHostTabRoute(self, id, fn) end
+
+--- Open a file in the Code tab (host API 4), at a line if one is given.
+--
+-- The file opens in the host's Code tab, beside the tool's own page and never
+-- in place of it, with whatever language support is installed for it. The same
+-- as going to `lunar://code/open?path=...&line=...`.
+--
+-- @tparam string path an absolute file path
+-- @tparam[opt] number line one-based
+-- @tparam[opt] number column one-based
+-- @treturn[1] boolean true
+-- @treturn[2] nil
+-- @treturn[2] string why it could not be opened
+-- @since host API 4
+-- @usage ctx:openCode(failure.file, failure.line)
+function HostAPI:openCode(path, line, column)
+    local uri, err = require("core.lib.RouteUri").serialize({
+        kind = "code", target = "open",
+        params = { path = path, line = line, column = column },
+    })
+    if not uri then return nil, err end
+    local ok, result = self:dispatchRoute(uri)
+    if ok then return true end
+    return nil, type(result) == "table" and result.message or tostring(result)
+end
 
 --- Run `fn` once the main window is shown and all widgets are mapped.
 --
