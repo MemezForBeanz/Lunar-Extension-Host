@@ -5,9 +5,16 @@
 --   Lunar scripts/ui_capture.lua <out_dir> [prefix]
 -- Point %APPDATA% at a scratch folder first so the run leaves real settings alone.
 -- Output is 32-bit BMP (<out_dir>/<prefix>-NN-<tab>.bmp); convert with any tool.
+-- A page with a fixture in scripts/ui_fixtures.lua gets a second shot, <tab>-data.
+-- Set LUNAR_CAPTURE_SIZE=680x900 to walk the pages at that window size, not maximized.
 
 local iup = require("iup")
 local ffi = require("ffi")
+
+-- Nobody is there to dismiss a dialog, and one would stop the run with nothing to show for it.
+iup.Message = function(title, text)
+	io.stderr:write("ui_capture: ", tostring(title), ": ", tostring(text), string.char(10))
+end
 
 local out_dir = (arg and arg[1]) or "."
 local prefix = (arg and arg[2]) or "shot"
@@ -23,6 +30,8 @@ int BitBlt(void*, int, int, int, int, void*, int, int, unsigned);
 void* GetDC(void*);
 int ReleaseDC(void*, void*);
 int PrintWindow(void*, void*, unsigned);
+int ShowWindow(void*, int);
+int MoveWindow(void*, int, int, int, int, int);
 void* CreateCompatibleDC(void*);
 void* CreateCompatibleBitmap(void*, int, int);
 void* SelectObject(void*, void*);
@@ -207,6 +216,8 @@ function activity_scene.finish(shell)
 	activity_scene.flash:finish(true, "Firmware flash finished.")
 end
 
+local fixtures = dofile((LUNAR_SOURCE_DIR or ".") .. "/scripts/ui_fixtures.lua")
+
 local real_mainloop = iup.MainLoop
 iup.MainLoop = function()
 	local state, dlg, pages, index = 0, nil, nil, 1
@@ -288,6 +299,13 @@ iup.MainLoop = function()
 			dlg = main_dialog()
 			if not dlg then return iup.DEFAULT end
 			pages = leaves(find_strip(dlg), {}, {})
+			local width, height = (os.getenv("LUNAR_CAPTURE_SIZE") or ""):match("^(%d+)x(%d+)$")
+			if width then
+				local IupFFI = require("core.classes.IupFFI")
+				local hwnd = ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(dlg), "HWND"))
+				user32.ShowWindow(hwnd, 9) -- SW_RESTORE
+				user32.MoveWindow(hwnd, 0, 0, tonumber(width), tonumber(height), 1)
+			end
 			fill_lists(dlg)
 			for _, p in ipairs(pages) do
 				for _, s in ipairs(p.path) do iup.SetAttribute(s.strip, "VALUEPOS", tostring(s.pos)) end
@@ -308,8 +326,19 @@ iup.MainLoop = function()
 		else
 			local slug = page.title:lower():gsub("[^%w]+", "-")
 			local IupFFI = require("core.classes.IupFFI")
-			save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(dlg), "HWND")), string.format("%s/%s-%02d-%s.bmp",
-				out_dir, prefix, index / 2, slug), whole_window)
+			local function shoot(suffix)
+				save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(dlg), "HWND")), string.format("%s/%s-%02d-%s%s.bmp",
+					out_dir, prefix, index / 2, slug, suffix), whole_window)
+			end
+			local fixture = fixtures.for_tab(rawget(_G, "LUNAR_DEV_SHELL") or {}, page.title)
+			page.stage = (page.stage or 0) + 1
+			if page.stage == 1 then shoot("") end
+			if fixture and page.stage <= 2 then
+				fixture()
+				iup.Refresh(dlg)
+				return iup.DEFAULT
+			end
+			if fixture then shoot("-data") end
 		end
 		index = index + 1
 		return iup.DEFAULT

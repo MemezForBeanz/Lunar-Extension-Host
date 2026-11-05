@@ -407,7 +407,8 @@ M.SIDE = { narrow = 320, wide = 400 }
 function M.railPage(iup, opts)
 	local width = opts.width or M.SIDE.narrow
 	return iup.hbox({
-		iup.vbox({ opts.side, RASTERSIZE = width .. "x", EXPAND = "VERTICAL", MARGIN = "0x0" }),
+		-- The width on an empty box inside: a box with children measures itself from them.
+		iup.vbox({ iup.hbox({ RASTERSIZE = M.size(width) }), opts.side, EXPAND = "VERTICAL", MARGIN = "0x0" }),
 		opts.main,
 		GAP = M.gap(5), EXPAND = "YES", MARGIN = "0x0",
 	})
