@@ -53,6 +53,23 @@ local function sized(font, points, bold)
 end
 M.sized = sized
 
+-- WCAG contrast of two `"r g b"` colours.
+local function contrast(a, b)
+    local function luminance(colour)
+        local total, weights = 0, { 0.2126, 0.7152, 0.0722 }
+        local i = 0
+        for value in tostring(colour):gmatch("%d+") do
+            i = i + 1
+            local c = tonumber(value) / 255
+            total = total + (weights[i] or 0) * (c <= 0.03928 and c / 12.92 or ((c + 0.055) / 1.055) ^ 2.4)
+        end
+        return total
+    end
+    local x, y = luminance(a), luminance(b)
+    return (math.max(x, y) + 0.05) / (math.min(x, y) + 0.05)
+end
+M.contrast = contrast
+
 --- Build the full widget rule table from a Lunar palette.
 -- Covers every role carbon_rules.build emits (so no widget is left unstyled on
 -- a theme switch) plus the roles introduced with this language: `ghost_btn`,
@@ -119,6 +136,9 @@ function M.build(p)
     -- Semibold, where the face has one, rather than a bold synthesised from the body cut.
     -- A theme with its own typeface names the cut to use.
     local HEADING = p.headingFont or "Segoe UI Semibold"
+    -- One knob for both states, so the off track is whichever edge colour it stands out on.
+    local switch_knob = p.accentText or p.text
+    local switch_off = contrast(switch_knob, borderS) >= 3 and borderS or p.textMuted
 
     local rules = {
         -- Type scale (identical to carbon_rules: heading-04 / heading-03 /
@@ -342,11 +362,11 @@ function M.build(p)
         toggle        = { fg = p.text, font = p.font },
         flattoggle    = { bg = layer1, fg = p.text, font = p.font, radius = R,
             checkbg = well, checkfg = p.textMuted, checkhl = p.text, checkon = p.accentBright or p.accent,
-            switchon = p.accent, switchoff = p.textMuted, switchknob = p.accentText or p.text },
+            switchon = p.accent, switchoff = switch_off, switchknob = switch_knob },
         flattoggle_noborder = { bg = layer1, fg = p.text, font = p.font,
             border = layer1, borderwidth = 0, radius = R,
             checkbg = well, checkfg = p.textMuted, checkhl = p.text, checkon = p.accentBright or p.accent,
-            switchon = p.accent, switchoff = p.textMuted, switchknob = p.accentText or p.text },
+            switchon = p.accent, switchoff = switch_off, switchknob = switch_knob },
 
         -- Fields: a dim box on the raised surface; the strong border marks the
         -- input edge the way VS Code's inputs read against their panels. The
