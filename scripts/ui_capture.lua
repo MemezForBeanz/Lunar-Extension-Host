@@ -255,6 +255,14 @@ iup.MainLoop = function()
 				string.format("%s/%s-%s.bmp", out_dir, prefix, name), false)
 		end
 		if scene == 1 then
+			if os.getenv("LUNAR_CAPTURE_NEST") then
+				local groups = shell.groups()
+				local first = groups:_children(groups:rootStrip())[1]
+				iup.SetAttribute(groups:rootStrip(), "VALUEPOS", "0")
+				groups:createGroup(first, "Bench setups", "user")
+				shell.sync_title_bar()
+				snap("89-letter")
+			end
 			shell.palette:open("")
 		elseif scene == 2 then
 			local palette_dlg = shell.palette._dialog
