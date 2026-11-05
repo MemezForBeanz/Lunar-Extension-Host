@@ -326,6 +326,7 @@ function M.build(p)
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         outputlog     = {
+            font = "Consolas, 9",
             bg = layer1, fg = p.text, border = layer1,
             scrollbg = layer1, scrollfg = borderS,
         },
@@ -393,6 +394,10 @@ function M.build(p)
             radius = R, scrollbg = elevated, itemradius = R, itemmarker = p.accent,
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
+        codeview_corner = { bg = layer1, fg = p.textMuted, border = layer1, borderwidth = 0 },
+        palette_rows = scroll({ bg = elevated, fg = p.text, secondary = p.textMuted, font = p.font,
+            border = elevated, borderwidth = 0, radius = R, scrollbg = elevated, itemradius = R,
+            itemmarker = p.accent, selbg = chosen, seltext = p.text, selalpha = "0", hover = hover }),
         progressbar   = { bg = layer1, fg = p.accent, border = border },
         -- An idle gauge is invisible: the track matches the page, so only real progress shows.
         gauge         = { bg = layer1, fg = p.accent, border = layer1, notext = true },

@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..458d22a
 --- /dev/null
 +++ b/src/iup_flatrows.c
-@@ -0,0 +1,270 @@
+@@ -0,0 +1,275 @@
 +/* Lunar virtual row list: only visible rows are queried and painted. */
 +#include <stdlib.h>
 +#include <stdio.h>
@@ -29,6 +29,7 @@ index 0000000..458d22a
 +#include "iup_drv.h"
 +#include "iup_stdcontrols.h"
 +#include "iup_register.h"
++#include "iup_drvfont.h"
 +#include "iup_drvdraw.h"
 +#include "iup_draw.h"
 +#include "iup_flatscrollbar.h"
@@ -87,6 +88,8 @@ index 0000000..458d22a
 +  char* font = IupGetAttribute(ih, "FONT");
 +  long bgc = iupDrawStrToColor(bg, iupDrawColor(255,255,255,255));
 +  long fgc = iupDrawStrToColor(fg, iupDrawColor(30,30,30,255));
++  int charheight;
++  iupdrvFontGetCharSize(ih, NULL, &charheight);
 +  iupdrvDrawGetSize(dc, &w, &h);
 +  iupdrvDrawRectangle(dc, 0, 0, w-1, h-1, bgc, IUP_DRAW_FILL, 1);
 +  if (ih->data->count == 0)
@@ -105,6 +108,7 @@ index 0000000..458d22a
 +  for (pos = first; pos <= last; pos++)
 +  {
 +    int y = (pos-1)*rh-scroll, x = 12, right = w-12, slot;
++    int line = y + (rh - charheight)/2;  /* the driver draws from the top of the box it is given */
 +    char* title = rows_value(ih, "TITLE", pos);
 +    char* image = rows_value(ih, "IMAGE", pos);
 +    char* secondary = rh == 44 ? rows_value(ih, "SECONDARY", pos) : NULL;
@@ -129,7 +133,7 @@ index 0000000..458d22a
 +    if (action && pos == ih->data->hover)
 +    {
 +      right -= 54;
-+      iupdrvDrawText(dc, action, (int)strlen(action), right, y, 54, rh, text_color, font,
++      iupdrvDrawText(dc, action, (int)strlen(action), right, line, 54, charheight, text_color, font,
 +        IUP_DRAW_RIGHT|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_CLIP, 0);
 +    }
 +    for (slot = 3; slot >= 1; slot--)
@@ -141,11 +145,12 @@ index 0000000..458d22a
 +      if (width > 0)
 +      {
 +        right -= width;
-+        if (value) iupdrvDrawText(dc, value, (int)strlen(value), right, y, width-8, rh, text_color, font,
++        if (value) iupdrvDrawText(dc, value, (int)strlen(value), right, line, width-8, charheight,
++          iupDrawStrToColor(IupGetAttribute(ih, "SECONDARYCOLOR"), fgc), font,
 +          IUP_DRAW_RIGHT|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
 +      }
 +    }
-+    if (title) iupdrvDrawText(dc, title, (int)strlen(title), x, y+(secondary ? 3 : 0), right-x, secondary ? 21 : rh,
++    if (title) iupdrvDrawText(dc, title, (int)strlen(title), x, secondary ? y+3 : line, right-x, secondary ? 21 : charheight,
 +      text_color, font, IUP_DRAW_LEFT|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
 +    if (secondary) iupdrvDrawText(dc, secondary, (int)strlen(secondary), x, y+23, right-x, 16,
 +      iupDrawStrToColor(IupGetAttribute(ih, "SECONDARYCOLOR"), fgc), font,
@@ -292,7 +297,7 @@ new file mode 100644
 index 0000000..ce7bfc7
 --- /dev/null
 +++ b/src/iup_flatsegmented.c
-@@ -0,0 +1,112 @@
+@@ -0,0 +1,115 @@
 +/* Lunar joined option control, 2-5 options on one canvas. */
 +#include <stdlib.h>
 +#include <string.h>
@@ -304,6 +309,7 @@ index 0000000..ce7bfc7
 +#include "iup_drv.h"
 +#include "iup_stdcontrols.h"
 +#include "iup_register.h"
++#include "iup_drvfont.h"
 +#include "iup_drvdraw.h"
 +#include "iup_draw.h"
 +
@@ -333,6 +339,8 @@ index 0000000..ce7bfc7
 +  char* bg=IupGetAttribute(ih,"BGCOLOR"); char* sel=IupGetAttribute(ih,"PSCOLOR");
 +  char* border=IupGetAttribute(ih,"BORDERCOLOR"); char* fg=IupGetAttribute(ih,"FGCOLOR");
 +  char* seltext=IupGetAttribute(ih,"TEXTPSCOLOR"); char* font=IupGetAttribute(ih,"FONT");
++  int charheight;
++  iupdrvFontGetCharSize(ih,NULL,&charheight);
 +  iupdrvDrawGetSize(dc,&w,&h);
 +  iupDrawParentBackground(dc,ih);
 +  if (r<1) r=7;
@@ -343,7 +351,7 @@ index 0000000..ce7bfc7
 +    char* title=IupGetAttributeId(ih,"TITLE",i);
 +    if (i==ih->data->value)
 +      iupFlatDrawRoundBox(dc,x1+2,x2-2,2,h-3,r-2,sel,bg,active);
-+    if (title) iupdrvDrawText(dc,title,(int)strlen(title),x1+3,0,x2-x1-5,h,
++    if (title) iupdrvDrawText(dc,title,(int)strlen(title),x1+3,(h-charheight)/2,x2-x1-5,charheight,
 +      iupDrawStrToColor(i==ih->data->value && seltext ? seltext : fg,0),font,
 +      IUP_DRAW_CENTER|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS,0);
 +  }
