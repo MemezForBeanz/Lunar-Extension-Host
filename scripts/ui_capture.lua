@@ -288,6 +288,40 @@ iup.MainLoop = function()
 			shell.code:showProblems()
 		elseif scene == 36 then
 			snap_window(dlg, "98-problems")
+			local doc = shell.code:_current()
+			local say = function(...) io.stderr:write("ui_capture: ", table.concat({ ... }, " "), string.char(10)) end
+			shell.code._scene = { doc = doc, say = say }
+			local point = doc.view:pointOf(1, 0)
+			doc.binder:_hover(tonumber(os.getenv("LUNAR_CAPTURE_HOVER_LINE")) or 7,
+				tonumber(os.getenv("LUNAR_CAPTURE_HOVER_COLUMN")) or 16, point)
+		elseif scene == 39 then
+			local run = shell.code._scene
+			run.say("hover open", tostring(run.doc.binder._popup:isOpen("hover")))
+			snap("99-hover")
+			run.doc.binder._popup:hide("hover")
+			shell.code:toggleEdit()
+			run.doc.view:goTo(tonumber(os.getenv("LUNAR_CAPTURE_LIST_LINE")) or 8,
+				tonumber(os.getenv("LUNAR_CAPTURE_LIST_COLUMN")) or 14)
+			run.say("complete asked", tostring(run.doc.binder:complete()))
+		elseif scene == 42 then
+			local run = shell.code._scene
+			run.say("list open", tostring(run.doc.binder._popup:isOpen("list")),
+				"items", tostring(#(run.doc.binder._list_items or {})))
+			snap("99-list")
+			run.doc.binder:_closeList()
+			run.doc.view:goTo(3, 0)
+			run.doc.binder:definition(tonumber(os.getenv("LUNAR_CAPTURE_HOVER_LINE")) or 7,
+				tonumber(os.getenv("LUNAR_CAPTURE_HOVER_COLUMN")) or 16)
+		elseif scene == 45 then
+			local run = shell.code._scene
+			run.say("definition caret line", tostring((run.doc.view:caret())))
+			run.say("pane focus", tostring(pcall(function() shell.panes:toggleFocus() end)),
+				tostring(shell.panes:isFocused()))
+		elseif scene == 47 then
+			snap_window(dlg, "99-focus")
+			shell.panes:restoreFocus()
+		elseif scene == 49 then
+			snap_window(dlg, "99-focus-restored")
 			return false
 		end
 		return true
