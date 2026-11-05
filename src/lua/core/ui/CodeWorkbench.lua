@@ -309,7 +309,7 @@ function Workbench:_activated(doc)
 	iup.SetAttribute(self._edit, "ACTIVE", doc.writable and "YES" or "NO")
 	iup.SetAttribute(self._edit, "TIP", doc.writable and "Turn editing on or off for this file"
 		or "This file can't be changed: it is read-only on disk")
-	Kit.show(iup, self._save, not doc.view:isReadOnly(), self._anchor)
+	Kit.show(iup, self._save, not doc.view:isReadOnly(), self._edit)
 	iup.SetAttribute(self._save, "ACTIVE", doc.view:isModified() and "YES" or "NO")
 	iup.SetAttribute(self._back, "ACTIVE", self._history_at > 1 and "YES" or "NO")
 	iup.SetAttribute(self._forward, "ACTIVE", self._history_at < #self._history and "YES" or "NO")

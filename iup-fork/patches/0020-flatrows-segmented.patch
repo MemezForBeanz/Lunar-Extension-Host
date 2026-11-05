@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..458d22a
 --- /dev/null
 +++ b/src/iup_flatrows.c
-@@ -0,0 +1,275 @@
+@@ -0,0 +1,277 @@
 +/* Lunar virtual row list: only visible rows are queried and painted. */
 +#include <stdlib.h>
 +#include <stdio.h>
@@ -54,6 +54,8 @@ index 0000000..458d22a
 +  int total = rows_count(ih) * rows_height(ih);
 +  IupSetInt(ih, "YMAX", total);
 +  IupSetInt(ih, "DY", ih->currentheight > 0 ? ih->currentheight : 1);
++  IupSetInt(ih, "XMAX", 0);  /* rows never scroll sideways; this is what hides that bar */
++  IupSetInt(ih, "DX", ih->currentwidth > 0 ? ih->currentwidth : 1);
 +  if (ih->handle) iupdrvRedrawNow(ih);
 +}
 +static int rows_set_count(Ihandle* ih, const char* value)
