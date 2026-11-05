@@ -253,6 +253,10 @@ function M._wrapTabForScroll(self, widget)
         THEMEROLE = "tabscroll",
         BORDER = "NO",
         BORDERWIDTH = "0",
+        -- Compress the page first and scroll only what really cannot fit (fork patch
+        -- 0008). Measured against natural size, a page of expanding lists would show
+        -- scrollbars long before anything had run out of room.
+        FITCONTENT = "YES",
     })
     if not ok or not box then
         -- Never let a missing/renamed control cost the user their tab.
@@ -273,6 +277,33 @@ function M.syncScrollHosts(self)
     for _, box in ipairs(self._scroll_hosts or {}) do
         pcall(self.iup.SetAttribute, box, "BGCOLOR", surface)
     end
+end
+
+--- Drop what the layout service remembers about a page that is being destroyed.
+--
+-- These lists outlive the page's extension. A handle left in one is a freed Ihandle, and
+-- the next window resize or theme change writes to it: that corrupted the heap on every
+-- extension reload. Call this before the page is detached, while it can still be walked.
+function M.forgetPage(self, page)
+    local iup = self.iup
+    local function inside(widget)
+        local node = widget
+        for _ = 1, 64 do
+            if not node then return false end
+            if handle.same(iup, node, page) then return true end
+            node = iup.GetParent(node)
+        end
+        return false
+    end
+    local function prune(list, handle_of)
+        if not list then return end
+        for i = #list, 1, -1 do
+            local ok, gone = pcall(inside, handle_of(list[i]))
+            if not ok or gone then table.remove(list, i) end
+        end
+    end
+    prune(self._centered, function(entry) return entry.wrapper end)
+    prune(self._scroll_hosts, function(box) return box end)
 end
 
 function M.addTab(self, title, widget, owner, opts)
