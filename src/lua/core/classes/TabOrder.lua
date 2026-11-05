@@ -524,7 +524,7 @@ function TabOrder:_applyMerge(job, drop)
 
 	if motion and parent and band then
 		local _, _, pw = self:_rect(parent)
-		local dragged_pos = self:_positionOf(parent, job.widget)
+		local dragged_pos = self:_positionOf(drop.strip or parent, job.widget)
 		local dx, dw
 		if pw and dragged_pos then
 			dx, dw = self:_boundsOfPos(parent, dragged_pos, band, pw)
@@ -546,7 +546,7 @@ function TabOrder:_applyMerge(job, drop)
 	if not (motion and strip and parent and band and from_x) then return end
 
 	local _, _, pw = self:_rect(parent)
-	local pos = self:_positionOf(parent, strip)
+	local pos = self:_positionOf(drop.strip or parent, strip)
 	local to_x, to_w
 	if pw and pos then
 		to_x, to_w = self:_boundsOfPos(parent, pos, band, pw)

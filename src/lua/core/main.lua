@@ -1089,17 +1089,30 @@ if rawget(_G, "LUNAR_DEV_SHELL") then _G.LUNAR_DEV_SHELL.sync_title_bar = sync_t
 title_bar:onNewGroup(function() tab_groups:_newGroup(tabs) end)
 title_bar:onFocusPane(function() pane_grid:toggleFocus() end)
 do
-	-- The gear toggles: a second press goes back to whatever Settings replaced.
-	local before
-	title_bar:onSettings(function()
+	-- The gear toggles: a second press goes back to the page Settings replaced, however
+	-- Settings was reached. That page can have gone since, and then there is nowhere to go.
+	local handle = require("core.lib.handle")
+	local last
+	local function is_settings(page) return page and handle.same(iup, page, settings_view:widget()) end
+	local sync = sync_title_bar
+	sync_title_bar = function()
 		local page = iup.GetAttribute(tabs, "VALUE_HANDLE")
-		local here = page and require("core.lib.handle").same(iup, page, settings_view:widget())
-		if here and before then
-			tab_groups:reveal(before)
-			host:_applyTabScopes()
-		else
-			before = page
+		if page and not is_settings(page) then last = page end
+		sync()
+	end
+	host._after_scopes = sync_title_bar
+	if rawget(_G, "LUNAR_DEV_SHELL") then _G.LUNAR_DEV_SHELL.sync_title_bar = sync_title_bar end
+	title_bar:onSettings(function()
+		if not is_settings(iup.GetAttribute(tabs, "VALUE_HANDLE")) then
 			host:dispatchRoute("lunar://host/settings")
+		else
+			for _, page in ipairs(tab_groups:_children(tabs)) do
+				if last and not is_settings(page) and handle.same(iup, page, last) then
+					tab_groups:reveal(page)
+					host:_applyTabScopes()
+					break
+				end
+			end
 		end
 		sync_title_bar()
 	end)

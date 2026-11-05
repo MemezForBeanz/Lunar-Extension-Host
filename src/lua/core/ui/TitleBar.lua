@@ -28,9 +28,6 @@ local SIDE_MARGIN = 8
 local GAP = 8
 local BUTTON = 32
 local MARK = 20
--- Below this the bar drops the word beside the mark.
-local WORD_WIDTH = 1100
-local WORD_ROOM = 44
 -- A strip has no natural width of its own: it takes its page's, and these pages are empty.
 -- So the bar works it out, with a little over for what the control adds around a title.
 local TAB_SLACK = 10
@@ -48,17 +45,16 @@ end
 -- @tparam number width
 -- @tparam[opt] number reserved what the window buttons take
 -- @tparam[opt] number tabs what the groups would like
--- @treturn table `{ field, left, groups, word }` in pixels
+-- @treturn table `{ field, left, groups }` in pixels
 function TitleBar.layout(width, reserved, tabs)
 	local field = TitleBar.fieldWidth(width)
 	local right = SIDE_MARGIN + BUTTON + GAP + (reserved or 0)
-	local word = width >= WORD_WIDTH
-	local before = SIDE_MARGIN + BUTTON + GAP + MARK + GAP + (word and WORD_ROOM or 0) + GAP
+	local before = SIDE_MARGIN + BUTTON + GAP + MARK + GAP
 	local left = math.floor((width - field) / 2)
 	left = math.max(left, before + (tabs or 0))
 	left = math.min(left, width - field - right)
 	left = math.max(SIDE_MARGIN + BUTTON + GAP, left)
-	return { field = field, left = left, groups = math.max(0, left - before), word = word }
+	return { field = field, left = left, groups = math.max(0, left - before) }
 end
 
 --- @tparam table opts
@@ -84,13 +80,14 @@ function TitleBar.new(opts)
 		return iup.DEFAULT
 	end
 
-	self._mark = iup.label({ TITLE = "", RASTERSIZE = MARK .. "x" .. MARK, ALIGNMENT = "ACENTER:ACENTER" })
+	self._mark = iup.label({
+		TITLE = "", TIP = "Lunar Extension Host", RASTERSIZE = MARK .. "x" .. MARK, ALIGNMENT = "ACENTER:ACENTER",
+	})
 	if opts.logo then
 		iup.SetAttribute(self._mark, "IMAGE", opts.logo)
 	else
 		opts.icon(self._mark, "lunar-mark", MARK, "accent")
 	end
-	self._word = iup.label({ TITLE = "Lunar", THEMEROLE = "titlebar_title" })
 
 	self._groups = iup.flattabs({
 		EXPAND = "NO", CANFOCUS = "NO", THEMEROLE = "titlebar_tabs", EXTRABUTTONS = "1",
@@ -138,9 +135,10 @@ function TitleBar.new(opts)
 		return iup.DEFAULT
 	end
 
-	self._reserved = iup.label({ TITLE = "", RASTERSIZE = "0x1" })
+	-- A fill, not a label: anything with a window here would cover the painted buttons.
+	self._reserved = iup.fill({ RASTERSIZE = "0x" })
 	self._left = iup.hbox({
-		self._menu, self._mark, self._word,
+		self._menu, self._mark,
 		iup.vbox({ iup.fill({}), self._groups, EXPAND = "VERTICALFREE" }),
 		ALIGNMENT = "ACENTER", GAP = tostring(GAP), MARGIN = SIDE_MARGIN .. "x0",
 	})
@@ -224,8 +222,11 @@ function TitleBar:_setAway(away)
 	iup.SetAttribute(self._groups, "FORECOLOR", away and palette.textMuted or palette.text)
 end
 
---- Measure the groups again: a theme pass has changed their font.
-function TitleBar:themeChanged() self._shape = nil end
+--- A theme pass has changed the groups' font, and reset the colours `_setAway` manages.
+function TitleBar:themeChanged()
+	self._shape = nil
+	self._away = nil
+end
 
 --- Show the eye beside the +: there is a split to focus.
 function TitleBar:setSplit(split)
@@ -317,19 +318,22 @@ end
 -- @tparam number width client width
 -- @tparam[opt] boolean force
 function TitleBar:fit(width, force)
-	if not width or width <= 0 or (width == self._width and not force) then return end
+	if not width or width <= 0 then return end
+	-- Windows sizes the buttons in the window's own DPI, and a move to another monitor
+	-- changes that; a high contrast switch takes them away altogether.
+	local reserved = self._frame_dialog and require("winframe").reserved(self._frame_dialog) or 0
+	if reserved ~= self._frame_width then
+		self._frame_width = reserved
+		self._iup.SetAttribute(self._reserved, "RASTERSIZE", reserved .. "x")
+		force = true
+	end
+	if width == self._width and not force then return end
 	self._width = width
 	local iup = self._iup
-	local lay = TitleBar.layout(width, self._frame_width or 0, self._tabs_width)
+	local lay = TitleBar.layout(width, reserved, self._tabs_width)
 	iup.SetAttribute(self._left, "RASTERSIZE", lay.left .. "x")
 	iup.SetAttribute(self._field, "RASTERSIZE", lay.field .. "x" .. TitleBar.FIELD_HEIGHT)
 	iup.SetAttribute(self._groups, "RASTERSIZE", math.min(lay.groups, self._tabs_width or 0) .. "x")
-	local word_shown = lay.word and "YES" or "NO"
-	if self._word_shown ~= word_shown then
-		self._word_shown = word_shown
-		iup.SetAttribute(self._word, "VISIBLE", word_shown)
-		iup.SetAttribute(self._word, "FLOATING", lay.word and "NO" or "YES")
-	end
 end
 
 --- Make the bar the window's caption, where the platform can. Call between Map and Show,
@@ -338,11 +342,9 @@ end
 -- @tparam table theme_mgr `core.classes.ThemeManager`
 -- @treturn boolean the bar is the caption
 function TitleBar:adoptFrame(dialog, theme_mgr)
-	local iup = self._iup
 	local ok, winframe = pcall(require, "winframe")
 	if not ok or not winframe.supported() or not winframe.attach(dialog) then return false end
-	self._frame_width = winframe.reserved(dialog)
-	iup.SetAttribute(self._reserved, "RASTERSIZE", self._frame_width .. "x1")
+	self._frame_dialog = dialog
 	winframe.caption(dialog, TitleBar.HEIGHT)
 	local function colours()
 		local theme = theme_mgr:activeTheme()
@@ -350,9 +352,6 @@ function TitleBar:adoptFrame(dialog, theme_mgr)
 		local r = rules.titlebar_window or {}
 		local function ref(value) return WindowChrome.colorref(value) or 0 end
 		pcall(winframe.colors, dialog, ref(r.bg), ref(r.fg), ref(r.muted), ref(r.hover), ref(r.pressed))
-		-- Windows measures the buttons' reserve in this window's own DPI.
-		self._frame_width = winframe.reserved(dialog)
-		pcall(iup.SetAttribute, self._reserved, "RASTERSIZE", self._frame_width .. "x1")
 	end
 	theme_mgr:onApply(colours)
 	colours()

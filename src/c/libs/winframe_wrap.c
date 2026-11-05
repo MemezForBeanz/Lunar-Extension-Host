@@ -42,6 +42,7 @@ typedef struct {
     int hover, press;
     int active;
     int tracking;
+    int released;                    /* high contrast came on: the system's frame again */
     COLORREF bg, fg, muted, hover_bg, press_bg;
     HFONT font;
     UINT font_dpi;
@@ -200,9 +201,28 @@ static int code_button(WPARAM code)
     return code == HTMINBUTTON ? 0 : code == HTMAXBUTTON ? 1 : code == HTCLOSE ? CLOSE_BUTTON : NONE;
 }
 
+static int high_contrast_on(void)
+{
+    HIGHCONTRASTW contrast;
+    contrast.cbSize = sizeof(contrast);
+    contrast.dwFlags = 0;
+    SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0);
+    return (contrast.dwFlags & HCF_HIGHCONTRASTON) != 0;
+}
+
 static LRESULT CALLBACK frame_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR data)
 {
     Frame *fr = (Frame *)data;
+    if (msg == WM_SETTINGCHANGE && wp == SPI_SETHIGHCONTRAST) {
+        int released = high_contrast_on();
+        if (released != fr->released) {
+            fr->released = released;
+            SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            RedrawWindow(hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+        }
+    }
+    if (fr->released && msg != WM_NCDESTROY) return DefSubclassProc(hwnd, msg, wp, lp);
     switch (msg) {
     case WM_NCCALCSIZE:
         if (wp) {
@@ -305,15 +325,9 @@ static int l_supported(lua_State *L)
     typedef LONG (WINAPI *RtlGetVersion_t)(OSVERSIONINFOW *);
     RtlGetVersion_t get = (RtlGetVersion_t)GetProcAddress(GetModuleHandleA("ntdll.dll"), "RtlGetVersion");
     OSVERSIONINFOW info;
-    HIGHCONTRASTW contrast;
-    int high_contrast;
     info.dwOSVersionInfoSize = sizeof(info);
-    contrast.cbSize = sizeof(contrast);
-    contrast.dwFlags = 0;
-    SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0);
-    high_contrast = (contrast.dwFlags & HCF_HIGHCONTRASTON) != 0;
     /* High contrast is the system's frame or nothing: ours wouldn't follow the user's colours. */
-    lua_pushboolean(L, get && get(&info) == 0 && info.dwBuildNumber >= 22000 && !high_contrast);
+    lua_pushboolean(L, get && get(&info) == 0 && info.dwBuildNumber >= 22000 && !high_contrast_on());
     return 1;
 }
 
@@ -371,7 +385,8 @@ static int l_colors(lua_State *L)
 static int l_reserved(lua_State *L)
 {
     HWND hwnd = dialog_hwnd(L, 1);
-    lua_pushinteger(L, hwnd ? scaled(hwnd, BUTTON_W) * 3 : 0);
+    Frame *fr = frame_of(hwnd);
+    lua_pushinteger(L, fr && !fr->released ? scaled(hwnd, BUTTON_W) * 3 : 0);
     return 1;
 }
 
