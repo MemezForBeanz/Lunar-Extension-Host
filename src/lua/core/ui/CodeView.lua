@@ -661,9 +661,21 @@ function CodeView:_applyTheme()
 	if self._corner then pcall(self._iup.Update, self._corner) end
 end
 
+--- Put the control's own look back after a generic theme pass.
+-- FONT and FGCOLOR on IupScintilla rewrite every style, and both are inherited, so
+-- theming anything above this control undoes the code font and the language colours.
+-- The lexer keeps its place: only the style table needs writing again.
+function CodeView:restyle()
+	if self._ready then self:_applyTheme() end
+end
+
+function CodeView:_afterThemePass()
+	self:_onThemeApply()
+end
+
 -- Called by core.ui.ThemeReactor after every theme switch.
 function CodeView:_onThemeApply()
-	local ok = pcall(self._applyTheme, self)
+	local ok = pcall(self.restyle, self)
 	if not ok then self._ready = false end   -- the control is gone
 end
 

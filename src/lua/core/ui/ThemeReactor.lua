@@ -71,6 +71,16 @@ local function repaint_all()
     end
 end
 
+--- A theme pass has finished. Widgets that keep a look of their own, against what a
+-- pass writes or their parents hand down, put it back in `_afterThemePass()`.
+function M.themePassDone()
+    for inst in pairs(instances) do
+        if inst._afterThemePass then
+            pcall(function() inst:_afterThemePass() end)
+        end
+    end
+end
+
 --- Install the single `onApply` hook on `tm` (idempotent).
 -- Captures the active palette and repaints every registered instance on each
 -- theme switch.  Safe to call from multiple modules or multiple times.

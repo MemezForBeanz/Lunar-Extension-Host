@@ -276,6 +276,18 @@ iup.MainLoop = function()
 			activity_scene.finish(shell)
 		elseif scene == 12 then
 			snap_window(dlg, "96-activity-result")
+			-- LUNAR_CAPTURE_CODE=path: a real file in the Code tab, against whatever language
+			-- server this machine has, through the path a user takes.
+			local code_file = os.getenv("LUNAR_CAPTURE_CODE")
+			if not (code_file and shell.code) then return false end
+			local opened, why = shell.code:open(code_file, { line = 1 })
+			io.stderr:write("ui_capture: open ", tostring(opened), " ", tostring(why), string.char(10))
+		elseif scene == 34 then -- about 20 seconds: a server has to index before it reports
+			io.stderr:write("ui_capture: servers ", tostring(shell.code:_serverSummary()), string.char(10))
+			snap_window(dlg, "97-code")
+			shell.code:showProblems()
+		elseif scene == 36 then
+			snap_window(dlg, "98-problems")
 			return false
 		end
 		return true

@@ -399,6 +399,7 @@ function M.build(p)
         rules[role].inactivefg = p.textMuted
     end
     require("core.classes.Themes.fluent_rules").addShellRoles(rules, p)
+    rules.flattabs_sub = rules.flattabs
     return rules
 end
 
