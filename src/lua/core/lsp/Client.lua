@@ -25,7 +25,8 @@ local Documents = require("core.lsp.Documents")
 local Client = {}
 Client.__index = Client
 
---- Seconds to wait before each restart attempt.
+-- Seconds to wait before each restart attempt. A plain comment: LDoc refuses a
+-- documented table with array entries.
 Client.BACKOFF = { 1, 5, 30 }
 --- Seconds a server must stay up before a later crash counts as its first.
 Client.STABLE_AFTER = 60
@@ -497,7 +498,11 @@ function Client:hover(uri, line, byte_column, callback)
 end
 
 --- Completion. `callback(items, err, incomplete)` with a plain array of items.
+-- @tparam string uri
+-- @tparam integer line
+-- @tparam integer byte_column
 -- @tparam[opt] string trigger the character that opened completion, if one did
+-- @tparam function callback
 function Client:completion(uri, line, byte_column, trigger, callback)
 	local context = trigger and { triggerKind = 2, triggerCharacter = trigger } or { triggerKind = 1 }
 	return self:_positional("textDocument/completion", "completion", uri, line, byte_column,

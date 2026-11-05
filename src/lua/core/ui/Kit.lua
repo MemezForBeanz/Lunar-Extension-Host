@@ -196,18 +196,6 @@ function M.setStatus(iup, line, kind, text)
 	if text then iup.SetAttribute(line, "TITLE", text) end
 end
 
---- Show or hide part of a page, safely, whichever tab is in front.
---
--- A widget with VISIBLE stored on it stops inheriting from its tab, so one made visible
--- while its tab is behind shows through the tab in front, and stays there. So the attribute
--- is only ever written while the page is in front, then cleared to rejoin the tab's
--- own showing and hiding. A hide stays stored: it has to survive the tab being reselected.
--- Clearing the attribute on a box clears it all the way down, so the hidden parts inside a
--- box being shown are hidden again here.
--- @tparam userdata iup
--- @param widget
--- @tparam boolean visible
--- @param anchor any always-visible native control on the same page
 local function keep_hidden(iup, widget)
 	if not iup.GetChild then return end
 	local i, child = 0, iup.GetChild(widget, 0)
@@ -222,6 +210,18 @@ local function keep_hidden(iup, widget)
 	end
 end
 
+--- Show or hide part of a page, safely, whichever tab is in front.
+--
+-- A widget with VISIBLE stored on it stops inheriting from its tab, so one made visible
+-- while its tab is behind shows through the tab in front, and stays there. So the attribute
+-- is only ever written while the page is in front, then cleared to rejoin the tab's
+-- own showing and hiding. A hide stays stored: it has to survive the tab being reselected.
+-- Clearing the attribute on a box clears it all the way down, so the hidden parts inside a
+-- box being shown are hidden again here.
+-- @tparam userdata iup
+-- @param widget
+-- @tparam boolean visible
+-- @param anchor any always-visible native control on the same page
 function M.show(iup, widget, visible, anchor)
 	iup.SetAttribute(widget, "FLOATING", visible and "NO" or "YES")
 	if not visible then
