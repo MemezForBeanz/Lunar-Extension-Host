@@ -165,6 +165,12 @@ function TabGroups:initialize(opts)
 	end
 end
 
+--- Attach `core.ui.ToolRail`, which takes over the strips it owns.
+-- @tparam table rail tool rail controller
+function TabGroups:setRail(rail)
+	self._rail = rail
+end
+
 --- Add the workspace's extra panes (`core.classes.PaneGrid`) as further roots.
 --
 -- A pane is a root in every way that matters: its tabs are walked, saved and restored
@@ -173,11 +179,6 @@ end
 -- the panes.
 --
 -- @tparam table panes zone name -> `iup.flattabs`
---- Attach `core.ui.ToolRail`, which takes over the strips it owns.
-function TabGroups:setRail(rail)
-	self._rail = rail
-end
-
 function TabGroups:setPanes(panes)
 	self._panes = panes or {}
 	for _, strip in pairs(self._panes) do self:_prepareStrip(strip) end
