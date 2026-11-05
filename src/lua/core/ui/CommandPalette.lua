@@ -26,9 +26,6 @@ local HEIGHT = ROW_HEIGHT * ROWS + CHROME
 local FOCUS_SETTLE_MS = 90
 
 local PLACEHOLDER = "Type a command, or a lunar:// address"
--- A flat list draws its text at the row's edge whatever PADDING says; the selected row is an
--- inset pill, so the text needs to start inside it.
-local ROW_INDENT = "   "
 local HINT = "Enter to run    Esc to close"
 
 --- Create the palette. The window is built on first use.
@@ -202,7 +199,7 @@ function CommandPalette:_refresh()
 
 	-- With nothing typed the list is browsed: what was used last, then everything in its
 	-- group. A search is ranked, and regrouping would only break the ranking up.
-	local rows = {}
+	local rows
 	if text == "" and (not self._choices or self._choices.grouped) then
 		rows = self:_browse(items)
 	else
