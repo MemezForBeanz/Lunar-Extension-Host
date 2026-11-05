@@ -253,6 +253,12 @@ function M.build(p)
         label         = { fg = p.text,    font = p.font },
         settingslabel       = { fg = p.text,      font = p.font },
         settingslabel_muted = { fg = p.textMuted, font = p.font },
+        settings_crumb = { fg = p.text, font = p.font, padding = "0x0" },
+        settings_nav_group = { fg = p.textMuted, font = p.font, padding = "12x8" },
+        codeview_corner = { bg = layer1, fg = p.textMuted, border = layer1, borderwidth = 0 },
+        palette_rows = { bg = layer1, fg = p.text, secondary = p.textMuted, font = p.font,
+            border = layer1, borderwidth = 0, scrollbg = layer1,
+            selbg = selected, seltext = p.text, selalpha = "0" },
         settingspanel = { bg = layer1 },
         -- Collapsible section header in the Settings tab. Carbon's accordion
         -- header is a full-width button that reads as a heading at rest and only
@@ -333,6 +339,7 @@ function M.build(p)
             selbg = layer1, seltext = p.accent, selalpha = "0",
         },
         outputlog     = {
+            font = "Consolas, 9",
             bg = layer1, fg = p.text, border = p.border,
             scrollbg = layer1, scrollfg = p.accent,
         },
@@ -374,6 +381,11 @@ function M.build(p)
             border = p.border, borderwidth = 1,
             selbg = p.accent, seltext = p.accentText, selalpha = "255",
         },
+        flatrows = { bg = layer1, fg = p.text, secondary = p.textMuted, font = p.font,
+            border = p.border, itemradius = 4, itemmarker = p.accent,
+            selbg = p.accent, seltext = p.accentText, hover = p.layerHover01 },
+        flatsegmented = { bg = layer1, fg = p.text, font = p.font,
+            border = p.border, selbg = p.accent, seltext = p.accentText },
         progressbar   = { bg = layer1, fg = p.accent, border = p.border },
         gauge         = { bg = layer1, fg = p.accent, border = p.border },
     }
@@ -387,6 +399,7 @@ function M.build(p)
         rules[role].inactivefg = p.textMuted
     end
     require("core.classes.Themes.fluent_rules").addShellRoles(rules, p)
+    rules.flattabs_sub = rules.flattabs
     return rules
 end
 

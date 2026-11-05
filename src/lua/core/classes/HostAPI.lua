@@ -70,6 +70,9 @@ local UI_TOOLKIT = {
     CheckList       = require("core.ui.CheckList"),
     SettingsView    = require("core.ui.SettingsView"),
     Kit             = require("core.ui.Kit"),
+    -- Monospaced text with line numbers and syntax colour, for output a tool
+    -- shows as code (JSON, a script, a log excerpt). See docs/language-servers.md.
+    CodeView        = require("core.ui.CodeView"),
 }
 
 local Secrets = require("core.classes.host.Secrets")
@@ -80,11 +83,13 @@ local Layout = require("core.classes.host.Layout")
 local Routing = require("core.classes.host.Routing")
 local Keys = require("core.classes.host.Keys")
 local Menus = require("core.classes.host.Menus")
+local Languages = require("core.classes.host.Languages")
 
 local HostAPI = class("HostAPI")
 
 -- Sentinel owner for registrations made without an explicit owner.
 local DEFAULT_OWNER = require("core.classes.host.Owners")
+local Activity = require("core.classes.Activity")
 
 --- Construct the host context. Called once by the host; extensions never call this.
 -- @local
@@ -156,6 +161,12 @@ function HostAPI:initialize(opts)
             return iup.DEFAULT
         end
     end
+
+    -- Always there, headless included, so a tool never has to check.
+    self._activity = Activity:new()
+    self._activity:subscribe(function(event, item)
+        if event == "ended" then self:_activityEnded(item) end
+    end)
 
     -- Back-compat: some callers use ctx.set_status(msg) as a plain function.
     self.set_status = function(msg) self:setStatus(msg) end
@@ -350,6 +361,13 @@ function HostAPI:http(request, callback, owner) return Network.http(self, reques
 -- the tool and everything it started, and no callback runs against the unloaded
 -- extension afterwards.
 --
+-- The job appears in Activity by itself, with its `progress` events and its result.
+-- `opts.activity` adjusts that: a table of `title`, `tool` and `cancel` (`true` to offer
+-- Cancel, which ends the tool, or a function of your own), a handle from
+-- `HostAPI:activity` to report into, or `false` for background work the user didn't
+-- ask for. Started during the owner's own `HostAPI:activity`, a job reports into that
+-- rather than adding a second entry, and ending it stays yours to do.
+--
 -- @tparam table opts `core.lib.ProcessJob.start` options (`argv`, `cwd`, `env`,
 --   `stdin`, `on_event`, `on_stderr`, `on_protocol_error`, `on_exit`, ...)
 -- @tparam[opt] table owner owning extension
@@ -363,6 +381,122 @@ function HostAPI:http(request, callback, owner) return Network.http(self, reques
 --        on_exit = function(res) ctx:setStatus(res.status .. ": " .. tostring(res.summary)) end,
 --    }, M)
 function HostAPI:startJob(opts, owner) return Network.startJob(self, opts, owner) end
+
+--- Show long-running work in Activity, the status bar's background-work surface.
+--
+-- Use this for work that doesn't go through `HostAPI:startJob`, which records itself.
+-- Entries last for the session, and an unloading extension's are ended with it.
+--
+-- @tparam table spec `title`, plus `cancel` (`fn()`) when the work can be stopped
+--   safely part way; without it no Cancel is offered. `tool` overrides the extension's
+--   name.
+-- @tparam[opt] table owner owning extension. Passing it ties the entry to your tab;
+--   without it the entry belongs to the tab in front
+-- @treturn table a handle: `:progress(done, total, message)`, `:finish(ok, summary)`
+--   where `ok` may also be `"cancelled"`, `:cancel()`, `:isRunning()`
+-- @usage
+--   local work = ctx:activity({ title = "Index", cancel = stop }, M)
+--   work:progress(3, 12, "Reading headers")
+--   work:finish(true, "12 files indexed")
+function HostAPI:activity(spec, owner)
+    spec = type(spec) == "table" and spec or { title = spec }
+    if owner == nil then owner = self:_activeOwner() end
+    owner = owner or nil
+    return self._activity:start({
+        title = spec.title,
+        tool = spec.tool or self:_ownerName(owner),
+        owner = owner,
+        tab = self:_activityTab(owner),
+        cancel = spec.cancel,
+        manual = not spec.automatic,
+    })
+end
+
+--- The `core.classes.Activity` store. Host only.
+-- @local
+function HostAPI:activityStore() return self._activity end
+
+-- What an owner is called in Activity.
+function HostAPI:_ownerName(owner)
+    local manifest = owner and self._manifest_by_owner[owner]
+    if manifest then return manifest.name end
+    return type(owner) == "table" and type(owner.name) == "string" and owner.name or nil
+end
+
+-- The tab an owner's work belongs to: the one it was started from, when that is the
+-- tab in front, otherwise the owner's first.
+function HostAPI:_activityTab(owner)
+    if not owner or not self.tabs then return nil end
+    local active = self:_activeTab()
+    local front = active and self.iup.GetAttribute(active, "HOSTTABOWNERID")
+    if front and self._owner_by_tab[front] == owner then return front end
+    local first, first_seq
+    for tab_id, tab_owner in pairs(self._owner_by_tab) do
+        local seq = tonumber(tab_id:match("%d+$"))
+        if tab_owner == owner and seq and (not first or seq < first_seq) then
+            first, first_seq = tab_id, seq
+        end
+    end
+    return first
+end
+
+-- The pages the user can see right now, a split's side panes included.
+function HostAPI:_visiblePages()
+    local pages = self._tab_groups and self._tab_groups:frontPages() or {}
+    pages[#pages + 1] = self:_activeTab()
+    return pages
+end
+
+-- Is this tab on screen?
+function HostAPI:_tabInFront(tab_id)
+    if not tab_id or not self.tabs then return false end
+    for _, page in ipairs(self:_visiblePages()) do
+        if self.iup.GetAttribute(page, "HOSTTABOWNERID") == tab_id then return true end
+    end
+    return false
+end
+
+--- Can this entry's tab still be shown? Its extension may have gone.
+-- @local
+function HostAPI:canRevealActivity(item)
+    return item.tab ~= nil and self._owner_by_tab[item.tab] ~= nil
+end
+
+--- Bring an entry's tab to the front.
+-- @local
+-- @treturn boolean shown
+function HostAPI:revealActivity(item)
+    if not self:canRevealActivity(item) or not self._tab_groups then return false end
+    for _, page in ipairs(self._tab_groups:leaves()) do
+        if self.iup.GetAttribute(page, "HOSTTABOWNERID") == item.tab then
+            return self:_activateTabWidget(page) == true
+        end
+    end
+    return false
+end
+
+-- Work ended. The user watching its tab has seen that already, and one who cancelled
+-- it knows. Anyone else gets told, which is the only reason a toast appears.
+function HostAPI:_activityEnded(item)
+    if item.quiet then return end
+    if self:_tabInFront(item.tab) then
+        self._activity:markViewed(item.id)
+        return
+    end
+    if item.state == "cancelled" or not self._toasts then return end
+    local ok = item.state == "ok"
+    self:notify({
+        title = item.title .. (ok and " finished" or " failed"),
+        body = item.summary,
+        kind = ok and "success" or "error",
+    }, item.owner)
+end
+
+-- Reaching a failed tool's tab is seeing the failure, so the red dot goes.
+function HostAPI:_activityTabsViewed()
+    if self._activity:unviewed() == 0 or not self.tabs then return end
+    self._activity:markViewed(function(item) return self:_tabInFront(item.tab) end)
+end
 
 --- Start a process owned by an extension (the native `process` module).
 --
@@ -378,6 +512,65 @@ function HostAPI:startJob(opts, owner) return Network.startJob(self, opts, owner
 -- @treturn[2] string why it could not be started
 -- @usage local p, err = ctx:spawn({ argv = { "git", "status", "--porcelain" }, cwd = repo }, M)
 function HostAPI:spawn(opts, owner) return Network.spawn(self, opts, owner) end
+
+--- Contribute a language server (host API 4). The only way a server reaches the
+-- host: the built-in Lua and C servers use it too.
+--
+-- The manifest must declare the `language_server` capability. Nothing is started
+-- here; the server starts when the first file it serves is opened, and it is
+-- ended when the extension unloads. See `docs/language-servers.md`.
+--
+-- @tparam table spec
+-- @tparam string spec.id unique id: lowercase letters, digits, `.`, `_`, `-`
+-- @tparam[opt] string spec.name display name
+-- @tparam {string,...} spec.languages protocol language ids; the first is the default
+-- @tparam[opt] {string,...} spec.extensions file extensions, e.g. `{ ".py", ".pyi" }`
+-- @tparam[opt] {string,...} spec.filenames whole file names it also serves
+-- @tparam[opt] table spec.language_ids extension to language id, where not the default
+-- @tparam[opt] {string,...} spec.root_markers files that mark a project root
+-- @tparam function|table spec.command `fn(root) -> { argv, cwd, env } | nil, reason`.
+--   Return `nil` and a sentence when there is no server to run; it is shown to the user.
+-- @tparam[opt] table spec.settings the server's configuration
+-- @tparam[opt] table spec.init_options `initializationOptions`
+-- @tparam table owner the extension
+-- @treturn[1] table the registered server
+-- @treturn[2] nil
+-- @treturn[2] string why it was refused
+-- @since host API 4
+-- @usage
+--    ctx:addLanguageServer({
+--        id = "python", languages = { "python" }, extensions = { ".py", ".pyi" },
+--        root_markers = { "pyproject.toml", ".git" },
+--        command = function()
+--            local exe, why = ctx:findLanguageServer({ id = "python", names = { "pylsp" } })
+--            if not exe then return nil, why end
+--            return { argv = { exe } }
+--        end,
+--    }, M)
+function HostAPI:addLanguageServer(spec, owner) return Languages.addLanguageServer(self, spec, owner) end
+
+--- Find a language server's executable on this computer (host API 4): the path
+-- the user set in Settings, then a copy shipped in Lunar's `servers/` folder,
+-- then `PATH`. Lunar never downloads one.
+--
+-- @tparam table spec `id` (the server id, for the Settings path), `label`,
+--   `names` (executable names), optional `bundled` (paths under Lunar's folder)
+--   and `install` (a sentence saying how to get it)
+-- @treturn[1] string the executable
+-- @treturn[1] string `"settings"`, `"bundled"` or `"path"`
+-- @treturn[2] nil
+-- @treturn[2] string a sentence to show the user
+-- @since host API 4
+function HostAPI:findLanguageServer(spec) return Languages.findLanguageServer(self, spec) end
+
+--- The language-server registry (`core.lsp.Registry`), or nil where processes
+-- cannot run. Host-internal: extensions register through `addLanguageServer`.
+-- @local
+function HostAPI:languageServers() return Languages.registry(self) end
+
+--- Every diagnostic the servers have published (`core.lsp.Diagnostics`). Host-internal.
+-- @local
+function HostAPI:languageDiagnostics() return Languages.diagnostics(self) end
 function HostAPI:_ownedSubprocess(module) return Network._ownedSubprocess(self, module) end
 function HostAPI:_secretTarget(owner, name) return Secrets._secretTarget(self, owner, name) end
 
@@ -927,6 +1120,39 @@ function HostAPI:registerRouteHandler(action, fn, owner) return Routing.register
 -- @raise when `fn` is not a function
 function HostAPI:registerRouteSerializer(fn, owner) return Routing.registerRouteSerializer(self, fn, owner) end
 
+--- Take every address under one authority (`lunar://code/...`). Host-internal.
+-- @local
+function HostAPI:registerRouteService(kind, fn) return Routing.registerRouteService(self, kind, fn) end
+
+--- Say what a host tab's current address is. Host-internal.
+-- @local
+function HostAPI:setHostTabRoute(id, fn) return Routing.setHostTabRoute(self, id, fn) end
+
+--- Open a file in the Code tab (host API 4), at a line if one is given.
+--
+-- The file opens in the host's Code tab, beside the tool's own page and never
+-- in place of it, with whatever language support is installed for it. The same
+-- as going to `lunar://code/open?path=...&line=...`.
+--
+-- @tparam string path an absolute file path
+-- @tparam[opt] number line one-based
+-- @tparam[opt] number column one-based
+-- @treturn[1] boolean true
+-- @treturn[2] nil
+-- @treturn[2] string why it could not be opened
+-- @since host API 4
+-- @usage ctx:openCode(failure.file, failure.line)
+function HostAPI:openCode(path, line, column)
+    local uri, err = require("core.lib.RouteUri").serialize({
+        kind = "code", target = "open",
+        params = { path = path, line = line, column = column },
+    })
+    if not uri then return nil, err end
+    local ok, result = self:dispatchRoute(uri)
+    if ok then return true end
+    return nil, type(result) == "table" and result.message or tostring(result)
+end
+
 --- Run `fn` once the main window is shown and all widgets are mapped.
 --
 -- If the window is already shown, `fn` runs immediately (post-show semantics still
@@ -999,6 +1225,7 @@ end
 function HostAPI:removeOwned(owner)
     if self._commands then self._commands:removeOwned(owner) end
     if self._tasks then self._tasks:removeOwned(owner) end
+    self._activity:removeOwned(owner)
     local iup = self.iup
     local r = self._owners[owner]
     local host = self
@@ -1028,6 +1255,9 @@ function HostAPI:removeOwned(owner)
     if self._toasts then
         step("dismiss toasts", function() self._toasts:dismissOwned(owner) end)
     end
+
+    -- Language servers end with the extension that contributed them.
+    step("stop language servers", Languages.removeOwned, self, owner)
 
     if r then
         step("remove HTTP routes", Http.removeOwned, self, owner)
@@ -1207,7 +1437,10 @@ function HostAPI:installKeyDispatch(root) return Keys.installKeyDispatch(self, r
 function HostAPI:_insertScopedItem(s) return Menus._insertScopedItem(self, s) end
 function HostAPI:_applyMenuScope() return Menus._applyMenuScope(self) end
 function HostAPI:_applyStatusScope() return Layout._applyStatusScope(self) end
-function HostAPI:_applyTabScopes() return Layout._applyTabScopes(self) end
+function HostAPI:_applyTabScopes()
+    self:_activityTabsViewed()
+    return Layout._applyTabScopes(self)
+end
 
 --- Describe the currently active tab as a route table.
 -- @treturn table|nil `{ kind = "host"|"plugin", target = <id>, params = {...} }`,

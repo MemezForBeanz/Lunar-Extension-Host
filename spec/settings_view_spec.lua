@@ -51,6 +51,17 @@ local function fake_iup()
 
 	function iup.GetClassName(w) return w.kind end
 	function iup.SetAttribute(w, name, value) w.attrs[name] = value end
+	function iup.ResetAttribute(w, name) w.attrs[name] = nil end
+	function iup.Insert(parent, before, child)
+		child.parent = parent
+		for i, c in ipairs(parent.children) do
+			if c == before then
+				table.insert(parent.children, i, child)
+				return
+			end
+		end
+		parent.children[#parent.children + 1] = child
+	end
 	function iup.GetAttribute(w, name)
 		-- The view measures a body from its NATURALSIZE; report a fixed height so
 		-- the animation has somewhere to travel to.
@@ -349,7 +360,7 @@ describe("SettingsView sections", function()
 
 		view:toggleSection(section)
 		assert.are.equal("NO", section.body.attrs.FLOATING)
-		assert.are.equal("YES", section.body.attrs.VISIBLE)
+		assert.is_nil(section.body.attrs.VISIBLE)
 	end)
 
 	it("releases the pinned height once open, so a later row can grow it", function()
@@ -460,7 +471,7 @@ describe("SettingsView filtering", function()
 
 		view:filter("verbose")
 
-		assert.are.equal("YES", bq.rows[2].box.attrs.VISIBLE)
+		assert.is_nil(bq.rows[2].box.attrs.VISIBLE)
 		assert.are.equal("NO", bq.rows[1].box.attrs.VISIBLE)
 		assert.are.equal("NO", other.header.attrs.VISIBLE)
 	end)

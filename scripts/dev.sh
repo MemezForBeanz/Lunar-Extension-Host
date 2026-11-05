@@ -6,7 +6,7 @@
 # Usage:
 #   scripts/dev.sh bootstrap          # runtime rocks + cjson + serpent + busted/luacheck/ldoc
 #   scripts/dev.sh test [busted args] # busted suite (.busted config)
-#   scripts/dev.sh lint [paths...]    # luacheck (default: src/lua plugins scripts)
+#   scripts/dev.sh lint [paths...]    # luacheck (default: src/lua plugins extensions scripts)
 #   scripts/dev.sh docs [--check] [--out DIR]
 #   scripts/dev.sh check              # test + lint + docs --check
 #   scripts/dev.sh desktop [--remove] # menu entry + icon for the dev build (build/linux)
@@ -165,9 +165,9 @@ cmd="${1:-}"
 case "$cmd" in
 	bootstrap) bootstrap ;;
 	test) rock_tool busted "$@" ;;
-	lint) if [[ $# -eq 0 ]]; then set -- src/lua plugins scripts; fi; rock_tool luacheck "$@" ;;
+	lint) if [[ $# -eq 0 ]]; then set -- src/lua plugins extensions scripts; fi; rock_tool luacheck "$@" ;;
 	docs) docs "$@" ;;
-	check) rock_tool busted && rock_tool luacheck src/lua plugins scripts && docs --check --out dist/docs-ci ;;
+	check) rock_tool busted && rock_tool luacheck src/lua plugins extensions scripts && docs --check --out dist/docs-ci ;;
 	desktop) desktop "$@" ;;
 	*) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

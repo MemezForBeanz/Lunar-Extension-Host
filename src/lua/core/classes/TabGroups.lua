@@ -145,6 +145,7 @@ function TabGroups:initialize(opts)
 	self._on_change  = opts.on_change
 	self._on_strip   = opts.on_strip_created
 	self._on_new     = opts.on_new_group
+	self._on_focus_pane = opts.on_focus_pane
 	self._notify     = opts.notify_tree_change
 	self._height_cap = tonumber(opts.height_cap)
 	self._extra_icon = opts.extra_icon
@@ -618,6 +619,9 @@ function TabGroups:_prepareStrip(strip)
 	if is_group then
 		extra(2, "^", "chevron--up")
 		pcall(iup.SetAttributeId, strip, "EXTRATIP", 2, "Hide tab bar (double-click the parent tab to restore)")
+	else
+		extra(2, "[]", "view")
+		pcall(iup.SetAttributeId, strip, "EXTRATIP", 2, "Focus or restore pane (Esc to restore)")
 	end
 
 	pcall(function()
@@ -625,6 +629,8 @@ function TabGroups:_prepareStrip(strip)
 			-- Act on release, mirroring a normal button click.
 			if id == 2 and pressed == 0 and is_group then
 				self_:setCollapsed(strip, true)
+			elseif id == 2 and pressed == 0 and self_._on_focus_pane then
+				self_._on_focus_pane(strip)
 			elseif id == 1 and pressed == 0 then
 				if self_._on_new then
 					self_._on_new(strip)

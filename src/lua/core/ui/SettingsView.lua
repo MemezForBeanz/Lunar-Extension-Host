@@ -69,12 +69,13 @@ local SettingsView = class("SettingsView")
 -- Width of the column every control is laid into, in pixels. Wide enough for a
 -- path-length text field plus a Browse button, which is the widest thing any
 -- shipped extension puts in a row.
-local CONTROL_COLUMN = 300
+local CONTROL_COLUMN = 240
 
 -- The page: a list of sections beside a column of cards, centred together. The list gives
 -- way when a pane is too narrow to hold both.
 local NAV_WIDTH = 200
-local COLUMN_WIDTH = 900
+local COLUMN_WIDTH = 720
+local SEARCH_WIDTH = 240
 local NAV_MIN_PAGE = NAV_WIDTH + COLUMN_WIDTH + 64
 
 -- A description up to this long sits under its label for good, wrapped at WRAP_AT.
@@ -143,6 +144,7 @@ function SettingsView:initialize(opts)
     local FlatField = require("core.ui.FlatField")
     local search_field = FlatField.new(iup, {
         cue = "Search settings...",
+        width = SEARCH_WIDTH,
         icon = self._icon_dir and (self._icon_dir .. "/search.svg") or nil,
         on_change = function(text) sv:filter(text) end,
     })
@@ -187,7 +189,6 @@ function SettingsView:initialize(opts)
     self._empty = iup.flatlabel{
         TITLE     = "No settings registered. Extensions add their settings here.",
         FLOATING  = "NO",
-        FONT      = "Segoe UI, 11",
         THEMEROLE = "settingslabel_muted",
     }
     iup.Append(self._inner, self._empty)
@@ -206,12 +207,18 @@ function SettingsView:initialize(opts)
     -- ThemeManager skips re-theming (see ThemeManager's VOID_CONTAINERS comment),
     -- so a hardcoded color here would never update on theme switch. Leaving it
     -- unset lets the color inherit from the dialog, which IS themed.
+    self._crumb = iup.flatlabel{ TITLE = "Settings", THEMEROLE = "settings_crumb", EXPAND = "HORIZONTAL" }
     self._search_row = iup.hbox{
-        iup.hbox{ search_box, MAXSIZE = L.maxSize(COLUMN_WIDTH - 6, nil), EXPAND = "HORIZONTAL" },
+        self._crumb,
+        search_box,
         ALIGNMENT = "ACENTER",
+        GAP       = L.gap(L.ROLE.section),
+        MAXSIZE   = L.maxSize(COLUMN_WIDTH + 2 * L.px(L.ROLE.page), nil),
         MARGIN    = (L.px(L.ROLE.page) + 3) .. "x" .. L.px(L.ROLE.section),   -- 3: the cards' own inset
     }
-    self._nav_items = iup.vbox{ GAP = L.gap(1), EXPAND = "HORIZONTAL" }
+    self._group_app = iup.flatlabel{ TITLE = "Application", THEMEROLE = "settings_nav_group", EXPAND = "HORIZONTAL" }
+    self._group_tools = iup.flatlabel{ TITLE = "Tools", THEMEROLE = "settings_nav_group", EXPAND = "HORIZONTAL" }
+    self._nav_items = iup.vbox{ self._group_app, self._group_tools, GAP = L.gap(1), EXPAND = "HORIZONTAL" }
     self._nav = iup.vbox{
         self._nav_items,
         iup.hbox{ RASTERSIZE = L.size(NAV_WIDTH) },
@@ -246,9 +253,36 @@ end
 function SettingsView:fitWidth(width)
     local iup = self._iup
     local wide = width >= NAV_MIN_PAGE
+    self._wide = wide
     Kit.show(iup, self._nav, wide, self._search)
     local lead = wide and math.floor((width - NAV_WIDTH - COLUMN_WIDTH) / 2) or 1 -- 0 means no size at all
     iup.SetAttribute(self._lead, "RASTERSIZE", lead .. "x")
+    self:_applyCategory()
+end
+
+-- With the list beside it the page shows one category, named by the breadcrumb. In a
+-- pane too narrow for the list, and while searching, every category stays on the page:
+-- the first has no other way to reach them and the second is looking across them.
+function SettingsView:_applyCategory()
+    local iup = self._iup
+    if not self._wide or self._query ~= "" then
+        self:_setCrumb(nil)
+        return
+    end
+    self:_batch(function()
+        for _, section in ipairs(self._sections) do
+            local current = section == self._current
+            Kit.show(iup, section.header, false)
+            self:_setOpen(section, current, true)
+        end
+        self:_setCrumb(self._current)
+        self:_settle()
+    end)
+end
+
+function SettingsView:_setCrumb(section)
+    local title = section and ("Settings  /  " .. section.category) or "Settings"
+    self._iup.SetAttribute(self._crumb, "TITLE", title)
 end
 
 -- Scroll to a section and mark it in the list.
@@ -258,7 +292,13 @@ function SettingsView:_goTo(section)
         iup.SetAttribute(other.nav_btn, "THEMEROLE", other == section and "settings_nav_on" or "settings_nav")
         if self._theme_widget then self._theme_widget(other.nav_btn) end
     end
-    iup.SetAttribute(self._scroll, "SCROLLTOCHILD_HANDLE", section.header)
+    self._current = section
+    self:_applyCategory()
+    if self._wide then
+        iup.SetAttribute(self._scroll, "SCROLLTO", "0,0")
+    else
+        iup.SetAttribute(self._scroll, "SCROLLTOCHILD_HANDLE", section.header)
+    end
 end
 
 --- How to re-theme one widget after its role changes.
@@ -617,7 +657,7 @@ function SettingsView:_buildRow(entry, category, first)
     if not first then
         children[1] = iup.flatseparator{ ORIENTATION = "HORIZONTAL", STYLE = "LINE", BARSIZE = "1" }
     end
-    children[#children + 1] = iup.vbox{ top, MARGIN = L.margin(L.ROLE.section, 3), EXPAND = "HORIZONTAL" }
+    children[#children + 1] = iup.vbox{ top, MARGIN = L.margin(L.ROLE.section, 4), EXPAND = "HORIZONTAL" }
     local desc
     if expandable then
         desc = iup.flatlabel{ TITLE = description, THEMEROLE = "settings_description" }
@@ -673,7 +713,12 @@ function SettingsView:addSection(category, opts, mapped)
         return iup.DEFAULT
     end
     section.nav_btn = nav_btn
-    iup.Append(self._nav_items, nav_btn)
+    -- Appearance belongs to the app; everything an extension adds is a tool.
+    if category == "Appearance" then
+        iup.Insert(self._nav_items, self._group_tools, nav_btn)
+    else
+        iup.Append(self._nav_items, nav_btn)
+    end
     section.widgets[#section.widgets + 1] = nav_btn
 
     local header = self:_buildHeader(section, category)
@@ -717,6 +762,7 @@ function SettingsView:addSection(category, opts, mapped)
     end
 
     self._sections[#self._sections + 1] = section
+    self._current = self._current or section
 
     if mapped then
         for _, w in ipairs(section.widgets) do iup.Map(w) end
@@ -736,6 +782,7 @@ function SettingsView:addSection(category, opts, mapped)
     else
         self:_setChevron(section, 0)
     end
+    if self._wide then self:_applyCategory() end
 
     return section
 end
@@ -806,8 +853,7 @@ function SettingsView:_setOpen(section, open, instant)
     -- A closed body is FLOATING as well as hidden: a hidden widget still
     -- participates in layout and still contributes its parent's GAP, which would
     -- leave a visible gutter under every collapsed section.
-    iup.SetAttribute(section.body, "FLOATING", open and "NO" or "YES")
-    iup.SetAttribute(section.body, "VISIBLE", open and "YES" or "NO")
+    Kit.show(iup, section.body, open, self._search)
     -- Never left pinned, or the section could not grow when an extension adds a
     -- row later. (Older builds animated this attribute; nothing sets it now, but
     -- clearing it keeps a section opened by one of those builds honest.)
@@ -905,14 +951,12 @@ function SettingsView:filter(query)
             local any = false
             for _, row in ipairs(section.rows) do
                 local show = (not searching) or (row.text:find(query, 1, true) ~= nil)
-                iup.SetAttribute(row.box, "FLOATING", show and "NO" or "YES")
-                iup.SetAttribute(row.box, "VISIBLE",  show and "YES" or "NO")
+                Kit.show(iup, row.box, show, self._search)
                 if show then any = true end
             end
 
             local show_header = (not searching) or any
-            iup.SetAttribute(section.header, "FLOATING", show_header and "NO" or "YES")
-            iup.SetAttribute(section.header, "VISIBLE",  show_header and "YES" or "NO")
+            Kit.show(iup, section.header, show_header, self._search)
 
             -- While searching, matches are shown regardless of collapse state; once
             -- the query clears, the user's own arrangement comes back. Instant in
@@ -930,6 +974,7 @@ function SettingsView:filter(query)
         -- `_setOpen` (which no-ops when already in the requested state).
         self:_settle()
     end)
+    if not searching then self:_applyCategory() end
 end
 
 return SettingsView

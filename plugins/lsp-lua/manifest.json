@@ -1,0 +1,16 @@
+{
+  "schema_version": 2,
+  "id": "lsp-lua",
+  "name": "Lua language support",
+  "version": "1.0.0",
+  "description": "Diagnostics, hover, completion and go to definition for Lua, through lua-language-server.",
+  "host_api": 4,
+  "capabilities": [
+    "language_server"
+  ],
+  "provides": {
+    "language_servers": [
+      "lua"
+    ]
+  }
+}

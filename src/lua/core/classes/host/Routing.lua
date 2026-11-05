@@ -34,6 +34,40 @@ function M.registerRouteSerializer(self, fn, owner)
 end
 
 
+--- Take every address under one authority (`lunar://<kind>/...`). Host-internal:
+-- the code surfaces use it for `lunar://code/...`.
+-- `fn(route)` returns `true, result` or `nil, { code, message }`.
+function M.registerRouteService(self, kind, fn)
+    self._route_services = self._route_services or {}
+    self._route_services[kind] = fn
+end
+
+--- Say what a host tab's current address is, when it is more than the tab itself.
+-- `fn()` returns a route table, or nil for the plain `lunar://host/<id>`.
+function M.setHostTabRoute(self, id, fn)
+    self._host_tab_routes = self._host_tab_routes or {}
+    self._host_tab_routes[id] = fn
+end
+
+local function service_route(self, route)
+    local service = self._route_services and self._route_services[route.kind]
+    if not service then return nil end
+    local ok, done, result = xpcall(function() return service(route) end, debug.traceback)
+    if not ok then return true, nil, self:_routeError("route_handler_error", tostring(done)) end
+    if not done then
+        return true, nil, type(result) == "table" and result
+            or self:_routeError("route_unavailable", tostring(result or "the address could not be opened"))
+    end
+    return true, true, result
+end
+
+local function host_tab_route(self, id)
+    local describe = self._host_tab_routes and self._host_tab_routes[id]
+    if not describe then return nil end
+    local ok, route = pcall(describe)
+    return ok and type(route) == "table" and route or nil
+end
+
 --- Build a route error record.
 -- @local
 function M._routeError(self, code, message)
@@ -45,6 +79,9 @@ function M.dispatchRoute(self, uri)
     if not route then
         return nil, self:_routeError("invalid_route", parse_err)
     end
+
+    local served, served_ok, served_result = service_route(self, route)
+    if served then return served_ok, served_result end
 
     if route.kind == "host" then
         local widget = self._host_tabs[route.target]
@@ -112,7 +149,7 @@ function M.currentRoute(self)
     local active = self:_activeTab()
     for id, widget in pairs(self._host_tabs) do
         if handle.same(self.iup, widget, active) then
-            return RouteUri.serialize({ kind = "host", target = id })
+            return RouteUri.serialize(host_tab_route(self, id) or { kind = "host", target = id })
         end
     end
     return nil
@@ -122,7 +159,7 @@ function M.currentAddress(self)
     local active = self:_activeTab()
     for id, widget in pairs(self._host_tabs) do
         if handle.same(self.iup, widget, active) then
-            return { kind = "host", target = id, params = {} }
+            return host_tab_route(self, id) or { kind = "host", target = id, params = {} }
         end
     end
 
@@ -164,6 +201,9 @@ function M.dispatchAddress(self, uri_or_route)
     if type(route) ~= "table" then
         return nil, self:_routeError("malformed_route", "Route dispatch requires a parsed route table or lunar:// URI")
     end
+
+    local served, served_ok, served_result = service_route(self, route)
+    if served then return served_ok, served_result end
 
     if route.kind == "host" then
         local widget = self._host_tabs[route.target]
