@@ -79,6 +79,7 @@ function StatusBar.new(opts)
 		PADDING = "4x0",
 		THEMEROLE = "statusbar_button",
 	})
+	local bar = self
 	function self._activity_text:flat_action()
 		if bar._on_activity then bar._on_activity() end
 		return iup.DEFAULT

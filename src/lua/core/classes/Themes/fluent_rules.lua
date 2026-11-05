@@ -348,9 +348,13 @@ function M.build(p)
     end
     M.addShellRoles(rules, p)
     rules.flattabs_sub = rules.flattabs
+    local floor = p.layer02 or p.surface2 or p.surface or p.bg
     return require("core.classes.Themes.shell_rules")(rules, p, {
-        well = well, hover = hover, selected = selected, border = border, radius = 4,
-        font = font, small_font = font,
+        well = p.layer01 or p.surface or p.bg,
+        hover = p.layerHover01 or p.surface2 or floor,
+        selected = p.layerSelected01 or p.surface2 or floor,
+        border = p.borderSubtle01 or p.border,
+        radius = 4, font = p.font, small_font = p.font,
     })
 end
 

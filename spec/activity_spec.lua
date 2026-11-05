@@ -154,7 +154,7 @@ describe("Activity status", function()
 		store:start({ title = "Upload" })
 		local view = store:status()
 		assert.equals("running", view.state)
-		assert.equals("Build Queue 3 of 12  +2", view.text)
+		assert.equals("Build Queue 3 of 12  2 more running", view.text)
 	end)
 
 	it("reads a total of 100 as a percentage", function()
