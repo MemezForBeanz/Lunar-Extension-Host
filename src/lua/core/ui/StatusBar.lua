@@ -1,5 +1,5 @@
---- The bottom status bar: background work, a status line, the update indicator,
--- extension status elements, and the org's logo when its profile ships one.
+--- The bottom status bar: background work, a status line, extension status elements and the
+-- update indicator.
 --
 -- Extensions reach it through `HostAPI` (`setStatus`, `setUpdateState`,
 -- `addStatusElement`, `activity`); the host builds it once.
@@ -8,7 +8,6 @@
 
 local L = require("core.lib.CarbonLayout")
 local StatusIcon = require("core.ui.StatusIcon")
-local VectorIcon = require("core.ui.VectorIcon")
 
 local StatusBar = {}
 StatusBar.__index = StatusBar
@@ -23,9 +22,7 @@ StatusBar.UPDATE_STATES = {
 }
 StatusBar.UPDATE_CLICK_HINT = "\n\nClick to check for updates now."
 
---- What the command bar says at rest.
-StatusBar.COMMAND_HINT = "Search or run a command   Ctrl+P"
-StatusBar.COMMAND_WIDTH = 320
+StatusBar.HEIGHT = 28
 
 --- How wide the activity slot's text is. Fixed, so that progress ticking over doesn't
 -- lay the whole window out again.
@@ -45,7 +42,6 @@ end
 --- @tparam table opts
 -- @tparam table opts.iup
 -- @tparam string opts.icon_dir the rasterized Carbon icons (assets/Icons)
--- @tparam[opt] string opts.logo an SVG to show at the right end (the org's logo)
 function StatusBar.new(opts)
 	local iup = opts.iup
 	local self = setmetatable({ _iup = iup }, StatusBar)
@@ -55,6 +51,9 @@ function StatusBar.new(opts)
 	self._label = iup.label({
 		TITLE = "",
 		EXPAND = "HORIZONTAL",
+		-- A floor, not a size: long text ends in an ellipsis, it doesn't widen the window.
+		RASTERSIZE = "40x",
+		ELLIPSIS = "YES",
 		FONT = "Segoe UI, 9",
 		FGCOLOR = "60 60 60",
 		THEMEROLE = "statusbar_text",
@@ -65,41 +64,6 @@ function StatusBar.new(opts)
 		dir = opts.icon_dir, size = 16, state = "upd_complete", tip = StatusBar.UPDATE_STATES.current.tip,
 	})
 	self._ext_box = iup.hbox({ GAP = L.gap(2), ALIGNMENT = "ACENTER" })
-	local logo_image = opts.logo and VectorIcon.logoHandle(iup, opts.logo, 20)
-
-	-- The command bar, dead centre. HOMOGENEOUS gives the three cells equal widths, so
-	-- the middle one is centred in the window however long the status text is.
-	self._command = iup.flatbutton({
-		TITLE = StatusBar.COMMAND_HINT,
-		TIP = "Search commands, or go to a lunar:// address (Ctrl+P)",
-		RASTERSIZE = StatusBar.COMMAND_WIDTH .. "x",
-		IMAGE = opts.search_icon,
-		IMAGEPOSITION = "LEFT",
-		ALIGNMENT = "ALEFT:ACENTER",
-		SPACING = "8",
-		CANFOCUS = "NO",
-		THEMEROLE = "commandbar",
-	})
-	local bar = self
-	function self._command:flat_action()
-		if bar._on_command then bar._on_command() end
-		return iup.DEFAULT
-	end
-	-- The application menu, where the platform has no themable menu bar.
-	self._menu_button = opts.menu_icon and iup.flatbutton({
-		IMAGE = opts.menu_icon,
-		TIP = "Menu",
-		CANFOCUS = "NO",
-		PADDING = "6x4",
-		THEMEROLE = "statusbar_button",
-	}) or nil
-	if self._menu_button then
-		function self._menu_button:flat_action()
-			local x, y = tostring(iup.GetAttribute(self, "SCREENPOSITION") or ""):match("(-?%d+),(-?%d+)")
-			if bar._on_menu and x then bar._on_menu(tonumber(x), tonumber(y) - 4) end
-			return iup.DEFAULT
-		end
-	end
 
 	-- Background work, in place of a word that said nothing. Empty until there is some.
 	-- Sixteen pixels of icon and one line of text, so it fits the bar however slim.
@@ -115,6 +79,7 @@ function StatusBar.new(opts)
 		PADDING = "4x0",
 		THEMEROLE = "statusbar_button",
 	})
+	local bar = self
 	function self._activity_text:flat_action()
 		if bar._on_activity then bar._on_activity() end
 		return iup.DEFAULT
@@ -130,23 +95,14 @@ function StatusBar.new(opts)
 	})
 
 	self._widget = iup.hbox({
-		iup.hbox({
-			self._menu_button, self._activity_box, self._label,
-			EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER", GAP = L.gap(2),
-		}),
-		iup.hbox({ iup.fill({}), self._command, iup.fill({}), EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER" }),
-		iup.hbox({
-			iup.fill({}),
-			self._ext_box,
-			logo_image and iup.label({ IMAGE = logo_image, TITLE = "" }) or nil,
-			EXPAND = "HORIZONTAL",
-			GAP = L.gap(3),
-			ALIGNMENT = "ACENTER",
-		}),
-		HOMOGENEOUS = "YES",
+		-- Holds the bar's height, whatever the page in front has put in it.
+		iup.label({ TITLE = "", RASTERSIZE = "0x" .. StatusBar.HEIGHT }),
+		self._activity_box,
+		self._label,
+		self._ext_box,
 		BGCOLOR = "240 240 240",
 		THEMEROLE = "statusbar",
-		MARGIN = L.margin(4, 1),
+		MARGIN = L.margin(4, 0),
 		GAP = L.gap(3),
 		ALIGNMENT = "ACENTER",
 		-- HORIZONTAL, not IupHbox's default YES. A vertically expanding child of
@@ -160,17 +116,10 @@ end
 
 --- The bar itself.
 function StatusBar:widget() return self._widget end
---- The command bar's button, which the palette anchors to.
-function StatusBar:commandWidget() return self._command end
---- Set what a click on the command bar does.
-function StatusBar:onCommand(fn) self._on_command = fn end
---- Set what the menu button does. Called with the screen position to open at.
-function StatusBar:onMenu(fn) self._on_menu = fn end
 --- Set what a click on the activity slot does.
 function StatusBar:onActivity(fn) self._on_activity = fn end
---- Where the activity panel opens from: a widget at the bar's left end. The status line
--- won't do when there's a menu button, because the activity slot pushes it along.
-function StatusBar:activityAnchor() return self._menu_button or self._label end
+--- Where the activity panel opens from: the bar's left end, which nothing pushes along.
+function StatusBar:activityAnchor() return self._widget end
 --- The box extension status elements go in (HostAPI's `status_box`).
 function StatusBar:extBox() return self._ext_box end
 --- The update indicator (a `core.ui.StatusIcon`).

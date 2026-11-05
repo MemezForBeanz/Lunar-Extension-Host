@@ -378,6 +378,7 @@ add_executable(Lunar WIN32
     src/c/libs/compositor/compositor_lua.c
     src/c/libs/compositor/win32.c
     src/c/libs/winredraw_wrap.c
+    src/c/libs/winframe_wrap.c
     src/c/libs/iupraw_wrap.c
     src/c/libs/themeapply_wrap.c
     src/c/libs/nanosvg_impl.c

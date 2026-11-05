@@ -25,7 +25,7 @@ local EXTERNAL = {
 	argparse = true, tableshape = true, serpent = true, date = true,
 	logging = true, ffi = true, bit = true, jit = true, appimages = true,
 	themeapply = true, svgicon = true, iupraw = true, winredraw = true,
-	logscan = true, compositor = true, sci = true,
+	logscan = true, compositor = true, sci = true, winframe = true,
 }
 
 -- Resolved at runtime from a location CMake populates, not from the source tree:

@@ -158,6 +158,32 @@ patches and builds `libiup.a`.
 CMake presets drive the build. VS Code users get the same through
 **Ctrl+Shift+B** and "Tasks: Run Task"; `mingw32-make` wraps it on the command line.
 
+For an interactive preview, use **Run Lunar with demo data (dev)**. It starts the
+normal app, applies the same page fixtures as UI capture, and stays open until you
+close it. Choose all org packs and supply their folder to include their tool pages.
+Use **Help > Reload demo data** to restore the sample data after interacting.
+Only pages with capture fixtures are populated; these fixtures are UI examples,
+not a complete simulation of build, filesystem, or device operations.
+`ui_fixtures.lua` itself is a data module, not an application launcher.
+
+Two other dev tasks run Lua scripts automatically after building:
+
+- **Run Lunar with a test script (dev)** offers a dropdown of `scripts/*.lua`
+  and an optional filename override (with or without `.lua`). Leave the override
+  blank to use the dropdown. New scripts can be typed immediately; the dropdown
+  list lives in `.vscode/tasks.json`.
+- **Run Lunar with multiple test scripts (dev)** accepts comma- or semicolon-separated
+  filenames, such as `layout_dump, scrim_check`. Each runs in a fresh Lunar process,
+  in the order entered. Close interactive harness windows to advance. Failures are
+  reported, remaining scripts still run, and the task fails if any script fails.
+
+Both ask whether to load all org packs and for the packs folder (ignored for No).
+No uses normal org-pack selection without the development environment overrides.
+These tasks use Lunar's existing script entry point: the script controls startup
+and shutdown. For example, `ui_capture` and `layout_dump` start the normal app;
+helper files such as `ui_fixtures` only return data. Scripts requiring command-line
+arguments should still be run directly with those arguments.
+
 ```powershell
 cmake --preset dev; cmake --build --preset dev   # build\win  (loads plugins\ from the repo)
 build\win\bin\Lunar.exe

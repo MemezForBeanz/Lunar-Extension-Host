@@ -96,9 +96,11 @@ function M.find(spec, opts)
 			spec.label, configured)
 	end
 	if spec.app_dir then
+		local windows = opts.windows
+		if windows == nil then windows = WINDOWS end
 		for _, relative in ipairs(spec.bundled or {}) do
-			if WINDOWS then relative = relative:gsub("/", "\\") end
-			local full = join(spec.app_dir, relative)
+			if windows then relative = relative:gsub("/", "\\") end
+			local full = join(spec.app_dir, relative, windows)
 			if exists(full) then return full, "bundled" end
 		end
 	end

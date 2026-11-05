@@ -7,6 +7,7 @@
 int luaopen_subprocess(lua_State *L);
 int luaopen_process(lua_State *L);
 int luaopen_winredraw(lua_State *L);
+int luaopen_winframe(lua_State *L);
 
 /* Paths go through the wide (*W) APIs and reach Lua as UTF-8, so an install or a
  * portable extraction under a non-ASCII folder works. The exe manifest sets the
@@ -154,4 +155,5 @@ void host_preload_modules(lua_State *L, host_preload_fn preload)
     preload(L, "subprocess",   luaopen_subprocess);
     preload(L, "process",      luaopen_process);
     preload(L, "winredraw",    luaopen_winredraw);
+    preload(L, "winframe",     luaopen_winframe);
 }

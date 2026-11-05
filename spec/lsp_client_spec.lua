@@ -6,6 +6,9 @@ local Client = require("core.lsp.Client")
 local fake = require("spec.support.fake_lsp")
 
 local URI = "file:///C:/work/proj/a.lua"
+local WINDOWS = package.config:sub(1, 1) == "\\"
+local ROOT = WINDOWS and "C:\\work\\proj" or "/work/proj"
+local ROOT_URI = WINDOWS and "file:///C:/work/proj" or "file:///work/proj"
 
 -- A client whose every start hands out the next server from `servers` (or a
 -- fresh default one), so restarts can be observed.
@@ -16,7 +19,7 @@ local function setup(opts)
 	local queue = opts.servers or {}
 	local client = Client.new({
 		id = "lua", name = "Lua",
-		root = opts.root or "C:\\work\\proj",
+		root = opts.root or ROOT,
 		settings = opts.settings,
 		init_options = opts.init_options,
 		clock = clock,
@@ -53,11 +56,11 @@ describe("lsp Client startup", function()
 		local server = t.started[1]
 		assert.is_true(server.spawn_opts.stdin)
 		assert.are.same({ "fake-server", "--stdio" }, server.spawn_opts.argv)
-		assert.are.equal("C:\\work\\proj", server.spawn_opts.cwd)
+		assert.are.equal(ROOT, server.spawn_opts.cwd)
 
 		local init = server:last("initialize").params
-		assert.are.equal("file:///C:/work/proj", init.rootUri)
-		assert.are.equal("file:///C:/work/proj", init.workspaceFolders[1].uri)
+		assert.are.equal(ROOT_URI, init.rootUri)
+		assert.are.equal(ROOT_URI, init.workspaceFolders[1].uri)
 		assert.are.same({ "utf-8", "utf-16" }, init.capabilities.general.positionEncodings)
 		assert.is_false(init.capabilities.textDocument.completion.completionItem.snippetSupport)
 		assert.are.same({ "initialize", "initialized", "workspace/didChangeConfiguration" }, server:methods())
