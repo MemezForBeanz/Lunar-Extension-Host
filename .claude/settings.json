@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "PowerShell(Test-Path \"C:\\\\msys64\\\\mingw64\\\\bin\\\\cmake.exe\"; Get-ChildItem C:\\\\msys64 -Filter cmake.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName; \\(Get-Command cmake -ErrorAction SilentlyContinue\\).Source; Test-Path \"C:\\\\Program Files\\\\CMake\\\\bin\\\\cmake.exe\"; Get-ChildItem .vscode -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)"
-    ]
-  }
-}
