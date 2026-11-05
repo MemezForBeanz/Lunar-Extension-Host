@@ -68,6 +68,9 @@ local CLASS_RULES = {
 	separator = true,
 }
 
+-- core.ui.ThemeReactor requires this module's users, so it is looked up when needed.
+local function ThemeReactor() return require("core.ui.ThemeReactor") end
+
 -- middleclass v4 exposes :isSubclassOf() on every class object.
 local function isThemeSubclass(cls)
 	return type(cls) == "table"
@@ -1180,6 +1183,10 @@ function ThemeManager:_walk(ih, fn)
 	-- per node across a ~500-node tree.
 	local ok_cls, cls = pcall(iup.GetClassName, ih)
 	cls = (ok_cls and cls) or nil
+	-- A code view themes itself (core.ui.CodeView): FONT and FGCOLOR on IupScintilla
+	-- rewrite all 256 styles, which would flatten the code font and the language colours.
+	-- FONT also comes down from its parents, so it re-asserts after every pass.
+	if cls == "scintilla" then return end
 	fn(ih, cls)
 	local i = 0
 	while true do
@@ -1612,6 +1619,7 @@ function ThemeManager:_flushPending()
 		self:_repaintRoot(self._active)
 		self:_applyGlobalFont(self._active)
 		self:_applyGlobalTooltip(self._active)
+		ThemeReactor().themePassDone()
 		return
 	end
 
@@ -1634,6 +1642,7 @@ function ThemeManager:_flushPending()
 	end
 	pcall(self._iup.Refresh, self._root)
 	self:_endPaintBatch(self._root)
+	ThemeReactor().themePassDone()
 end
 
 function ThemeManager:_syncControls()

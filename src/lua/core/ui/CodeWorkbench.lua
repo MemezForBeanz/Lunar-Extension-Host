@@ -211,8 +211,14 @@ function Workbench:_buildCodePage()
 	self._toolbar = toolbar
 	Kit.show(iup, toolbar, false)
 
-	local strip = iup.flattabs({ SHOWCLOSE = "YES", EXPAND = "YES" })
+	local strip = iup.flattabs({ SHOWCLOSE = "YES", EXPAND = "YES", THEMEROLE = "flattabs_sub" })
 	self._strip = strip
+	-- The stock close image is drawn for a much larger tab than this one.
+	local close = Kit.icon(iup, "close", 12, "neutral")
+	if close then
+		iup.SetAttribute(strip, "CLOSEIMAGE", close)
+		iup.SetAttribute(strip, "CLOSEIMAGEPRESS", close)
+	end
 	function strip:tabchangepos_cb(new_pos)
 		bench:_activated(bench._docs[new_pos + 1])
 		return iup.DEFAULT
@@ -343,8 +349,13 @@ function Workbench:_showMessage(doc)
 		link = true
 	elseif state == "none" and binder and binder._reason then
 		Kit.setStatus(iup, self._message, "idle", binder._reason)
+	elseif doc.note and doc.note ~= "" then
+		Kit.setStatus(iup, self._message, "idle", doc.note)
 	else
-		Kit.setStatus(iup, self._message, "idle", doc.note or "")
+		-- Nothing to say: the line keeps its height, or the text would jump under the
+		-- caret each time it reaches a line with a problem.
+		iup.SetAttribute(self._message, "IMAGE", "")
+		iup.SetAttribute(self._message, "TITLE", "")
 	end
 	Kit.show(iup, self._settings_link, link, self._anchor)
 end
@@ -419,6 +430,7 @@ function Workbench:open(path, at)
 	if line then doc.view:goTo(line, column or 0, at.end_line, end_column) end
 	if at.history ~= false then self:_remember(doc.path, line or (doc.view:caret())) end
 	self:_activated(doc)
+	iup.Refresh(self._page)
 	doc.view:focus()
 	return true
 end
