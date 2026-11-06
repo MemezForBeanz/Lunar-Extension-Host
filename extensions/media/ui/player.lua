@@ -62,7 +62,7 @@ function M.new(ctx, opts)
 	end
 	local picture = iup.vbox({
 		centred(iup, art.widget),
-		centred(iup, iup.flatlabel({ TITLE = sample.title, THEMEROLE = "sectiontitle", ALIGNMENT = "ACENTER" })),
+		centred(iup, L.pageTitle(iup, sample.title)),
 		centred(iup, L.hint(iup, string.format("Paused · %d · %d h %d min", sample.year,
 			math.floor(sample.minutes / 60), sample.minutes % 60))),
 		GAP = L.gap(2), MARGIN = "0x0", EXPAND = "YES",
@@ -74,7 +74,6 @@ function M.new(ctx, opts)
 	end })
 	iup.SetAttribute(bar.widget, "EXPAND", "HORIZONTAL")
 	bar:setValue(position)
-	bar:setBuffered({ { 0, position + 240 } })
 	bar:setMarks({ { at = 1320 }, { at = 2700 }, { at = 4140 }, { at = 7200 } })
 
 	local toggle = iup.flatbutton({ TITLE = "", THEMEROLE = "primary_btn", TIP = "Play or pause (Space)", RASTERSIZE = "40x40" })
@@ -93,7 +92,7 @@ function M.new(ctx, opts)
 		return button
 	end
 
-	local time = iup.flatlabel({ TITLE = clock(position) .. " / " .. clock(duration), THEMEROLE = "sectiontitle" })
+	local time = iup.flatlabel({ TITLE = clock(position) .. " / " .. clock(duration), THEMEROLE = "reading" })
 	local detail = L.hint(iup, string.format("%s · %s · %s", sample.resolution or "", sample.dynamic or "", sample.audio or ""))
 	local transport = iup.vbox({
 		bar.widget,
@@ -102,7 +101,7 @@ function M.new(ctx, opts)
 			tool("skip--back--filled", "Previous"), toggle, tool("skip--forward--filled", "Next"),
 			iup.fill({}), detail,
 			tool("settings--adjust", "Audio and subtitles"), tool("fit-to-screen", "Fullscreen (F)"),
-			GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL",
+			GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL", MARGIN = "6x0",
 		}),
 		GAP = L.gap(3), MARGIN = "0x0", EXPAND = "HORIZONTAL",
 	})
@@ -131,10 +130,12 @@ function M.new(ctx, opts)
 
 	local rail = iup.vbox({
 		iup.hbox({ RASTERSIZE = L.size(L.SIDE.narrow) }),
-		L.stack(iup, { aligned(L.sectionTitle(iup, "Up next")), queue_list.widget }, 3),
-		L.stack(iup, { aligned(L.sectionTitle(iup, "Chapters")), chapter_list.widget }, 3),
+		L.stack(iup, {
+			L.stack(iup, { aligned(L.sectionTitle(iup, "Up next")), queue_list.widget }, 3),
+			L.stack(iup, { aligned(L.sectionTitle(iup, "Chapters")), chapter_list.widget }, 3),
+		}, 6),
 		iup.fill({}),
-		GAP = L.gap(6), MARGIN = "0x0", EXPAND = "VERTICAL",
+		MARGIN = "0x0", EXPAND = "VERTICAL",
 	})
 
 	local video = VideoHost.new(iup, { bgcolor = "0 0 0" })

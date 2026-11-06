@@ -134,7 +134,7 @@ function M:register(ctx)
 	})
 	self.server = server.new(ctx, { model = model })
 
-	ctx:addTab("Media", self.library.widget, self, { icon = "video" })
+	ctx:addTab("Media", self.library.widget, self, { icon = "grid" })
 	ctx:addTab("Now playing", self.now_playing.widget, self, { icon = "play--outline" })
 	ctx:addTab("Media server", self.server.widget, self, { icon = "data--base" })
 	ctx:fitPage(self.library.widget, self.library.fit)

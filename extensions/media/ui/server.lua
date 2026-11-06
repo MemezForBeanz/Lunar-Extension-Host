@@ -83,7 +83,7 @@ function M.new(ctx, opts)
 		iup.SetAttribute(reach.Audio, "TITLE", session.audio)
 		iup.SetAttribute(reach.Subtitles, "TITLE", session.subtitles)
 	end
-	local sessions = RowList.new(iup, { rows = session_rows, row_height = ROW, column_widths = { 80, 148, 80 },
+	local sessions = RowList.new(iup, { rows = session_rows, row_height = ROW, column_widths = { 88, 168, 96 },
 		role = "flatrows_plain",
 		header = { title = "Title", columns = { "Delivery", "Position", "Bitrate" } },
 		empty_title = "Nothing is playing", empty_hint = "Sessions appear here while someone is watching.",
@@ -92,17 +92,19 @@ function M.new(ctx, opts)
 
 	local libraries = RowList.new(iup, {
 		rows = {
-			{ title = "Films", secondary = "D:/Media/Films", column1 = "24 items", column2 = "Scanned 12 min ago" },
-			{ title = "Shows", secondary = "D:/Media/Shows", column1 = "8 items", column2 = "Scanning now" },
+			{ title = "Films", secondary = "D:/Media/Films", column1 = "24", column2 = "12 min ago" },
+			{ title = "Shows", secondary = "D:/Media/Shows", column1 = "8", column2 = "Now" },
 		},
-		row_height = ROW, column_widths = { 88, 176 }, role = "flatrows_plain",
+		row_height = ROW, column_widths = { 88, 136 }, role = "flatrows_plain",
 		header = { title = "Library", columns = { "Items", "Last scan" } },
 		empty_title = "No libraries yet", empty_hint = "Add a folder to start your library.",
 	})
 	sized(libraries.widget, 2, iup)
 
 	local scan = Kit.button(iup, { title = "Scan all", icon = "renew", role = "actionbutton" })
+	iup.SetAttribute(scan, "RASTERSIZE", "x36")
 	local add = Kit.button(iup, { title = "Add library", icon = "add", role = "primary_btn" })
+	iup.SetAttribute(add, "RASTERSIZE", "x36")
 
 	local status = Kit.statusLine(iup, "ok", server.name .. " · version " .. server.version .. " · analysis " .. server.analysis)
 
@@ -123,18 +125,18 @@ function M.new(ctx, opts)
 		GAP = L.gap(3), MARGIN = ROW_INSET .. "x0", EXPAND = "HORIZONTAL",
 	})
 	local left = L.stack(iup, {
-		L.stack(iup, { heading("Attention"), attention }, 3),
-		L.stack(iup, { heading("Libraries"), libraries.widget }, 3),
-	}, 6)
-	local right = L.stack(iup, {
 		L.stack(iup, { heading("Now playing"), sessions.widget }, 3),
 		L.stack(iup, { iup.hbox({ reach_title, MARGIN = ROW_INSET .. "x0" }), reach_rows }, 3),
+	}, 6)
+	local right = L.stack(iup, {
+		L.stack(iup, { heading("Libraries"), libraries.widget }, 3),
 	}, 6)
 	iup.SetAttribute(left, "EXPAND", "HORIZONTAL")
 	iup.SetAttribute(right, "EXPAND", "HORIZONTAL")
 
 	api.widget = iup.vbox({
 		header, metrics,
+		L.stack(iup, { heading("Attention"), attention }, 3),
 		iup.hbox({ left, right, GAP = L.gap(8), MARGIN = "0x0", EXPAND = "HORIZONTAL", HOMOGENEOUS = "YES" }),
 		iup.fill({}),
 		GAP = L.gap(7), MARGIN = L.margin(5), EXPAND = "YES",
