@@ -1268,6 +1268,20 @@ function HostAPI:localService(owner)
     return nil
 end
 
+--- Inspect or start/stop this computer's service, with the local_service capability.
+function HostAPI:controlLocalService(owner, action)
+    local manifest = self._manifest_by_owner and self._manifest_by_owner[owner]
+    local allowed = false
+    for _, capability in ipairs(manifest and manifest.capabilities or {}) do
+        if capability == "local_service" then allowed = true end
+    end
+    if not allowed or not self.iup then return nil, "local service control is unavailable" end
+    local service = require("core.lib.Service")
+    if action == "start" or action == "stop" then return service[action]() end
+    if action ~= nil then return nil, "unknown service action" end
+    return { running = service.running() }
+end
+
 --- Is the host shutting down? Headless, this turns true when the process is told
 -- to stop: running jobs get a grace period to finish, and an extension should not
 -- start new work (for example the next job of a sequence) once it is set.
