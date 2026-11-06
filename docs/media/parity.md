@@ -1,8 +1,9 @@
 # Media parity matrix
 
 What Lunar Media needs to cover relative to the Plex desktop app, and when. The matrix describes
-features in our own words. It came from reading what the installed apps do; no Plex code, assets or
-strings are used in Lunar, and no Plex service was contacted.
+features in our own words. It came from static analysis of the installed apps and from screenshots
+of the desktop app in normal use. No Plex code or assets are used in Lunar, and the analysis itself
+sent no requests to any Plex service or server.
 
 - **P0**: the skeleton. The page exists, its routes work, every state is drawn, and it reads real
   data where a server exists.
