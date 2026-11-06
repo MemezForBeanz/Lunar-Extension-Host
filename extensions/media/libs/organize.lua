@@ -278,12 +278,17 @@ function M.describe(set)
 	for _, rule in ipairs(set and set.rules or {}) do
 		local value = rule.value
 		local words = WORDS[rule.field] and WORDS[rule.field][value]
-		if rule.field == "decade" then words = value .. "s"
+		if rule.field == "dynamic" and rule.test == "is_not" and value == "SDR" then
+			parts[#parts + 1] = "HDR"
+			words = false
+		elseif rule.field == "decade" then words = value .. "s"
 		elseif rule.field == "minutes" then words = (rule.test == "at_most" and "Up to " or "At least ") .. value .. " min"
 		elseif rule.field == "year" then words = (rule.test == "at_most" and "Up to " or "From ") .. value end
-		words = words or tostring(value)
-		if rule.test == "is_not" then words = "Not " .. words end
-		parts[#parts + 1] = words
+		if words ~= false then
+			words = words or tostring(value)
+			if rule.test == "is_not" then words = "Not " .. words end
+			parts[#parts + 1] = words
+		end
 	end
 	return table.concat(parts, set and set.match == "any" and " or " or " · ")
 end

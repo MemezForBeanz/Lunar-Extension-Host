@@ -42,12 +42,13 @@ end
 
 --- Rows for one season.
 -- @tparam table season `{ number, episodes }`
+-- @tparam[opt] table upcoming the episode Play will start
 -- @treturn table
-function M.rows(season)
+function M.rows(season, upcoming)
 	local rows = {}
 	for i, episode in ipairs(season.episodes) do
 		rows[i] = { title = episode.title, secondary = "Episode " .. (episode.episode or i),
-			column1 = runtime(episode.minutes), column2 = episode_state(episode) }
+			column1 = runtime(episode.minutes), column2 = episode == upcoming and "Next up" or episode_state(episode) }
 	end
 	return rows
 end
@@ -105,13 +106,16 @@ function M.new(ctx, opts)
 		local status = Kit.statusLine(iup, "idle", profile.name)
 		iup.SetAttribute(status, "EXPAND", "NO")
 		iup.SetAttribute(status, "RASTERSIZE", FORECAST_DEVICE .. "x")
+		iup.SetAttribute(status, "THEMEROLE", "reading")
 		local headline = iup.flatlabel({ TITLE = "", THEMEROLE = "reading", RASTERSIZE = FORECAST_HEADLINE .. "x" })
 		local why = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL", TEXTELLIPSIS = "YES" })
 		local row = iup.hbox({ status, headline, why, GAP = L.gap(3), ALIGNMENT = "ACENTER", MARGIN = "0x0", EXPAND = "HORIZONTAL" })
 		forecast_rows[i] = { row = row, status = status, headline = headline, why = why, profile = profile }
 		iup.Append(forecast_box, row)
 	end
-	local forecast_section = L.stack(iup, { L.sectionTitle(iup, "Where it plays"), forecast_box }, 2)
+	local all_clear = Kit.statusLine(iup, "ok", "")
+	iup.SetAttribute(all_clear, "THEMEROLE", "reading")
+	local forecast_section = L.stack(iup, { L.sectionTitle(iup, "Where it plays"), all_clear, forecast_box }, 2)
 
 	local function show_forecast(row, decision)
 		local verdict = forecast.verdict(decision)
@@ -120,13 +124,29 @@ function M.new(ctx, opts)
 		iup.SetAttribute(row.why, "TITLE", verdict.fix and (verdict.why .. " " .. verdict.fix) or verdict.why)
 	end
 
+	-- Three rows saying the same good news is one line of good news.
+	local function settle_forecast(pending, clear)
+		if pending > 0 then return end
+		Kit.show(iup, all_clear, clear, back)
+		Kit.show(iup, forecast_box, not clear, back)
+		if clear then Kit.setStatus(iup, all_clear, "ok", "Plays as it is on all " .. #forecast_rows .. " devices") end
+		iup.Refresh(api.widget)
+	end
+
 	local function load_forecast(item)
+		local pending, clear = #forecast_rows, true
+		Kit.show(iup, all_clear, false, back)
+		Kit.show(iup, forecast_box, true, back)
 		for _, row in ipairs(forecast_rows) do
 			Kit.setStatus(iup, row.status, "idle", row.profile.name)
 			iup.SetAttribute(row.headline, "TITLE", "Checking")
 			iup.SetAttribute(row.why, "TITLE", "")
 			opts.decide(item, row.profile, function(decision)
-				if current == item and decision then show_forecast(row, decision) end
+				if current ~= item or not decision then return end
+				show_forecast(row, decision)
+				pending = pending - 1
+				clear = clear and decision.mode == "direct"
+				settle_forecast(pending, clear)
 			end)
 		end
 	end
@@ -143,10 +163,10 @@ function M.new(ctx, opts)
 	local function show_season(index)
 		season_index = index
 		local season = seasons[index]
-		local rows = season and M.rows(season) or {}
+		local upcoming = organize.nextEpisode(seasons)
+		local rows = season and M.rows(season, upcoming) or {}
 		episodes:setRows(rows)
 		iup.SetAttribute(episodes.widget, "RASTERSIZE", "x" .. (EPISODE_ROW * #rows + 8))
-		local upcoming = organize.nextEpisode(seasons)
 		local mark = 0
 		for i, episode in ipairs(season and season.episodes or {}) do
 			if episode == upcoming then mark = i end
@@ -192,6 +212,7 @@ function M.new(ctx, opts)
 	local more_section = L.stack(iup, { aligned(L.sectionTitle(iup, "More like this")), more.widget }, 2)
 
 	-- A scroll box sizes to its content, so the page is told how wide it is.
+	local page_width
 	local holder = iup.hbox({ RASTERSIZE = "400x" })
 	local body = L.stack(iup, {
 		holder,
@@ -217,7 +238,9 @@ function M.new(ctx, opts)
 
 	--- Take the width the page really has.
 	function api.setWidth(width)
-		iup.SetAttribute(holder, "RASTERSIZE", (width - SCROLLBAR) .. "x")
+		page_width = width - SCROLLBAR
+		iup.SetAttribute(holder, "RASTERSIZE", page_width .. "x")
+		iup.SetAttribute(hero.widget, "RASTERSIZE", (page_width - 2 * RING) .. "x" .. spotlight.HEIGHT)
 		iup.Refresh(api.widget)
 	end
 

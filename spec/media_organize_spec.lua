@@ -143,7 +143,7 @@ end)
 
 describe("describing a collection", function()
 	it("says its rules in a few words", function()
-		assert.equal("2160p · Not SDR", organize.describe({ match = "all", rules = {
+		assert.equal("2160p · HDR", organize.describe({ match = "all", rules = {
 			{ field = "resolution", value = "2160p" }, { field = "dynamic", test = "is_not", value = "SDR" } } }))
 		assert.equal("Up to 120 min · Unwatched", organize.describe({ rules = {
 			{ field = "minutes", test = "at_most", value = 120 }, { field = "watch", value = "unwatched" } } }))
