@@ -12,17 +12,25 @@ local Adaptive = require("core.ui.Adaptive")
 
 local M = {}
 
-local CELL = 148
+local SHEET_CELL = 148     -- the size a cell aims for; columns then share the width exactly
 local SHELF_CELL = 132
-local SHELF_HEIGHT = 262
+local GUTTER = 16
+local GRID_EDGE = 12       -- the grid keeps 6 px each side for selection rings
+local SCROLLBAR = 8
+local SHELF_TEXT = 58
+local UNKNOWN = "Not analysed"
 local INSPECTOR_ART = 168
-local SOURCE_WIDTH = 240
+local SOURCE_WIDTH = 208
 local INSPECTOR_WIDTH = L.SIDE.narrow
 
 local function runtime(minutes)
 	if not minutes then return nil end
 	if minutes < 60 then return minutes .. " min" end
 	return string.format("%d h %d min", math.floor(minutes / 60), minutes % 60)
+end
+
+local function plural(count, word)
+	return count .. " " .. word .. (count == 1 and "" or "s")
 end
 
 local function badge_of(item)
@@ -33,7 +41,7 @@ end
 
 local function subtitle_of(item)
 	if item.kind == "show" then
-		return string.format("%d · %d seasons", item.year, item.seasons)
+		return string.format("%d · %s", item.year, plural(item.seasons, "season"))
 	end
 	return tostring(item.year)
 end
@@ -48,12 +56,8 @@ local function cell_value(list)
 		if field == "PROGRESS" then
 			local p = item.progress or 0
 			if p > 0 and p < 1 then return tostring(math.floor(p * 100)) end
-			return nil
 		end
-		if field == "STATE" then
-			if (item.progress or 0) == 0 then return "unplayed" end
-			return nil
-		end
+		return nil
 	end
 end
 
@@ -65,12 +69,23 @@ local SORTS = {
 
 local LEDGER_KEYS = { [0] = "title", "year", "resolution", "codec", "dynamic", "audio", "size_gb" }
 
-local function fact(iup, label)
-	local name = L.hint(iup, label)
+--- Cells that fill `width` exactly: no part-cell at the edge, and no spare pixels in the gutters.
+local function fitted_cell(width, ideal)
+	local columns = math.max(1, math.floor((width + GUTTER) / (ideal + GUTTER)))
+	return math.floor((width - (columns - 1) * GUTTER) / columns)
+end
+
+local function fact(iup)
+	local name = L.hint(iup, "")
 	iup.SetAttribute(name, "RASTERSIZE", "96x")
 	local value = iup.flatlabel({ TITLE = "", EXPAND = "HORIZONTAL" })
-	local row = iup.hbox({ name, value, GAP = L.gap(3), ALIGNMENT = "ACENTER" })
-	return row, value
+	return { row = iup.hbox({ name, value, GAP = L.gap(3), ALIGNMENT = "ACENTER" }), name = name, value = value }
+end
+
+local function labelled(iup, label, control)
+	local name = L.hint(iup, label)
+	iup.SetAttribute(name, "RASTERSIZE", "96x")
+	return iup.hbox({ name, control, GAP = L.gap(3), ALIGNMENT = "ACENTER" })
 end
 
 local function inspector(ctx, cache, art_of, on_play)
@@ -80,68 +95,81 @@ local function inspector(ctx, cache, art_of, on_play)
 		count = 0, cell_width = INSPECTOR_ART, aspect = "2:3", show_text = false, gutter = 0, padding = 0,
 		value = function() return nil end,
 	})
-	iup.SetAttribute(poster.widget, "RASTERSIZE", L.size(INSPECTOR_ART + 12, INSPECTOR_ART * 3 / 2 + 12))
+	iup.SetAttribute(poster.widget, "RASTERSIZE", L.size(INSPECTOR_ART + GRID_EDGE, INSPECTOR_ART * 3 / 2 + GRID_EDGE))
 	iup.SetAttribute(poster.widget, "EXPAND", "NO")
 	iup.SetAttribute(poster.widget, "CANFOCUS", "NO")
 	iup.SetAttribute(poster.widget, "FLATSCROLLBAR", "NO")
 	local posters = cache and CellGrid.posters(poster, cache, function() return current and art_of(current) end)
 
-	local title = iup.flatlabel({ TITLE = "", THEMEROLE = "sectiontitle", EXPAND = "HORIZONTAL", WORDWRAP = "YES" })
+	local title = L.sectionTitle(iup, "")
 	local meta = L.hint(iup, "")
-	local overview = iup.flatlabel({ TITLE = "", WORDWRAP = "YES", EXPAND = "HORIZONTAL" })
+	local overview = iup.flatlabel({ TITLE = "", TEXTWRAP = "YES", RASTERSIZE = L.size(INSPECTOR_WIDTH, 40) })
 	local play = Kit.button(iup, { title = "Play", icon = "play--filled--alt", role = "primary_btn",
 		action = function() if current then on_play(current) end end })
 	local queue = Kit.button(iup, { title = "Queue", icon = "add", action = function() end })
 
-	local rows, values = {}, {}
-	for i, label in ipairs({ "Resolution", "Video", "Range", "Audio", "Bitrate", "Size", "Added" }) do
-		rows[i], values[label] = fact(iup, label)
-	end
-	local audio = FlatDropdown.new(iup, { items = { "English 5.1" }, value = 1, expand = true })
+	local audio = FlatDropdown.new(iup, { items = { "Default" }, value = 1, expand = true })
 	local subtitles = FlatDropdown.new(iup, { items = { "Off" }, value = 1, expand = true })
-	local audio_row = iup.hbox({ L.hint(iup, "Audio track"), audio.widget, GAP = L.gap(3), ALIGNMENT = "ACENTER" })
-	local subtitle_row = iup.hbox({ L.hint(iup, "Subtitles"), subtitles.widget, GAP = L.gap(3), ALIGNMENT = "ACENTER" })
-	iup.SetAttribute(iup.GetChild(audio_row, 0), "RASTERSIZE", "96x")
-	iup.SetAttribute(iup.GetChild(subtitle_row, 0), "RASTERSIZE", "96x")
+	local tracks = L.stack(iup, { labelled(iup, "Audio", audio.widget), labelled(iup, "Subtitles", subtitles.widget) }, 2)
 
-	local facts = iup.vbox({ GAP = L.gap(2), MARGIN = "0x0", EXPAND = "HORIZONTAL" })
-	for _, row in ipairs(rows) do iup.Append(facts, row) end
+	local facts = {}
+	local fact_box = iup.vbox({ GAP = L.gap(2), MARGIN = "0x0", EXPAND = "HORIZONTAL" })
+	for i = 1, 7 do
+		facts[i] = fact(iup)
+		iup.Append(fact_box, facts[i].row)
+	end
+	local section = L.sectionTitle(iup, "File")
 	local path = L.hint(iup, "")
-	iup.SetAttribute(path, "WORDWRAP", "YES")
-	iup.SetAttribute(path, "EXPAND", "HORIZONTAL")
+	iup.SetAttribute(path, "RASTERSIZE", L.size(INSPECTOR_WIDTH))
 
 	local body = L.stack(iup, {
 		poster.widget,
 		L.stack(iup, { title, meta }, 1),
 		L.row(iup, { play, queue }),
 		overview,
-		L.stack(iup, { audio_row, subtitle_row }, 2),
-		L.sectionTitle(iup, "File"),
-		facts,
+		tracks,
+		section,
+		fact_box,
 		path,
 	}, 4)
 	iup.SetAttribute(body, "EXPAND", "YES")
+
+	local function fill(rows)
+		for i, entry in ipairs(facts) do
+			local data = rows[i]
+			Kit.show(iup, entry.row, data ~= nil, section)
+			if data then
+				iup.SetAttribute(entry.name, "TITLE", data[1])
+				iup.SetAttribute(entry.value, "TITLE", data[2])
+			end
+		end
+	end
 
 	local function show(item)
 		current = item
 		if not item then return end
 		iup.SetAttribute(title, "TITLE", item.title)
-		local parts = { tostring(item.year) }
-		if item.minutes then parts[#parts + 1] = runtime(item.minutes) end
-		if item.seasons then parts[#parts + 1] = item.seasons .. " seasons, " .. item.episodes .. " episodes" end
-		iup.SetAttribute(meta, "TITLE", table.concat(parts, " · "))
 		iup.SetAttribute(overview, "TITLE", item.overview or "")
-		iup.SetAttribute(play, "TITLE", (item.progress or 0) > 0 and (item.progress or 0) < 1 and "Resume" or "Play")
-		iup.SetAttribute(values.Resolution, "TITLE", item.resolution or "Mixed")
-		iup.SetAttribute(values.Video, "TITLE", item.codec or "By episode")
-		iup.SetAttribute(values.Range, "TITLE", item.dynamic or "By episode")
-		iup.SetAttribute(values.Audio, "TITLE", item.audio or "By episode")
-		iup.SetAttribute(values.Bitrate, "TITLE", item.bitrate and string.format("%.1f Mb/s", item.bitrate) or "By episode")
-		iup.SetAttribute(values.Size, "TITLE", item.size_gb and string.format("%.1f GB", item.size_gb) or "By episode")
-		iup.SetAttribute(values.Added, "TITLE", item.added or "")
+		iup.SetAttribute(play, "TITLE", (item.progress or 0) > 0 and item.progress < 1 and "Resume" or "Play")
+		local is_show = item.kind == "show"
+		if is_show then
+			iup.SetAttribute(meta, "TITLE", string.format("%d · %s", item.year, plural(item.seasons or 0, "season")))
+			iup.SetAttribute(section, "TITLE", "Series")
+			fill({ { "Seasons", tostring(item.seasons or 0) }, { "Episodes", tostring(item.episodes or 0) },
+				{ "Resolution", item.resolution or "Mixed" }, { "Added", item.added or "" } })
+		else
+			local length = runtime(item.minutes)
+			iup.SetAttribute(meta, "TITLE", length and (item.year .. " · " .. length) or tostring(item.year))
+			iup.SetAttribute(section, "TITLE", "File")
+			fill({ { "Resolution", item.resolution or UNKNOWN }, { "Video", item.codec or UNKNOWN },
+				{ "Range", item.dynamic or UNKNOWN }, { "Audio", item.audio or UNKNOWN },
+				{ "Bitrate", item.bitrate and string.format("%.1f Mb/s", item.bitrate) or UNKNOWN },
+				{ "Size", item.size_gb and string.format("%.1f GB", item.size_gb) or UNKNOWN },
+				{ "Added", item.added or UNKNOWN } })
+		end
 		iup.SetAttribute(path, "TITLE", item.path or "")
-		local tracks = { item.audio or "Default" }
-		audio:setItems(tracks, 1)
+		Kit.show(iup, tracks, not is_show, section)
+		audio:setItems({ item.audio or "Default" }, 1)
 		local subs = { "Off" }
 		for name in (item.subtitles or ""):gmatch("[^,%s]+") do subs[#subs + 1] = name end
 		subtitles:setItems(subs, 1)
@@ -155,20 +183,20 @@ end
 --- Build the tab.
 -- @tparam table ctx host context
 -- @tparam table opts `model`, `cache` (a PosterCache or nil), `art_of(item)`, `on_play(item)`
--- @treturn table `widget`, `go(state)`, `fit(width)`, `tick()`, `close()`
+-- @treturn table `widget`, `go(state)`, `fit(width)`, `tick()`
 function M.new(ctx, opts)
 	local iup = ctx.iup
 	local model, cache, art_of = opts.model, opts.cache, opts.art_of
 	local api = {}
 	local drains = {}
-	local films = {}
+	local films, shows = {}, {}
 	for i, film in ipairs(model.films) do films[i] = film end
-	local shows = {}
 	for i, show in ipairs(model.shows) do shows[i] = show end
 	local active = films
 	local source_id = "home"
 	local view = "sheet"
 	local sort = 1
+	local chosen
 	local continuing, recent = {}, {}
 	for _, film in ipairs(model.films) do
 		if (film.progress or 0) > 0 and film.progress < 1 then continuing[#continuing + 1] = film end
@@ -179,39 +207,71 @@ function M.new(ctx, opts)
 	local inspector_body, show_item, inspector_posters = inspector(ctx, cache, art_of, opts.on_play)
 	drains[#drains + 1] = inspector_posters
 
-	local function poster_source(list)
-		return function(pos)
-			local item = list[pos]
-			return item and art_of(item)
+	local shelves, sheet, ledger
+
+	local function position_in(list, item)
+		for i, candidate in ipairs(list) do
+			if candidate == item then return i end
+		end
+		return 0
+	end
+
+	-- Whatever fills the inspector is marked wherever it appears, so the two zones read as one.
+	local function mark_chosen()
+		for _, shelf in ipairs(shelves) do shelf.grid:select(position_in(shelf.list, chosen)) end
+		sheet:select(position_in(active, chosen))
+		ledger:select(position_in(active, chosen))
+	end
+
+	local function choose(item)
+		if not item then return end
+		chosen = item
+		show_item(item)
+		mark_chosen()
+		if opts.enrich then
+			opts.enrich(item, function()
+				if chosen == item then show_item(item) end
+			end)
 		end
 	end
 
 	local function grid_for(list, extra)
-		local args = {
-			count = #list, value = cell_value(list), cell_width = extra.cell, aspect = "2:3", gutter = 16, padding = 0,
-			shelf = extra.shelf,
-			on_select = function(pos) if list[pos] then show_item(list[pos]) end end,
+		local grid = CellGrid.new(iup, {
+			count = #list, value = cell_value(list), cell_width = extra.cell, aspect = "2:3", gutter = GUTTER, padding = 0,
+			shelf = extra.shelf, empty_title = extra.empty, empty_hint = extra.hint,
+			on_select = function(pos) choose(list[pos]) end,
 			on_activate = function(pos) if list[pos] then opts.on_play(list[pos]) end end,
-		}
-		local grid = CellGrid.new(iup, args)
-		if cache then drains[#drains + 1] = CellGrid.posters(grid, cache, poster_source(list)) end
+		})
+		if cache then
+			drains[#drains + 1] = CellGrid.posters(grid, cache, function(pos)
+				local item = list[pos]
+				return item and art_of(item)
+			end)
+		end
 		return grid
 	end
 
-	local continue_shelf = grid_for(continuing, { cell = SHELF_CELL, shelf = true })
-	local recent_shelf = grid_for(recent, { cell = SHELF_CELL, shelf = true })
-	for _, shelf in ipairs({ continue_shelf, recent_shelf }) do
-		iup.SetAttribute(shelf.widget, "RASTERSIZE", "x" .. SHELF_HEIGHT)
-		iup.SetAttribute(shelf.widget, "EXPAND", "HORIZONTAL")
+	local continue_shelf = grid_for(continuing, { cell = SHELF_CELL, shelf = true,
+		empty = "Nothing in progress", hint = "Films you start appear here." })
+	local recent_shelf = grid_for(recent, { cell = SHELF_CELL, shelf = true,
+		empty = "Nothing here yet", hint = "New films appear here after a scan." })
+	shelves = { { grid = continue_shelf, list = continuing }, { grid = recent_shelf, list = recent } }
+	local function size_shelves(cell)
+		for _, shelf in ipairs(shelves) do
+			iup.SetAttribute(shelf.grid.widget, "RASTERSIZE", "x" .. (math.floor(cell * 3 / 2) + SHELF_TEXT + SCROLLBAR))
+		end
 	end
-	local home = iup.vbox({
-		L.sectionTitle(iup, "Continue watching"), continue_shelf.widget,
-		L.sectionTitle(iup, "Recently added"), recent_shelf.widget,
-		iup.fill({}),
-		GAP = L.gap(3), MARGIN = "0x0", EXPAND = "YES",
-	})
+	size_shelves(SHELF_CELL)
+	for _, shelf in ipairs(shelves) do iup.SetAttribute(shelf.grid.widget, "EXPAND", "HORIZONTAL") end
 
-	local sheet = grid_for(active, { cell = CELL })
+	local home = L.stack(iup, {
+		L.stack(iup, { L.sectionTitle(iup, "Continue watching"), continue_shelf.widget }, 3),
+		L.stack(iup, { L.sectionTitle(iup, "Recently added"), recent_shelf.widget }, 3),
+		iup.fill({}),
+	}, 6)
+	iup.SetAttribute(home, "EXPAND", "YES")
+
+	sheet = grid_for(active, { cell = SHEET_CELL })
 	iup.SetAttribute(sheet.widget, "EXPAND", "YES")
 
 	local ledger_rows = {}
@@ -222,18 +282,16 @@ function M.new(ctx, opts)
 				title = item.title, column1 = tostring(item.year), column2 = item.resolution or "",
 				column3 = item.codec or "", column4 = item.dynamic or "", column5 = item.audio or "",
 				column6 = item.size_gb and string.format("%.1f GB", item.size_gb) or "",
-				progress = (item.progress or 0) > 0 and item.progress < 1 and math.floor(item.progress * 100) or nil,
 			}
 		end
 	end
 	fill_ledger(active)
-	local ledger
 	ledger = RowList.new(iup, {
 		rows = ledger_rows, row_height = 32,
 		column_widths = { 56, 72, 72, 104, 120, 80 },
 		header = { title = "Title", columns = { "Year", "Resolution", "Video", "Range", "Audio", "Size" },
 			sorted = { column = 0, descending = false } },
-		on_select = function(pos) if active[pos] then show_item(active[pos]) end end,
+		on_select = function(pos) choose(active[pos]) end,
 		on_activate = function(pos) if active[pos] then opts.on_play(active[pos]) end end,
 		on_sort = function(column, descending)
 			local key = LEDGER_KEYS[column]
@@ -245,29 +303,29 @@ function M.new(ctx, opts)
 			end)
 			fill_ledger(active)
 			ledger:setRows(ledger_rows)
+			mark_chosen()
 		end,
 	})
 	iup.SetAttribute(ledger.widget, "EXPAND", "YES")
 
-	local empty_action = { title = "Add Library", run = function() ctx:notify({ title = "Connect a server first" }, opts.owner) end }
 	local empty, set_empty = Kit.emptyPane(iup, { content = iup.vbox({}), icon = "media--library",
 		title = "No media in this library yet",
 		hint = "Add a folder and Lunar will find the films and shows inside it.",
-		action = empty_action })
+		action = { title = "Add Library", run = function() ctx:notify({ title = "Connect a server first" }, opts.owner) end } })
 	set_empty(true)
 
 	local stack = iup.zbox({ home, sheet.widget, ledger.widget, empty, EXPAND = "YES" })
 
-	local heading = iup.flatlabel({ TITLE = "Home", THEMEROLE = "pagetitle" })
+	local heading = L.pageTitle and L.pageTitle(iup, "Home") or iup.flatlabel({ TITLE = "Home", THEMEROLE = "pagetitle" })
 	local count = L.hint(iup, "")
-	local segmented_host
+
 	local function apply_view()
 		local index = 0
 		if source_id ~= "home" then index = view == "ledger" and 2 or 1 end
 		if #active == 0 and source_id ~= "home" then index = 3 end
 		iup.SetAttribute(stack, "VALUEPOS", tostring(index))
 	end
-	segmented_host = RowList.segmented(iup, { labels = { "Sheet", "Ledger" }, value_pos = 0,
+	local segmented = RowList.segmented(iup, { labels = { "Sheet", "Ledger" }, value_pos = 0,
 		on_change = function(pos)
 			view = pos == 1 and "ledger" or "sheet"
 			apply_view()
@@ -279,11 +337,10 @@ function M.new(ctx, opts)
 			fill_ledger(active)
 			ledger:setRows(ledger_rows)
 			sheet:setProvider(#active, cell_value(active))
+			mark_chosen()
 		end })
-	local controls = iup.hbox({ segmented_host, sort_box.widget, GAP = L.gap(3), ALIGNMENT = "ACENTER" })
+	local controls = iup.hbox({ segmented, sort_box.widget, GAP = L.gap(3), ALIGNMENT = "ACENTER" })
 	local toolbar = iup.hbox({ heading, count, iup.fill({}), controls, GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" })
-
-	local banner = Kit.statusLine(iup, "idle", "Showing a sample library. Connect a server in Settings to see yours.")
 
 	local source_rows = {}
 	for i, source in ipairs(model.sources) do
@@ -294,9 +351,12 @@ function M.new(ctx, opts)
 	local sources = RowList.new(iup, { rows = source_rows, row_height = 32, column_widths = { 40 },
 		on_select = function(pos) go_source(model.sources[pos].id) end })
 	iup.SetAttribute(sources.widget, "EXPAND", "YES")
-	local scan_line = Kit.statusLine(iup, "info", "Scanning Shows")
-	local source_rail = iup.vbox({ iup.hbox({ RASTERSIZE = L.size(SOURCE_WIDTH) }), sources.widget, scan_line,
-		GAP = L.gap(3), MARGIN = "0x0", EXPAND = "VERTICAL" })
+	local scanning = Kit.statusLine(iup, "info", "Scanning Shows")
+	local sample_note = L.hint(iup, "Sample library. Connect a server in Settings.")
+	iup.SetAttribute(sample_note, "RASTERSIZE", L.size(SOURCE_WIDTH, 40))
+	iup.SetAttribute(sample_note, "TEXTWRAP", "YES")
+	local source_rail = iup.vbox({ iup.hbox({ RASTERSIZE = L.size(SOURCE_WIDTH) }), sources.widget,
+		L.stack(iup, { scanning, sample_note }, 2), GAP = L.gap(3), MARGIN = "0x0", EXPAND = "VERTICAL" })
 
 	go_source = function(id)
 		source_id = id
@@ -306,7 +366,7 @@ function M.new(ctx, opts)
 			if source.id == id then title = source.title end
 		end
 		iup.SetAttribute(heading, "TITLE", title)
-		iup.SetAttribute(count, "TITLE", id == "home" and "" or (#active .. " items"))
+		iup.SetAttribute(count, "TITLE", id == "home" and "" or plural(#active, "item"))
 		Kit.show(iup, controls, id ~= "home", sources.widget)
 		if id ~= "home" then
 			table.sort(active, SORTS[sort][2])
@@ -315,45 +375,96 @@ function M.new(ctx, opts)
 			ledger:setRows(ledger_rows)
 		end
 		apply_view()
+		mark_chosen()
+		local place = position_in(active, chosen)
+		if place > 0 then sheet:scrollTo(place) end
 		iup.Refresh(api.widget)
 	end
 
-	local main = iup.vbox({ toolbar, banner, stack, GAP = L.gap(4), MARGIN = "0x0", EXPAND = "YES" })
+	local main = iup.vbox({ toolbar, stack, GAP = L.gap(5), MARGIN = "0x0", EXPAND = "YES" })
 	local right = iup.vbox({ iup.hbox({ RASTERSIZE = L.size(INSPECTOR_WIDTH) }), inspector_body, MARGIN = "0x0", EXPAND = "VERTICAL" })
 	api.widget = iup.hbox({ source_rail, main, right, GAP = L.gap(5), MARGIN = L.margin(5), EXPAND = "YES" })
 
-	show_item(continuing[1] or model.films[1])
+	choose(continuing[1] or model.films[1])
+
+	local function pick_view(name, position)
+		view = name
+		iup.SetAttribute(segmented, "VALUEPOS", name == "ledger" and "1" or "0")
+		sources:select(position)
+	end
 
 	function api.go(state)
 		if state == "home" then
-			go_source("home")
 			sources:select(1)
+			go_source("home")
 		elseif state == "sheet" then
-			view = "sheet"
-			iup.SetAttribute(segmented_host, "VALUEPOS", "0")
+			pick_view("sheet", 2)
 			go_source("films")
-			sources:select(2)
 		elseif state == "ledger" then
-			view = "ledger"
-			iup.SetAttribute(segmented_host, "VALUEPOS", "1")
+			pick_view("ledger", 2)
 			go_source("films")
-			sources:select(2)
-			show_item(model.films[3])
+			choose(model.films[3])
 		elseif state == "shows" then
-			view = "sheet"
-			iup.SetAttribute(segmented_host, "VALUEPOS", "0")
+			pick_view("sheet", 3)
 			go_source("shows")
-			sources:select(3)
-			show_item(model.shows[1])
+			choose(model.shows[1])
 		end
 	end
 
 	function api.fit(width)
-		Kit.show(iup, right, width >= Adaptive.MEDIUM, sources.widget)
+		Kit.show(iup, right, width >= Adaptive.MEDIUM, stack)
 		Kit.show(iup, source_rail, width >= Adaptive.NARROW, stack)
 	end
 
+	-- Cells follow the width the collection really got, measured after layout.
+	local last_width
+	local function fit_cells()
+		local width = tonumber((iup.GetAttribute(stack, "RASTERSIZE") or ""):match("^(%d+)"))
+		if not width or width == last_width or width < SHEET_CELL then return end
+		last_width = width
+		local inner = width - GRID_EDGE
+		sheet:setCellWidth(fitted_cell(inner - SCROLLBAR, SHEET_CELL))
+		local shelf_cell = fitted_cell(inner, SHELF_CELL)
+		for _, shelf in ipairs(shelves) do shelf.grid:setCellWidth(shelf_cell) end
+		size_shelves(shelf_cell)
+		iup.Refresh(api.widget)
+	end
+
+	local function refill(target, source)
+		for i = #target, 1, -1 do target[i] = nil end
+		for i, value in ipairs(source) do target[i] = value end
+	end
+
+	--- Show another library. Lists are refilled in place, because the grids stay for good.
+	function api.setModel(next_model)
+		model = next_model
+		refill(films, model.films)
+		refill(shows, model.shows)
+		refill(continuing, model.continuing or {})
+		refill(recent, model.films)
+		table.sort(recent, SORTS[2][2])
+		continue_shelf:setProvider(#continuing, cell_value(continuing))
+		recent_shelf:setProvider(#recent, cell_value(recent))
+		local rows = {}
+		for i, source in ipairs(model.sources) do
+			rows[i] = { title = source.title, image = Kit.icon(iup, source.icon, 16, "text"),
+				column1 = source.count and tostring(source.count) or "" }
+		end
+		sources:setRows(rows)
+		iup.SetAttribute(scanning, "TITLE", model.scanning and ("Scanning " .. model.scanning) or "")
+		Kit.show(iup, scanning, model.scanning ~= nil, stack)
+		Kit.show(iup, sample_note, model.sample == true, stack)
+		sources:select(1)
+		go_source("home")
+		choose(continuing[1] or recent[1] or shows[1])
+	end
+
+	function api.first()
+		return continuing[1] or recent[1]
+	end
+
 	function api.tick()
+		fit_cells()
 		for _, drain in ipairs(drains) do drain() end
 	end
 

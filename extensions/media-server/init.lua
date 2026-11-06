@@ -27,39 +27,19 @@ local function mime_of(path)
 end
 
 function M:_finish_probe(run)
-	local job = run.job
-	local text = table.concat(run.output)
-	local info, why = Probe.parse(text)
+	local info, why = Probe.parse(table.concat(run.output))
 	if run.code == 0 and info then
-		self.catalog:saveProbe(job, info)
+		self.catalog:saveProbe(run.job, info)
 	else
-		self.catalog:failProbe(job, why or ("ffprobe exited with " .. tostring(run.code)), os.time())
-	end
-end
-
-function M:_drain_probe(run)
-	local chunk = run.process:read("stdout")
-	while chunk and chunk ~= "" do
-		run.size = run.size + #chunk
-		if run.size <= Probe.MAX_OUTPUT then run.output[#run.output + 1] = chunk end
-		chunk = run.process:read("stdout")
+		self.catalog:failProbe(run.job, run.code == nil and "ffprobe timed out"
+			or (run.code ~= 0 and ("ffprobe exited with " .. tostring(run.code)) or why), os.time())
 	end
 end
 
 function M:_tick_probes()
 	for i = #self.probes, 1, -1 do
 		local run = self.probes[i]
-		self:_drain_probe(run)
-		local finished, code = run.process:poll()
-		local overdue = os.time() - run.started > Probe.TIMEOUT_S
-		if finished or overdue then
-			if overdue and not finished then
-				run.process:kill()
-				code = "a timeout"
-			else
-				self:_drain_probe(run)
-			end
-			run.code = code
+		if Probe.advance(run, os.time()) then
 			run.process:close()
 			table.remove(self.probes, i)
 			self:_finish_probe(run)
@@ -71,7 +51,7 @@ function M:_tick_probes()
 		local path = job.root .. "/" .. job.rel_path
 		local process, err = self.ctx:spawn({ argv = Probe.argv(self.ffprobe, path) }, self)
 		if process then
-			self.probes[#self.probes + 1] = { job = job, process = process, output = {}, size = 0, started = os.time() }
+			self.probes[#self.probes + 1] = Probe.run(job, process, os.time())
 		else
 			self.catalog:failProbe(job, tostring(err), os.time())
 		end

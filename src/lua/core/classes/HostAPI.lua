@@ -868,6 +868,16 @@ function HostAPI:fitPage(widget, fit) return Layout.fitPage(self, widget, fit) e
 -- @usage ctx:addTab("Hello", root_vbox, M, { max_content_width = 1400 })
 function HostAPI:addTab(title, widget, owner, opts) return Layout.addTab(self, title, widget, owner, opts) end
 
+--- Bring one of this owner's tabs to the front.
+-- @tparam table owner the extension
+-- @tparam number index which of its tabs, in the order they were added
+-- @treturn boolean whether a tab was shown
+function HostAPI:focusTab(owner, index)
+    local rec = self._owners[owner]
+    local tab = rec and rec.tabs and rec.tabs[index]
+    return tab ~= nil and self:_activateTabWidget(tab) and true or false
+end
+
 
 --- Add any widget to the ordered status area at the right of the status bar (left of
 --

@@ -12,7 +12,10 @@ local VideoHost = require("core.ui.VideoHost")
 
 local M = {}
 
-local ART_WIDTH = 240
+local ART_WIDTH = 216
+local ART_EDGE = 12        -- the grid keeps 6 px each side for selection rings
+
+local SAVE_EVERY = 10     -- seconds between resume points
 
 local function clock(seconds)
 	seconds = math.floor(seconds or 0)
@@ -21,9 +24,14 @@ local function clock(seconds)
 	return string.format("%d:%02d", m, s)
 end
 
+local function centred(iup, widget)
+	return iup.hbox({ iup.fill({}), widget, iup.fill({}) })
+end
+
 --- Build the tab.
 -- @tparam table ctx host context
--- @tparam table opts `animate`, `sample` (a film shown as queued when nothing plays), `owner`
+-- @tparam table opts `animate`, `sample` (a film shown paused until a server plays one), `owner`,
+--   `cache`, `art`
 function M.new(ctx, opts)
 	local iup = ctx.iup
 	local api = {}
@@ -36,37 +44,47 @@ function M.new(ctx, opts)
 
 	local art = CellGrid.new(iup, { count = opts.art and 1 or 0, cell_width = ART_WIDTH, aspect = "2:3", show_text = false,
 		gutter = 0, padding = 0, value = function() return nil end })
-	iup.SetAttribute(art.widget, "RASTERSIZE", L.size(ART_WIDTH + 12, ART_WIDTH * 3 / 2 + 12))
+	iup.SetAttribute(art.widget, "RASTERSIZE", L.size(ART_WIDTH + ART_EDGE, ART_WIDTH * 3 / 2 + ART_EDGE))
 	iup.SetAttribute(art.widget, "EXPAND", "NO")
 	iup.SetAttribute(art.widget, "CANFOCUS", "NO")
 	iup.SetAttribute(art.widget, "FLATSCROLLBAR", "NO")
 	if opts.cache and opts.art then
 		api.tick = CellGrid.posters(art, opts.cache, function() return opts.art end)
 	end
-	local paused = iup.flatlabel({ TITLE = "Paused at " .. clock(position), THEMEROLE = "empty_title", ALIGNMENT = "ACENTER" })
-	local resume = iup.flatlabel({ TITLE = "Press Space to carry on.", THEMEROLE = "empty_hint", ALIGNMENT = "ACENTER" })
-	local picture = iup.vbox({
-		iup.fill({}), iup.hbox({ iup.fill({}), art.widget, iup.fill({}) }),
-		iup.hbox({ iup.fill({}), paused, iup.fill({}) }), iup.hbox({ iup.fill({}), resume, iup.fill({}) }),
-		iup.fill({}), GAP = L.gap(3), MARGIN = "0x0", EXPAND = "YES",
-	})
-
-	local bar = SeekBar.new(iup, { max = duration, on_seek = function() end })
-	iup.SetAttribute(bar.widget, "EXPAND", "HORIZONTAL")
-	bar:setValue(position)
-	bar:setBuffered({ { 0, position + 240 } })
-	bar:setMarks({ { at = 0, to = 95 }, { at = 1320 }, { at = 2700 }, { at = 4140 }, { at = duration - 480, to = duration } })
 
 	local glyph = AnimatedIcon.new(iup, { animate = opts.animate, size = 20, role = "text" })
 	local playing = false
+	local function toggle_playing()
+		playing = not playing
+		glyph:setPlaying(playing)
+		if api.set_paused then api.set_paused(not playing) end
+	end
+	local resume = Kit.button(iup, { title = "Resume", icon = "play--filled--alt", role = "primary_btn",
+		tip = "Resume (Space)", action = toggle_playing })
+	local picture = iup.vbox({
+		iup.fill({}), centred(iup, art.widget),
+		centred(iup, iup.flatlabel({ TITLE = sample.title, THEMEROLE = "sectiontitle", ALIGNMENT = "ACENTER" })),
+		centred(iup, L.hint(iup, "Paused at " .. clock(position) .. " of " .. clock(duration))),
+		centred(iup, resume),
+		iup.fill({}), GAP = L.gap(3), MARGIN = "0x0", EXPAND = "YES",
+	})
+
+	local bar
+	bar = SeekBar.new(iup, { max = duration, on_seek = function(value)
+		if bar.seek_to then bar.seek_to(value) end
+	end })
+	iup.SetAttribute(bar.widget, "EXPAND", "HORIZONTAL")
+	bar:setValue(position)
+	bar:setBuffered({ { 0, position + 240 } })
+	bar:setMarks({ { at = 1320 }, { at = 2700 }, { at = 4140 }, { at = 7200 } })
+
 	local toggle = iup.flatbutton({ TITLE = "", THEMEROLE = "icon_btn", TIP = "Play or pause (Space)", RASTERSIZE = "40x40" })
 	glyph.paint = function(path)
 		Kit.bindIcon(iup, toggle, (path:gsub("%.svg$", "")), { size = 20, role = "text" })
 	end
 	glyph:_draw()
 	function toggle:flat_action()
-		playing = not playing
-		glyph:setPlaying(playing)
+		toggle_playing()
 		return iup.DEFAULT
 	end
 
@@ -77,18 +95,16 @@ function M.new(ctx, opts)
 	end
 
 	local time = iup.flatlabel({ TITLE = clock(position) .. " / " .. clock(duration) })
-	local title = iup.flatlabel({ TITLE = sample.title, THEMEROLE = "sectiontitle" })
 	local detail = L.hint(iup, string.format("%s · %s · %s", sample.resolution or "", sample.dynamic or "", sample.audio or ""))
-	local left = iup.vbox({ title, detail, GAP = L.gap(1), MARGIN = "0x0" })
 	local transport = iup.vbox({
 		bar.widget,
 		iup.hbox({
 			tool("skip--back--filled", "Previous"), toggle, tool("skip--forward--filled", "Next"),
-			left, iup.fill({}), time,
+			time, iup.fill({}), detail,
 			tool("settings--adjust", "Audio and subtitles"), tool("fit-to-screen", "Fullscreen (F)"),
 			GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL",
 		}),
-		GAP = L.gap(2), MARGIN = L.margin(5, 3), EXPAND = "HORIZONTAL",
+		GAP = L.gap(2), MARGIN = "0x0", EXPAND = "HORIZONTAL",
 	})
 
 	local chapters = {
@@ -97,31 +113,99 @@ function M.new(ctx, opts)
 		{ title = "Credits", column1 = "2:00:00" },
 	}
 	local queue = {
-		{ title = "Glass Harbour", secondary = "1 h 44 min", column1 = "Next" },
+		{ title = "Glass Harbour", secondary = "1 h 44 min" },
 		{ title = "Paper Orchard", secondary = "1 h 52 min" },
 		{ title = "Six Bells", secondary = "1 h 35 min" },
 	}
 	local chapter_list = RowList.new(iup, { rows = chapters, row_height = 32, column_widths = { 72 } })
-	local queue_list = RowList.new(iup, { rows = queue, row_height = 44, column_widths = { 56 } })
-	iup.SetAttribute(chapter_list.widget, "EXPAND", "YES")
-	iup.SetAttribute(queue_list.widget, "EXPAND", "YES")
+	local queue_list = RowList.new(iup, { rows = queue, row_height = 44 })
+	iup.SetAttribute(chapter_list.widget, "RASTERSIZE", "x" .. (32 * #chapters + 8))
+	iup.SetAttribute(queue_list.widget, "RASTERSIZE", "x" .. (44 * #queue + 8))
+	iup.SetAttribute(chapter_list.widget, "EXPAND", "HORIZONTAL")
+	iup.SetAttribute(queue_list.widget, "EXPAND", "HORIZONTAL")
+	chapter_list:select(3)
 
 	local rail = iup.vbox({
 		iup.hbox({ RASTERSIZE = L.size(L.SIDE.narrow) }),
-		L.sectionTitle(iup, "Up next"), queue_list.widget,
-		L.sectionTitle(iup, "Chapters"), chapter_list.widget,
-		GAP = L.gap(3), MARGIN = "0x0", EXPAND = "VERTICAL",
+		L.stack(iup, { L.sectionTitle(iup, "Up next"), queue_list.widget }, 3),
+		L.stack(iup, { L.sectionTitle(iup, "Chapters"), chapter_list.widget }, 3),
+		iup.fill({}),
+		GAP = L.gap(6), MARGIN = "0x0", EXPAND = "VERTICAL",
 	})
 
-	local stage = iup.vbox({ requirements.widget, picture, transport, GAP = L.gap(3), MARGIN = "0x0", EXPAND = "YES" })
-	api.widget = iup.hbox({ stage, rail, GAP = L.gap(5), MARGIN = L.margin(5), EXPAND = "YES" })
+	local video = VideoHost.new(iup, { bgcolor = "0 0 0" })
+	local screen = iup.zbox({ picture, video and video.widget or nil, EXPAND = "YES" })
+	local stage = iup.vbox({ requirements.widget, screen, transport, GAP = L.gap(4), MARGIN = "0x0", EXPAND = "YES" })
+	api.widget = iup.hbox({ stage, rail, GAP = L.gap(6), MARGIN = L.margin(5), EXPAND = "YES" })
+	Kit.show(iup, requirements.widget, requirements.blocker ~= nil, bar.widget)
 
 	function api.fit(width)
 		Kit.show(iup, rail, width >= 900, bar.widget)
 	end
 
+	local mpv, on_position, seconds, length, saved_at = nil, nil, 0, 0, 0
+
+	local function on_event(name, info)
+		if name ~= "property-change" or not info or info.value == nil then return end
+		if info.name == "time-pos" then
+			seconds = info.value
+			bar:setValue(seconds)
+			iup.SetAttribute(time, "TITLE", clock(seconds) .. " / " .. clock(length))
+			if on_position and math.abs(seconds - saved_at) >= SAVE_EVERY then
+				saved_at = seconds
+				on_position(seconds, length)
+			end
+		elseif info.name == "duration" then
+			length = info.value
+			bar:setMax(length)
+		end
+	end
+
+	function bar.seek_to(value)
+		if mpv then mpv:seek(value) end
+	end
+
+	function api.set_paused(paused)
+		if mpv then mpv:set("pause", paused and "yes" or "no") end
+	end
+
+	--- Play a stream.
+	-- @tparam table request `url`, `header`, `title`, `detail`, `start` (seconds), `on_position(seconds, length)`
+	-- @treturn boolean|nil true, or nil and why not
+	function api.play(request)
+		if not video then return nil, "this build of Lunar has no video surface" end
+		if not mpv then
+			local err
+			mpv, err = VideoHost.player(video, { on_event = on_event })
+			if not mpv then return nil, err end
+			mpv:observe("time-pos", "double")
+			mpv:observe("duration", "double")
+		end
+		iup.SetAttribute(screen, "VALUEPOS", "1")
+		queue_list:setEmpty("Nothing queued", "")
+		chapter_list:setEmpty("No chapters", "")
+		queue_list:setRows({})
+		chapter_list:setRows({})
+		iup.SetAttribute(detail, "TITLE", request.detail or "")
+		on_position, saved_at = request.on_position, 0
+		mpv:set("http-header-fields", request.header)
+		mpv:set("start", tostring(math.floor(request.start or 0)))
+		mpv:load(request.url)
+		playing = true
+		glyph:setPlaying(true)
+		return true
+	end
+
+	function api.pump()
+		if mpv then mpv:poll() end
+	end
+
 	function api.close()
 		glyph:stop()
+		if mpv then
+			mpv:destroy()
+			mpv = nil
+		end
 	end
 
 	return api

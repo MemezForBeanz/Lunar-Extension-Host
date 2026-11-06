@@ -164,6 +164,34 @@ describe("probe parsing", function()
 		assert.is_nil((Probe.parse("not json")))
 	end)
 
+	it("waits for the exit code, then keeps the last output", function()
+		local chunks = { "first", "", "last" }
+		local exits = { false, 0 }
+		local process = {
+			read = function() return table.remove(chunks, 1) end,
+			poll = function()
+				local code = table.remove(exits, 1)
+				if code == false then return nil end
+				return code
+			end,
+		}
+		local run = Probe.run({}, process, 0)
+		assert.is_false(Probe.advance(run, 1))
+		assert.is_true(Probe.advance(run, 2))
+		assert.equal(0, run.code)
+		assert.equal("firstlast", table.concat(run.output))
+	end)
+
+	it("kills a run that takes too long, and leaves no exit code", function()
+		local killed = false
+		local process = { read = function() return "" end, poll = function() return nil end,
+			kill = function() killed = true end }
+		local run = Probe.run({}, process, 0)
+		assert.is_true(Probe.advance(run, Probe.TIMEOUT_S + 1))
+		assert.is_true(killed)
+		assert.is_nil(run.code)
+	end)
+
 	it("keeps the path as one argument after the option terminator", function()
 		local argv = Probe.argv("ffprobe", "-odd name.mkv")
 		assert.equal("--", argv[#argv - 1])

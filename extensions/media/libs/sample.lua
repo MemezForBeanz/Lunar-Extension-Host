@@ -71,6 +71,7 @@ function M.library()
 	for i, row in ipairs(FILMS) do films[i] = film(i, row) end
 	for i, row in ipairs(SHOWS) do shows[i] = show(i, row) end
 	return {
+		sample = true,
 		sources = {
 			{ id = "home", title = "Home", icon = "home" },
 			{ id = "films", title = "Films", icon = "video", count = #films },
