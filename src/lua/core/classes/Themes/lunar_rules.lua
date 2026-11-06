@@ -385,6 +385,9 @@ function M.build(p)
         flatrows = scroll({ bg = well, fg = p.text, secondary = p.textMuted, font = p.font,
             border = border, radius = RF, itemradius = R, itemmarker = p.accent,
             selbg = chosen, seltext = p.text, hover = hover, scrollbg = well }),
+        flatgrid = scroll({ bg = well, fg = p.text, secondary = p.textMuted, font = p.font,
+            itemradius = R, itemmarker = p.accentBright or p.accent, hover = borderS, placeholder = layer1 }),
+        flatseek = { bg = well, track = borderS, buffer = p.textMuted, played = p.accentBright or p.accent, mark = p.text },
         flatsegmented = { bg = layer1, fg = p.textMuted, font = p.font,
             border = border, radius = R, selbg = chosen, seltext = p.text },
         -- A field edge in focus. core.ui.FlatField swaps its frame to this role.
