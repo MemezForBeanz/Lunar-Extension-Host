@@ -24,6 +24,7 @@ M.__index = M
 M.Z_LIST_ENTRANCE = 10
 M.Z_TAB = 20
 M.Z_SCRIM = 30
+M.Z_THEME = 35
 M.Z_TOASTS = 40
 
 -- A backend may be a table or native userdata (the overlay `require("compositor")`

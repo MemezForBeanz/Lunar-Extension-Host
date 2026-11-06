@@ -17,6 +17,7 @@ vendor/*
 !vendor/luasec/
 !vendor/copas/
 !vendor/nanosvg/
+!vendor/stb/
 !vendor/certs/
 
 # Generated sources

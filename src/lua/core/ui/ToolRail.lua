@@ -77,6 +77,19 @@ function ToolRail:_size()
 	end
 	iup.SetAttributeId(strip, "EXTRATIP", 1, "New sidebar group")
 	iup.SetAttributeId(strip, "EXTRATIP", 2, self._collapsed and "Expand sidebar (Ctrl+B)" or "Collapse sidebar (Ctrl+B)")
+	if self._reveal then self:setReveal(self._reveal) end
+end
+
+--- Change occupied width without changing the remembered expand/collapse choice.
+function ToolRail:setReveal(progress)
+	self._reveal = progress
+	local width = math.floor((self._collapsed and ToolRail.NARROW or ToolRail.WIDE) * progress + 0.5)
+	local iup, strip = self._iup, self._strip
+	iup.SetAttribute(strip, "FLOATING", width == 0 and "YES" or "NO")
+	iup.SetAttribute(strip, "VISIBLE", width == 0 and "NO" or "YES")
+	iup.SetAttribute(strip, "RASTERSIZE", width .. "x")
+	iup.SetAttribute(strip, "MINSIZE", width .. "x1")
+	iup.SetAttribute(strip, "MAXSIZE", width .. "x65535")
 end
 
 function ToolRail:refresh()

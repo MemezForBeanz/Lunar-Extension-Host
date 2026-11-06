@@ -317,6 +317,13 @@ function Registry:clientFor(path)
 end
 
 --- Every client that exists, running or not.
+function Registry:runningClientFor(path)
+	local entry, language = self:serverFor(path)
+	if not entry then return nil end
+	local client = self._clients[client_key(entry.id, self:rootFor(entry, path))]
+	if client and client.state == "running" then return client, language end
+end
+
 function Registry:clients()
 	local out = {}
 	for _, client in pairs(self._clients) do out[#out + 1] = client end

@@ -16,7 +16,7 @@ return function(rules, p, c)
 	rules.titlebar_button = {
 		bg = floor, fg = p.textMuted, border = floor, borderwidth = 0, radius = c.radius,
 		hover = c.hover, hovertext = p.text, pressed = c.selected, pressedtext = p.text,
-		padding = "0x0",
+		padding = "0x0", focusfeedback = false,
 	}
 	rules.titlebar_tabs = {
 		bg = floor, fg = p.text, font = c.font, activeline = p.accent,

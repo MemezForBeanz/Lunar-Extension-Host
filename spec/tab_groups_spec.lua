@@ -257,6 +257,13 @@ local function make_iup()
 		return proxy(real(w).parent)
 	end
 
+	function iup.GetChildPos(parent, child)
+		for i, w in ipairs(real(parent).children) do
+			if real(w) == real(child) then return i - 1 end
+		end
+		return -1
+	end
+
 	function iup.GetAttributeHandle(w, name)
 		w = real(w)
 		if name ~= "VALUE" then return nil end
@@ -375,6 +382,23 @@ describe("TabGroups", function()
 		iup.Append(root, w)
 		return w
 	end
+
+	it("resolves icons on creation, restore and rename using final collision names", function()
+		local icons = { ["Tools (acme)"] = "acme", ["Tools (other)"] = "other" }
+		groups._group_icon = function(strip, name)
+			iup.SetAttribute(strip, "TABIMAGE", icons[name])
+			local parent = iup.GetParent(strip)
+			if parent then iup.SetAttributeId(parent, "TABIMAGE", iup.GetChildPos(parent, strip), icons[name]) end
+		end
+		groups:createGroup(root, "Tools (acme)")
+		groups:createGroup(root, "Tools (other)")
+		assert.equal("acme", iup.GetAttribute(root, "TABIMAGE0"))
+		assert.equal("other", iup.GetAttribute(root, "TABIMAGE1"))
+		groups:restore()
+		assert.equal("acme", iup.GetAttribute(root, "TABIMAGE0"))
+		groups:renameGroup(root.children[1], "Personal")
+		assert.is_nil(iup.GetAttribute(root, "TABIMAGE0"))
+	end)
 
 	describe("toolbar placement", function()
 		it("moves nested tabs to either toolbar without changing other members", function()

@@ -224,6 +224,7 @@ local ROLE_PALETTE_KEY = {
 	info    = "info",
 	neutral = "textMuted",
 	accent  = "accent",
+	brand   = "brandMark",
 	text    = "text",
 	on_accent = "accentText",
 	disabled = "borderStrong01",
@@ -251,6 +252,8 @@ end
 -- @tparam string role Semantic role name.
 -- @treturn string `"#RRGGBB"` hex color string.
 function VectorIcon.roleColor(role)
+	-- A fixed colour: an org's mark that must not follow the theme (`brand.icon_color`).
+	if type(role) == "string" and role:match("^#%x%x%x%x%x%x$") then return role end
 	local fallback = ROLE_FALLBACK[role] or DEFAULT_COLOR
 	if not ThemeReactor then
 		return fallback
@@ -261,6 +264,7 @@ function VectorIcon.roleColor(role)
 	end
 	local key = ROLE_PALETTE_KEY[role]
 	local raw = key and pal[key]
+	if role == "brand" and not raw then return VectorIcon.roleColor("neutral") end
 	return (raw and rgb_string_to_hex(raw)) or fallback
 end
 
@@ -526,7 +530,7 @@ end
 
 local _logoCache = {}  -- "path|height" -> IUP handle name, or `false` on failure
 
---- Render a multi-colour SVG (an org logo) at a fixed height, keeping its own
+--- Render a multi-colour SVG or PNG (an org logo) at a fixed height, keeping its own
 -- colours and aspect ratio, and return its IUP image handle name.
 -- Unlike `imageHandle` this never recolours, so it parses its own copy of the
 -- file rather than sharing the icon cache (whose images get recoloured).
@@ -541,6 +545,20 @@ function VectorIcon.logoHandle(iup, path, height)
 	local cached = _logoCache[key]
 	if cached ~= nil then return cached or nil end
 
+	if type(path) == "string" and path:lower():match("%.png$") then
+		local ok_module, pngimage = pcall(require, "pngimage")
+		local ok_png, img, reason
+		if ok_module then ok_png, img, reason = pcall(pngimage.to_image, path, height) end
+		if not ok_png or not img then
+			_logoCache[key] = false
+			return nil, reason or "PNG decoder unavailable or failed"
+		end
+		_handleSeq = _handleSeq + 1
+		local name = "VectorLogo_" .. _handleSeq
+		iup.SetHandle(name, img)
+		_logoCache[key] = name
+		return name
+	end
 	local ok, image = pcall(C.nsvgParseFromFile, path, "px", 96)
 	if not ok or image == nil or image.width <= 0 or image.height <= 0 then
 		_logoCache[key] = false

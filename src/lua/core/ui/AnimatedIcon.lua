@@ -161,6 +161,9 @@ local function default_frame(name, svg)
 	return path
 end
 
+--- Store one frame's SVG and return its path. Written once: the name is the key.
+M.frame = default_frame
+
 --- Create an icon.
 -- @tparam userdata iup
 -- @tparam[opt] table opts `animate` (see the module note), `size` (default 20), `role` (a
@@ -207,7 +210,7 @@ end
 function M:setPlaying(playing)
 	if self.playing == playing then return self end
 	self.playing = playing
-	if self.morph then self.morph.cancel() end
+	if self.morph then self.morph:cancel() end
 	local target = playing and 1 or 0
 	if self.equalizer or not self.animate then
 		self.progress = target
@@ -240,7 +243,7 @@ end
 function M:setEqualizer(active)
 	if self.equalizer == active then return self end
 	self.equalizer = active
-	if self.bars then self.bars.cancel() end
+	if self.bars then self.bars:cancel() end
 	if not active then
 		self.moving = false
 		self:_draw()
@@ -256,8 +259,8 @@ end
 --- Stop any animation; call before the widget goes away.
 function M:stop()
 	self.equalizer, self.moving = false, false
-	if self.morph then self.morph.cancel() end
-	if self.bars then self.bars.cancel() end
+	if self.morph then self.morph:cancel() end
+	if self.bars then self.bars:cancel() end
 end
 
 return M

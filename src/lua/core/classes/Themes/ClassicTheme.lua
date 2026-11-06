@@ -79,6 +79,8 @@ function ClassicTheme:initialize()
 
     Theme.initialize(self, {
         id      = "classic",
+        family  = "classic",
+        family_label = "Classic",
         label   = "Classic",
         palette = p,
     })

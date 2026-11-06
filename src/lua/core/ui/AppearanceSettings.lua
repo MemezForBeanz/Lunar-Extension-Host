@@ -1,7 +1,8 @@
---- The host's own "Appearance" settings section: theme and interface motion.
+--- The host's own "Appearance" settings section: palette, light or dark, and motion.
 --
--- The theme selector stays in sync with the top-bar Theme menu (both come from
--- `ThemeManager`). A setting the org profile locks shows greyed out with a note,
+-- The palette selector stays in sync with the top-bar Theme menu (both come from
+-- `ThemeManager`), and the Dark mode toggle with the moon button: all three follow
+-- whatever theme is on screen. A setting the org profile locks shows greyed out with a note,
 -- and a change is applied only when the write succeeded.
 --
 -- @module core.ui.AppearanceSettings
@@ -84,13 +85,32 @@ function M.register(opts)
 	local entries = {
 		{
 			label = "Theme",
-			description = "Switch the application color theme. Affects all tabs and extensions.",
+			description = "Choose the application's color palette. Affects all tabs and extensions.",
 			widget = manage(opts.theme_manager:buildDropdown(), "theme"),
 		},
 	}
+	local themes = opts.theme_manager
+	local function is_dark()
+		local theme = themes:activeTheme()
+		return theme ~= nil and theme:isDark()
+	end
+	local dark_mode = iup.flattoggle({ TITLE = "", THEMEROLE = "flattoggle", VALUE = is_dark() and "ON" or "OFF" })
+	function dark_mode:valuechanged_cb()
+		if (iup.GetAttribute(dark_mode, "VALUE") == "ON") ~= is_dark() then themes:toggleMode() end
+		iup.SetAttribute(dark_mode, "VALUE", is_dark() and "ON" or "OFF")
+		return iup.DEFAULT
+	end
+	manage(dark_mode, "theme")
+	entries[#entries + 1] = {
+		label = "Dark mode",
+		description = "Show this palette's dark colors. The moon button in the title bar does the same. "
+			.. "A palette with only one mode can't switch.",
+		widget = dark_mode,
+	}
 	local system_theme = opts.system_theme
+	local follow
 	if system_theme then
-		local follow = iup.flattoggle({ TITLE = "", THEMEROLE = "flattoggle", VALUE = system_theme:enabled() and "ON" or "OFF" })
+		follow = iup.flattoggle({ TITLE = "", THEMEROLE = "flattoggle", VALUE = system_theme:enabled() and "ON" or "OFF" })
 		function follow:valuechanged_cb()
 			if not system_theme:setEnabled(iup.GetAttribute(follow, "VALUE") == "ON") then
 				iup.SetAttribute(follow, "VALUE", system_theme:enabled() and "ON" or "OFF")
@@ -99,13 +119,19 @@ function M.register(opts)
 		end
 		entries[#entries + 1] = {
 			label = "Match system theme",
-			description = "Use a light theme while the system is in light mode and a dark theme while it "
-				.. "is in dark mode (on Windows: Settings > Personalization > Colors; on Linux: the "
-				.. "desktop's light/dark style). While this is on, choosing a theme above sets it for "
-				.. "the current mode.",
+			description = "Follow the system's light or dark mode (on Windows: Settings > Personalization > "
+				.. "Colors; on Linux: the desktop's light/dark style). Switching mode by hand turns this off.",
 			widget = manage(follow, "theme"),
 		}
 	end
+
+	themes:onApply(function()
+		iup.SetAttribute(dark_mode, "VALUE", is_dark() and "ON" or "OFF")
+		if follow then iup.SetAttribute(follow, "VALUE", system_theme:enabled() and "ON" or "OFF") end
+		if not settings:isLocked("theme") then
+			iup.SetAttribute(dark_mode, "ACTIVE", themes:counterpart(themes:current()) and "YES" or "NO")
+		end
+	end)
 
 	entries[#entries + 1] = {
 		label = "Interface motion",

@@ -33,7 +33,11 @@ local function setup(opts)
 		iup = fake_iup(),
 		settings = settings,
 		host = { addSettings = function(_, name, s) section = { name = name, entries = s.entries } end },
-		theme_manager = { buildDropdown = function() return { kind = "dropdown" } end },
+		theme_manager = opts.theme_manager or {
+			buildDropdown = function() return { kind = "dropdown" } end,
+			activeTheme = function() return { isDark = function() return true end } end,
+			onApply = function() end,
+		},
 		motion = { configure = function(_, c) configured[#configured + 1] = c end },
 		system_theme = opts.system_theme,
 		org_name = opts.org_name,
@@ -45,10 +49,31 @@ local function setup(opts)
 end
 
 describe("AppearanceSettings", function()
+	it("offers Dark mode, which flips the theme and follows it", function()
+		local dark, toggles, listeners = true, 0, {}
+		local ui = setup({ theme_manager = {
+			buildDropdown = function() return { kind = "dropdown" } end,
+			activeTheme = function() return { isDark = function() return dark end } end,
+			onApply = function(_, fn) listeners[#listeners + 1] = fn end,
+			toggleMode = function() toggles = toggles + 1; dark = not dark end,
+			counterpart = function() return "other" end,
+			current = function() return "theme" end,
+		} })
+		local toggle = ui.w["Dark mode"]
+		assert.equal("ON", toggle.VALUE)
+		toggle.VALUE = "OFF"
+		toggle:valuechanged_cb()
+		assert.equal(1, toggles)
+		assert.equal("OFF", toggle.VALUE)
+		dark = true -- the moon button, or the system
+		listeners[1]()
+		assert.equal("ON", toggle.VALUE)
+	end)
+
 	it("registers the Appearance section with theme and motion rows", function()
 		local s = setup()
 		assert.are.equal("Appearance", s.section.name)
-		assert.are.equal(4, #s.section.entries)
+		assert.are.equal(5, #s.section.entries)
 		assert.are.equal("dropdown", s.w.Theme.kind)
 		assert.are.equal("ON", s.w["Interface motion"].VALUE)   -- unset means on
 	end)
@@ -93,8 +118,8 @@ describe("AppearanceSettings", function()
 			setEnabled = function(_, on) calls[#calls + 1] = on; return true end,
 		}
 		local s = setup({ system_theme = st })
-		assert.are.equal(5, #s.section.entries)
-		assert.are.equal("Match system theme", s.section.entries[2].label)
+		assert.are.equal(6, #s.section.entries)
+		assert.are.equal("Match system theme", s.section.entries[3].label)
 		local t = s.w["Match system theme"]
 		assert.are.equal("OFF", t.VALUE)
 		t.VALUE = "ON"; t:valuechanged_cb()

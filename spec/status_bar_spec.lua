@@ -1,5 +1,35 @@
 local StatusBar = require("core.ui.StatusBar")
 
+describe("StatusBar logo", function()
+	it("hides below 1000px, hides absent variants, and only relayouts changed sizes", function()
+		local refreshes, updates = 0, 0
+		local iup = {
+			SetAttribute = function(w, k, v) w[k] = v end,
+			GetAttribute = function(w, k) return w[k] end,
+			GetHandle = function(name) return { WIDTH = name == "wide" and "90" or "60", HEIGHT = "18" } end,
+			Refresh = function() refreshes = refreshes + 1 end,
+			Update = function() updates = updates + 1 end,
+		}
+		local sb = setmetatable({ _iup = iup, _logo = {}, _logo_box = {}, _field = {}, _activity_text = {} }, StatusBar)
+		sb:fit(1000)
+		sb:setLogo("light")
+		assert.equal("YES", sb._logo_box.VISIBLE)
+		assert.equal(1, refreshes)
+		sb:setLogo("dark")
+		assert.equal(1, refreshes)
+		assert.equal(1, updates)
+		sb:setLogo("wide")
+		assert.equal(2, refreshes)
+		sb:fit(999)
+		assert.equal("NO", sb._logo_box.VISIBLE)
+		assert.equal("YES", sb._logo_box.FLOATING)
+		sb:fit(1000)
+		assert.equal("YES", sb._logo_box.VISIBLE)
+		sb:setLogo(nil)
+		assert.equal("NO", sb._logo_box.VISIBLE)
+	end)
+end)
+
 -- A bar without the native widgets: just the label, IUP and a motion director
 -- that runs frames only when told to, so a fade can be interrupted.
 local function bar()

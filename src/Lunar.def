@@ -182,6 +182,7 @@ EXPORTS
     luaopen_string_buffer
     luaopen_subprocess
     luaopen_svgicon
+    luaopen_pngimage
     luaopen_table
     luaopen_themeapply
     luaopen_winredraw

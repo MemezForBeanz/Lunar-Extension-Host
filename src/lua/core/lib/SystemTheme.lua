@@ -5,8 +5,10 @@
 -- (`theme_dark`) when it is in dark mode, re-checking every few seconds so a
 -- change in Windows' app mode or the desktop's color scheme carries over live.
 --
--- Choosing a theme while matching (the Settings selector or the Theme menu) sets
--- the theme **for the current mode**, so there is one selector rather than two.
+-- Choosing a palette while matching (the Settings selector or the Theme menu) sets
+-- the theme for the current mode and its other half for the other mode, so there
+-- is one selector rather than two. Flipping the mode by hand (the moon button or
+-- the Dark mode toggle) turns matching off: the user has overruled the system.
 -- An org profile that locks `theme` also locks this: the profile's theme wins.
 --
 -- The system is asked through `core.platform.system_dark()`: Windows'
@@ -196,11 +198,23 @@ function SystemTheme:choose(id)
 				if self._themes._syncControls then pcall(self._themes._syncControls, self._themes) end
 				return false
 			end
-			pcall(function() s:save() end)
+			local other = self._themes.counterpart and self._themes:counterpart(id)
+			local other_key = dark and "theme_light" or "theme_dark"
+			if other and not (s.isLocked and s:isLocked(other_key)) then s:set(other_key, other) end
+				pcall(function() s:save() end)
 		end
 	end
 	self._themes:apply(id)
 	return true
+end
+
+--- The user flipped the mode by hand. That overrules the system, so matching stops.
+-- @tparam string id the theme for the mode they asked for
+-- @treturn boolean false when the theme is locked
+function SystemTheme:switchMode(id)
+	if not self:available() then return false end
+	if self:enabled() then self:setEnabled(false) end
+	return self._themes:apply(id) ~= false
 end
 
 --- Start re-checking the system every `interval_ms` (needs `opts.iup`). The
