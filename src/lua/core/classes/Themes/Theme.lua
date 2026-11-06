@@ -20,6 +20,9 @@
 -- Gradient-capable themes also provide `gradEnabled`, `gradTop`, `gradBottom`,
 -- and `radius`.
 --
+-- **Palettes:** a light and a dark theme that give the same `spec.family` (and
+-- `spec.family_label`) appear as one palette, and the mode toggle swaps between them.
+--
 -- @classmod core.classes.Themes.Theme
 
 local class = require("middleclass")
@@ -35,6 +38,8 @@ function Theme:initialize(spec)
     self._label   = spec.label
     self._palette = spec.palette or {}
     self._dark    = spec.dark   -- optional; see isDark
+    self._family  = spec.family
+    self._family_label = spec.family_label
 end
 
 --- Return the theme's stable identifier string (e.g. `"classic_dark"`).
@@ -48,6 +53,20 @@ end
 -- @treturn string The display label (e.g. `"Classic Dark"`).
 function Theme:label()
     return self._label
+end
+
+--- The palette family this theme belongs to: its light and dark variants share one,
+-- and the Theme selector shows the family as a single entry. A theme that doesn't
+-- say is a family of its own.
+-- @treturn string
+function Theme:family()
+    return self._family or self._id
+end
+
+--- The name the Theme selector shows for the family (e.g. `"Lunar"`).
+-- @treturn string
+function Theme:familyLabel()
+    return self._family_label or self._label
 end
 
 --- Return the theme's color palette table.

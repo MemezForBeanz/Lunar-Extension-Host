@@ -21,6 +21,7 @@ local Uri = require("core.lsp.Uri")
 local Transport = require("core.lsp.Transport")
 local Rpc = require("core.lsp.Rpc")
 local Documents = require("core.lsp.Documents")
+local SemanticTokens = require("core.lsp.SemanticTokens")
 
 local Client = {}
 Client.__index = Client
@@ -46,6 +47,7 @@ Client.FEATURES = {
 	definition = "definitionProvider",
 	symbols = "documentSymbolProvider",
 	references = "referencesProvider",
+	semanticTokens = "semanticTokensProvider",
 }
 
 local function default_clock()
@@ -62,6 +64,11 @@ function Client.capabilities()
 		workspace = { configuration = true, workspaceFolders = true },
 		window = { workDoneProgress = true },
 		textDocument = {
+			semanticTokens = {
+				dynamicRegistration = false, requests = { full = true },
+				tokenTypes = Json.array(SemanticTokens.TYPES), tokenModifiers = Json.array(SemanticTokens.MODIFIERS),
+				formats = Json.array({ "relative" }), overlappingTokenSupport = false, multilineTokenSupport = false,
+			},
 			synchronization = { didSave = true, dynamicRegistration = false },
 			publishDiagnostics = { relatedInformation = false, versionSupport = false },
 			hover = { contentFormat = Json.array({ "markdown", "plaintext" }) },
@@ -445,6 +452,8 @@ end
 --- Open a document with the server, starting it if need be.
 function Client:open(uri, language_id, text)
 	self._idle_since = nil
+	local snapshot = self._snapshots and self._snapshots[Uri.key(uri)]
+	if snapshot then snapshot.owned = false end
 	local doc = self.documents:open(uri, language_id, text)
 	if self.state == "stopped" then self:start() end
 	return doc
@@ -457,9 +466,35 @@ end
 
 --- Close a document.
 function Client:close(uri)
+	local snapshot = self._snapshots and self._snapshots[Uri.key(uri)]
+	if snapshot then snapshot.owned = true; return true end
 	local closed = self.documents:close(uri)
 	if self.documents:count() == 0 then self._idle_since = self._clock() end
 	return closed
+end
+
+--- Retain matching text for a print while allowing an editor to adopt the document.
+-- Several prints can share a request document without closing it under each other.
+function Client:retainSnapshot(uri, language, text)
+	local doc = self.documents:get(uri)
+	if self.state ~= "running" or (doc and doc.text ~= text) then return nil end
+	self._snapshots = self._snapshots or {}
+	local key = Uri.key(uri)
+	local snapshot = self._snapshots[key]
+	if not snapshot then
+		snapshot = { owned = not doc, count = 0, doc = doc or self.documents:open(uri, language, text) }
+		self._snapshots[key] = snapshot
+	end
+	snapshot.count = snapshot.count + 1
+	local released = false
+	return function()
+		if released then return end
+		released = true
+		snapshot.count = snapshot.count - 1
+		if snapshot.count > 0 then return end
+		self._snapshots[key] = nil
+		if snapshot.owned and self.documents:get(uri) == snapshot.doc then self:close(uri) end
+	end
 end
 
 --- Tell the server a document was saved.
@@ -472,6 +507,30 @@ end
 -- ---------------------------------------------------------------------------
 -- Requests
 -- ---------------------------------------------------------------------------
+
+--- Full semantic colours, converted from protocol columns to UTF-8 byte ranges.
+function Client:semanticTokens(uri, callback)
+	local provider = self.server.semanticTokensProvider
+	if not self:supports("semanticTokens") or type(provider) ~= "table" or not provider.full then
+		callback(nil, { message = "Semantic tokens unavailable", unsupported = true })
+		return nil
+	end
+	local doc = self.documents:get(uri)
+	if not doc then callback(nil, { message = "Document is not open" }); return nil end
+	self.documents:flush(uri)
+	local text, version = doc.text, doc.version
+	local request, why = self._rpc:request("textDocument/semanticTokens/full", { textDocument = { uri = uri } },
+		function(result, err)
+			local current = self.documents:get(uri)
+			if err then return callback(nil, err) end
+			if not current or current.version ~= version or current.text ~= text then return callback(nil, { message = "Document changed" }) end
+			if type(result) ~= "table" or type(result.data) ~= "table" then return callback({}) end
+			local ranges, decode_err = SemanticTokens.decode(result.data, provider.legend, text, self.documents:encoding())
+			callback(ranges, decode_err and { message = decode_err } or nil)
+		end)
+	if not request then callback(nil, { message = why }) end
+	return request
+end
 
 -- A request about a place in a document. `line` is zero-based and `byte_column`
 -- is the editor's column in bytes; the conversion to a protocol position happens

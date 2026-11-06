@@ -13,14 +13,14 @@
 /*** Bitmaps compiled into the executable.
  *
  * The app needs exactly two bitmaps before any file I/O is meaningful: the
- * statusbar logo and the window icon. Loading them from disk with
+ * legacy mark and the window icon. Pack logos use the runtime PNG/SVG loaders. Loading them from disk with
  * `iup.LoadImage` was the only thing pulling the IM imaging library into the
  * binary -- roughly a megabyte of TIFF/EXIF/JPEG/colour-space machinery plus a
  * static libstdc++ -- for 3364 pixels. The pixels are now decoded at build time
  * (see scripts/embed_images.py) and wrapped here with `IupImageRGBA`.
  *
  * A side benefit: these can no longer go missing or be corrupted by a partial
- * install, so the statusbar and window icon always render.
+ * install, so the embedded mark and window icon always render.
  *
  * @module appimages
  */

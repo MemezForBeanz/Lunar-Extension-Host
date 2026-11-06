@@ -114,9 +114,23 @@ Settings → Appearance.
 
 ## Light and dark
 
-Settings > Appearance > **Match system theme** shows the user's light theme while
-the operating system is in light mode and their dark theme while it is in dark
-mode (Windows' app mode; on Linux the desktop's light/dark style), switching live.
+The Theme selector lists palettes, not themes: a light and a dark theme that give the
+same `family` are one entry, and the mode is a separate choice. The moon button in the
+title bar, **Dark mode** in Settings > Appearance, and the Theme menu's Toggle Light/Dark
+all swap to the other half. With motion on, the window fades and the moon turns into the
+sun; with motion off the swap is instant.
+
+```lua
+Theme.initialize(self, { id = "acme_light", family = "acme", family_label = "Acme",
+    label = "Acme Light", palette = p })
+```
+
+A theme with no `family` is a palette of its own, and the toggle can't switch it. Saved
+settings still hold a theme id (`theme`, `theme_light`, `theme_dark`), so org locks and
+logo maps name real themes.
+
+**Match system theme** follows the operating system's mode (Windows' app mode; on Linux
+the desktop's light/dark style), switching live. Flipping the mode by hand turns it off.
 Lunar decides whether a theme is dark from its palette's `bg` brightness. A theme
 whose background doesn't say it clearly can declare it in its spec:
 

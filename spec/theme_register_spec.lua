@@ -9,6 +9,7 @@ local function fake_iup()
 	function iup.SetAttribute(h, k, v) attrs[h] = attrs[h] or {}; attrs[h][k] = v end
 	function iup.GetAttribute(h, k) return attrs[h] and attrs[h][k] end
 	function iup.item(t) return t end
+	function iup.separator(t) return t end
 	function iup.menu(t) return { children = t } end
 	function iup.submenu(t) return t end
 	function iup.Append(menu, item) menu.children[#menu.children + 1] = item end
