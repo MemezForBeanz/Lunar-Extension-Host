@@ -549,8 +549,7 @@ local function recalc_shell_budget(client_h)
 		corners = 24,
 		status = status,
 	}
-	-- The gutter is the seam above the status bar: with no bar there is no seam.
-	local cap = ShellBudget.cap(client_h, bands, status > 0 and L.gutter() or 0, 2)
+	local cap = ShellBudget.cap(client_h, bands)
 	shell_budget.bands, shell_budget.cap = bands, cap
 	local value = "65535x" .. cap
 	if iup.GetAttribute(tabs, "MAXSIZE") == value then return false end

@@ -205,6 +205,8 @@ local function step()
 		snap("bars-restored")
 		check(size(layout._rail:widget()):match("^176x"), "expanded sidebar restored expanded")
 		check(height(layout._status:widget()) > 0, "status bar restored")
+		check(shell.shell_budget.cap == tonumber((iup.GetAttribute(dialog, "CLIENTSIZE") or ""):match("x(%d+)$")) - 40 - 24 - 28,
+			"page meets the status bar with no seam")
 		shell.host._theme_mgr:apply("lunar_light")
 		terminal:clear(); terminal:execute("help"); terminal:execute("version")
 		terminal:_inputText([[show "src/lua/core/lib/LunarShell.lua"]])
