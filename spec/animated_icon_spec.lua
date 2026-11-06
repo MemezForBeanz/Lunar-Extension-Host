@@ -175,3 +175,19 @@ describe("Grids sharing a poster cache", function()
 		assert.are.same({ 2 }, b.refreshed)
 	end)
 end)
+
+describe("Host timers", function()
+	it("get their interval before they start, or IUP never runs them", function()
+		local HostAPI = require("core.classes.HostAPI")
+		local order = {}
+		local fake = {}
+		function fake.timer(attrs)
+			for name in pairs(attrs) do order[#order + 1] = name end
+			return {}
+		end
+		function fake.SetAttribute(_, name) order[#order + 1] = name end
+		local host = setmetatable({ iup = fake, _owners = {} }, { __index = HostAPI })
+		host:addTimer({ time = 30, run = true, action = function() end }, {})
+		assert.are.same({ "TIME", "RUN" }, order)
+	end)
+end)

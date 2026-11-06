@@ -1041,10 +1041,9 @@ function HostAPI:addTimer(opts, owner)
         table.insert(self:_record(owner).timers, timer)
         return timer
     end
-    local timer = iup.timer{
-        TIME = tostring(opts.time or 100),
-        RUN  = opts.run and "YES" or "NO",
-    }
+    -- TIME goes on before RUN is set: IUP won't start a timer with no interval, and a table
+    -- constructor applies its fields in no particular order.
+    local timer = iup.timer{ TIME = tostring(opts.time or 100) }
     local action = opts.action
     local host = self
     function timer:action_cb()
@@ -1062,6 +1061,7 @@ function HostAPI:addTimer(opts, owner)
         end
         return iup.DEFAULT
     end
+    iup.SetAttribute(timer, "RUN", opts.run and "YES" or "NO")
     table.insert(self:_record(owner).timers, timer)
     return timer
 end

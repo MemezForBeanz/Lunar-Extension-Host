@@ -57,6 +57,7 @@ function M:register(ctx)
 	if shell then
 		shell.pages = shell.pages or {}
 		shell.pages["Media"] = { states = { "home", "sheet", "ledger", "shows" }, show = self.library.go }
+		shell.pages["Now Playing"] = { states = { "wait", "paused" }, show = function() end }
 	end
 end
 

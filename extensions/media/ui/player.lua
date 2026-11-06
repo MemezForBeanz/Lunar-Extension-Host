@@ -36,7 +36,7 @@ function M.new(ctx, opts)
 
 	local art = CellGrid.new(iup, { count = opts.art and 1 or 0, cell_width = ART_WIDTH, aspect = "2:3", show_text = false,
 		gutter = 0, padding = 0, value = function() return nil end })
-	iup.SetAttribute(art.widget, "RASTERSIZE", L.size(ART_WIDTH, ART_WIDTH * 3 / 2))
+	iup.SetAttribute(art.widget, "RASTERSIZE", L.size(ART_WIDTH + 12, ART_WIDTH * 3 / 2 + 12))
 	iup.SetAttribute(art.widget, "EXPAND", "NO")
 	iup.SetAttribute(art.widget, "CANFOCUS", "NO")
 	iup.SetAttribute(art.widget, "FLATSCROLLBAR", "NO")
