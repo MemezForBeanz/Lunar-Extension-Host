@@ -22,6 +22,29 @@ local function resolution_of(height)
 	return height .. "p"
 end
 
+local CODECS = { h264 = "H.264", hevc = "HEVC", av1 = "AV1", vp9 = "VP9", vp8 = "VP8", mpeg2video = "MPEG-2",
+	mpeg4 = "MPEG-4", aac = "AAC", ac3 = "AC3", eac3 = "E-AC3", dts = "DTS", truehd = "TrueHD", flac = "FLAC",
+	opus = "Opus", mp3 = "MP3", vorbis = "Vorbis" }
+local LAYOUTS = { [1] = "1.0", [2] = "2.0", [6] = "5.1", [8] = "7.1" }
+
+--- A codec the way people write it.
+-- @tparam string|nil codec ffprobe's name
+-- @treturn string|nil
+function M.codecName(codec)
+	return codec and (CODECS[codec] or codec:upper()) or nil
+end
+
+--- An audio track the way people write it.
+-- @tparam string|nil codec
+-- @tparam number|nil channels
+-- @treturn string|nil
+function M.audioName(codec, channels)
+	local name = M.codecName(codec)
+	if not name then return nil end
+	if not channels then return name end
+	return name .. " " .. (LAYOUTS[channels] or (channels .. " ch"))
+end
+
 local function stream_of(file, kind)
 	for _, stream in ipairs(file.streams or {}) do
 		if stream.kind == kind then return stream end
@@ -40,10 +63,9 @@ function M.applyDetail(item, detail)
 	if file then
 		local video, audio = stream_of(file, "video"), stream_of(file, "audio")
 		item.resolution = video and resolution_of(video.height) or nil
-		item.codec = video and video.codec and video.codec:upper() or nil
+		item.codec = video and M.codecName(video.codec) or nil
 		item.dynamic = video and (video.hdr == 1 and "HDR" or "SDR") or nil
-		item.audio = audio and audio.codec and
-			(audio.codec:upper() .. (audio.channels and (" " .. audio.channels .. " ch") or "")) or nil
+		item.audio = audio and M.audioName(audio.codec, audio.channels) or nil
 		item.bitrate = file.bitrate and file.bitrate / 1000000 or nil
 		item.size_gb = file.size and file.size / 1073741824 or nil
 		item.minutes = file.duration_ms and math.floor(file.duration_ms / 60000) or nil

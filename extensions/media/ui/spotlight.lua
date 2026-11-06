@@ -16,7 +16,7 @@ local ART_HEIGHT = 284
 local ART_WIDTH = math.floor(ART_HEIGHT * 16 / 9)
 local RING = 6
 local FADE = 0.42             -- the share of the art, from its right edge, that dissolves
-local EDGE = 0.1              -- the share that softens on the other three sides
+local EDGE = 0.05             -- the share that softens on the other three sides
 local ROTATE_TICKS = 300      -- about nine seconds of 30 ms ticks
 local DOT = 16
 local TITLE_FONT = "Segoe UI Semibold, 28"
@@ -187,6 +187,7 @@ function M.new(ctx, opts)
 		iup.SetAttribute(title, "TITLE", item.title)
 		iup.SetAttribute(meta, "TITLE", M.meta(item))
 		iup.SetAttribute(overview, "TITLE", item.overview or "")
+		Kit.show(iup, overview, (item.overview or "") ~= "", title)
 		iup.SetAttribute(play, "TITLE", started and "Resume" or "Play")
 		if not opts.art(item) then
 			colour = tint.ofTitle(item.title)

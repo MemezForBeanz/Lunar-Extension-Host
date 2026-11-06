@@ -67,6 +67,23 @@ describe("taking a frame", function()
 	end)
 end)
 
+describe("technical names", function()
+	local Client = require("libs.client")
+
+	it("writes codecs the way people do", function()
+		assert.equal("H.264", Client.codecName("h264"))
+		assert.equal("FOO", Client.codecName("foo"))
+		assert.is_nil(Client.codecName(nil))
+	end)
+
+	it("writes audio layouts the way people do", function()
+		assert.equal("AAC 2.0", Client.audioName("aac", 2))
+		assert.equal("E-AC3 5.1", Client.audioName("eac3", 6))
+		assert.equal("Opus 3 ch", Client.audioName("opus", 3))
+		assert.equal("FLAC", Client.audioName("flac", nil))
+	end)
+end)
+
 describe("the desktop's picture cache", function()
 	local function make(present)
 		local fetched, written, arrivals = {}, {}, 0

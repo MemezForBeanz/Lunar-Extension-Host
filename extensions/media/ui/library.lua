@@ -32,9 +32,16 @@ local SOURCE_WIDTH = 184
 local INSPECTOR_WIDTH = L.SIDE.narrow
 
 local function runtime(minutes)
-	if not minutes then return nil end
+	if not minutes or minutes < 1 then return nil end
 	if minutes < 60 then return minutes .. " min" end
 	return string.format("%d h %d min", math.floor(minutes / 60), minutes % 60)
+end
+
+-- A film's size in the unit a person would say.
+local function size_text(gigabytes)
+	if not gigabytes then return nil end
+	if gigabytes < 1 then return string.format("%d MB", math.max(1, math.floor(gigabytes * 1024))) end
+	return string.format("%.1f GB", gigabytes)
 end
 
 local function plural(count, word)
@@ -177,6 +184,7 @@ local function inspector(ctx, cache, art_of, on_play)
 		iup.SetAttribute(title, "TITLE", item.title)
 		iup.SetAttribute(title, "RASTERSIZE", L.size(INSPECTOR_WIDTH - 2 * RING, #item.title > TITLE_LINE and 72 or 36))
 		iup.SetAttribute(overview, "TITLE", item.overview or "")
+		Kit.show(iup, overview, (item.overview or "") ~= "", section)
 		iup.SetAttribute(play, "TITLE", (item.progress or 0) > 0 and item.progress < 1 and "Resume" or "Play")
 		local is_show = item.kind == "show"
 		if is_show then
@@ -191,7 +199,7 @@ local function inspector(ctx, cache, art_of, on_play)
 			fill({ { "Resolution", item.resolution or UNKNOWN }, { "Video", item.codec or UNKNOWN },
 				{ "Range", item.dynamic or UNKNOWN }, { "Audio", item.audio or UNKNOWN },
 				{ "Bitrate", item.bitrate and string.format("%.1f Mb/s", item.bitrate) or UNKNOWN },
-				{ "Size", item.size_gb and string.format("%.1f GB", item.size_gb) or UNKNOWN },
+				{ "Size", size_text(item.size_gb) or UNKNOWN },
 				{ "Added", item.added or UNKNOWN },
 				item.path and { "File", item.path:match("[^/\\]+$") } or nil })
 		end
@@ -332,7 +340,7 @@ function M.new(ctx, opts)
 			ledger_rows[i] = {
 				title = item.title, column1 = tostring(item.year), column2 = item.resolution or "",
 				column3 = item.codec or "", column4 = item.dynamic or "", column5 = item.audio or "",
-				column6 = item.size_gb and string.format("%.1f GB", item.size_gb) or "",
+				column6 = size_text(item.size_gb) or "",
 			}
 		end
 	end
@@ -493,10 +501,9 @@ function M.new(ctx, opts)
 
 	function api.fit(width)
 		api.last_width = width
-		local inspecting = width >= Adaptive.MEDIUM and source_id ~= "home"
-		Kit.show(iup, right, inspecting, stack)
-		-- It was hidden while on screen, so being unhidden has to be said out loud.
-		if inspecting then iup.SetAttribute(right, "VISIBLE", "YES") end
+		-- Anchored on the rail, which shows exactly when this tab does: the inspector must never
+		-- come back while another tab is in front.
+		Kit.show(iup, right, width >= Adaptive.MEDIUM and source_id ~= "home", sources.widget)
 		Kit.show(iup, source_rail, width >= Adaptive.NARROW, stack)
 	end
 
