@@ -196,6 +196,10 @@ function HostAPI:addRoute(method, path, handler, opts, owner)
 end
 
 --- Remove this owner's HTTP route. Returns false for another owner's handle.
+function HostAPI:fileResponse(root, relative, opts, owner)
+    return Http.fileResponse(self, root, relative, opts, owner)
+end
+
 function HostAPI:removeRoute(handle, owner) return Http.removeRoute(self, handle, owner) end
 
 function HostAPI:_closeDatabases() return Database.closeAll(self) end
