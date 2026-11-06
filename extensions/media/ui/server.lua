@@ -9,7 +9,8 @@ local RowList = require("core.ui.RowList")
 
 local M = {}
 
-local ROW = 44
+local ROW = 52
+local HEADER = 32
 
 -- A count that means trouble wears its colour only while it is above zero.
 local function metric(iup, label, kind)
@@ -28,7 +29,7 @@ local function metric(iup, label, kind)
 end
 
 local function sized(widget, rows, iup)
-	iup.SetAttribute(widget, "RASTERSIZE", "x" .. (ROW * rows + 8))
+	iup.SetAttribute(widget, "RASTERSIZE", "x" .. (HEADER + ROW * rows + 8))
 	iup.SetAttribute(widget, "EXPAND", "HORIZONTAL")
 end
 
@@ -64,8 +65,9 @@ function M.new(ctx, opts)
 	end
 	local reach_title = L.sectionTitle(iup, "")
 	local reach = {}
+	local REACH_LABELS = { "Delivery", "Video", "Audio", "Subtitles" }
 	local reach_rows = iup.vbox({ GAP = L.gap(2), MARGIN = "0x0", EXPAND = "HORIZONTAL" })
-	for _, label in ipairs({ "Video", "Audio", "Subtitles" }) do
+	for _, label in ipairs(REACH_LABELS) do
 		local name = L.hint(iup, label)
 		iup.SetAttribute(name, "RASTERSIZE", "96x")
 		reach[label] = iup.flatlabel({ TITLE = "", EXPAND = "HORIZONTAL" })
@@ -74,12 +76,14 @@ function M.new(ctx, opts)
 	local function explain(pos)
 		local session = server.sessions[pos]
 		if not session then return end
-		iup.SetAttribute(reach_title, "TITLE", "How it reaches " .. session.user .. ": " .. session.mode)
+		iup.SetAttribute(reach_title, "TITLE", "How it reaches " .. session.user)
+		iup.SetAttribute(reach.Delivery, "TITLE", session.mode)
 		iup.SetAttribute(reach.Video, "TITLE", session.video)
 		iup.SetAttribute(reach.Audio, "TITLE", session.audio)
 		iup.SetAttribute(reach.Subtitles, "TITLE", session.subtitles)
 	end
 	local sessions = RowList.new(iup, { rows = session_rows, row_height = ROW, column_widths = { 72, 136, 72 },
+		header = { title = "Title", columns = { "Delivery", "Position", "Bitrate" } },
 		empty_title = "Nothing is playing", empty_hint = "Sessions appear here while someone is watching.",
 		on_select = explain })
 	sized(sessions.widget, #session_rows, iup)
@@ -90,6 +94,7 @@ function M.new(ctx, opts)
 			{ title = "Shows", secondary = "D:/Media/Shows", column1 = "8 items", column2 = "Scanning now" },
 		},
 		row_height = ROW, column_widths = { 88, 160 },
+		header = { title = "Library", columns = { "Items", "Last scan" } },
 		empty_title = "No libraries yet", empty_hint = "Add a folder to start your library.",
 	})
 	sized(libraries.widget, 2, iup)
@@ -111,9 +116,10 @@ function M.new(ctx, opts)
 	local right = L.stack(iup, {
 		L.stack(iup, { L.sectionTitle(iup, "Libraries"), libraries.widget }, 3),
 		L.stack(iup, {
-			L.sectionTitle(iup, "Work"),
-			Kit.statusLine(iup, "info", "Analysing Harbour Lights: 18 files left"),
+			L.sectionTitle(iup, "Attention"),
 			Kit.statusLine(iup, "error", "Could not read Marrow (2020).mkv: ffprobe could not open the file"),
+			Kit.statusLine(iup, "warning", "3 files are offline in Shows"),
+			Kit.statusLine(iup, "info", "Analysing Harbour Lights: 18 files left"),
 		}, 3),
 	}, 6)
 	iup.SetAttribute(left, "EXPAND", "HORIZONTAL")

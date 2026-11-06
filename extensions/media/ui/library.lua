@@ -20,7 +20,7 @@ local SCROLLBAR = 8
 local SHELF_TEXT = 58
 local UNKNOWN = "Not analysed"
 local INSPECTOR_ART = 168
-local SOURCE_WIDTH = 208
+local SOURCE_WIDTH = 184
 local INSPECTOR_WIDTH = L.SIDE.narrow
 
 local function runtime(minutes)
@@ -93,7 +93,7 @@ local function inspector(ctx, cache, art_of, on_play)
 	local current
 	local poster = CellGrid.new(iup, {
 		count = 0, cell_width = INSPECTOR_ART, aspect = "2:3", show_text = false, gutter = 0, padding = 0,
-		value = function() return nil end,
+		value = function() return nil end, role = "flatgrid_plain",
 	})
 	iup.SetAttribute(poster.widget, "RASTERSIZE", L.size(INSPECTOR_ART + GRID_EDGE, INSPECTOR_ART * 3 / 2 + GRID_EDGE))
 	iup.SetAttribute(poster.widget, "EXPAND", "NO")
@@ -108,8 +108,8 @@ local function inspector(ctx, cache, art_of, on_play)
 		action = function() if current then on_play(current) end end })
 	local queue = Kit.button(iup, { title = "Queue", icon = "add", action = function() end })
 
-	local audio = FlatDropdown.new(iup, { items = { "Default" }, value = 1, expand = true })
-	local subtitles = FlatDropdown.new(iup, { items = { "Off" }, value = 1, expand = true })
+	local audio = FlatDropdown.new(iup, { items = { "Default" }, value = 1, expand = true, role = "dropbutton_quiet" })
+	local subtitles = FlatDropdown.new(iup, { items = { "Off" }, value = 1, expand = true, role = "dropbutton_quiet" })
 	local tracks = L.stack(iup, { labelled(iup, "Audio", audio.widget), labelled(iup, "Subtitles", subtitles.widget) }, 2)
 
 	local facts = {}
@@ -239,6 +239,7 @@ function M.new(ctx, opts)
 		local grid = CellGrid.new(iup, {
 			count = #list, value = cell_value(list), cell_width = extra.cell, aspect = "2:3", gutter = GUTTER, padding = 0,
 			shelf = extra.shelf, empty_title = extra.empty, empty_hint = extra.hint,
+			role = extra.shelf and "flatgrid_plain" or nil,
 			on_select = function(pos) choose(list[pos]) end,
 			on_activate = function(pos) if list[pos] then opts.on_play(list[pos]) end end,
 		})
@@ -325,12 +326,13 @@ function M.new(ctx, opts)
 		if #active == 0 and source_id ~= "home" then index = 3 end
 		iup.SetAttribute(stack, "VALUEPOS", tostring(index))
 	end
-	local segmented = RowList.segmented(iup, { labels = { "Sheet", "Ledger" }, value_pos = 0,
+	local segmented = RowList.segmented(iup, { labels = { "Grid", "List" }, value_pos = 0,
 		on_change = function(pos)
 			view = pos == 1 and "ledger" or "sheet"
 			apply_view()
 		end })
-	local sort_box = FlatDropdown.new(iup, { items = { "Title", "Recently added", "Year" }, value = 1, width = 168,
+	local sort_box = FlatDropdown.new(iup, { items = { "Sort by title", "Sort by date added", "Sort by year" },
+		value = 1, width = 192, role = "dropbutton_quiet",
 		on_change = function(index)
 			sort = index
 			table.sort(active, SORTS[sort][2])
@@ -342,17 +344,23 @@ function M.new(ctx, opts)
 	local controls = iup.hbox({ segmented, sort_box.widget, GAP = L.gap(3), ALIGNMENT = "ACENTER" })
 	local toolbar = iup.hbox({ heading, count, iup.fill({}), controls, GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" })
 
-	local source_rows = {}
-	for i, source in ipairs(model.sources) do
-		source_rows[i] = { title = source.title, image = Kit.icon(iup, source.icon, 16, "text"),
-			column1 = source.count and tostring(source.count) or "" }
+	-- Icons are asked for at paint time, so they follow the theme instead of the colours that
+	-- were current when the extension loaded.
+	local function source_value(pos, field)
+		local source = model.sources[pos]
+		if not source then return nil end
+		if field == "TITLE" then return source.title end
+		if field == "IMAGE" then return Kit.icon(iup, source.icon, 16, "text") end
+		if field == "COLUMN1" then return source.count and tostring(source.count) or nil end
 	end
 	local go_source
-	local sources = RowList.new(iup, { rows = source_rows, row_height = 32, column_widths = { 40 },
+	local sources = RowList.new(iup, { value = source_value, count = #model.sources, row_height = 32,
+		column_widths = { 40 }, role = "flatrows_plain",
 		on_select = function(pos) go_source(model.sources[pos].id) end })
 	iup.SetAttribute(sources.widget, "EXPAND", "YES")
-	local scanning = Kit.statusLine(iup, "info", "Scanning Shows")
-	local sample_note = L.hint(iup, "Sample library. Connect a server in Settings.")
+	local scanning = Kit.statusLine(iup, "info", "")
+	Kit.show(iup, scanning, false, sources.widget)
+	local sample_note = L.hint(iup, "This is a sample library. Connect a server in Settings.")
 	iup.SetAttribute(sample_note, "RASTERSIZE", L.size(SOURCE_WIDTH, 40))
 	iup.SetAttribute(sample_note, "TEXTWRAP", "YES")
 	local source_rail = iup.vbox({ iup.hbox({ RASTERSIZE = L.size(SOURCE_WIDTH) }), sources.widget,
@@ -445,13 +453,8 @@ function M.new(ctx, opts)
 		table.sort(recent, SORTS[2][2])
 		continue_shelf:setProvider(#continuing, cell_value(continuing))
 		recent_shelf:setProvider(#recent, cell_value(recent))
-		local rows = {}
-		for i, source in ipairs(model.sources) do
-			rows[i] = { title = source.title, image = Kit.icon(iup, source.icon, 16, "text"),
-				column1 = source.count and tostring(source.count) or "" }
-		end
-		sources:setRows(rows)
-		iup.SetAttribute(scanning, "TITLE", model.scanning and ("Scanning " .. model.scanning) or "")
+		sources:setProvider(#model.sources, source_value)
+		Kit.setStatus(iup, scanning, "info", model.scanning and ("Scanning " .. model.scanning) or "")
 		Kit.show(iup, scanning, model.scanning ~= nil, stack)
 		Kit.show(iup, sample_note, model.sample == true, stack)
 		sources:select(1)

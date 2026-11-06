@@ -1307,7 +1307,7 @@ index 63e8f56..477f73c 100644
    return ic;
 diff --git a/src/iup_flatseek.c b/src/iup_flatseek.c
 new file mode 100644
-index 0000000..3cc371c
+index 0000000..e4fe8ad
 --- /dev/null
 +++ b/src/iup_flatseek.c
 @@ -0,0 +1,298 @@
@@ -1436,8 +1436,8 @@ index 0000000..3cc371c
 +    }
 +  if (d->hover_x >= 0 && !d->dragging)
 +    iupdrvDrawRectangle(dc, d->hover_x, top - 3, d->hover_x, bottom + 3, fill, IUP_DRAW_FILL, 1);
-+  if (d->max > 0 && active)  /* a smaller playhead at rest, so the place reads without hovering */
-+    iupFlatDrawDrawCircle(dc, x, h / 2, lively || d->focused ? SEEK_KNOB : SEEK_KNOB - 2, 1, 1, played, bgname, 1);
++  if (d->max > 0 && active)  /* the playhead stays, so the place reads without hovering */
++    iupFlatDrawDrawCircle(dc, x, h / 2, SEEK_KNOB, 1, 1, played, bgname, 1);
 +  if (d->focused && IupGetInt(ih, "FOCUSFEEDBACK"))
 +    iupFlatDrawDrawCircle(dc, x, h / 2, SEEK_KNOB + 2 < h / 2 ? SEEK_KNOB + 2 : SEEK_KNOB, 0, 1, played, bgname, 1);
 +  iupdrvDrawFlush(dc); iupdrvDrawKillCanvas(dc);
