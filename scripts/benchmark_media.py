@@ -1,4 +1,3 @@
-import tempfile
 """Loopback-only native transport correctness and load harness (standard Python).
 Usage: python scripts/benchmark_media.py --exe build/sol/bin/LunarCLI.exe
 --seconds 600 exercises the ten-minute goal; --tls-cert/--tls-key tests TLS.
@@ -9,6 +8,7 @@ import concurrent.futures
 import ctypes
 import hashlib
 import http.client
+import tempfile
 import json
 import os
 from pathlib import Path
