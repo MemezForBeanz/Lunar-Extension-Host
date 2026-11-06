@@ -36,6 +36,22 @@ function M.mount(svc)
 	local route = svc.route
 
 	route("GET", "/v1/status", function() return svc.status() end)
+	route("GET", "/v1/attention", function()
+		local data = catalog:repairData()
+		data.analysis_enabled = svc.status().json.analysis == "on"
+		data.frames_enabled = svc.frames_enabled == true
+		return { status = 200, json = { problems = require("libs.repair").list(data) } }
+	end)
+	route("POST", "/v1/files/:id/analyse", function(req)
+		if svc.status().json.analysis ~= "on" then return bad(409, "file analysis is turned off") end
+		if not catalog:retryAnalysis(id_of(req.params.id) or 0) then return bad(409, "no failed online analysis to retry") end
+		return { status = 202, json = { queued = true } }
+	end)
+	route("POST", "/v1/items/:id/frame", function(req)
+		if not svc.frames_enabled then return bad(409, "frame extraction is turned off") end
+		if not catalog:retryFrame(id_of(req.params.id) or 0) then return bad(409, "no failed online frame to retry") end
+		return { status = 202, json = { queued = true } }
+	end)
 
 	route("GET", "/v1/libraries", function()
 		return { status = 200, json = { libraries = catalog:libraries() } }

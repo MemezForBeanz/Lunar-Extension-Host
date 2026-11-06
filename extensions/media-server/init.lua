@@ -155,6 +155,7 @@ function M:register(ctx)
 	})
 	api.mount({
 		catalog = self.catalog,
+		frames_enabled = self.ffmpeg ~= nil and self.art_dir ~= nil,
 		sources = self.sources,
 		now = os.time,
 		status = function() return extension:_status() end,

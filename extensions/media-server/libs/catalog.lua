@@ -504,6 +504,35 @@ function Catalog:failProbe(job, reason, now)
 	end
 end
 
+--- Read the facts the repair workbench describes. Never expose source credentials.
+function Catalog:repairData()
+	return {
+		offline = self:_rows([[SELECT l.id, l.name, COUNT(*) AS count FROM files f
+			JOIN libraries l ON l.id = f.library_id WHERE f.missing_at IS NOT NULL
+			GROUP BY l.id, l.name ORDER BY l.id]]),
+		analysis = self:_rows([[SELECT f.id, w.title, j.error FROM jobs j JOIN files f ON f.id = j.file_id
+			JOIN works w ON w.id = f.work_id WHERE j.state = 'failed' ORDER BY f.id]]),
+		frames = self:_rows([[SELECT w.id, w.title, j.error FROM art_jobs j JOIN works w ON w.id = j.work_id
+			WHERE j.state = 'failed' ORDER BY w.id]]),
+		sources = self:_rows("SELECT id, name, error FROM sources WHERE status = 'failed' ORDER BY id"),
+	}
+end
+
+function Catalog:retryAnalysis(id)
+	if not self:_one([[SELECT j.id FROM jobs j JOIN files f ON f.id = j.file_id
+		WHERE f.id = ? AND f.missing_at IS NULL AND j.state = 'failed']], id) then return false end
+	self:_rows("UPDATE jobs SET state = 'queued', attempts = 0, next_run_at = 0, error = NULL WHERE file_id = ?", id)
+	self:_rows("UPDATE files SET probe_error = NULL WHERE id = ?", id)
+	return true
+end
+
+function Catalog:retryFrame(id)
+	if not self:_one([[SELECT j.work_id FROM art_jobs j JOIN files f ON f.id = j.file_id
+		WHERE j.work_id = ? AND j.state = 'failed' AND f.missing_at IS NULL]], id) then return false end
+	self:_rows("UPDATE art_jobs SET state = 'queued', error = NULL WHERE work_id = ?", id)
+	return true
+end
+
 --- Counts for the status page.
 function Catalog:counts()
 	return self:_one([[SELECT
