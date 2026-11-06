@@ -1135,9 +1135,10 @@ local function sync_title_bar()
 	status_bar:setPaneState(pane_grid:isSplit(), pane_grid:isFocused())
 end
 host._after_scopes = sync_title_bar
+	-- The band's height is only known after a layout pass, and the page's ceiling depends on it.
 	host._dock_changed = function()
-		recalc_shell_budget()
 		iup.Refresh(dlg)
+		if recalc_shell_budget() then iup.Refresh(dlg) end
 	end
 -- The groups' width depends on their font, which the theme sets.
 theme_mgr:onApply(function()
