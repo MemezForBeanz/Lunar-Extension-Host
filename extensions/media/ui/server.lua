@@ -46,7 +46,8 @@ function M.new(ctx, opts)
 	local analysing_box, set_analysing = metric(iup, "Being analysed")
 	local missing_box, set_missing = metric(iup, "Offline", "warning")
 	local failed_box, set_failed = metric(iup, "Failed", "error")
-	local metrics = iup.hbox({ playing_box, files_box, analysing_box, missing_box, failed_box, GAP = L.gap(10), MARGIN = "0x0" })
+	local metrics = iup.hbox({ playing_box, files_box, analysing_box, missing_box, failed_box,
+		GAP = L.gap(7), MARGIN = "0x0", HOMOGENEOUS = "YES", EXPAND = "HORIZONTAL" })
 	local function show_counts(data)
 		set_playing(#data.sessions)
 		set_files(data.files)
@@ -68,9 +69,8 @@ function M.new(ctx, opts)
 	local REACH_LABELS = { "Delivery", "Video", "Audio", "Subtitles" }
 	local reach_rows = iup.vbox({ GAP = L.gap(2), MARGIN = "0x0", EXPAND = "HORIZONTAL" })
 	for _, label in ipairs(REACH_LABELS) do
-		local name = L.hint(iup, label)
-		iup.SetAttribute(name, "RASTERSIZE", "96x")
-		reach[label] = iup.flatlabel({ TITLE = "", EXPAND = "HORIZONTAL" })
+		local name = iup.flatlabel({ TITLE = label, THEMEROLE = "reading_muted", RASTERSIZE = "96x" })
+		reach[label] = iup.flatlabel({ TITLE = "", THEMEROLE = "reading", EXPAND = "HORIZONTAL" })
 		iup.Append(reach_rows, iup.hbox({ name, reach[label], GAP = L.gap(3), ALIGNMENT = "ACENTER" }))
 	end
 	local function explain(pos)
@@ -82,7 +82,8 @@ function M.new(ctx, opts)
 		iup.SetAttribute(reach.Audio, "TITLE", session.audio)
 		iup.SetAttribute(reach.Subtitles, "TITLE", session.subtitles)
 	end
-	local sessions = RowList.new(iup, { rows = session_rows, row_height = ROW, column_widths = { 72, 136, 72 },
+	local sessions = RowList.new(iup, { rows = session_rows, row_height = ROW, column_widths = { 80, 148, 80 },
+		role = "flatrows_plain",
 		header = { title = "Title", columns = { "Delivery", "Position", "Bitrate" } },
 		empty_title = "Nothing is playing", empty_hint = "Sessions appear here while someone is watching.",
 		on_select = explain })
@@ -93,19 +94,19 @@ function M.new(ctx, opts)
 			{ title = "Films", secondary = "D:/Media/Films", column1 = "24 items", column2 = "Scanned 12 min ago" },
 			{ title = "Shows", secondary = "D:/Media/Shows", column1 = "8 items", column2 = "Scanning now" },
 		},
-		row_height = ROW, column_widths = { 88, 160 },
+		row_height = ROW, column_widths = { 88, 176 }, role = "flatrows_plain",
 		header = { title = "Library", columns = { "Items", "Last scan" } },
 		empty_title = "No libraries yet", empty_hint = "Add a folder to start your library.",
 	})
 	sized(libraries.widget, 2, iup)
 
-	local scan = Kit.button(iup, { title = "Scan All", icon = "renew", role = "actionbutton" })
-	local add = Kit.button(iup, { title = "Add Library", icon = "add", role = "primary_btn" })
+	local scan = Kit.button(iup, { title = "Scan all", icon = "renew", role = "actionbutton" })
+	local add = Kit.button(iup, { title = "Add library", icon = "add", role = "primary_btn" })
 
 	local status = Kit.statusLine(iup, "ok", server.name .. " · version " .. server.version .. " · analysis " .. server.analysis)
 
 	local header = iup.hbox({
-		iup.vbox({ iup.flatlabel({ TITLE = "Media Server", THEMEROLE = "pagetitle" }), status, GAP = L.gap(2), MARGIN = "0x0" }),
+		iup.vbox({ iup.flatlabel({ TITLE = "Media server", THEMEROLE = "pagetitle" }), status, GAP = L.gap(2), MARGIN = "0x0" }),
 		iup.fill({}), scan, add, GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL",
 	})
 
@@ -116,7 +117,7 @@ function M.new(ctx, opts)
 	local right = L.stack(iup, {
 		L.stack(iup, {
 			L.sectionTitle(iup, "Attention"),
-			Kit.statusLine(iup, "error", "Could not read Marrow (2020).mkv: ffprobe could not open the file"),
+			Kit.statusLine(iup, "error", "Marrow (2020).mkv could not be read, so it cannot play"),
 			Kit.statusLine(iup, "warning", "3 files are offline in Shows"),
 			Kit.statusLine(iup, "info", "Analysing Harbour Lights: 18 files left"),
 		}, 3),

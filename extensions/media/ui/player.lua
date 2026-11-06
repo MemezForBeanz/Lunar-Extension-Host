@@ -12,7 +12,7 @@ local VideoHost = require("core.ui.VideoHost")
 
 local M = {}
 
-local ART_WIDTH = 264
+local ART_WIDTH = 320
 local ART_EDGE = 12        -- the grid keeps 6 px each side for selection rings
 
 local SAVE_EVERY = 10     -- seconds between resume points
@@ -64,7 +64,7 @@ function M.new(ctx, opts)
 		centred(iup, iup.flatlabel({ TITLE = sample.title, THEMEROLE = "sectiontitle", ALIGNMENT = "ACENTER" })),
 		centred(iup, L.hint(iup, string.format("Paused · %d · %d h %d min", sample.year,
 			math.floor(sample.minutes / 60), sample.minutes % 60))),
-		iup.fill({}), GAP = L.gap(2), MARGIN = "0x0", EXPAND = "YES",
+		GAP = L.gap(2), MARGIN = "0x0", EXPAND = "YES",
 	})
 
 	local bar
@@ -111,14 +111,14 @@ function M.new(ctx, opts)
 		{ title = "Credits", column1 = "2:00:00" },
 	}
 	local queue = {
-		{ title = "Glass Harbour", secondary = "1 h 44 min" },
-		{ title = "Paper Orchard", secondary = "1 h 52 min" },
-		{ title = "Six Bells", secondary = "1 h 35 min" },
+		{ title = "Glass Harbour", column1 = "1:44:00" },
+		{ title = "Paper Orchard", column1 = "1:52:00" },
+		{ title = "Six Bells", column1 = "1:35:00" },
 	}
-	local chapter_list = RowList.new(iup, { rows = chapters, row_height = 36, column_widths = { 72 } })
-	local queue_list = RowList.new(iup, { rows = queue, row_height = 48 })
+	local chapter_list = RowList.new(iup, { rows = chapters, row_height = 36, column_widths = { 72 }, role = "flatrows_plain" })
+	local queue_list = RowList.new(iup, { rows = queue, row_height = 36, column_widths = { 72 }, role = "flatrows_plain" })
 	iup.SetAttribute(chapter_list.widget, "RASTERSIZE", "x" .. (36 * #chapters + 8))
-	iup.SetAttribute(queue_list.widget, "RASTERSIZE", "x" .. (48 * #queue + 8))
+	iup.SetAttribute(queue_list.widget, "RASTERSIZE", "x" .. (36 * #queue + 8))
 	iup.SetAttribute(chapter_list.widget, "EXPAND", "HORIZONTAL")
 	iup.SetAttribute(queue_list.widget, "EXPAND", "HORIZONTAL")
 	chapter_list:select(3)

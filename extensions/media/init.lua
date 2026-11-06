@@ -135,8 +135,8 @@ function M:register(ctx)
 	self.server = server.new(ctx, { model = model })
 
 	ctx:addTab("Media", self.library.widget, self, { icon = "media--library" })
-	ctx:addTab("Now Playing", self.now_playing.widget, self, { icon = "play--outline" })
-	ctx:addTab("Media Server", self.server.widget, self, { icon = "server--dns" })
+	ctx:addTab("Now playing", self.now_playing.widget, self, { icon = "play--outline" })
+	ctx:addTab("Media server", self.server.widget, self, { icon = "server--dns" })
 	ctx:fitPage(self.library.widget, self.library.fit)
 	ctx:fitPage(self.now_playing.widget, self.now_playing.fit)
 	self:_settings()
@@ -160,7 +160,7 @@ function M:register(ctx)
 		shell.pages["Media"] = { states = { "home", "sheet", "ledger", "shows" }, show = self.library.go }
 		local states = { "wait", "paused" }
 		if os.getenv("LUNAR_MEDIA_SERVER") then states = { "wait", "paused", "play", "playing", "playing2", "playing3" } end
-		shell.pages["Now Playing"] = { states = states, show = function(name)
+		shell.pages["Now playing"] = { states = states, show = function(name)
 			if name == "play" then self:_play(self.library.first()) end
 		end }
 	end
