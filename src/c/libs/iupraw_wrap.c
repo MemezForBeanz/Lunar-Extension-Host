@@ -88,6 +88,7 @@ static int store_callbacks(lua_State *L, int *ref, Ihandle *ih)
 }
 static int l_flatrows(lua_State *L) { iuplua_pushihandle(L, IupCreate("flatrows")); return 1; }
 static int l_flatsegmented(lua_State *L) { iuplua_pushihandle(L, IupCreate("flatsegmented")); return 1; }
+static int l_videohost(lua_State *L) { iuplua_pushihandle(L, IupCreate("videohost")); return 1; }
 static int l_bindrows(lua_State *L)
 {
     Ihandle *ih = iuplua_checkihandle(L, 1);
@@ -162,6 +163,7 @@ static const luaL_Reg iupraw_lib[] = {
     { "ptr", l_ptr },
     { "flatrows", l_flatrows },
     { "flatsegmented", l_flatsegmented },
+    { "videohost", l_videohost },
     { "bindrows", l_bindrows },
     { "bindsegmented", l_bindsegmented },
     { NULL,  NULL  }
