@@ -275,8 +275,8 @@ static void serve(task *t) {
         if(*t->match&&!tag_matches(t->match,etag,0)){status=412;len=0;}
         else if(!*t->match&&*t->unmodified&&http_time(t->unmodified)>=0&&mtime>http_time(t->unmodified)){status=412;len=0;}
         else if(*t->none&&tag_matches(t->none,etag,1)){status=304;len=0;}
-        else if(!*t->none&&*t->modified&&http_time(t->modified)>=mtime){status=304;len=0;}
-        else if(!t->head&&(!*t->ifrange||!strcmp(t->ifrange,etag)||http_time(t->ifrange)>=mtime))status=range_plan(size,t->range,&off,&len);
+        else if(!*t->none&&*t->modified&&http_time(t->modified)>=0&&http_time(t->modified)>=mtime){status=304;len=0;}
+        else if(!t->head&&(!*t->ifrange||!strcmp(t->ifrange,etag)||(http_time(t->ifrange)>=0&&http_time(t->ifrange)>=mtime)))status=range_plan(size,t->range,&off,&len);
         if(status==206)snprintf(extra,sizeof(extra),"Content-Range: bytes %llu-%llu/%llu\r\n",(unsigned long long)off,(unsigned long long)(off+len-1),(unsigned long long)size);
         if(status==416){len=0;snprintf(extra,sizeof(extra),"Content-Range: bytes */%llu\r\n",(unsigned long long)size);}
     }

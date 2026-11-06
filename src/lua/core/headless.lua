@@ -291,7 +291,9 @@ function M.run(app, opts)
 	app.host._stopping = true
 	if app.server then app.server:stop() end
 	local grace = opts.stop_grace or 60
-	if not app.loop:drain(grace) then
+	if not app.loop:drain(grace, app.server and function()
+		return app.server:pendingFiles()
+	end) then
 		app.log:warn(string.format("jobs still running after %gs; ending them", grace))
 	end
 	app.extensions:shutdownAll()
