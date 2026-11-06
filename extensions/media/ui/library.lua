@@ -144,7 +144,7 @@ local function inspector(ctx, cache, art_of, on_play, on_open)
 	local play = Kit.button(iup, { title = "Play", icon = "play--filled--alt", role = "primary_btn",
 		action = function()
 			if not current then return end
-			if current.kind == "show" or on_details_only then on_open(current) else on_play(current) end
+			if current.kind == "show" then on_open(current) else on_play(current) end
 		end })
 	iup.SetAttribute(play, "RASTERSIZE", L.size(HEAD_TEXT, ACTION_HEIGHT))
 	local queue = Kit.button(iup, { title = "Details", action = function()
@@ -166,7 +166,7 @@ local function inspector(ctx, cache, art_of, on_play, on_open)
 	local details = iup.flatbutton({ TITLE = "Show file details", THEMEROLE = "link_btn", CANFOCUS = "YES" })
 	function details:flat_action()
 		details_open = not details_open
-		iup.SetAttribute(details, "TITLE", details_open and "Hide file details" or "Show file details")
+		iup.SetAttribute(details, "TITLE", organize.detailsLabel(current, details_open))
 		Kit.show(iup, fact_box, details_open, details)
 		iup.Refresh(fact_box)
 		return iup.DEFAULT
@@ -204,6 +204,7 @@ local function inspector(ctx, cache, art_of, on_play, on_open)
 		current = item
 		if not item then return end
 		iup.SetAttribute(title, "TITLE", item.title)
+		iup.SetAttribute(details, "TITLE", organize.detailsLabel(item, details_open))
 		iup.SetAttribute(title, "RASTERSIZE", L.size(INSPECTOR_WIDTH - 2 * RING, #item.title > TITLE_LINE and 72 or 36))
 		iup.SetAttribute(overview, "TITLE", item.overview or "")
 		Kit.show(iup, overview, (item.overview or "") ~= "", details)
@@ -508,10 +509,10 @@ function M.new(ctx, opts)
 	local jump_room = JUMP_SLOTS
 	local function fill_jump()
 		local letters = organize.letters(active)
-		local shows = not opened and source_id ~= "home" and view == "sheet" and sort == 1
+		local wanted = not opened and source_id ~= "home" and view == "sheet" and sort == 1
 			and organize.jumpShows(letters, #active)
-		Kit.show(iup, jump_box, shows, sources_anchor())
-		if not shows then return end
+		Kit.show(iup, jump_box, wanted, sources_anchor())
+		if not wanted then return end
 		local fitted = organize.fit(letters, jump_room)
 		for i, slot in ipairs(jump_slots) do
 			local entry = fitted[i]
@@ -622,6 +623,7 @@ function M.new(ctx, opts)
 		watch_box:setItems({ "Any status", "Unwatched", "In progress", "Watched" }, 1)
 	end
 
+	local search
 	clear_button = iup.flatbutton({ TITLE = "Clear", THEMEROLE = "link_btn", CANFOCUS = "YES", flat_action = function()
 		filters = {}
 	fill_pickers()
@@ -654,7 +656,7 @@ function M.new(ctx, opts)
 	iup.SetAttribute(density.widget, "TIP", "Poster size")
 
 	density_box = iup.hbox({ L.hint(iup, "Size"), density.widget, GAP = L.gap(2), MARGIN = "0x0", ALIGNMENT = "ACENTER" })
-	local search = FlatField.new(iup, { cue = "Find a title", width = 148, on_change = function(text)
+	search = FlatField.new(iup, { cue = "Find a title", width = 148, on_change = function(text)
 		filters.title = text ~= "" and text or nil
 		filter_changed()
 	end })

@@ -163,6 +163,16 @@ function M.letters(list)
 	return out
 end
 
+--- What the inspector's details link says.
+-- @tparam table|nil item
+-- @tparam boolean open the details are on show
+-- @treturn string
+function M.detailsLabel(item, open)
+	local web = item and item.web
+	if open then return web and "Hide stream details" or "Hide file details" end
+	return web and "Stream details" or "Show file details"
+end
+
 --- Should the jump bar show?
 -- @tparam table letters from `M.letters`
 -- @tparam number count items in the list
