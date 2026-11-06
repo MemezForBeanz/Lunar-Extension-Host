@@ -1,0 +1,10 @@
+{
+  "schema_version": 2,
+  "id": "media-server",
+  "name": "Lunar Media Server",
+  "version": "0.1.0",
+  "description": "Catalogs local media folders and streams them to Lunar Media over an authenticated API.",
+  "host_api": 4,
+  "modes": ["headless"],
+  "capabilities": ["http", "database"]
+}
