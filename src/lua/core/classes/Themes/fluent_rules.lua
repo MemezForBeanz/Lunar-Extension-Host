@@ -84,7 +84,7 @@ function M.addPlainRoles(rules, page)
         radius = rules.flatrows.radius and 0 or nil })
     -- Reading text a step above the host's body size, for pages meant to be looked at.
     rules.reading = { fg = rules.flatgrid.fg, font = reading, padding = "0x0" }
-    rules.reading_muted = { fg = rules.flatgrid.secondary, font = rules.flatgrid.font, padding = "0x0" }
+    rules.reading_muted = { fg = rules.flatgrid.secondary, font = reading, padding = "0x0" }
     derive("flatseek_plain", "flatseek", { bg = page })
     local quiet = rules.actionbutton.bg
     derive("dropbutton_quiet", "dropbutton", { bg = quiet, border = rules.actionbutton.border or quiet })

@@ -74,6 +74,7 @@ function M.new(ctx, opts)
 		if bar.seek_to then bar.seek_to(value) end
 	end })
 	iup.SetAttribute(bar.widget, "EXPAND", "HORIZONTAL")
+	iup.SetAttribute(bar.widget, "THICKNESS", "4")
 	bar:setValue(position)
 	bar:setMarks({ { at = 1320 }, { at = 2700 }, { at = 4140 }, { at = 7200 } })
 
@@ -94,7 +95,7 @@ function M.new(ctx, opts)
 	end
 
 	local time = iup.flatlabel({ TITLE = clock(position) .. " / " .. clock(duration), THEMEROLE = "reading" })
-	local detail = L.hint(iup, string.format("%s · %s · %s", sample.resolution or "", sample.dynamic or "", sample.audio or ""))
+	local detail = iup.flatlabel({ THEMEROLE = "reading_muted", TITLE = string.format("%s · %s · %s", sample.resolution or "", sample.dynamic or "", sample.audio or "") })
 	local transport = iup.vbox({
 		bar.widget,
 		iup.hbox({
@@ -120,12 +121,12 @@ function M.new(ctx, opts)
 		{ title = "Credits", column1 = "2:00:00" },
 	}
 	local queue = {
-		{ title = "Glass Harbour", column1 = "1:44:00" },
-		{ title = "Paper Orchard", column1 = "1:52:00" },
-		{ title = "Six Bells", column1 = "1:35:00" },
+		{ title = "Glass Harbour", column1 = "1 h 44 min" },
+		{ title = "Paper Orchard", column1 = "1 h 52 min" },
+		{ title = "Six Bells", column1 = "1 h 35 min" },
 	}
 	local chapter_list = RowList.new(iup, { rows = chapters, row_height = 36, column_widths = { 72 }, role = "flatrows_plain" })
-	local queue_list = RowList.new(iup, { rows = queue, row_height = 36, column_widths = { 72 }, role = "flatrows_plain" })
+	local queue_list = RowList.new(iup, { rows = queue, row_height = 36, column_widths = { 96 }, role = "flatrows_plain" })
 	iup.SetAttribute(chapter_list.widget, "RASTERSIZE", "x" .. (36 * #chapters + 8))
 	iup.SetAttribute(queue_list.widget, "RASTERSIZE", "x" .. (36 * #queue + 8))
 	iup.SetAttribute(chapter_list.widget, "EXPAND", "HORIZONTAL")
