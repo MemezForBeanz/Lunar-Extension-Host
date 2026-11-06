@@ -62,7 +62,9 @@ function M.new(ctx, opts)
 	local picture = iup.vbox({
 		iup.fill({}), centred(iup, art.widget),
 		centred(iup, iup.flatlabel({ TITLE = sample.title, THEMEROLE = "sectiontitle", ALIGNMENT = "ACENTER" })),
-		iup.fill({}), GAP = L.gap(3), MARGIN = "0x0", EXPAND = "YES",
+		centred(iup, L.hint(iup, string.format("Paused · %d · %d h %d min", sample.year,
+			math.floor(sample.minutes / 60), sample.minutes % 60))),
+		iup.fill({}), GAP = L.gap(2), MARGIN = "0x0", EXPAND = "YES",
 	})
 
 	local bar
@@ -90,7 +92,7 @@ function M.new(ctx, opts)
 		return button
 	end
 
-	local time = iup.flatlabel({ TITLE = clock(position) .. " / " .. clock(duration) })
+	local time = iup.flatlabel({ TITLE = clock(position) .. " / " .. clock(duration), THEMEROLE = "sectiontitle" })
 	local detail = L.hint(iup, string.format("%s · %s · %s", sample.resolution or "", sample.dynamic or "", sample.audio or ""))
 	local transport = iup.vbox({
 		bar.widget,
@@ -113,10 +115,10 @@ function M.new(ctx, opts)
 		{ title = "Paper Orchard", secondary = "1 h 52 min" },
 		{ title = "Six Bells", secondary = "1 h 35 min" },
 	}
-	local chapter_list = RowList.new(iup, { rows = chapters, row_height = 32, column_widths = { 72 } })
-	local queue_list = RowList.new(iup, { rows = queue, row_height = 44 })
-	iup.SetAttribute(chapter_list.widget, "RASTERSIZE", "x" .. (32 * #chapters + 8))
-	iup.SetAttribute(queue_list.widget, "RASTERSIZE", "x" .. (44 * #queue + 8))
+	local chapter_list = RowList.new(iup, { rows = chapters, row_height = 36, column_widths = { 72 } })
+	local queue_list = RowList.new(iup, { rows = queue, row_height = 48 })
+	iup.SetAttribute(chapter_list.widget, "RASTERSIZE", "x" .. (36 * #chapters + 8))
+	iup.SetAttribute(queue_list.widget, "RASTERSIZE", "x" .. (48 * #queue + 8))
 	iup.SetAttribute(chapter_list.widget, "EXPAND", "HORIZONTAL")
 	iup.SetAttribute(queue_list.widget, "EXPAND", "HORIZONTAL")
 	chapter_list:select(3)

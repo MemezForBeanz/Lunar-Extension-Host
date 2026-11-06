@@ -893,10 +893,10 @@ index 0000000..f29efb5
 +  return ic;
 +}
 diff --git a/src/iup_flatrows.c b/src/iup_flatrows.c
-index 63e8f56..477f73c 100644
+index 63e8f56..31002cf 100644
 --- a/src/iup_flatrows.c
 +++ b/src/iup_flatrows.c
-@@ -15,10 +15,43 @@
+@@ -15,10 +15,53 @@
  #include "iup_draw.h"
  #include "iup_flatscrollbar.h"
  
@@ -915,6 +915,16 @@ index 63e8f56..477f73c 100644
 +}
 +static int rows_header(Ihandle* ih) { return iupAttribGetBoolean(ih, "HEADER") ? iupAttribGetInt(ih, "HEADERHEIGHT") : 0; }
  static int rows_count(Ihandle* ih) { return ih->data->count; }
++/* Numbers line up on the right; a column set to LEFT holds text, which reads from its start. */
++static int rows_column_flag(Ihandle* ih, int slot)
++{
++  char name[24];
++  char* value;
++  sprintf(name, "COLUMN%dALIGN", slot);
++  value = iupAttribGetStr(ih, name);
++  return value && iupStrEqualNoCase(value, "LEFT") ? IUP_DRAW_LEFT : IUP_DRAW_RIGHT;
++}
++
 +static void rows_image_size(Ihandle* ih, int* w, int* h)
 +{
 +  char* value = iupAttribGetStr(ih, "IMAGESIZE");
@@ -941,7 +951,7 @@ index 63e8f56..477f73c 100644
  static char* rows_value(Ihandle* ih, const char* field, int pos)
  {
    char* value = IupGetAttributeId(ih, field, pos);
-@@ -32,7 +65,7 @@ static char* rows_value(Ihandle* ih, const char* field, int pos)
+@@ -32,7 +75,7 @@ static char* rows_value(Ihandle* ih, const char* field, int pos)
  }
  static void rows_refresh(Ihandle* ih)
  {
@@ -950,7 +960,7 @@ index 63e8f56..477f73c 100644
    IupSetInt(ih, "YMAX", total);
    IupSetInt(ih, "DY", ih->currentheight > 0 ? ih->currentheight : 1);
    IupSetInt(ih, "XMAX", 0);  /* rows never scroll sideways; this is what hides that bar */
-@@ -48,6 +81,7 @@ static int rows_set_count(Ihandle* ih, const char* value)
+@@ -48,6 +91,7 @@ static int rows_set_count(Ihandle* ih, const char* value)
    return 0;
  }
  static char* rows_get_count(Ihandle* ih) { return iupStrReturnInt(ih->data->count); }
@@ -958,7 +968,7 @@ index 63e8f56..477f73c 100644
  static int rows_set_value(Ihandle* ih, const char* value)
  {
    int pos = value ? atoi(value) : 0;
-@@ -62,85 +96,149 @@ static char* rows_get_accessible(Ihandle* ih)
+@@ -62,85 +106,149 @@ static char* rows_get_accessible(Ihandle* ih)
    return pos ? rows_value(ih, "TITLE", pos) : NULL;
  }
  static char* rows_get_idvalue(Ihandle* ih, int pos) { return rows_value(ih, "TITLE", pos); }
@@ -987,7 +997,7 @@ index 63e8f56..477f73c 100644
 +      label = IupGetAttribute(ih, name);
 +      if (!label) continue;
 +      iupdrvDrawText(dc, label, (int)strlen(label), right, (header-charheight)/2, widths[slot]-8, charheight, text, font,
-+        IUP_DRAW_RIGHT|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
++        rows_column_flag(ih, slot)|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
 +      textw = iupdrvFontGetStringWidth(ih, label);
 +      if (sorted == slot)
 +        iupFlatDrawArrow(dc, right+widths[slot]-8-textw-12, (header-8)/2, 8, fg, bg, 1, ascending ? IUPDRAW_ARROW_TOP : IUPDRAW_ARROW_BOTTOM);
@@ -1114,7 +1124,7 @@ index 63e8f56..477f73c 100644
 +      value = rows_value(ih, field, pos);
 +      right -= widths[slot];
 +      if (value) iupdrvDrawText(dc, value, (int)strlen(value), right, line, widths[slot]-8, charheight,
-+        secondaryc, font, IUP_DRAW_RIGHT|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
++        secondaryc, font, rows_column_flag(ih, slot)|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
      }
 -    if (title) iupdrvDrawText(dc, title, (int)strlen(title), x, secondary ? y+3 : line, right-x, secondary ? 21 : charheight,
 +    if (title) iupdrvDrawText(dc, title, (int)strlen(title), x, secondary ? y+two_lines : line, right-x, secondary ? 21 : charheight,
@@ -1137,7 +1147,7 @@ index 63e8f56..477f73c 100644
    iupdrvDrawFlush(dc); iupdrvDrawKillCanvas(dc);
    return IUP_DEFAULT;
  }
-@@ -155,16 +253,35 @@ static int rows_select(Ihandle* ih, int pos)
+@@ -155,16 +263,35 @@ static int rows_select(Ihandle* ih, int pos)
      if (IupGetCallback(ih, "VALUECHANGED_CB")) ((IFn)IupGetCallback(ih, "VALUECHANGED_CB"))(ih);
    }
    if ((pos-1)*rows_height(ih) < IupGetInt(ih, "POSY")) IupSetInt(ih, "POSY", (pos-1)*rows_height(ih));
@@ -1177,7 +1187,7 @@ index 63e8f56..477f73c 100644
    if (button == IUP_BUTTON3) { if (IupGetCallback(ih, "ROW_CONTEXT_CB")) ((RowCb)IupGetCallback(ih, "ROW_CONTEXT_CB"))(ih,pos,"context"); return IUP_DEFAULT; }
    if (button != IUP_BUTTON1) return IUP_DEFAULT;
    rows_select(ih, pos);
-@@ -177,18 +294,41 @@ static int rows_button(Ihandle* ih, int button, int pressed, int x, int y, char*
+@@ -177,18 +304,41 @@ static int rows_button(Ihandle* ih, int button, int pressed, int x, int y, char*
  }
  static int rows_motion(Ihandle* ih, int x, int y, char* status)
  {
@@ -1224,7 +1234,7 @@ index 63e8f56..477f73c 100644
  static int rows_enter(Ihandle* ih)
  {
    typedef int (*RowCb)(Ihandle*, int, const char*);
-@@ -197,7 +337,18 @@ static int rows_enter(Ihandle* ih)
+@@ -197,7 +347,18 @@ static int rows_enter(Ihandle* ih)
    return IUP_IGNORE;
  }
  static int rows_wheel(Ihandle* ih, float delta) { iupFlatScrollBarWheelUpdate(ih,delta); return IUP_DEFAULT; }
@@ -1244,7 +1254,7 @@ index 63e8f56..477f73c 100644
  static int rows_resize(Ihandle* ih, int w, int h) { (void)w; (void)h; rows_refresh(ih); return IUP_DEFAULT; }
  static int rows_set_scrollbar(Ihandle* ih, const char* value)
  {
-@@ -207,11 +358,12 @@ static int rows_set_scrollbar(Ihandle* ih, const char* value)
+@@ -207,11 +368,12 @@ static int rows_set_scrollbar(Ihandle* ih, const char* value)
    return 1;
  }
  static int rows_post_redraw(Ihandle* ih, const char* value) { if (ih->handle) iupdrvRedrawNow(ih); return 1; }
@@ -1260,7 +1270,7 @@ index 63e8f56..477f73c 100644
    return 1;
  }
  static void rows_size(Ihandle* ih, int* w, int* h, int* expand) { *w=240; *h=rows_height(ih)*5; (void)expand; }
-@@ -225,6 +377,7 @@ static int rows_create(Ihandle* ih, void** params)
+@@ -225,6 +387,7 @@ static int rows_create(Ihandle* ih, void** params)
    IupSetCallback(ih,"ACTION",(Icallback)rows_redraw);
    IupSetCallback(ih,"BUTTON_CB",(Icallback)rows_button);
    IupSetCallback(ih,"MOTION_CB",(Icallback)rows_motion);
@@ -1268,7 +1278,7 @@ index 63e8f56..477f73c 100644
    IupSetCallback(ih,"FOCUS_CB",(Icallback)rows_focus);
    IupSetCallback(ih,"RESIZE_CB",(Icallback)rows_resize);
    IupSetCallback(ih,"SCROLL_CB",(Icallback)rows_scroll);
-@@ -249,6 +402,8 @@ Iclass* iupFlatRowsNewClass(void)
+@@ -249,6 +412,8 @@ Iclass* iupFlatRowsNewClass(void)
    iupClassRegisterCallback(ic,"ROW_ACTIVATE_CB","is");
    iupClassRegisterCallback(ic,"ROW_CONTEXT_CB","is");
    iupClassRegisterCallback(ic,"VALUECHANGED_CB","");
@@ -1277,7 +1287,7 @@ index 63e8f56..477f73c 100644
    iupClassRegisterAttribute(ic,"COUNT",rows_get_count,rows_set_count,"0",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
    iupClassRegisterAttribute(ic,"VALUE",rows_get_value,rows_set_value,"0",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
    iupClassRegisterAttribute(ic,"ACCESSIBLEVALUE",rows_get_accessible,NULL,NULL,NULL,IUPAF_READONLY|IUPAF_NO_INHERIT);
-@@ -264,6 +419,16 @@ Iclass* iupFlatRowsNewClass(void)
+@@ -264,6 +429,16 @@ Iclass* iupFlatRowsNewClass(void)
    iupClassRegisterAttribute(ic,"ITEMMARKERCOLOR",NULL,rows_post_redraw,NULL,NULL,IUPAF_DEFAULT);
    iupClassRegisterAttribute(ic,"ITEMRADIUS",NULL,rows_post_redraw,"6",NULL,IUPAF_DEFAULT);
    iupClassRegisterAttribute(ic,"FOCUSFEEDBACK",NULL,NULL,"YES",NULL,IUPAF_NO_INHERIT);
@@ -1294,7 +1304,7 @@ index 63e8f56..477f73c 100644
    iupClassRegisterAttributeId(ic,"TITLE",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
    iupClassRegisterAttributeId(ic,"SECONDARY",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
    iupClassRegisterAttributeId(ic,"IMAGE",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
-@@ -271,6 +436,10 @@ Iclass* iupFlatRowsNewClass(void)
+@@ -271,6 +446,10 @@ Iclass* iupFlatRowsNewClass(void)
    iupClassRegisterAttributeId(ic,"COLUMN1",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
    iupClassRegisterAttributeId(ic,"COLUMN2",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
    iupClassRegisterAttributeId(ic,"COLUMN3",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);

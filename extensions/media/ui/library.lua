@@ -12,12 +12,11 @@ local Adaptive = require("core.ui.Adaptive")
 
 local M = {}
 
-local SHEET_CELL = 148     -- the size a cell aims for; columns then share the width exactly
-local SHELF_CELL = 132
+local CELL = 148           -- the size a cell aims for; columns then share the width exactly
+local RING = 6             -- the grid's room for selection rings; text outside grids lines up with it
 local GUTTER = 16
-local GRID_EDGE = 12       -- the grid keeps 6 px each side for selection rings
 local SCROLLBAR = 8
-local SHELF_TEXT = 58
+local CELL_TEXT = 62
 local UNKNOWN = "Not analysed"
 local INSPECTOR_ART = 168
 local SOURCE_WIDTH = 184
@@ -95,7 +94,7 @@ local function inspector(ctx, cache, art_of, on_play)
 		count = 0, cell_width = INSPECTOR_ART, aspect = "2:3", show_text = false, gutter = 0, padding = 0,
 		value = function() return nil end, role = "flatgrid_plain",
 	})
-	iup.SetAttribute(poster.widget, "RASTERSIZE", L.size(INSPECTOR_ART + GRID_EDGE, INSPECTOR_ART * 3 / 2 + GRID_EDGE))
+	iup.SetAttribute(poster.widget, "RASTERSIZE", L.size(INSPECTOR_ART + 2 * RING, INSPECTOR_ART * 3 / 2 + 2 * RING))
 	iup.SetAttribute(poster.widget, "EXPAND", "NO")
 	iup.SetAttribute(poster.widget, "CANFOCUS", "NO")
 	iup.SetAttribute(poster.widget, "FLATSCROLLBAR", "NO")
@@ -124,14 +123,17 @@ local function inspector(ctx, cache, art_of, on_play)
 
 	local body = L.stack(iup, {
 		poster.widget,
-		L.stack(iup, { title, meta }, 1),
-		L.row(iup, { play, queue }),
-		overview,
-		tracks,
-		section,
-		fact_box,
-		path,
-	}, 4)
+		iup.vbox({
+			L.stack(iup, {
+				L.stack(iup, { title, meta }, 1),
+				L.row(iup, { play, queue }),
+				overview,
+				tracks,
+			}, 4),
+			L.stack(iup, { section, fact_box, path }, 3),
+			GAP = L.gap(6), MARGIN = RING .. "x0", EXPAND = "HORIZONTAL",
+		}),
+	}, 3)
 	iup.SetAttribute(body, "EXPAND", "YES")
 
 	local function fill(rows)
@@ -235,44 +237,50 @@ function M.new(ctx, opts)
 		end
 	end
 
-	local function grid_for(list, extra)
+	-- `list_of` is a function because the sheet shows whichever list is active.
+	local function grid_for(list_of, extra)
 		local grid = CellGrid.new(iup, {
-			count = #list, value = cell_value(list), cell_width = extra.cell, aspect = "2:3", gutter = GUTTER, padding = 0,
-			shelf = extra.shelf, empty_title = extra.empty, empty_hint = extra.hint,
-			role = extra.shelf and "flatgrid_plain" or nil,
-			on_select = function(pos) choose(list[pos]) end,
-			on_activate = function(pos) if list[pos] then opts.on_play(list[pos]) end end,
+			count = #list_of(), value = cell_value(list_of()), cell_width = CELL, aspect = "2:3", gutter = GUTTER, padding = 0,
+			shelf = extra.shelf, empty_title = extra.empty, empty_hint = extra.hint, role = "flatgrid_plain",
+			on_select = function(pos) choose(list_of()[pos]) end,
+			on_activate = function(pos)
+				local item = list_of()[pos]
+				if item then opts.on_play(item) end
+			end,
 		})
 		if cache then
 			drains[#drains + 1] = CellGrid.posters(grid, cache, function(pos)
-				local item = list[pos]
+				local item = list_of()[pos]
 				return item and art_of(item)
 			end)
 		end
 		return grid
 	end
 
-	local continue_shelf = grid_for(continuing, { cell = SHELF_CELL, shelf = true,
+	local continue_shelf = grid_for(function() return continuing end, { shelf = true,
 		empty = "Nothing in progress", hint = "Films you start appear here." })
-	local recent_shelf = grid_for(recent, { cell = SHELF_CELL, shelf = true,
+	local recent_shelf = grid_for(function() return recent end, { shelf = true,
 		empty = "Nothing here yet", hint = "New films appear here after a scan." })
 	shelves = { { grid = continue_shelf, list = continuing }, { grid = recent_shelf, list = recent } }
 	local function size_shelves(cell)
 		for _, shelf in ipairs(shelves) do
-			iup.SetAttribute(shelf.grid.widget, "RASTERSIZE", "x" .. (math.floor(cell * 3 / 2) + SHELF_TEXT + SCROLLBAR))
+			iup.SetAttribute(shelf.grid.widget, "RASTERSIZE", "x" .. (math.floor(cell * 3 / 2) + CELL_TEXT + SCROLLBAR))
 		end
 	end
-	size_shelves(SHELF_CELL)
+	size_shelves(CELL)
 	for _, shelf in ipairs(shelves) do iup.SetAttribute(shelf.grid.widget, "EXPAND", "HORIZONTAL") end
 
+	local function aligned(widget)
+		return iup.hbox({ widget, MARGIN = RING .. "x0" })
+	end
 	local home = L.stack(iup, {
-		L.stack(iup, { L.sectionTitle(iup, "Continue watching"), continue_shelf.widget }, 3),
-		L.stack(iup, { L.sectionTitle(iup, "Recently added"), recent_shelf.widget }, 3),
+		L.stack(iup, { aligned(L.sectionTitle(iup, "Continue watching")), continue_shelf.widget }, 2),
+		L.stack(iup, { aligned(L.sectionTitle(iup, "Recently added")), recent_shelf.widget }, 2),
 		iup.fill({}),
-	}, 6)
+	}, 5)
 	iup.SetAttribute(home, "EXPAND", "YES")
 
-	sheet = grid_for(active, { cell = SHEET_CELL })
+	sheet = grid_for(function() return active end, {})
 	iup.SetAttribute(sheet.widget, "EXPAND", "YES")
 
 	local ledger_rows = {}
@@ -288,8 +296,9 @@ function M.new(ctx, opts)
 	end
 	fill_ledger(active)
 	ledger = RowList.new(iup, {
-		rows = ledger_rows, row_height = 32,
-		column_widths = { 56, 72, 72, 104, 120, 80 },
+		rows = ledger_rows, row_height = 36,
+		column_widths = { 64, 96, 72, 112, 112, 72 }, column_align = { [1] = "LEFT", [2] = "LEFT", [3] = "LEFT", [4] = "LEFT", [5] = "LEFT" },
+		role = "flatrows_plain",
 		header = { title = "Title", columns = { "Year", "Resolution", "Video", "Range", "Audio", "Size" },
 			sorted = { column = 0, descending = false } },
 		on_select = function(pos) choose(active[pos]) end,
@@ -342,7 +351,8 @@ function M.new(ctx, opts)
 			mark_chosen()
 		end })
 	local controls = iup.hbox({ segmented, sort_box.widget, GAP = L.gap(3), ALIGNMENT = "ACENTER" })
-	local toolbar = iup.hbox({ heading, count, iup.fill({}), controls, GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" })
+	local toolbar = iup.hbox({ heading, count, iup.fill({}), controls, GAP = L.gap(3), ALIGNMENT = "ACENTER",
+		EXPAND = "HORIZONTAL", MARGIN = RING .. "x0" })
 
 	-- Icons are asked for at paint time, so they follow the theme instead of the colours that
 	-- were current when the extension loaded.
@@ -408,6 +418,7 @@ function M.new(ctx, opts)
 		elseif state == "sheet" then
 			pick_view("sheet", 2)
 			go_source("films")
+			choose(active[2])
 		elseif state == "ledger" then
 			pick_view("ledger", 2)
 			go_source("films")
@@ -428,13 +439,12 @@ function M.new(ctx, opts)
 	local last_width
 	local function fit_cells()
 		local width = tonumber((iup.GetAttribute(stack, "RASTERSIZE") or ""):match("^(%d+)"))
-		if not width or width == last_width or width < SHEET_CELL then return end
+		if not width or width == last_width or width < CELL then return end
 		last_width = width
-		local inner = width - GRID_EDGE
-		sheet:setCellWidth(fitted_cell(inner - SCROLLBAR, SHEET_CELL))
-		local shelf_cell = fitted_cell(inner, SHELF_CELL)
-		for _, shelf in ipairs(shelves) do shelf.grid:setCellWidth(shelf_cell) end
-		size_shelves(shelf_cell)
+		local cell = fitted_cell(width - 2 * RING - SCROLLBAR, CELL)
+		sheet:setCellWidth(cell)
+		for _, shelf in ipairs(shelves) do shelf.grid:setCellWidth(cell) end
+		size_shelves(cell)
 		iup.Refresh(api.widget)
 	end
 
