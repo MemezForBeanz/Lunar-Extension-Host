@@ -11,6 +11,7 @@ local player = require("ui.player")
 local server = require("ui.server")
 local dock = require("ui.dock")
 local artcache = require("libs.artcache")
+local forecast = require("libs.forecast")
 local platform = require("core.platform")
 local lfs = require("lfs")
 
@@ -124,6 +125,23 @@ function M:_mark(item, watched)
 	if self.client then self.client:mark(item.id, watched) end
 end
 
+-- A forecast is the server's own decision, asked for each kind of device. The sample has no
+-- server, so it works one out from what its made-up films claim to be.
+function M:_decide(item, profile, done)
+	if not self.client then return done(forecast.sampleDecision(item, profile)) end
+	local function ask()
+		if not item.file_id then return done({ mode = "refuse", reason = "this title has no file" }) end
+		self.client:decision(item.file_id, function(decision, why)
+			done(decision or { mode = "refuse", reason = why })
+		end, profile.caps)
+	end
+	if item.file_id then return ask() end
+	self.client:detail(item.id, function(detail)
+		if detail then Client.applyDetail(item, detail) end
+		ask()
+	end)
+end
+
 function M:_seasons(item, done)
 	if not self.client then return done(sample.seasons(item)) end
 	self.client:episodes(item.id, function(seasons, why)
@@ -214,6 +232,7 @@ function M:register(ctx)
 		on_save_collection = function(entry) self:_save_collection(entry) end,
 		on_mark = function(item, watched) self:_mark(item, watched) end,
 		load_seasons = function(item, done) self:_seasons(item, done) end,
+		decide = function(item, profile, done) self:_decide(item, profile, done) end,
 		on_connect = function() ctx:dispatchAddress("lunar://host/settings") end,
 	})
 	self.server = server.new(ctx, { model = model })

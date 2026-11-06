@@ -317,9 +317,9 @@ function Client:detail(id, done)
 	self:_request("GET", "/v1/items/" .. id, nil, done)
 end
 
---- Ask how a file reaches this client.
-function Client:decision(file_id, done)
-	self:_request("POST", "/v1/files/" .. file_id .. "/decision", { capabilities = M.CAPABILITIES }, done)
+--- Ask how a file reaches this client, or a device described by `capabilities`.
+function Client:decision(file_id, done, capabilities)
+	self:_request("POST", "/v1/files/" .. file_id .. "/decision", { capabilities = capabilities or M.CAPABILITIES }, done)
 end
 
 --- Save a resume point. Failures are ignored: the next save carries a newer position.

@@ -10,6 +10,7 @@ local RowList = require("core.ui.RowList")
 local FlatDropdown = require("core.ui.FlatDropdown")
 local spotlight = require("ui.spotlight")
 local organize = require("libs.organize")
+local forecast = require("libs.forecast")
 
 local M = {}
 
@@ -20,6 +21,8 @@ local CELL_TEXT = 62
 local SCROLLBAR = 8
 local SIMILAR = 12
 local FACT_LABEL = 72
+local FORECAST_DEVICE = 168
+local FORECAST_HEADLINE = 216
 local FACTS = { "Genres", "Cast", "Video", "Audio", "Rating" }
 
 local function runtime(minutes)
@@ -95,6 +98,39 @@ function M.new(ctx, opts)
 		iup.Append(fact_box, row)
 	end
 
+	-- One line for each device: will it play, why, and what would change the answer.
+	local forecast_rows = {}
+	local forecast_box = iup.vbox({ GAP = L.gap(2), MARGIN = "0x0", EXPAND = "HORIZONTAL" })
+	for i, profile in ipairs(forecast.PROFILES) do
+		local status = Kit.statusLine(iup, "idle", profile.name)
+		iup.SetAttribute(status, "EXPAND", "NO")
+		iup.SetAttribute(status, "RASTERSIZE", FORECAST_DEVICE .. "x")
+		local headline = iup.flatlabel({ TITLE = "", THEMEROLE = "reading", RASTERSIZE = FORECAST_HEADLINE .. "x" })
+		local why = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL", TEXTELLIPSIS = "YES" })
+		local row = iup.hbox({ status, headline, why, GAP = L.gap(3), ALIGNMENT = "ACENTER", MARGIN = "0x0", EXPAND = "HORIZONTAL" })
+		forecast_rows[i] = { row = row, status = status, headline = headline, why = why, profile = profile }
+		iup.Append(forecast_box, row)
+	end
+	local forecast_section = L.stack(iup, { L.sectionTitle(iup, "Where it plays"), forecast_box }, 2)
+
+	local function show_forecast(row, decision)
+		local verdict = forecast.verdict(decision)
+		Kit.setStatus(iup, row.status, verdict.tone, row.profile.name)
+		iup.SetAttribute(row.headline, "TITLE", verdict.headline)
+		iup.SetAttribute(row.why, "TITLE", verdict.fix and (verdict.why .. " " .. verdict.fix) or verdict.why)
+	end
+
+	local function load_forecast(item)
+		for _, row in ipairs(forecast_rows) do
+			Kit.setStatus(iup, row.status, "idle", row.profile.name)
+			iup.SetAttribute(row.headline, "TITLE", "Checking")
+			iup.SetAttribute(row.why, "TITLE", "")
+			opts.decide(item, row.profile, function(decision)
+				if current == item and decision then show_forecast(row, decision) end
+			end)
+		end
+	end
+
 	local episodes = RowList.new(iup, { rows = {}, row_height = EPISODE_ROW, column_widths = { 96, 112 },
 		role = "flatrows_plain", empty_title = "No episodes yet", empty_hint = "They appear here after a scan.",
 		on_activate = function(pos)
@@ -155,10 +191,14 @@ function M.new(ctx, opts)
 	end
 	local more_section = L.stack(iup, { aligned(L.sectionTitle(iup, "More like this")), more.widget }, 2)
 
+	-- A scroll box sizes to its content, so the page is told how wide it is.
+	local holder = iup.hbox({ RASTERSIZE = "400x" })
 	local body = L.stack(iup, {
+		holder,
 		aligned(back),
 		aligned(hero.widget),
 		aligned(fact_box),
+		aligned(forecast_section),
 		episode_section,
 		more_section,
 		iup.fill({ RASTERSIZE = "x16" }),
@@ -175,6 +215,12 @@ function M.new(ctx, opts)
 			item.rating and string.format("%.1f", item.rating) or "" }
 	end
 
+	--- Take the width the page really has.
+	function api.setWidth(width)
+		iup.SetAttribute(holder, "RASTERSIZE", (width - SCROLLBAR) .. "x")
+		iup.Refresh(api.widget)
+	end
+
 	function api.refresh()
 		if current then hero.show(current, true) end
 	end
@@ -188,6 +234,8 @@ function M.new(ctx, opts)
 			iup.SetAttribute(fact_rows[i].value, "TITLE", value)
 			Kit.show(iup, fact_rows[i].row, value ~= "", back)
 		end
+		Kit.show(iup, forecast_section, item.kind ~= "show", back)
+		if item.kind ~= "show" then load_forecast(item) end
 		similar = organize.similar(item, opts.pool(), SIMILAR)
 		more:setProvider(#similar, more_value)
 		Kit.show(iup, more_section, #similar > 0, back)

@@ -416,7 +416,7 @@ function M.new(ctx, opts)
 			if opts.on_mark then opts.on_mark(item, watched) end
 			api.repaintArt()
 		end,
-		load_seasons = opts.load_seasons,
+		load_seasons = opts.load_seasons, decide = opts.decide,
 		pool = function()
 			local all = {}
 			for _, film in ipairs(films) do all[#all + 1] = film end
@@ -792,6 +792,7 @@ function M.new(ctx, opts)
 		local width = tonumber((iup.GetAttribute(stack, "RASTERSIZE") or ""):match("^(%d+)"))
 		if not width or width == last_width or width < CELL then return end
 		last_width = width
+		details.setWidth(width)
 		sheet:setCellWidth(fitted_cell(width - 2 * RING - SCROLLBAR, ideal_cell))
 		local shelf_cell = fitted_cell(width - 3 * RING - SCROLLBAR, ideal_cell)
 		local wide_cell = fitted_cell(width - 3 * RING - SCROLLBAR, WIDE_CELL)
