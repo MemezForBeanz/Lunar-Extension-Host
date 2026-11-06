@@ -58,6 +58,16 @@ end
 local platform = require("core.platform")
 local subprocess = platform.is_windows and require("subprocess") or nil
 
+-- A second launch brings the running window back and stops here, before it builds anything,
+-- so the Lunar shortcut is instant. A capture or test harness always runs on its own.
+local BackgroundWindow = require("core.ui.BackgroundWindow")
+local HARNESS = rawget(_G, "arg") ~= nil or os.getenv("LUNAR_CAPTURE_CLIENT") ~= nil
+local APP_INSTANCE
+if not HARNESS then
+	APP_INSTANCE = BackgroundWindow.claim()
+	if APP_INSTANCE == false then return end
+end
+
 -- Native widget metrics (GTK menu bar and entries) before any window is built:
 -- their sizes feed IUP's layout. A no-op on Windows.
 platform.apply_native_style()
@@ -1208,6 +1218,15 @@ title_bar:adoptFrame(dlg, theme_mgr)
 sync_title_bar()
 WindowChrome.follow(iup, dlg, theme_mgr)
 iup.Show(dlg)
+
+-- Closing the window hides it from here on, and later launches find this one.
+local background
+if not HARNESS then
+	background = BackgroundWindow.install({ iup = iup, dialog = dlg, settings = settings_mgr, host = host,
+		instance = APP_INSTANCE or nil, icon = APP_ICON_RESOURCE, packaged = not DEV_BUILD })
+	add_host_command("quit", "Quit Lunar", background.quit, { keywords = "exit close stop", group = "Application" })
+end
+BackgroundWindow.registerSettings({ iup = iup, settings = settings_mgr, host = host, background = background })
 
 -- Build the dialog's compositor NOW, while nothing is happening. The scrim, the tab
 -- transition and the drag feedback all share it (it is cached per dialog), and the

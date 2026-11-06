@@ -1185,6 +1185,41 @@ function HostAPI:onReady(fn, owner)
     table.insert(self._ready, { fn = fn, owner = owner })
 end
 
+--- Hear when the main window hides or comes back. With Keep running when closed on, closing
+-- the window hides it and extensions carry on, so anything that only makes sense on screen,
+-- such as playing a video, should pause. The callback gets `"hidden"` or `"shown"`.
+-- @tparam func fn callback
+-- @tparam[opt] table owner owning extension; the callback goes when it unloads
+-- @usage ctx:onWindow(function(state) if state == "hidden" then player:pause() end end, M)
+function HostAPI:onWindow(fn, owner)
+    self._window_listeners = self._window_listeners or {}
+    table.insert(self._window_listeners, { fn = fn, owner = owner })
+end
+
+--- Tell listeners the window hid or came back.
+-- @local
+function HostAPI:_windowState(state)
+    for i = #(self._window_listeners or {}), 1, -1 do
+        local entry = self._window_listeners[i]
+        local ok, err = pcall(entry.fn, state)
+        if not ok then self:setStatus("onWindow error: " .. tostring(err)) end
+    end
+end
+
+--- Where this user's background service listens, for an extension that declares the
+-- `local_service` capability. The token signs requests to the service's routes.
+-- @tparam table owner owning extension
+-- @treturn[1] table `url`, `token`
+-- @treturn[2] nil when no service is running or the capability is missing
+function HostAPI:localService(owner)
+    local manifest = self._manifest_by_owner and self._manifest_by_owner[owner]
+    if not manifest then return nil end
+    for _, capability in ipairs(manifest.capabilities or {}) do
+        if capability == "local_service" then return require("core.lib.Service").endpoint() end
+    end
+    return nil
+end
+
 --- Is the host shutting down? Headless, this turns true when the process is told
 -- to stop: running jobs get a grace period to finish, and an extension should not
 -- start new work (for example the next job of a sequence) once it is set.
@@ -1389,6 +1424,9 @@ function HostAPI:removeOwned(owner)
     self._route_handlers[owner] = nil
     self._route_serializers[owner] = nil
 
+    for i = #(self._window_listeners or {}), 1, -1 do
+        if self._window_listeners[i].owner == owner then table.remove(self._window_listeners, i) end
+    end
     if #self._ready > 0 then
         local kept = {}
         for _, e in ipairs(self._ready) do

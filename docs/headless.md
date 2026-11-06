@@ -281,6 +281,43 @@ One trailing newline is stripped, so `echo token > file` works.
 
 ## Running as a service
 
+### For the signed-in user
+
+`lunar-cli service` keeps headless extensions running for one user, with or without the
+desktop app. It needs no administrator rights and no service account.
+
+| Command | Meaning |
+|---|---|
+| `lunar-cli service install` | Start at sign-in: a `Run` entry on Windows, a systemd user unit on Linux. |
+| `lunar-cli service uninstall` | Stop starting at sign-in. A running service keeps running. |
+| `lunar-cli service start` | Start now, detached. |
+| `lunar-cli service stop` | Ask it to stop. It stops the way [Stopping](#stopping) describes. |
+| `lunar-cli service status` | Say whether it is running and whether it starts at sign-in. |
+| `lunar-cli service run` | Run in this process, which is what the sign-in entry does. |
+
+An installed desktop app turns this on the first time it runs. A build from source leaves the
+sign-in list alone until you ask. Settings has both switches, under Background.
+
+The service keeps everything in `service` under the per-user cache folder
+(`%LOCALAPPDATA%\Lunar Extension Host`, `~/.cache/lunar`):
+
+| File | Meaning |
+|---|---|
+| `service.json` | Optional: `listen`, `pack`, `dev`, `extensions`, `require`, `stop_grace`, `tls_cert`, `tls_key`, `log_level`. |
+| `tokens` | Bearer tokens. The `desktop` token is created on first use. |
+| `endpoint.json` | Where the running service listens. It exists only while it runs. |
+| `state/` | Extension databases. |
+
+It listens on `127.0.0.1:8421` by default. An extension that declares the `local_service`
+capability finds it with `ctx:localService()`, so a desktop on the same machine needs no
+address or token. If no headless extension is installed the service exits rather than sit in
+memory doing nothing.
+
+On Windows the sign-in entry runs `Lunar.exe --service run`. It is a windowed program, so no
+console opens at sign-in, and it uses no IUP.
+
+### On a server
+
 ```ini
 [Unit]
 Description=My Lunar service
