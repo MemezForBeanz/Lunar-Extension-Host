@@ -78,7 +78,8 @@ function M.addPlainRoles(rules, page)
         rules[name] = rule
     end
     local reading = (rules.flatgrid.font or ""):gsub("%d+%s*$", "11")
-    derive("flatgrid_plain", "flatgrid", { bg = page, font = reading, scrollinset = 6 })
+    -- The bar takes the page colour at rest and shows under the pointer.
+    derive("flatgrid_plain", "flatgrid", { bg = page, font = reading, scrollinset = 6, scrollfg = page })
     derive("flatrows_plain", "flatrows", { bg = page, scrollbg = page, border = page, font = reading,
         radius = rules.flatrows.radius and 0 or nil })
     -- Reading text a step above the host's body size, for pages meant to be looked at.

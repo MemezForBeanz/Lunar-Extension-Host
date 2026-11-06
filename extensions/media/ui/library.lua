@@ -21,8 +21,8 @@ local UNKNOWN = "Not analysed"
 local INSPECTOR_ART = 132
 local HEAD_TEXT = 162      -- what is left beside the poster in the inspector
 local LABEL_WIDTH = 138    -- values and controls start under the actions, not at their own edge
-local ACTION_HEIGHT = 40
-local TITLE_LINE = 16      -- characters of page title that fit beside the poster
+local ACTION_HEIGHT = 36
+local TITLE_LINE = 12      -- characters of page title that are sure to fit on one line
 local SOURCE_WIDTH = 184
 local INSPECTOR_WIDTH = L.SIDE.narrow
 
@@ -113,7 +113,7 @@ local function inspector(ctx, cache, art_of, on_play)
 	iup.SetAttribute(title, "ALIGNMENT", "ALEFT:ATOP")
 	local meta = muted(iup, "")
 	local overview = iup.flatlabel({ TITLE = "", THEMEROLE = "reading", TEXTWRAP = "YES",
-		RASTERSIZE = L.size(INSPECTOR_WIDTH - 2 * RING, 64), ALIGNMENT = "ALEFT:ATOP" })
+		RASTERSIZE = L.size(INSPECTOR_WIDTH - 2 * RING, 48), ALIGNMENT = "ALEFT:ATOP" })
 	local play = Kit.button(iup, { title = "Play", icon = "play--filled--alt", role = "primary_btn",
 		action = function() if current then on_play(current) end end })
 	iup.SetAttribute(play, "RASTERSIZE", L.size(HEAD_TEXT, ACTION_HEIGHT))
@@ -142,9 +142,9 @@ local function inspector(ctx, cache, art_of, on_play)
 	local body = L.stack(iup, {
 		head,
 		iup.vbox({
-			L.stack(iup, { overview, tracks }, 5),
+			L.stack(iup, { overview, tracks }, 4),
 			L.stack(iup, { section, fact_box, path }, 3),
-			GAP = L.gap(7), MARGIN = RING .. "x0", EXPAND = "HORIZONTAL",
+			GAP = L.gap(6), MARGIN = RING .. "x0", EXPAND = "HORIZONTAL",
 		}),
 	}, 4)
 	iup.SetAttribute(body, "EXPAND", "YES")
@@ -416,7 +416,12 @@ function M.new(ctx, opts)
 
 	local main = iup.vbox({ toolbar, stack, GAP = L.gap(5), MARGIN = "0x0", EXPAND = "YES" })
 	local right = iup.vbox({ iup.hbox({ RASTERSIZE = L.size(INSPECTOR_WIDTH) }), inspector_body, MARGIN = "0x0", EXPAND = "VERTICAL" })
-	api.widget = iup.hbox({ source_rail, main, right, GAP = L.gap(5), MARGIN = L.margin(5), EXPAND = "YES" })
+	-- Collections run to the bottom of the panel, so nothing is cut short of its edge.
+	api.widget = iup.vbox({
+		iup.fill({ RASTERSIZE = "1x16" }),
+		iup.hbox({ source_rail, main, right, GAP = L.gap(5), MARGIN = "0x0", EXPAND = "YES" }),
+		MARGIN = "16x0", EXPAND = "YES",
+	})
 
 	choose(continuing[1] or model.films[1])
 
