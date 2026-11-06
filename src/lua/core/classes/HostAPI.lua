@@ -196,6 +196,10 @@ function HostAPI:addRoute(method, path, handler, opts, owner)
 end
 
 --- Remove this owner's HTTP route. Returns false for another owner's handle.
+function HostAPI:fileResponse(root, relative, opts, owner)
+    return Http.fileResponse(self, root, relative, opts, owner)
+end
+
 function HostAPI:removeRoute(handle, owner) return Http.removeRoute(self, handle, owner) end
 
 function HostAPI:_closeDatabases() return Database.closeAll(self) end
@@ -864,6 +868,16 @@ function HostAPI:fitPage(widget, fit) return Layout.fitPage(self, widget, fit) e
 -- @usage ctx:addTab("Hello", root_vbox, M, { max_content_width = 1400 })
 function HostAPI:addTab(title, widget, owner, opts) return Layout.addTab(self, title, widget, owner, opts) end
 
+--- Bring one of this owner's tabs to the front.
+-- @tparam table owner the extension
+-- @tparam number index which of its tabs, in the order they were added
+-- @treturn boolean whether a tab was shown
+function HostAPI:focusTab(owner, index)
+    local rec = self._owners[owner]
+    local tab = rec and rec.tabs and rec.tabs[index]
+    return tab ~= nil and self:_activateTabWidget(tab) and true or false
+end
+
 
 --- Add any widget to the ordered status area at the right of the status bar (left of
 --
@@ -1037,10 +1051,9 @@ function HostAPI:addTimer(opts, owner)
         table.insert(self:_record(owner).timers, timer)
         return timer
     end
-    local timer = iup.timer{
-        TIME = tostring(opts.time or 100),
-        RUN  = opts.run and "YES" or "NO",
-    }
+    -- TIME goes on before RUN is set: IUP won't start a timer with no interval, and a table
+    -- constructor applies its fields in no particular order.
+    local timer = iup.timer{ TIME = tostring(opts.time or 100) }
     local action = opts.action
     local host = self
     function timer:action_cb()
@@ -1058,6 +1071,7 @@ function HostAPI:addTimer(opts, owner)
         end
         return iup.DEFAULT
     end
+    iup.SetAttribute(timer, "RUN", opts.run and "YES" or "NO")
     table.insert(self:_record(owner).timers, timer)
     return timer
 end

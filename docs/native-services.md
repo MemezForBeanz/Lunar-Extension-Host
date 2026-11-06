@@ -14,6 +14,7 @@ extension unloads.
 | `themeapply` | Apply and restore native (Win32) theme handles. |
 | `winredraw` | Lock and unlock window redraw around bulk UI updates. |
 | `iupraw` | Obtain the raw pointer behind an IUP handle. |
+| `media_native` | Decode posters on worker threads into a bounded cache the UI thread owns; desktop host only. Use it through `core.ui.PosterCache`. |
 
 See the module pages in the reference for the exact Lua-visible signatures.
 

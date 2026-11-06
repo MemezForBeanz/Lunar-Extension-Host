@@ -27,6 +27,17 @@ function M.addRoute(self, method, path, handler, opts, owner)
 	return route
 end
 
+function M.fileResponse(self, root, relative, opts, owner)
+	local manifest = self._manifest_by_owner[owner]
+	if not manifest or not Manifest.hasCapability(manifest, "http") then
+		return nil, "fileResponse requires a registered owner with http capability"
+	end
+	if self._stopping then return nil, "host is stopping" end
+	local ok, response = pcall(require("core.lib.HttpServer").fileResponse, root, relative, opts)
+	if not ok then return nil, tostring(response) end
+	return response
+end
+
 function M.removeRoute(self, handle, owner)
 	local rec = self._owners[owner]
 	if not rec or not rec.http_routes or not rec.http_routes[handle] then return false end

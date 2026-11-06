@@ -383,7 +383,10 @@ function M.build(p)
         },
         flatrows = { bg = layer1, fg = p.text, secondary = p.textMuted, font = p.font,
             border = p.border, itemradius = 4, itemmarker = p.accent,
-            selbg = p.accent, seltext = p.accentText, hover = p.layerHover01 },
+            selbg = p.accent, seltext = p.accentText, hover = p.layerHover01, scrollsize = 8, scrollinset = 2, scrollfg = p.border, scrollhi = p.textMuted, scrollpress = p.accent },
+        flatgrid = { bg = layer1, fg = p.text, secondary = p.textMuted, font = p.font,
+            itemradius = 0, itemmarker = p.accent, hover = p.border, placeholder = p.layerHover01, scrollsize = 8, scrollinset = 2, scrollfg = p.border, scrollhi = p.textMuted, scrollpress = p.accent },
+        flatseek = { bg = layer1, track = p.border, buffer = p.textMuted, played = p.accent, mark = p.textMuted },
         flatsegmented = { bg = layer1, fg = p.text, font = p.font,
             border = p.border, selbg = p.accent, seltext = p.accentText },
         progressbar   = { bg = layer1, fg = p.accent, border = p.border },
@@ -399,6 +402,7 @@ function M.build(p)
         rules[role].inactivefg = p.textMuted
     end
     require("core.classes.Themes.fluent_rules").addShellRoles(rules, p)
+    require("core.classes.Themes.fluent_rules").addPlainRoles(rules, p.bg)
     rules.flattabs_sub = rules.flattabs
     return require("core.classes.Themes.shell_rules")(rules, p, {
         well = layer1, hover = hover, selected = selected, border = p.borderSubtle01 or p.border,

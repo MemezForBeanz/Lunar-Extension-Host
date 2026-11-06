@@ -19,10 +19,14 @@
 #   scripts\regen-iup-patch.ps1
 #   scripts\regen-iup-patch.ps1 -PatchName 0002-my-change.patch
 #   scripts\regen-iup-patch.ps1 -Collapse   # required when the series has >1 patch
+#   scripts\regen-iup-patch.ps1 -PatchName 0022-new.patch -Incremental
+#       # one patch of the series: the baseline is every patch before it, and any patch
+#       # after it is backed out of the overlay, so the file holds only its own changes
 
 param(
 	[string]$PatchName,
-	[switch]$Collapse
+	[switch]$Collapse,
+	[switch]$Incremental
 )
 
 $ErrorActionPreference = "Continue"   # native tools (git, tar, robocopy) write
@@ -58,6 +62,13 @@ if (-not $PatchName) {
 if ($PatchName -notlike "*.patch") { $PatchName = "$PatchName.patch" }
 $patchPath = Join-Path $patchDir $PatchName
 
+if ($Incremental -and $Collapse) { throw "-Incremental writes one patch of the series; -Collapse folds it. Pick one." }
+$earlier = @(); $later = @()
+if ($Incremental) {
+	$earlier = @($existing | Where-Object { $_.Name -lt $PatchName })
+	$later   = @($existing | Where-Object { $_.Name -gt $PatchName } | Sort-Object Name -Descending)
+}
+
 # --- build a throwaway git repo rooted at the pristine iup/ directory ----------------
 # Rooting the repo at iup/ (not its parent) is what makes the diff paths come out as
 # `src/iup_draw.c`, which is exactly what build-iup-fork.ps1's
@@ -92,6 +103,11 @@ try {
 	New-Item -ItemType Directory -Force -Path $attrDir | Out-Null
 	Set-Content -Path (Join-Path $attrDir "attributes") -Value "* text=auto eol=lf" -Encoding ascii
 
+	foreach ($p in $earlier) {
+		& git @git apply -p1 --whitespace=nowarn $p.FullName
+		if ($LASTEXITCODE -ne 0) { throw "Baseline patch failed to apply: $($p.Name)" }
+	}
+
 	& git @git add -A
 	if ($LASTEXITCODE -ne 0) { throw "git add failed for the pristine tree" }
 	& git @git -c user.name=lunar -c user.email=lunar@localhost commit --quiet -m "pristine iup-3.32"
@@ -103,6 +119,11 @@ try {
 	# robocopy exit codes < 8 are success (0-7 are informational bit flags).
 	if ($LASTEXITCODE -ge 8) { throw "robocopy failed copying $srcRoot -> $pristine (exit $LASTEXITCODE)" }
 	$global:LASTEXITCODE = 0
+
+	foreach ($p in $later) {
+		& git @git apply -R -p1 --whitespace=nowarn $p.FullName
+		if ($LASTEXITCODE -ne 0) { throw "Could not back out later patch $($p.Name) from the overlay." }
+	}
 
 	Write-Host "Diffing..." -ForegroundColor Cyan
 	& git @git add -A
@@ -126,14 +147,17 @@ try {
 	New-Item -ItemType Directory -Force -Path $verify | Out-Null
 	& tar.exe -xzf $tarball -C $verify
 	if ($LASTEXITCODE -ne 0) { throw "Failed to extract $tarball into $verify" }
-	$applyOut = & git -c core.autocrlf=false -C $verify apply -p1 --directory="iup" --whitespace=nowarn --verbose $tmpPatch 2>&1
-	if ($LASTEXITCODE -ne 0) {
-		$applyOut | ForEach-Object { Write-Host "    $_" }
-		throw "The regenerated patch does not apply to a pristine tree - not writing it."
-	}
-	if ($applyOut -match 'Skipped patch') {
-		$applyOut | ForEach-Object { Write-Host "    $_" }
-		throw "The regenerated patch was silently skipped on apply - not writing it."
+	$sequence = @($earlier | ForEach-Object { $_.FullName }) + @($tmpPatch) + @($later | Sort-Object Name | ForEach-Object { $_.FullName })
+	foreach ($p in $sequence) {
+		$applyOut = & git -c core.autocrlf=false -C $verify apply -p1 --directory="iup" --whitespace=nowarn --verbose $p 2>&1
+		if ($LASTEXITCODE -ne 0) {
+			$applyOut | ForEach-Object { Write-Host "    $_" }
+			throw "The regenerated patch does not apply to a pristine tree - not writing it."
+		}
+		if ($applyOut -match 'Skipped patch') {
+			$applyOut | ForEach-Object { Write-Host "    $_" }
+			throw "The regenerated patch was silently skipped on apply - not writing it."
+		}
 	}
 
 	Copy-Item $tmpPatch $patchPath -Force

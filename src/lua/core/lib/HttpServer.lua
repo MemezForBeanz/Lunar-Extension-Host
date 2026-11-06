@@ -22,6 +22,18 @@ if not copas then
 end
 
 local M = {}
+local file_responses = setmetatable({}, { __mode = "k" })
+
+--- Authorize in the extension first; root and relative name come from its catalog.
+-- Returns an opaque, reusable response. Files are opened on the native worker.
+function M.fileResponse(root, relative, opts)
+	opts = opts or {}
+	local response = {}
+	file_responses[response] = require("file_stream").target(root, relative,
+		opts.mime or "application/octet-stream")
+	return response
+end
+
 local Server = {}
 Server.__index = Server
 local TOKEN = "^[!#$%%&'*+%.%^_`|~%w-]+$"
@@ -78,7 +90,7 @@ function M.new(opts)
 	local self = setmetatable({ host = opts.host or "127.0.0.1", port = opts.port or 8470,
 		max_body = opts.max_body or 1048576, read_timeout = opts.read_timeout or 10,
 		tls = opts.tls, log = opts.log, routes = {}, clients = {}, client_count = 0,
-		max_connections = opts.max_connections or 64 }, Server)
+		transfers = {}, max_connections = opts.max_connections or 64 }, Server)
 	assert(type(self.max_connections) == "number" and self.max_connections >= 1
 		and self.max_connections < math.huge and self.max_connections % 1 == 0, "invalid max_connections")
 	assert(self.max_body >= 0 and self.max_body < math.huge and self.max_body % 1 == 0, "invalid max_body")
@@ -311,6 +323,10 @@ function Server:start()
 			local worked, response = xpcall(function()
 				local res = bad
 				if req then res = dispatch(self, req) end
+				if file_responses[res] then
+					assert(req.method == "GET" or req.method == "HEAD", "file response requires GET or HEAD")
+					return { target = file_responses[res] }
+				end
 				local wire = serialize(res, req and req.method)
 				status = res == nil and 204 or (res.status or 200)
 				return wire
@@ -321,7 +337,25 @@ function Server:start()
 				response = serialize(failure(500, "internal error"), req and req.method)
 			end
 			conn:settimeout(self.read_timeout)
-			conn:send(response)
+			if type(response) == "table" and response.target then
+				local native = require("file_stream")
+				local h = req.headers
+				local task = native.start(response.target, conn.socket:getfd(), tls and conn.socket or nil,
+					req.method == "HEAD", h.range or "", h["if-match"] or "",
+					h["if-none-match"] or "", h["if-range"] or "",
+					h["if-modified-since"] or "", h["if-unmodified-since"] or "")
+				self.clients[conn] = task
+				self.transfers[task] = conn
+				while true do
+					local done, code = native.poll(task)
+					if done then status = code break end
+					copas.sleep(0.005)
+				end
+				self.transfers[task] = nil
+				if self.clients[conn] then self.clients[conn] = true end
+			else
+				conn:send(response)
+			end
 		end, debug.traceback)
 		if not success then log_error(self, problem) end
 		audit(self, req or metadata, status, started)
@@ -342,9 +376,19 @@ function Server:stop()
 		copas.removeserver(self.listener)
 		self.listener = nil
 	end
-	for conn in pairs(self.clients) do pcall(conn.close, conn) end
+	-- Workers retain exclusive socket/SSL ownership through cancellation. Their
+	-- coroutine reaps completed work and then closes the connection; stop never
+	-- waits for disk I/O or joins an unfinished thread on the Lua event loop.
+	for task in pairs(self.transfers) do require("file_stream").cancel(task) end
+	for conn, task in pairs(self.clients) do
+		if task == true then pcall(conn.close, conn) end
+	end
 	self.clients = {}
 	self.client_count = 0
+end
+
+function Server:pendingFiles()
+	return next(self.transfers) ~= nil
 end
 
 return M

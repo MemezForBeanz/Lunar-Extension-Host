@@ -95,6 +95,14 @@ describe("core.lib.EventLoop", function()
 		assert.is_true(clock.t - start < 1.2)
 	end)
 
+	it("drains pending native transfers even with no process jobs", function()
+		local loop, clock = fake_loop({ jobs = { active = function() return 0 end } })
+		local deadline = clock.t + 0.2
+		assert.is_true(loop:drain(1, function() return clock.t < deadline end))
+		assert.is_true(clock.t >= deadline)
+		assert.is_false(loop:drain(0.1, function() return true end))
+	end)
+
 	it("sleeps until the next timer, at most max_wait", function()
 		local loop, clock = fake_loop({ max_wait = 0.25 })
 		loop:every(1000, function() end)
