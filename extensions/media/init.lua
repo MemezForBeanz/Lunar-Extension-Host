@@ -13,6 +13,7 @@ local sources_page = require("ui.sources")
 local dock = require("ui.dock")
 local artcache = require("libs.artcache")
 local forecast = require("libs.forecast")
+local playback = require("libs.playback")
 local platform = require("core.platform")
 local lfs = require("lfs")
 
@@ -30,14 +31,6 @@ local function poster_cache()
 	local ok, PosterCache = pcall(require, "core.ui.PosterCache")
 	if not ok then return nil end
 	return (PosterCache.new({ max_mb = 128 }))
-end
-
-local function queue_rows(queue)
-	local rows = {}
-	for i, item in ipairs(queue or {}) do
-		rows[i] = { title = item.title, column1 = item.minutes and (item.minutes .. " min") or "" }
-	end
-	return rows
 end
 
 function M:_notify(title, body, kind)
@@ -158,7 +151,7 @@ function M:_start(item, decision)
 	local client = self.client
 	local ok, why = self.now_playing.play({
 		url = client:streamUrl(item.file_id), header = client:authHeader(), title = item.title,
-		queue = queue_rows(self.queue),
+		queue = playback.queueRows(self.queue, self.art_of),
 		detail = table.concat({ item.resolution or "", item.codec or "", item.audio or "" }, " · "),
 		start = (item.position_ms or 0) / 1000,
 		on_position = function(seconds, length)
@@ -256,7 +249,7 @@ end
 function M:_start_remote(item, answer)
 	local client = self.client
 	local ok, why = self.now_playing.play({ url = answer.url, header = answer.header, title = item.title,
-		detail = item.sources and item.sources[1] and ("From " .. item.sources[1]) or "", queue = queue_rows(self.queue),
+		detail = item.sources and item.sources[1] and ("From " .. item.sources[1]) or "", queue = playback.queueRows(self.queue, self.art_of),
 		start = (item.position_ms or 0) / 1000,
 		on_position = function(seconds, length)
 			client:saveProgress(item.id, math.floor(seconds * 1000), math.floor(length * 1000))
@@ -305,10 +298,12 @@ function M:register(ctx)
 		if not art_dir or not item.art then return nil end
 		return string.format("%s/poster-%02d.png", art_dir, item.art)
 	end
+	self.art_of = art_of
 	self.cache = poster_cache()
 	local function animate(spec) return ctx:animate(spec, self) end
 	self.now_playing = player.new(ctx, { sample = model.films[1], animate = animate, owner = self, demo = true,
-		cache = self.cache, art = art_of(model.films[1]) })
+		cache = self.cache, art = art_of(model.films[1]), art_of = art_of,
+		upcoming = { model.films[2], model.films[5], model.films[10] } })
 	local function backdrop_of(item)
 		if extension.art_cache and type(item.art) == "table" then return extension.art_cache:best(item, "backdrop") end
 		if not art_dir or not item.art then return nil end
