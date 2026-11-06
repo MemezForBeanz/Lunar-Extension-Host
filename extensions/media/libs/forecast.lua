@@ -13,11 +13,11 @@ M.PROFILES = {
 		audio = { "aac", "ac3", "eac3", "dts", "truehd", "flac", "opus", "mp3", "vorbis" },
 		subtitles = { "subrip", "ass", "webvtt", "hdmv_pgs_subtitle", "dvd_subtitle" }, hdr = true,
 	} },
-	{ id = "tv", name = "Living room TV", caps = {
+	{ id = "tv", name = "A typical TV", assumed = true, caps = {
 		containers = { "matroska", "mov", "mp4", "mpegts" }, video = { "h264", "hevc", "vp9" },
 		audio = { "aac", "ac3", "eac3", "mp3" }, subtitles = { "subrip", "webvtt" }, max_height = 2160, hdr = true,
 	} },
-	{ id = "phone", name = "Phone", caps = {
+	{ id = "phone", name = "A typical phone", assumed = true, caps = {
 		containers = { "mov", "mp4" }, video = { "h264", "hevc" }, audio = { "aac", "mp3" },
 		subtitles = { "webvtt" }, max_height = 1080, max_channels = 2,
 	} },

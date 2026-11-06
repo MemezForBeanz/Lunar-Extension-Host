@@ -14,6 +14,7 @@ local spotlight = require("ui.spotlight")
 local title_page = require("ui.title")
 local FlatField = require("core.ui.FlatField")
 local playback = require("libs.playback")
+local tonight = require("libs.tonight")
 local organize = require("libs.organize")
 local NameDialog = require("core.ui.NameDialog")
 
@@ -173,7 +174,7 @@ local function inspector(ctx, cache, art_of, on_play, on_open)
 
 	local head = iup.hbox({
 		poster.widget,
-		iup.vbox({ meta, iup.fill({}), play, queue, GAP = L.gap(2), MARGIN = "0x" .. RING, EXPAND = "VERTICAL" }),
+		iup.vbox({ meta, play, queue, GAP = L.gap(2), MARGIN = "0x" .. RING, EXPAND = "VERTICAL" }),
 		GAP = L.gap(3), MARGIN = "0x0", EXPAND = "HORIZONTAL",
 	})
 	local body = L.stack(iup, {
@@ -327,15 +328,25 @@ function M.new(ctx, opts)
 	local continue_shelf = grid_for(function() return continuing end, { shelf = true, cell = WIDE_CELL,
 		aspect = "16:9", art = wide_art, secondary = time_left,
 		empty = "Nothing in progress", hint = "Films you start appear here." })
+	local plan = {}
+	local plan_items = {}
+	local plan_shelf = grid_for(function() return plan_items end, { shelf = true, cell = WIDE_CELL,
+		aspect = "16:9", art = wide_art, secondary = function(item)
+			local pick = plan[position_in(plan_items, item)]
+			return pick and (tonight.clock(pick.starts) .. " to " .. tonight.clock(pick.ends)) or ""
+		end,
+		empty = "Nothing fits that yet", hint = "Try a longer evening." })
 	local recent_shelf = grid_for(function() return recent end, { shelf = true,
 		empty = "Nothing here yet", hint = "New films appear here after a scan." })
 	shelves = { { grid = continue_shelf, list = continuing }, { grid = recent_shelf, list = recent } }
 	local function size_shelves(cell, wide)
 		iup.SetAttribute(recent_shelf.widget, "RASTERSIZE", "x" .. (math.floor(cell * 3 / 2) + CELL_TEXT + SCROLLBAR))
 		iup.SetAttribute(continue_shelf.widget, "RASTERSIZE", "x" .. (math.floor(wide * 9 / 16) + CELL_TEXT + SCROLLBAR))
+		iup.SetAttribute(plan_shelf.widget, "RASTERSIZE", "x" .. (math.floor(wide * 9 / 16) + CELL_TEXT + SCROLLBAR))
 	end
 	size_shelves(CELL, WIDE_CELL)
 	for _, shelf in ipairs(shelves) do iup.SetAttribute(shelf.grid.widget, "EXPAND", "HORIZONTAL") end
+	iup.SetAttribute(plan_shelf.widget, "EXPAND", "HORIZONTAL")
 
 	local function aligned(widget)
 		return iup.hbox({ widget, MARGIN = RING .. "x0" })
@@ -343,10 +354,49 @@ function M.new(ctx, opts)
 	hero = spotlight.new(ctx, { cache = cache, art = wide_art, on_play = opts.on_play,
 		on_info = function(item) api.open(item) end })
 	drains[#drains + 1] = hero.tick
+	-- Fits Tonight: a time, and a plan with clock times that ends by then.
+	local plan_seed, plan_limit = 1, tonight.TIMES[5][1]
+	local plan_summary = L.hint(iup, "")
+	local function refill_plan()
+		plan = tonight.plan(films, plan_limit, os.time(), plan_seed)
+		for i = #plan_items, 1, -1 do plan_items[i] = nil end
+		for i, pick in ipairs(plan) do plan_items[i] = pick.item end
+		plan_shelf:setProvider(#plan_items, cell_value(plan_items, function(item)
+			local pick = plan[position_in(plan_items, item)]
+			return pick and (tonight.clock(pick.starts) .. " to " .. tonight.clock(pick.ends)) or ""
+		end))
+		iup.SetAttribute(plan_summary, "TITLE", tonight.summary(plan))
+	end
+	local time_labels = {}
+	for i, entry in ipairs(tonight.TIMES) do time_labels[i] = entry[2] end
+	local plan_time = FlatDropdown.new(iup, { items = time_labels, value = 5, width = 120, role = "dropbutton_quiet",
+		on_change = function(index)
+			plan_limit = tonight.TIMES[index][1]
+			refill_plan()
+		end })
+	local plan_again = Kit.button(iup, { title = "Another idea", role = "actionbutton", action = function()
+		plan_seed = plan_seed + 1
+		refill_plan()
+	end })
+	iup.SetAttribute(plan_again, "RASTERSIZE", "x32")
+	local plan_play = Kit.button(iup, { title = "Play all", icon = "play--filled--alt", role = "primary_btn", action = function()
+		if not plan[1] then return end
+		local rest = {}
+		for i = 2, #plan do rest[#rest + 1] = plan[i].item end
+		opts.on_play(plan[1].item, rest)
+	end })
+	iup.SetAttribute(plan_play, "RASTERSIZE", "x32")
+	local plan_section = L.stack(iup, {
+		iup.hbox({ L.sectionTitle(iup, "Fits tonight"), plan_summary, iup.fill({}), plan_time.widget, plan_again, plan_play,
+			GAP = L.gap(3), ALIGNMENT = "ACENTER", MARGIN = RING .. "x0", EXPAND = "HORIZONTAL" }),
+		plan_shelf.widget,
+	}, 2)
+
 	local continue_section = L.stack(iup, { aligned(L.sectionTitle(iup, "Continue watching")), continue_shelf.widget }, 2)
 	local home_body = L.stack(iup, {
 		iup.hbox({ hero.widget, MARGIN = RING .. "x0", EXPAND = "HORIZONTAL" }),
 		continue_section,
+		plan_section,
 		L.stack(iup, { aligned(L.sectionTitle(iup, "Recently added")), recent_shelf.widget }, 2),
 		iup.fill({ RASTERSIZE = "x" .. GUTTER }),
 	}, 5)
@@ -798,6 +848,7 @@ function M.new(ctx, opts)
 		local wide_cell = fitted_cell(width - 3 * RING - SCROLLBAR, WIDE_CELL)
 		recent_shelf:setCellWidth(shelf_cell)
 		continue_shelf:setCellWidth(wide_cell)
+		plan_shelf:setCellWidth(wide_cell)
 		size_shelves(shelf_cell, wide_cell)
 		iup.Refresh(api.widget)
 	end
@@ -855,6 +906,7 @@ function M.new(ctx, opts)
 		shelf_list:setProvider(#(model.collections or {}), collection_value)
 		go_source("home")
 		fill_spotlight()
+		refill_plan()
 		choose(continuing[1] or recent[1] or shows[1])
 	end
 
@@ -903,6 +955,7 @@ function M.new(ctx, opts)
 	shelf_list:setProvider(#(model.collections or {}), collection_value)
 	go_source("home")
 	fill_spotlight()
+	refill_plan()
 	return api
 end
 

@@ -115,13 +115,17 @@ function M.new(ctx, opts)
 	end
 	local all_clear = Kit.statusLine(iup, "ok", "")
 	iup.SetAttribute(all_clear, "THEMEROLE", "reading")
-	local forecast_section = L.stack(iup, { L.sectionTitle(iup, "Where it plays"), all_clear, forecast_box }, 2)
+	local assumed_note = L.hint(iup, "TV and phone are typical devices, not ones Lunar has checked.")
+	local forecast_section = L.stack(iup, { L.sectionTitle(iup, "Where it plays"), all_clear, forecast_box, assumed_note }, 2)
 
 	local function show_forecast(row, decision)
 		local verdict = forecast.verdict(decision)
 		Kit.setStatus(iup, row.status, verdict.tone, row.profile.name)
 		iup.SetAttribute(row.headline, "TITLE", verdict.headline)
-		iup.SetAttribute(row.why, "TITLE", verdict.fix and (verdict.why .. " " .. verdict.fix) or verdict.why)
+		local why = verdict.fix and (verdict.why .. " " .. verdict.fix) or verdict.why
+		iup.SetAttribute(row.why, "TITLE", why)
+		-- The other devices are profiles, not machines Lunar has met, and the page says so.
+		iup.SetAttribute(row.status, "TIP", row.profile.assumed and "Assumed from what this kind of device usually plays." or nil)
 	end
 
 	-- Three rows saying the same good news is one line of good news.
@@ -129,7 +133,7 @@ function M.new(ctx, opts)
 		if pending > 0 then return end
 		Kit.show(iup, all_clear, clear, back)
 		Kit.show(iup, forecast_box, not clear, back)
-		if clear then Kit.setStatus(iup, all_clear, "ok", "Plays as it is on all " .. #forecast_rows .. " devices") end
+		if clear then Kit.setStatus(iup, all_clear, "ok", "Plays as it is here, and on a typical TV and phone") end
 		iup.Refresh(api.widget)
 	end
 
