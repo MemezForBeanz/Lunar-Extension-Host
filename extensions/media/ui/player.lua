@@ -15,6 +15,7 @@ local M = {}
 local ART_WIDTH = 320
 local ART_EDGE = 12        -- the grid keeps 6 px each side for selection rings
 local ART_CAPTION = 84     -- what the title and status need below the poster
+local ART_TALLEST = 460    -- a paused film shouldn't tower over its own controls
 
 local SAVE_EVERY = 10     -- seconds between resume points
 local FULL_VOLUME = 100
@@ -26,7 +27,7 @@ local function clock(seconds)
 	return string.format("%d:%02d", m, s)
 end
 
-local SIDE_CONTROLS = "320x"   -- both ends of the transport, so its middle stays centred
+local SIDE_CONTROLS = "440x"   -- both ends of the transport, so its middle stays centred
 local ROW_INSET = 12       -- where rows start their text; headings share that edge
 
 local function centred(iup, widget)
@@ -185,7 +186,7 @@ function M.new(ctx, opts)
 		local height = tonumber((iup.GetAttribute(screen, "RASTERSIZE") or ""):match("x(%d+)$"))
 		if not height or height == art_height or height < 200 then return end
 		art_height = height
-		local tall = height - ART_CAPTION
+		local tall = math.min(height - ART_CAPTION, ART_TALLEST)
 		local wide = math.floor(tall * 2 / 3)
 		art:setCellWidth(wide)
 		iup.SetAttribute(art.widget, "RASTERSIZE", L.size(wide + ART_EDGE, tall + ART_EDGE))

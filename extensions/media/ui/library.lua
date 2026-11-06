@@ -245,7 +245,8 @@ function M.new(ctx, opts)
 
 	-- Whatever fills the inspector is marked wherever it appears, so the two zones read as one.
 	local function mark_chosen()
-		for _, shelf in ipairs(shelves) do shelf.grid:select(position_in(shelf.list, chosen)) end
+		-- Home has no inspector, so a resting mark there would point at nothing.
+		for _, shelf in ipairs(shelves) do shelf.grid:select(source_id == "home" and 0 or position_in(shelf.list, chosen)) end
 		sheet:select(position_in(active, chosen))
 		ledger:select(position_in(active, chosen))
 	end
@@ -309,7 +310,7 @@ function M.new(ctx, opts)
 		on_info = function(item) api.go("info", item) end })
 	drains[#drains + 1] = hero.tick
 	local home_body = L.stack(iup, {
-		iup.hbox({ hero.widget, MARGIN = RING .. "x0" }),
+		iup.hbox({ hero.widget, MARGIN = RING .. "x0", EXPAND = "HORIZONTAL" }),
 		L.stack(iup, { aligned(L.sectionTitle(iup, "Continue watching")), continue_shelf.widget }, 2),
 		L.stack(iup, { aligned(L.sectionTitle(iup, "Recently added")), recent_shelf.widget }, 2),
 		iup.fill({ RASTERSIZE = "x" .. GUTTER }),
@@ -491,7 +492,10 @@ function M.new(ctx, opts)
 
 	function api.fit(width)
 		api.last_width = width
-		Kit.show(iup, right, width >= Adaptive.MEDIUM and source_id ~= "home", stack)
+		local inspecting = width >= Adaptive.MEDIUM and source_id ~= "home"
+		Kit.show(iup, right, inspecting, stack)
+		-- It was hidden while on screen, so being unhidden has to be said out loud.
+		if inspecting then iup.SetAttribute(right, "VISIBLE", "YES") end
 		Kit.show(iup, source_rail, width >= Adaptive.NARROW, stack)
 	end
 
@@ -502,8 +506,8 @@ function M.new(ctx, opts)
 		if not width or width == last_width or width < CELL then return end
 		last_width = width
 		sheet:setCellWidth(fitted_cell(width - 2 * RING - SCROLLBAR, CELL))
-		local shelf_cell = fitted_cell(width - 2 * RING - SCROLLBAR, CELL)
-		local wide_cell = fitted_cell(width - 2 * RING - SCROLLBAR, WIDE_CELL)
+		local shelf_cell = fitted_cell(width - 3 * RING - SCROLLBAR, CELL)
+		local wide_cell = fitted_cell(width - 3 * RING - SCROLLBAR, WIDE_CELL)
 		recent_shelf:setCellWidth(shelf_cell)
 		continue_shelf:setCellWidth(wide_cell)
 		size_shelves(shelf_cell, wide_cell)

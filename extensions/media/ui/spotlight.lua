@@ -16,8 +16,10 @@ local ART_HEIGHT = 284
 local ART_WIDTH = math.floor(ART_HEIGHT * 16 / 9)
 local RING = 6
 local FADE = 0.42             -- the share of the art, from its right edge, that dissolves
+local EDGE = 0.1              -- the share that softens on the other three sides
 local ROTATE_TICKS = 300      -- about nine seconds of 30 ms ticks
 local DOT = 16
+local TITLE_FONT = "Segoe UI Semibold, 28"
 local TEXT = "255 255 255"
 local TEXT_MUTED = "204 204 216"
 
@@ -43,23 +45,30 @@ function M.meta(item)
 	return table.concat(parts, " · ")
 end
 
--- Cross-fade the right part of the art into the surface, in a copy: cached pixels are shared.
+local function smooth(t)
+	if t <= 0 then return 0 elseif t >= 1 then return 1 end
+	return t * t * (3 - 2 * t)
+end
+
+-- Melt every edge of the art into the surface, in a copy because cached pixels are shared. The
+-- right edge goes furthest, so the picture runs into the words.
 local function dissolve(buffer, pixels, stride, w, h, colour)
 	local source = ffi.cast("const uint8_t*", pixels)
 	ffi.copy(buffer, source, stride * h)
-	local start = math.floor(w * (1 - FADE))
-	local span = w - start
+	local right_start, right_span = w * (1 - FADE), w * FADE
+	local side, tall = w * EDGE, h * EDGE
 	local sr, sg, sb = colour[1], colour[2], colour[3]
-	for x = start, w - 1 do
-		local t = (x - start) / span
-		t = t * t * (3 - 2 * t)
-		local keep = 1 - t
-		local fb, fg, fr = sb * t, sg * t, sr * t
-		for y = 0, h - 1 do
-			local at = y * stride + x * 4
-			buffer[at] = buffer[at] * keep + fb
-			buffer[at + 1] = buffer[at + 1] * keep + fg
-			buffer[at + 2] = buffer[at + 2] * keep + fr
+	for y = 0, h - 1 do
+		local vertical = smooth(math.min(y, h - 1 - y) / tall)
+		local row = y * stride
+		for x = 0, w - 1 do
+			local keep = vertical * smooth(x / side) * (1 - smooth((x - right_start) / right_span))
+			if keep < 1 then
+				local rest, at = 1 - keep, row + x * 4
+				buffer[at] = buffer[at] * keep + sb * rest
+				buffer[at + 1] = buffer[at + 1] * keep + sg * rest
+				buffer[at + 2] = buffer[at + 2] * keep + sr * rest
+			end
 		end
 	end
 end
@@ -89,10 +98,10 @@ function M.new(ctx, opts)
 	local raw_bits = art.bits
 
 	local eyebrow = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted" })
-	local title = iup.flatlabel({ TITLE = "", THEMEROLE = "pagetitle", FONTSIZE = "24" })
+	local title = iup.flatlabel({ TITLE = "", THEMEROLE = "pagetitle" })
 	local meta = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted" })
 	local overview = iup.flatlabel({ TITLE = "", THEMEROLE = "reading", TEXTWRAP = "YES", EXPAND = "HORIZONTAL",
-		ALIGNMENT = "ALEFT:ATOP", RASTERSIZE = "x68" })
+		ALIGNMENT = "ALEFT:ATOP", RASTERSIZE = "x44" })
 	local play = Kit.button(iup, { title = "Play", icon = "play--filled--alt", role = "primary_btn",
 		action = function() if current then opts.on_play(current) end end })
 	iup.SetAttribute(play, "RASTERSIZE", "132x40")
@@ -104,10 +113,10 @@ function M.new(ctx, opts)
 	local dot_widgets = {}
 
 	local words = iup.vbox({
-		eyebrow, title, meta, overview,
-		iup.hbox({ play, info, GAP = L.gap(2), MARGIN = "0x0" }),
+		iup.fill({}), eyebrow, title, meta, overview,
+		iup.hbox({ play, info, GAP = L.gap(2), MARGIN = "0x" .. L.gap(2) }),
 		iup.fill({}), dots,
-		GAP = L.gap(2), MARGIN = L.gap(3) .. "x" .. L.gap(5), EXPAND = "YES",
+		GAP = L.gap(1), MARGIN = L.gap(3) .. "x" .. L.gap(3), EXPAND = "YES",
 	})
 
 	api.widget = iup.flatframe({
@@ -128,9 +137,15 @@ function M.new(ctx, opts)
 		for _, widget in ipairs(painted) do iup.SetAttribute(widget, "BGCOLOR", wanted) end
 		for _, dot in ipairs(dot_widgets) do iup.SetAttribute(dot, "BGCOLOR", wanted) end
 		iup.SetAttribute(title, "FGCOLOR", TEXT)
+		iup.SetAttribute(title, "FONT", TITLE_FONT)
 		iup.SetAttribute(overview, "FGCOLOR", TEXT)
 		iup.SetAttribute(meta, "FGCOLOR", TEXT_MUTED)
 		iup.SetAttribute(eyebrow, "FGCOLOR", TEXT_MUTED)
+		-- The second action stays quieter than Play in either theme: a lift of the same surface.
+		local lift = tint.attr({ math.min(colour[1] + 34, 255), math.min(colour[2] + 34, 255), math.min(colour[3] + 34, 255) })
+		iup.SetAttribute(info, "BGCOLOR", lift)
+		iup.SetAttribute(info, "FGCOLOR", TEXT)
+		iup.SetAttribute(info, "BORDERCOLOR", lift)
 		iup.Update(api.widget)
 	end
 
@@ -151,7 +166,7 @@ function M.new(ctx, opts)
 
 	local function mark_dots()
 		for i, dot in ipairs(dot_widgets) do
-			Kit.bindIcon(iup, dot, "dot-mark", { size = i == index and 12 or 8, role = i == index and "accent" or "neutral" })
+			Kit.bindIcon(iup, dot, "dot-mark", { size = i == index and 16 or 10, role = "on_accent" })
 		end
 	end
 

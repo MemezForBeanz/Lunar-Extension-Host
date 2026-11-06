@@ -145,7 +145,7 @@ function M.build(p)
         -- body-compact-01 / label-01).
         pagetitle     = { fg = p.text,      font = sized(HEADING, 18), padding = "0x0" },
         pagesubtitle  = { fg = p.textMuted, font = sized(p.font, 11), padding = "0x0" },
-        sectiontitle  = { fg = p.text,      font = sized(HEADING, 14), padding = "0x0" },
+        sectiontitle  = { fg = p.text,      font = sized(HEADING, 15), padding = "0x0" },
         hint          = { fg = p.textFaint or p.textMuted, font = sized(p.font, 10), padding = "0x0" },
 
         -- Semantic text roles: state colored by meaning, never by literal.

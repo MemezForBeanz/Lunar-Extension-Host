@@ -16,11 +16,10 @@ local ART_WIDTH = 32
 local ART_EDGE = 12     -- the grid keeps 6 px each side for selection rings
 local SIDE_WIDTH = 300  -- both ends share a width, so the transport stays centred
 local VOLUME_WIDTH = 88
-local BUTTON = 32
+local BUTTON = 36
 local PLAY = 36
-local ICON = 20
-local TIME_WIDTH = 56
-local LEFT_WIDTH = 104
+local ICON = 24
+local TIME_WIDTH = 104  -- both sides of the seek bar, so the bar and the transport share a centre
 
 --- Build the dock.
 -- @tparam table ctx host context
@@ -62,7 +61,7 @@ function M.new(ctx, opts)
 
 	local elapsed = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted", ALIGNMENT = "ARIGHT:ACENTER",
 		RASTERSIZE = TIME_WIDTH .. "x" })
-	local left_time = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted", RASTERSIZE = LEFT_WIDTH .. "x" })
+	local left_time = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted", RASTERSIZE = TIME_WIDTH .. "x" })
 	local volume = SeekBar.new(iup, { max = 100, role = "flatseek_plain",
 		on_seek = function(value) player.setVolume(value) end,
 		on_changing = function(value) player.setVolume(value) end })
