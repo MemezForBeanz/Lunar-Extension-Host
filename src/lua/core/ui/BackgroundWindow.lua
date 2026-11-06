@@ -10,6 +10,8 @@
 --
 -- @module core.ui.BackgroundWindow
 
+local Kit = require("core.ui.Kit")
+local L = require("core.lib.CarbonLayout")
 local Instance = require("core.lib.Instance")
 local Service = require("core.lib.Service")
 local platform = require("core.platform")
@@ -73,10 +75,12 @@ end
 -- @tparam[opt] table opts.instance what `M.claim` returned
 -- @tparam[opt] string opts.icon the tray icon's image name
 -- @tparam[opt] boolean opts.packaged an installed copy turns the service on by default
+-- @tparam[opt] table opts.panel what `M.registerSettings` returned
 -- @treturn table `show()`, `hide()`, `quit()`, `hidden()`
 function M.install(opts)
 	local iup, dialog, settings, host = opts.iup, opts.dialog, opts.settings, opts.host
-	local api = { status_label = nil }
+	local api = {}
+	if opts.panel then opts.panel.background = api end
 	local hidden, maximized = false, false
 	local polls = 0
 
@@ -152,8 +156,7 @@ function M.install(opts)
 	end
 
 	local function show_status()
-		if not api.status_label then return end
-		iup.SetAttribute(api.status_label, "TITLE", Service.running() and "Running" or "Stopped")
+		if opts.panel then opts.panel.refresh() end
 	end
 	api.showStatus = show_status
 
@@ -195,10 +198,13 @@ function M.install(opts)
 	return api
 end
 
---- The Background section of Settings.
--- @tparam table opts `iup`, `settings`, `host`, `background` (from `M.install`)
+--- The Background section of Settings. Call it while the window is unmapped, like the host's
+-- other sections, and pass the result to `M.install`.
+-- @tparam table opts `iup`, `settings`, `host`
+-- @treturn table `status` and `section`
 function M.registerSettings(opts)
-	local iup, settings, background = opts.iup, opts.settings, opts.background
+	local iup, settings = opts.iup, opts.settings
+	local panel = {}
 
 	local keep = iup.flattoggle({ TITLE = "", THEMEROLE = "flattoggle",
 		VALUE = settings:get("run_in_background") ~= false and "ON" or "OFF" })
@@ -225,24 +231,39 @@ function M.registerSettings(opts)
 			iup.SetAttribute(signin, "VALUE", on and "OFF" or "ON")
 			opts.host:notify({ title = "Could not change the service", body = tostring(why), kind = "error" })
 		end
-		if background then background.showStatus() end
+		if panel.background then panel.background.showStatus() end
 		return iup.DEFAULT
 	end
 
-	local status = iup.flatlabel({ TITLE = Service.running() and "Running" or "Stopped", THEMEROLE = "reading_muted" })
-	if background then background.status_label = status end
+	local status = Kit.statusLine(iup, "idle", "Stopped")
+	local action
+	action = Kit.button(iup, { title = "Start", action = function()
+		local ok, why
+		if Service.running() then ok, why = Service.stop() else ok, why = Service.start() end
+		if not ok then opts.host:notify({ title = "Could not change the service", body = tostring(why), kind = "error" }) end
+	end })
 
-	opts.host:addSettings("Background", { icon = "power", entries = {
-		{ label = "Keep running when closed",
-			description = "Closing the window leaves Lunar in the system tray, with extensions still running. "
-				.. "The Lunar shortcut brings it back. Quit from the tray icon.",
+	function panel.refresh()
+		local running = Service.running()
+		Kit.setStatus(iup, status, running and "ok" or "idle", running and "Running" or "Stopped")
+		iup.SetAttribute(action, "TITLE", running and "Stop" or "Start")
+	end
+	panel.refresh()
+
+	panel.section = opts.host:addSettings("Background", { icon = "power", entries = {
+		{ label = "Keep the app running when closed",
+			description = "Closing the window leaves the app in the system tray. Opening Lunar brings it back, "
+				.. "and Quit is in the tray menu.",
 			widget = keep },
 		{ label = "Start the service at sign-in",
-			description = "Runs Lunar's headless extensions, such as a media server, whenever you are signed in, "
-				.. "with or without the window.",
+			description = "The service is separate from the app. It runs media servers and other headless "
+				.. "extensions, with or without a window.",
 			widget = signin },
-		{ label = "Service", widget = status },
+		{ label = "Service status",
+			description = "Start or stop the service now. This does not change what happens at sign-in.",
+			widget = iup.hbox({ status, action, GAP = L.gap(3), ALIGNMENT = "ACENTER" }) },
 	} })
+	return panel
 end
 
 return M

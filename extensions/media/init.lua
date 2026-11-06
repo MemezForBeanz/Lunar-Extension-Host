@@ -108,7 +108,7 @@ function M:_settings()
 		end
 		self:connect()
 	end })
-	ctx:addSettings("Lunar Media", { entries = {
+	ctx:addSettings("Lunar Media", { icon = "media--library", entries = {
 		{ label = "Server address", description = "Where your Lunar Media Server is listening.", widget = address },
 		{ label = "Access token", description = "A token from the server's tokens file. It is kept in your system keyring.", widget = token },
 		{ label = "Connect", description = "Load your libraries from this server.", widget = connect },

@@ -459,6 +459,9 @@ AppearanceSettings.register({
 	org_name = ORG_PROFILE and not ORG_PROFILE.profiles and ORG_PROFILE.name,
 })
 
+-- Background settings: keep running when closed, and the service (core.ui.BackgroundWindow).
+local background_panel = BackgroundWindow.registerSettings({ iup = iup, settings = settings_mgr, host = host })
+
 -- Startup sizes for the main window: the primary monitor's usable area, until
 -- the window is shown and can ask which monitor it is on (core.ui.MonitorFit).
 local ok_iupffi, IupFFI = pcall(require, "core.classes.IupFFI")
@@ -1223,10 +1226,16 @@ iup.Show(dlg)
 local background
 if not HARNESS then
 	background = BackgroundWindow.install({ iup = iup, dialog = dlg, settings = settings_mgr, host = host,
-		instance = APP_INSTANCE or nil, icon = APP_ICON_RESOURCE, packaged = not DEV_BUILD })
+		instance = APP_INSTANCE or nil, icon = APP_ICON_RESOURCE, packaged = not DEV_BUILD,
+		panel = background_panel })
 	add_host_command("quit", "Quit Lunar", background.quit, { keywords = "exit close stop", group = "Application" })
 end
-BackgroundWindow.registerSettings({ iup = iup, settings = settings_mgr, host = host, background = background })
+if rawget(_G, "LUNAR_DEV_SHELL") then
+	_G.LUNAR_DEV_SHELL.pages = _G.LUNAR_DEV_SHELL.pages or {}
+	_G.LUNAR_DEV_SHELL.pages["Settings"] = { states = { "appearance", "background" }, show = function(name)
+		if name == "background" then settings_view:_goTo(background_panel.section) end
+	end }
+end
 
 -- Build the dialog's compositor NOW, while nothing is happening. The scrim, the tab
 -- transition and the drag feedback all share it (it is cached per dialog), and the

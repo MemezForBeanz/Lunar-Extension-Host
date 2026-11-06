@@ -746,8 +746,8 @@ function SettingsView:addSection(category, opts, mapped)
         return iup.DEFAULT
     end
     section.nav_btn = nav_btn
-    -- Appearance belongs to the app; everything an extension adds is a tool.
-    if category == "Appearance" then
+    -- These belong to the app; everything an extension adds is a tool.
+    if category == "Appearance" or category == "Background" then
         iup.Insert(self._nav_items, self._group_tools, nav_btn)
     else
         iup.Append(self._nav_items, nav_btn)
