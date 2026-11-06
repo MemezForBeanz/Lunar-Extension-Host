@@ -22,7 +22,7 @@ local INSPECTOR_ART = 132
 local HEAD_TEXT = 162      -- what is left beside the poster in the inspector
 local LABEL_WIDTH = 138    -- values and controls start under the actions, not at their own edge
 local ACTION_HEIGHT = 36
-local TITLE_LINE = 12      -- characters of page title that are sure to fit on one line
+local TITLE_LINE = 22      -- characters of page title that fit on one line across the rail
 local SOURCE_WIDTH = 184
 local INSPECTOR_WIDTH = L.SIDE.narrow
 
@@ -111,6 +111,7 @@ local function inspector(ctx, cache, art_of, on_play)
 	local title = L.pageTitle(iup, "")
 	iup.SetAttribute(title, "TEXTWRAP", "YES")
 	iup.SetAttribute(title, "ALIGNMENT", "ALEFT:ATOP")
+	iup.SetAttribute(title, "RASTERSIZE", L.size(INSPECTOR_WIDTH - 2 * RING, 36))
 	local meta = muted(iup, "")
 	local overview = iup.flatlabel({ TITLE = "", THEMEROLE = "reading", TEXTWRAP = "YES",
 		RASTERSIZE = L.size(INSPECTOR_WIDTH - 2 * RING, 48), ALIGNMENT = "ALEFT:ATOP" })
@@ -136,17 +137,18 @@ local function inspector(ctx, cache, art_of, on_play)
 
 	local head = iup.hbox({
 		poster.widget,
-		iup.vbox({ title, meta, iup.vbox({ RASTERSIZE = "1x8" }), play, queue, GAP = L.gap(2), MARGIN = "0x" .. RING }),
+		iup.vbox({ meta, iup.fill({}), play, queue, GAP = L.gap(2), MARGIN = "0x" .. RING, EXPAND = "VERTICAL" }),
 		GAP = L.gap(3), MARGIN = "0x0", EXPAND = "HORIZONTAL",
 	})
 	local body = L.stack(iup, {
+		iup.hbox({ title, MARGIN = RING .. "x0" }),
 		head,
 		iup.vbox({
 			L.stack(iup, { overview, tracks }, 4),
 			L.stack(iup, { section, fact_box, path }, 3),
 			GAP = L.gap(6), MARGIN = RING .. "x0", EXPAND = "HORIZONTAL",
 		}),
-	}, 4)
+	}, 2)
 	iup.SetAttribute(body, "EXPAND", "YES")
 
 	local function fill(rows)
@@ -164,7 +166,7 @@ local function inspector(ctx, cache, art_of, on_play)
 		current = item
 		if not item then return end
 		iup.SetAttribute(title, "TITLE", item.title)
-		iup.SetAttribute(title, "RASTERSIZE", L.size(HEAD_TEXT, #item.title > TITLE_LINE and 68 or 34))
+		iup.SetAttribute(title, "RASTERSIZE", L.size(INSPECTOR_WIDTH - 2 * RING, #item.title > TITLE_LINE and 72 or 36))
 		iup.SetAttribute(overview, "TITLE", item.overview or "")
 		iup.SetAttribute(play, "TITLE", (item.progress or 0) > 0 and item.progress < 1 and "Resume" or "Play")
 		local is_show = item.kind == "show"
@@ -385,9 +387,14 @@ function M.new(ctx, opts)
 	iup.SetAttribute(sources.widget, "FLATSCROLLBAR", "NO")
 	local scanning = Kit.statusLine(iup, "info", "")
 	Kit.show(iup, scanning, false, sources.widget)
-	local sample_note = L.hint(iup, "This is a sample library. Connect a server in Settings.")
-	iup.SetAttribute(sample_note, "RASTERSIZE", L.size(SOURCE_WIDTH, 40))
-	iup.SetAttribute(sample_note, "TEXTWRAP", "YES")
+	local sample_note = iup.vbox({
+		L.hint(iup, "This is a sample library."),
+		iup.flatbutton({ TITLE = "Connect a server", THEMEROLE = "link_btn", CANFOCUS = "YES", flat_action = function()
+			if opts.on_connect then opts.on_connect() end
+			return iup.DEFAULT
+		end }),
+		GAP = L.gap(1), MARGIN = "0x0", ALIGNMENT = "ALEFT",
+	})
 	local source_rail = iup.vbox({ iup.hbox({ RASTERSIZE = L.size(SOURCE_WIDTH) }), sources.widget,
 		L.stack(iup, { scanning, sample_note }, 2), GAP = L.gap(3), MARGIN = "0x0", EXPAND = "VERTICAL" })
 
@@ -400,7 +407,7 @@ function M.new(ctx, opts)
 		end
 		iup.SetAttribute(heading, "TITLE", title)
 		iup.SetAttribute(count, "TITLE", id == "home" and "" or plural(#active, "item"))
-		Kit.show(iup, controls, id ~= "home", sources.widget)
+		Kit.show(iup, toolbar, id ~= "home", sources.widget)
 		if id ~= "home" then
 			table.sort(active, SORTS[sort][2])
 			sheet:setProvider(#active, cell_value(active))
@@ -486,8 +493,8 @@ function M.new(ctx, opts)
 		recent_shelf:setProvider(#recent, cell_value(recent))
 		sources:setProvider(#model.sources, source_value)
 		Kit.setStatus(iup, scanning, "info", model.scanning and ("Scanning " .. model.scanning) or "")
-		Kit.show(iup, scanning, model.scanning ~= nil, stack)
-		Kit.show(iup, sample_note, model.sample == true, stack)
+		Kit.show(iup, scanning, model.scanning ~= nil, sources.widget)
+		Kit.show(iup, sample_note, model.sample == true, sources.widget)
 		sources:select(1)
 		go_source("home")
 		choose(continuing[1] or recent[1] or shows[1])

@@ -13,20 +13,10 @@ local ROW = 52
 local HEADER = 32
 local ROW_INSET = 12       -- where rows start their text; everything on the page shares that edge
 
--- A count that means trouble wears its colour only while it is above zero.
-local function metric(iup, label, kind)
+local function metric(iup, label)
 	local number = iup.flatlabel({ TITLE = "0", THEMEROLE = "pagetitle" })
-	local quiet = L.hint(iup, label)
-	local caption = kind and Kit.statusLine(iup, kind, label) or nil
-	local box = iup.vbox({ number, quiet, caption, GAP = L.gap(1), MARGIN = "0x0" })
-	if caption then iup.SetAttribute(caption, "EXPAND", "NO") end
-	return box, function(value)
-		iup.SetAttribute(number, "TITLE", tostring(value))
-		if caption then
-			Kit.show(iup, caption, value > 0, number)
-			Kit.show(iup, quiet, value == 0, number)
-		end
-	end
+	local box = iup.vbox({ number, L.hint(iup, label), GAP = L.gap(1), MARGIN = "0x0" })
+	return box, function(value) iup.SetAttribute(number, "TITLE", tostring(value)) end
 end
 
 local function sized(widget, rows, iup)
@@ -45,8 +35,8 @@ function M.new(ctx, opts)
 	local playing_box, set_playing = metric(iup, "Now playing")
 	local files_box, set_files = metric(iup, "Files")
 	local analysing_box, set_analysing = metric(iup, "Being analysed")
-	local missing_box, set_missing = metric(iup, "Offline", "warning")
-	local failed_box, set_failed = metric(iup, "Failed", "error")
+	local missing_box, set_missing = metric(iup, "Offline")
+	local failed_box, set_failed = metric(iup, "Failed")
 	local metrics = iup.hbox({ failed_box, missing_box, playing_box, analysing_box, files_box,
 		GAP = L.gap(7), MARGIN = ROW_INSET .. "x0", HOMOGENEOUS = "YES", EXPAND = "HORIZONTAL" })
 	local function show_counts(data)
@@ -77,7 +67,7 @@ function M.new(ctx, opts)
 	local function explain(pos)
 		local session = server.sessions[pos]
 		if not session then return end
-		iup.SetAttribute(reach_title, "TITLE", "How it reaches " .. session.user)
+		iup.SetAttribute(reach_title, "TITLE", "How " .. session.title .. " reaches " .. session.user)
 		iup.SetAttribute(reach.Delivery, "TITLE", session.mode)
 		iup.SetAttribute(reach.Video, "TITLE", session.video)
 		iup.SetAttribute(reach.Audio, "TITLE", session.audio)

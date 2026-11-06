@@ -131,6 +131,7 @@ function M:register(ctx)
 		model = model, cache = self.cache, art_of = art_of, owner = self,
 		on_play = function(item) self:_play(item) end,
 		enrich = function(item, done) self:_enrich(item, done) end,
+		on_connect = function() ctx:dispatchAddress("lunar://host/settings") end,
 	})
 	self.server = server.new(ctx, { model = model })
 

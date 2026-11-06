@@ -25,6 +25,7 @@ local function clock(seconds)
 	return string.format("%d:%02d", m, s)
 end
 
+local SIDE_CONTROLS = "320x"   -- both ends of the transport, so its middle stays centred
 local ROW_INSET = 12       -- where rows start their text; headings share that edge
 
 local function centred(iup, widget)
@@ -97,10 +98,13 @@ function M.new(ctx, opts)
 	local transport = iup.vbox({
 		bar.widget,
 		iup.hbox({
-			time, iup.fill({}),
+			iup.hbox({ time, iup.fill({}), ALIGNMENT = "ACENTER", RASTERSIZE = SIDE_CONTROLS }),
+			iup.fill({}),
 			tool("skip--back--filled", "Previous"), toggle, tool("skip--forward--filled", "Next"),
-			iup.fill({}), detail,
-			tool("settings--adjust", "Audio and subtitles"), tool("fit-to-screen", "Fullscreen (F)"),
+			iup.fill({}),
+			iup.hbox({ iup.fill({}), detail,
+				tool("settings--adjust", "Audio and subtitles"), tool("fit-to-screen", "Fullscreen (F)"),
+				GAP = L.gap(3), ALIGNMENT = "ACENTER", RASTERSIZE = SIDE_CONTROLS }),
 			GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL", MARGIN = "6x0",
 		}),
 		GAP = L.gap(3), MARGIN = "0x0", EXPAND = "HORIZONTAL",
