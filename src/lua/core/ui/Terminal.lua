@@ -11,6 +11,9 @@ local lfs = require("lfs")
 local Terminal = {}
 Terminal.__index = Terminal
 
+--- Build the terminal panel.
+-- @tparam table opts the IUP binding, settings and hosts the panel needs
+-- @treturn table the terminal
 function Terminal.new(opts)
 	local iup = opts.iup
 	local self = setmetatable({ _iup = iup, _opts = opts, _shell = Shell.new(), _buffer = Buffer.new(),

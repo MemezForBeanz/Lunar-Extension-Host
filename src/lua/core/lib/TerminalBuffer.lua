@@ -1,6 +1,9 @@
 --- Bounded scrollback, retaining styles only while their text is retained.
 local Buffer = {}
 Buffer.__index = Buffer
+--- A new, empty scrollback.
+-- @tparam[opt=262144] number limit most bytes of text to keep
+-- @treturn table the buffer
 function Buffer.new(limit)
 	return setmetatable({ blocks = {}, bytes = 0, limit = limit or 256 * 1024 }, Buffer)
 end
