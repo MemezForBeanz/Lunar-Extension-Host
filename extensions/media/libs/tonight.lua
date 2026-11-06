@@ -96,6 +96,22 @@ function M.plan(items, limit, now, seed)
 	return picks
 end
 
+--- When an evening can start: now, or the next few evening hours.
+-- @tparam number now seconds since the epoch
+-- @treturn table `{ { label, at }, ... }`
+function M.starts(now)
+	local out = { { "Starting now", now } }
+	local today = os.date("*t", now)
+	for _, hour in ipairs({ 18, 19, 20, 21, 22 }) do
+		local at = os.time({ year = today.year, month = today.month, day = today.day, hour = hour, min = 0 })
+		if at > now then
+			local label = os.date("%I %p", at):gsub("^0", "")
+			out[#out + 1] = { "From " .. label, at }
+		end
+	end
+	return out
+end
+
 --- A time on the clock.
 -- @tparam number seconds since the epoch
 -- @treturn string such as `9:05 PM`

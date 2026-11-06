@@ -227,7 +227,7 @@ end
 -- @treturn string|nil
 function M.badge(item)
 	if item.kind == "show" then
-		return (item.unwatched or 0) > 0 and tostring(item.unwatched) or nil
+		return (item.unwatched or 0) > 0 and (item.unwatched .. " left") or nil
 	end
 	local format
 	if item.dynamic and item.dynamic ~= "SDR" then format = item.dynamic == "Dolby Vision" and "DV" or "HDR"

@@ -114,7 +114,7 @@ function M.build(p)
     -- sides keep the label snug instead of floating in a slab. The label is
     -- the body font -- text and control are proportionate again, which is the
     -- real fix for "undersized text on oversized buttons".
-    local BTN_FONT = p.font
+    local BTN_FONT = sized(p.font, 11)
     local BTN_PAD  = "12x5"
     local ROW_PAD  = "14x4"   -- one list row height, wherever a list is
     local accent_hover   = p.accentHover   or shade(p.accent, 0.12)
@@ -146,7 +146,7 @@ function M.build(p)
         pagetitle     = { fg = p.text,      font = sized(HEADING, 18), padding = "0x0" },
         pagesubtitle  = { fg = p.textMuted, font = sized(p.font, 11), padding = "0x0" },
         sectiontitle  = { fg = p.text,      font = sized(HEADING, 15), padding = "0x0" },
-        hint          = { fg = p.textFaint or p.textMuted, font = sized(p.font, 10), padding = "0x0" },
+        hint          = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
 
         -- Semantic text roles: state colored by meaning, never by literal.
         error_label   = { fg = p.error,   font = p.font },
@@ -233,7 +233,7 @@ function M.build(p)
         settingspanel = { bg = layer1, border = layer1, borderwidth = 0, radius = 0 },
         settingscard  = { bg = layer1, border = border, radius = RF, sheen = sheen },
         settings_name = { fg = p.text, font = sized(HEADING, 10), padding = "0x0" },
-        settings_description = { fg = p.textMuted, font = sized(p.font, 9), padding = "0x0" },
+        settings_description = { fg = p.textMuted, font = sized(p.font, 10), padding = "0x0" },
         settings_nav  = {
             bg = layer1, fg = p.textMuted, font = p.font, border = layer1, borderwidth = 0,
             padding = "12x6", radius = R, hover = hover, hovertext = p.text, pressed = selected,

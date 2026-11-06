@@ -23,6 +23,7 @@ local M = {}
 local CELL = 148           -- the size a cell aims for; columns then share the width exactly
 local WIDE_CELL = 280      -- Continue watching: landscape cards, which also say how long is left
 local JUMP_SLOTS = 27      -- A to Z and #
+local PLAN_ROW = 48
 local JUMP_ROW = 22
 local JUMP_WIDTH = 24
 local FILTER_WIDTH = 108
@@ -329,24 +330,27 @@ function M.new(ctx, opts)
 		aspect = "16:9", art = wide_art, secondary = time_left,
 		empty = "Nothing in progress", hint = "Films you start appear here." })
 	local plan = {}
-	local plan_items = {}
-	local plan_shelf = grid_for(function() return plan_items end, { shelf = true, cell = WIDE_CELL,
-		aspect = "16:9", art = wide_art, secondary = function(item)
-			local pick = plan[position_in(plan_items, item)]
-			return pick and (tonight.clock(pick.starts) .. " to " .. tonight.clock(pick.ends)) or ""
-		end,
-		empty = "Nothing fits that yet", hint = "Try a longer evening." })
+	local plan_list = RowList.new(iup, { rows = {}, row_height = PLAN_ROW, column_widths = { 200 }, role = "flatrows_plain",
+		column_align = { [1] = "RIGHT" },
+		empty_title = "Nothing fits that yet", empty_hint = "Try a longer evening.",
+		on_select = function(pos) if plan[pos] then choose(plan[pos].item) end end,
+		on_activate = function(pos)
+			local pick = plan[pos]
+			if not pick then return end
+			local rest = {}
+			for i = pos + 1, #plan do rest[#rest + 1] = plan[i].item end
+			opts.on_play(pick.item, rest)
+		end })
+	iup.SetAttribute(plan_list.widget, "EXPAND", "HORIZONTAL")
 	local recent_shelf = grid_for(function() return recent end, { shelf = true,
 		empty = "Nothing here yet", hint = "New films appear here after a scan." })
 	shelves = { { grid = continue_shelf, list = continuing }, { grid = recent_shelf, list = recent } }
 	local function size_shelves(cell, wide)
 		iup.SetAttribute(recent_shelf.widget, "RASTERSIZE", "x" .. (math.floor(cell * 3 / 2) + CELL_TEXT + SCROLLBAR))
 		iup.SetAttribute(continue_shelf.widget, "RASTERSIZE", "x" .. (math.floor(wide * 9 / 16) + CELL_TEXT + SCROLLBAR))
-		iup.SetAttribute(plan_shelf.widget, "RASTERSIZE", "x" .. (math.floor(wide * 9 / 16) + CELL_TEXT + SCROLLBAR))
 	end
 	size_shelves(CELL, WIDE_CELL)
 	for _, shelf in ipairs(shelves) do iup.SetAttribute(shelf.grid.widget, "EXPAND", "HORIZONTAL") end
-	iup.SetAttribute(plan_shelf.widget, "EXPAND", "HORIZONTAL")
 
 	local function aligned(widget)
 		return iup.hbox({ widget, MARGIN = RING .. "x0" })
@@ -356,15 +360,19 @@ function M.new(ctx, opts)
 	drains[#drains + 1] = hero.tick
 	-- Fits Tonight: a time, and a plan with clock times that ends by then.
 	local plan_seed, plan_limit = 1, tonight.TIMES[5][1]
-	local plan_summary = L.hint(iup, "")
+	local plan_starts = tonight.starts(os.time())
+	local plan_start_at = plan_starts[1][2]
+	local plan_summary = L.sectionTitle(iup, "")
 	local function refill_plan()
-		plan = tonight.plan(films, plan_limit, os.time(), plan_seed)
-		for i = #plan_items, 1, -1 do plan_items[i] = nil end
-		for i, pick in ipairs(plan) do plan_items[i] = pick.item end
-		plan_shelf:setProvider(#plan_items, cell_value(plan_items, function(item)
-			local pick = plan[position_in(plan_items, item)]
-			return pick and (tonight.clock(pick.starts) .. " to " .. tonight.clock(pick.ends)) or ""
-		end))
+		plan = tonight.plan(films, plan_limit, plan_start_at, plan_seed)
+		local rows = {}
+		for i, pick in ipairs(plan) do
+			local following = plan[i + 1] and (" · then a " .. tonight.BREAK_MINUTES .. " minute break") or ""
+			rows[i] = { title = pick.item.title, secondary = pick.why .. following,
+				column1 = tonight.clock(pick.starts) .. " to " .. tonight.clock(pick.ends) }
+		end
+		plan_list:setRows(rows)
+		iup.SetAttribute(plan_list.widget, "RASTERSIZE", "x" .. (PLAN_ROW * math.max(#rows, 1) + 8))
 		iup.SetAttribute(plan_summary, "TITLE", tonight.summary(plan))
 	end
 	local time_labels = {}
@@ -374,12 +382,19 @@ function M.new(ctx, opts)
 			plan_limit = tonight.TIMES[index][1]
 			refill_plan()
 		end })
+	local start_labels = {}
+	for i, entry in ipairs(plan_starts) do start_labels[i] = entry[1] end
+	local plan_from = FlatDropdown.new(iup, { items = start_labels, value = 1, width = 136, role = "dropbutton_quiet",
+		on_change = function(index)
+			plan_start_at = plan_starts[index][2]
+			refill_plan()
+		end })
 	local plan_again = Kit.button(iup, { title = "Another idea", role = "actionbutton", action = function()
 		plan_seed = plan_seed + 1
 		refill_plan()
 	end })
 	iup.SetAttribute(plan_again, "RASTERSIZE", "x32")
-	local plan_play = Kit.button(iup, { title = "Play all", icon = "play--filled--alt", role = "primary_btn", action = function()
+	local plan_play = Kit.button(iup, { title = "Play all", icon = "play--filled--alt", role = "actionbutton", action = function()
 		if not plan[1] then return end
 		local rest = {}
 		for i = 2, #plan do rest[#rest + 1] = plan[i].item end
@@ -387,9 +402,9 @@ function M.new(ctx, opts)
 	end })
 	iup.SetAttribute(plan_play, "RASTERSIZE", "x32")
 	local plan_section = L.stack(iup, {
-		iup.hbox({ L.sectionTitle(iup, "Fits tonight"), plan_summary, iup.fill({}), plan_time.widget, plan_again, plan_play,
-			GAP = L.gap(3), ALIGNMENT = "ACENTER", MARGIN = RING .. "x0", EXPAND = "HORIZONTAL" }),
-		plan_shelf.widget,
+		iup.hbox({ L.sectionTitle(iup, "Fits tonight"), plan_summary, iup.fill({}), plan_from.widget, plan_time.widget,
+			plan_again, plan_play, GAP = L.gap(3), ALIGNMENT = "ACENTER", MARGIN = RING .. "x0", EXPAND = "HORIZONTAL" }),
+		plan_list.widget,
 	}, 2)
 
 	local continue_section = L.stack(iup, { aligned(L.sectionTitle(iup, "Continue watching")), continue_shelf.widget }, 2)
@@ -848,7 +863,6 @@ function M.new(ctx, opts)
 		local wide_cell = fitted_cell(width - 3 * RING - SCROLLBAR, WIDE_CELL)
 		recent_shelf:setCellWidth(shelf_cell)
 		continue_shelf:setCellWidth(wide_cell)
-		plan_shelf:setCellWidth(wide_cell)
 		size_shelves(shelf_cell, wide_cell)
 		iup.Refresh(api.widget)
 	end

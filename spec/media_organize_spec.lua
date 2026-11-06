@@ -170,7 +170,7 @@ describe("poster badges", function()
 	end)
 
 	it("counts what's left of a show", function()
-		assert.equal("12", organize.badge({ kind = "show", unwatched = 12 }))
+		assert.equal("12 left", organize.badge({ kind = "show", unwatched = 12 }))
 		assert.is_nil(organize.badge({ kind = "show", unwatched = 0 }))
 	end)
 end)
