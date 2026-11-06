@@ -52,7 +52,7 @@ function M.setIconDir(dir) icon_dir = dir end
 function M.icon(iup, name, size, role)
 	if not (VectorIcon and VectorIcon.available and icon_dir) then return nil end
 	local ok, handle = pcall(VectorIcon.imageHandle, iup, {
-		path = icon_dir .. "/" .. name .. ".svg",
+		path = (name:find("[/\\]") and name or (icon_dir .. "/" .. name)) .. ".svg",
 		size = size or M.ICON_BUTTON,
 		color = VectorIcon.roleColor(role or "neutral"),
 		offsetY = 1,   -- sits on the text's optical centre, not its line box

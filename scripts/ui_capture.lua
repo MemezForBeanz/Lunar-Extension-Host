@@ -412,6 +412,23 @@ iup.MainLoop = function()
 				return iup.DEFAULT
 			end
 			if fixture then shoot("-data") end
+			-- A page can list named views. Each is shown, given a few ticks for art to arrive, and shot.
+			local shell = rawget(_G, "LUNAR_DEV_SHELL")
+			local views = shell and shell.pages and shell.pages[page.title]
+			if views and views.states then
+				page.view_step = (page.view_step or 0) + 1
+				local phase = (page.view_step - 1) % 4
+				local name = views.states[math.floor((page.view_step - 1) / 4) + 1]
+				if name then
+					if phase == 0 then
+						views.show(name)
+						iup.Refresh(dlg)
+					elseif phase == 3 then
+						shoot("-" .. name)
+					end
+					return iup.DEFAULT
+				end
+			end
 		end
 		index = index + 1
 		return iup.DEFAULT

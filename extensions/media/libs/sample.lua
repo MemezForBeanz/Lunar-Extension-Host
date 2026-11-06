@@ -82,9 +82,11 @@ function M.library()
 			name = "Sample library", version = "0.1.0", analysis = "on", files = 1240, missing = 3, analysing = 18, failed = 1,
 			sessions = {
 				{ user = "alice", title = "The Salt Line", device = "Living room", mode = "Direct",
-					detail = "Original HEVC HDR10 and E-AC3", position = "53:12", duration = "2:08:00", bitrate = "62 Mb/s" },
+					video = "Original HEVC HDR10, client decodes it", audio = "Original E-AC3 5.1, client decodes it",
+					subtitles = "Off", position = "53:12", duration = "2:08:00", bitrate = "62 Mb/s" },
 				{ user = "ben", title = "Harbour Lights S2 E4", device = "Laptop", mode = "Remux",
-					detail = "Copies streams from MKV to MP4", position = "12:40", duration = "48:00", bitrate = "9 Mb/s" },
+					video = "Copied, client decodes H.264", audio = "Copied, client decodes AAC",
+					subtitles = "English, rendered by the client", position = "12:40", duration = "48:00", bitrate = "9 Mb/s" },
 			},
 		},
 	}

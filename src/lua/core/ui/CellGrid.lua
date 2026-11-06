@@ -38,6 +38,9 @@ local M = {}
 
 local fields = { TITLE = "title", SECONDARY = "secondary", BADGE = "badge", PROGRESS = "progress", STATE = "state" }
 
+-- Grids sharing a cache share its finished list: whichever drains first tells them all.
+local hubs = setmetatable({}, { __mode = "k" })
+
 --- Turn a SELECTIONMASK string into a list of positions.
 -- @tparam string mask one `+` or `-` per cell
 -- @treturn table positions, ascending
@@ -152,6 +155,12 @@ end
 -- @treturn function `drain()`, returning how many posters arrived
 function M.posters(grid, cache, source)
 	local waiting = {}
+	local hub = hubs[cache]
+	if not hub then
+		hub = {}
+		hubs[cache] = hub
+	end
+	hub[#hub + 1] = { grid = grid, waiting = waiting }
 	grid.bits = function(pos, w, h)
 		local path, id = source(pos)
 		if not path then return nil end
@@ -167,10 +176,12 @@ function M.posters(grid, cache, source)
 	return function()
 		local finished = cache:drain()
 		for _, key in ipairs(finished) do
-			local pos = waiting[key]
-			if pos then
-				waiting[key] = nil
-				grid:refreshCell(pos)
+			for _, watcher in ipairs(hub) do
+				local pos = watcher.waiting[key]
+				if pos then
+					watcher.waiting[key] = nil
+					watcher.grid:refreshCell(pos)
+				end
 			end
 		end
 		return #finished
