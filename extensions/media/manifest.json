@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "description": "Browse, inspect and play your own media library from a Lunar Media Server.",
   "host_api": 4,
-  "modes": ["desktop"],
+  "modes": ["gui"],
   "capabilities": ["tabs", "settings", "routes"],
   "provides": {
     "tabs": ["Media", "Now Playing", "Media Server"]
