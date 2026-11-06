@@ -19,8 +19,10 @@ local SCROLLBAR = 8
 local CELL_TEXT = 62
 local UNKNOWN = "Not analysed"
 local INSPECTOR_ART = 132
-local HEAD_TEXT = 164      -- what is left beside the poster in the inspector
+local HEAD_TEXT = 162      -- what is left beside the poster in the inspector
+local LABEL_WIDTH = 138    -- values and controls start under the actions, not at their own edge
 local ACTION_HEIGHT = 40
+local TITLE_LINE = 16      -- characters of page title that fit beside the poster
 local SOURCE_WIDTH = 184
 local INSPECTOR_WIDTH = L.SIDE.narrow
 
@@ -82,14 +84,14 @@ end
 
 local function fact(iup)
 	local name = muted(iup, "")
-	iup.SetAttribute(name, "RASTERSIZE", "96x")
+	iup.SetAttribute(name, "RASTERSIZE", LABEL_WIDTH .. "x")
 	local value = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL" })
 	return { row = iup.hbox({ name, value, GAP = L.gap(3), ALIGNMENT = "ACENTER" }), name = name, value = value }
 end
 
 local function labelled(iup, label, control)
 	local name = muted(iup, label)
-	iup.SetAttribute(name, "RASTERSIZE", "96x")
+	iup.SetAttribute(name, "RASTERSIZE", LABEL_WIDTH .. "x")
 	return iup.hbox({ name, control, GAP = L.gap(3), ALIGNMENT = "ACENTER" })
 end
 
@@ -108,7 +110,6 @@ local function inspector(ctx, cache, art_of, on_play)
 
 	local title = L.pageTitle(iup, "")
 	iup.SetAttribute(title, "TEXTWRAP", "YES")
-	iup.SetAttribute(title, "RASTERSIZE", L.size(HEAD_TEXT, 68))
 	iup.SetAttribute(title, "ALIGNMENT", "ALEFT:ATOP")
 	local meta = muted(iup, "")
 	local overview = iup.flatlabel({ TITLE = "", THEMEROLE = "reading", TEXTWRAP = "YES",
@@ -130,12 +131,12 @@ local function inspector(ctx, cache, art_of, on_play)
 		iup.Append(fact_box, facts[i].row)
 	end
 	local section = L.sectionTitle(iup, "File")
-	local path = L.hint(iup, "")
+	local path = muted(iup, "")
 	iup.SetAttribute(path, "RASTERSIZE", L.size(INSPECTOR_WIDTH - 2 * RING))
 
 	local head = iup.hbox({
 		poster.widget,
-		iup.vbox({ title, meta, iup.fill({}), play, queue, GAP = L.gap(2), MARGIN = "0x" .. RING, EXPAND = "VERTICAL" }),
+		iup.vbox({ title, meta, iup.vbox({ RASTERSIZE = "1x8" }), play, queue, GAP = L.gap(2), MARGIN = "0x" .. RING }),
 		GAP = L.gap(3), MARGIN = "0x0", EXPAND = "HORIZONTAL",
 	})
 	local body = L.stack(iup, {
@@ -163,6 +164,7 @@ local function inspector(ctx, cache, art_of, on_play)
 		current = item
 		if not item then return end
 		iup.SetAttribute(title, "TITLE", item.title)
+		iup.SetAttribute(title, "RASTERSIZE", L.size(HEAD_TEXT, #item.title > TITLE_LINE and 68 or 34))
 		iup.SetAttribute(overview, "TITLE", item.overview or "")
 		iup.SetAttribute(play, "TITLE", (item.progress or 0) > 0 and item.progress < 1 and "Resume" or "Play")
 		local is_show = item.kind == "show"
@@ -380,6 +382,7 @@ function M.new(ctx, opts)
 		column_widths = { 40 }, role = "flatrows_plain",
 		on_select = function(pos) go_source(model.sources[pos].id) end })
 	iup.SetAttribute(sources.widget, "EXPAND", "YES")
+	iup.SetAttribute(sources.widget, "FLATSCROLLBAR", "NO")
 	local scanning = Kit.statusLine(iup, "info", "")
 	Kit.show(iup, scanning, false, sources.widget)
 	local sample_note = L.hint(iup, "This is a sample library. Connect a server in Settings.")
@@ -431,6 +434,7 @@ function M.new(ctx, opts)
 			pick_view("sheet", 2)
 			go_source("films")
 			choose(active[2])
+			sheet:scrollTo(2)
 		elseif state == "ledger" then
 			pick_view("ledger", 2)
 			go_source("films")

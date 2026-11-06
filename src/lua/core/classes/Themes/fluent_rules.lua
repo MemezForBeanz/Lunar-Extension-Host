@@ -86,7 +86,7 @@ function M.addPlainRoles(rules, page)
     rules.reading_muted = { fg = rules.flatgrid.secondary, font = rules.flatgrid.font, padding = "0x0" }
     derive("flatseek_plain", "flatseek", { bg = page })
     local quiet = rules.actionbutton.bg
-    derive("dropbutton_quiet", "dropbutton", { bg = quiet, border = quiet })
+    derive("dropbutton_quiet", "dropbutton", { bg = quiet, border = rules.actionbutton.border or quiet })
 end
 
 function M.addShellRoles(rules, p)

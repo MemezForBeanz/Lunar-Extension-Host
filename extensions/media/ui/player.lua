@@ -14,6 +14,7 @@ local M = {}
 
 local ART_WIDTH = 320
 local ART_EDGE = 12        -- the grid keeps 6 px each side for selection rings
+local ART_CAPTION = 84     -- what the title and status need below the poster
 
 local SAVE_EVERY = 10     -- seconds between resume points
 
@@ -23,6 +24,8 @@ local function clock(seconds)
 	if h > 0 then return string.format("%d:%02d:%02d", h, m, s) end
 	return string.format("%d:%02d", m, s)
 end
+
+local ROW_INSET = 12       -- where rows start their text; headings share that edge
 
 local function centred(iup, widget)
 	return iup.hbox({ iup.fill({}), widget, iup.fill({}) })
@@ -48,9 +51,7 @@ function M.new(ctx, opts)
 	iup.SetAttribute(art.widget, "EXPAND", "NO")
 	iup.SetAttribute(art.widget, "CANFOCUS", "NO")
 	iup.SetAttribute(art.widget, "FLATSCROLLBAR", "NO")
-	if opts.cache and opts.art then
-		api.tick = CellGrid.posters(art, opts.cache, function() return opts.art end)
-	end
+	local drain = opts.cache and opts.art and CellGrid.posters(art, opts.cache, function() return opts.art end)
 
 	local glyph = AnimatedIcon.new(iup, { animate = opts.animate, size = 20, role = "on_accent" })
 	local playing = false
@@ -60,7 +61,7 @@ function M.new(ctx, opts)
 		if api.set_paused then api.set_paused(not playing) end
 	end
 	local picture = iup.vbox({
-		iup.fill({}), centred(iup, art.widget),
+		centred(iup, art.widget),
 		centred(iup, iup.flatlabel({ TITLE = sample.title, THEMEROLE = "sectiontitle", ALIGNMENT = "ACENTER" })),
 		centred(iup, L.hint(iup, string.format("Paused · %d · %d h %d min", sample.year,
 			math.floor(sample.minutes / 60), sample.minutes % 60))),
@@ -97,13 +98,18 @@ function M.new(ctx, opts)
 	local transport = iup.vbox({
 		bar.widget,
 		iup.hbox({
+			time, iup.fill({}),
 			tool("skip--back--filled", "Previous"), toggle, tool("skip--forward--filled", "Next"),
-			time, iup.fill({}), detail,
+			iup.fill({}), detail,
 			tool("settings--adjust", "Audio and subtitles"), tool("fit-to-screen", "Fullscreen (F)"),
 			GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL",
 		}),
-		GAP = L.gap(2), MARGIN = "0x0", EXPAND = "HORIZONTAL",
+		GAP = L.gap(3), MARGIN = "0x0", EXPAND = "HORIZONTAL",
 	})
+
+	local function aligned(widget)
+		return iup.hbox({ widget, MARGIN = ROW_INSET .. "x0" })
+	end
 
 	local chapters = {
 		{ title = "Opening", column1 = "0:00:00" }, { title = "The survey", column1 = "0:22:00" },
@@ -125,8 +131,8 @@ function M.new(ctx, opts)
 
 	local rail = iup.vbox({
 		iup.hbox({ RASTERSIZE = L.size(L.SIDE.narrow) }),
-		L.stack(iup, { L.sectionTitle(iup, "Up next"), queue_list.widget }, 3),
-		L.stack(iup, { L.sectionTitle(iup, "Chapters"), chapter_list.widget }, 3),
+		L.stack(iup, { aligned(L.sectionTitle(iup, "Up next")), queue_list.widget }, 3),
+		L.stack(iup, { aligned(L.sectionTitle(iup, "Chapters")), chapter_list.widget }, 3),
 		iup.fill({}),
 		GAP = L.gap(6), MARGIN = "0x0", EXPAND = "VERTICAL",
 	})
@@ -139,6 +145,24 @@ function M.new(ctx, opts)
 
 	function api.fit(width)
 		Kit.show(iup, rail, width >= 900, bar.widget)
+	end
+
+	-- The poster takes the height the stage really has, measured after layout.
+	local art_height
+	local function fit_art()
+		local height = tonumber((iup.GetAttribute(screen, "RASTERSIZE") or ""):match("x(%d+)$"))
+		if not height or height == art_height or height < 200 then return end
+		art_height = height
+		local tall = height - ART_CAPTION
+		local wide = math.floor(tall * 2 / 3)
+		art:setCellWidth(wide)
+		iup.SetAttribute(art.widget, "RASTERSIZE", L.size(wide + ART_EDGE, tall + ART_EDGE))
+		iup.Refresh(picture)
+	end
+
+	function api.tick()
+		fit_art()
+		if drain then drain() end
 	end
 
 	local mpv, on_position, seconds, length, saved_at = nil, nil, 0, 0, 0
