@@ -131,6 +131,80 @@ if not ok then log:warn("no HTTP API: " .. tostring(err)) end
   a job, answer `202` and let the client ask again; serve the result from your
   database once it's ready.
 
+### Native file responses
+
+An extension with `http` capability can return an opaque file response. Resolve
+an opaque catalog ID and check the token's permission **before** constructing it:
+
+```lua
+local function deliver(req)
+    local file = catalog:authorizedFile(req.auth, req.params.id)
+    if not file then return { status = 404 } end
+    -- These are trusted catalog fields, never request path/query fields.
+    return assert(ctx:fileResponse(file.root, file.relative,
+        { mime = file.mime or "application/octet-stream" }, M))
+end
+ctx:addRoute("GET", "/files/:id", deliver, nil, M)
+ctx:addRoute("HEAD", "/files/:id", deliver, nil, M)
+```
+
+`ctx:fileResponse(root, relative, opts, owner)` returns a response or `nil, error`.
+`root` is an absolute local directory (drive-qualified on Windows); `relative`
+uses `/` separators. `opts.mime` is the content type. The owner must be registered
+with `http` capability. `core.lib.HttpServer.fileResponse(root, relative, opts)`
+is the lower-level host API. Responses contain no public path, raw handle, or
+body, and ordinary tables cannot impersonate them. Each delivery opens its own
+owned file handle. Do not cache authorization decisions in reusable responses.
+
+The worker walks **every** component, including root ancestors. Linux uses
+`openat` with `O_NOFOLLOW`; Windows uses parent-handle-relative `NtCreateFile`
+with reparse traversal disabled, then checks attributes. Dot components,
+backslashes in relative paths, colons (including alternate data streams), percent
+escapes, symlinks, junctions and other reparse points fail closed. Missing or
+rejected files return 404 without exposing paths. Absolute relative names and
+invalid MIME strings fail at construction. Windows UNC/device roots are refused.
+Keep source files immutable during delivery: publish replacements atomically;
+Linux open descriptors pin identity but cannot prevent an external in-place write.
+Windows denies concurrent write/delete sharing while its owned handle is open.
+
+GET supports one `bytes` range, including suffix/open-ended ranges, with 200,
+206 or 416, `Accept-Ranges`, `Content-Range` and exact `Content-Length`. Multiple
+ranges, malformed units/numbers, reversed ranges, zero suffixes, unsatisfiable
+ranges and signed-64-bit overflow explicitly return 416 with `bytes */size`.
+Offsets and lengths never pass through Lua numbers. HEAD returns full metadata
+without media bytes and ignores Range, as Range applies to GET. ETag comes from
+file identity, modification time and size. `If-Match`, `If-None-Match` (including
+weak comparison), `If-Range` (strong ETag or date), `If-Modified-Since` and
+`If-Unmodified-Since` are evaluated before transferring bytes; failed preconditions
+return 412, matching cache validators return 304. Dates use IMF-fixdate; other
+forms are ignored. Register GET and HEAD explicitly.
+
+The existing bearer checks and listener TLS rules still apply. Cleartext uses
+overlapped `TransmitFile` on Windows and nonblocking `sendfile` on Linux, handling
+partial sends and EAGAIN. TLS uses OpenSSL on a worker with a reusable 64 KiB
+native buffer: **bounded-copy, not zero-copy**. Lua never reads media bytes.
+A transfer has one worker, at most one 1 MiB kernel transfer outstanding, and no
+unbounded output queue. Each chunk yields to the OS scheduler. The server's
+`max_connections` bounds worker count (64 by default); slow readers apply socket
+backpressure. Copas polls completion every 5 ms while serving other requests.
+
+Disconnects end the worker and close its file. `server:stop()` stops admission
+and requests cancellation without joining unfinished I/O on the Lua loop. Pending
+workers retain exclusive socket/TLS ownership until completion; the normal
+headless drain includes them within `--stop-grace`. Cancellation aborts outstanding
+Windows overlapped sends and checks Linux/TLS progress at 10 ms wait intervals.
+As with other native filesystem calls, a broken disk/driver can delay an OS open
+or read; grace cannot guarantee interrupting a kernel call stuck in the driver.
+
+Native arithmetic checks run with `LunarCLI scripts/media_stream_check.lua`
+(or CTest `native.file_ranges`). `scripts/benchmark_media.py --exe <cli>` generates
+local fixtures, verifies 1,000 ranges plus sparse offsets above 4 GiB, junction
+rejection, auth/conditionals, cancellation and shutdown, then measures eight
+readers and 32 slow readers. It binds and connects only to 127.0.0.1. Pass
+`--tls-cert <pem> --tls-key <pem>` for TLS and `--seconds 600 --mbps 25` for a
+ten-minute 200 Mb/s workload. Set `--scratch` to a writable local directory on
+Linux. Results, limits and hardware are in [media streaming measurements](media-streaming-results.md).
+
 ### Tokens
 
 The tokens file has one `name token` per line, and the name appears in the request
