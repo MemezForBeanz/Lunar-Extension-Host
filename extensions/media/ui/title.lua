@@ -155,6 +155,27 @@ function M.new(ctx, opts)
 		end
 	end
 
+	-- Copies: one title, wherever it lives, each with how healthy that source is right now.
+	local copy_entries = {}
+	local copies = RowList.new(iup, { rows = {}, row_height = 48, column_widths = { 160, 112 }, role = "flatrows_plain",
+		on_activate = function(pos)
+			if copy_entries[pos] and copy_entries[pos].item then opts.on_play(copy_entries[pos].item) end
+		end })
+	iup.SetAttribute(copies.widget, "EXPAND", "HORIZONTAL")
+	local copies_section = L.stack(iup, { L.sectionTitle(iup, "Copies"), copies.widget }, 2)
+
+	local function fill_copies(item)
+		copy_entries = item.copy_list or {}
+		local rows = {}
+		for i, entry in ipairs(copy_entries) do
+			rows[i] = { title = entry.source, secondary = entry.web and "Streams from the web" or "On your network",
+				column1 = entry.quality or "", column2 = entry.health == "ok" and "Reachable" or "Unreachable" }
+		end
+		copies:setRows(rows)
+		iup.SetAttribute(copies.widget, "RASTERSIZE", "x" .. (48 * #rows + 8))
+		Kit.show(iup, copies_section, #rows > 1 or (copy_entries[1] and copy_entries[1].web) == true, back)
+	end
+
 	local episodes = RowList.new(iup, { rows = {}, row_height = EPISODE_ROW, column_widths = { 96, 112 },
 		role = "flatrows_plain", empty_title = "No episodes yet", empty_hint = "They appear here after a scan.",
 		on_activate = function(pos)
@@ -224,6 +245,7 @@ function M.new(ctx, opts)
 		aligned(hero.widget),
 		aligned(fact_box),
 		aligned(forecast_section),
+		aligned(copies_section),
 		episode_section,
 		more_section,
 		iup.fill({ RASTERSIZE = "x16" }),
@@ -261,6 +283,7 @@ function M.new(ctx, opts)
 			iup.SetAttribute(fact_rows[i].value, "TITLE", value)
 			Kit.show(iup, fact_rows[i].row, value ~= "", back)
 		end
+		fill_copies(item)
 		Kit.show(iup, forecast_section, item.kind ~= "show", back)
 		if item.kind ~= "show" then load_forecast(item) end
 		similar = organize.similar(item, opts.pool(), SIMILAR)

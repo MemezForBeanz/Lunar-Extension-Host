@@ -48,6 +48,7 @@ local FIELDS = {
 	year = function(item) return item.year end,
 	genre = function(item) return item.genres end,
 	title = function(item) return item.title end,
+	source = function(item) return item.sources end,
 }
 
 local TESTS = {
@@ -67,7 +68,7 @@ local TESTS = {
 function M.passes(item, rule)
 	local read, test = FIELDS[rule.field], TESTS[rule.test or "is"]
 	if not read or not test then return false end
-	if rule.field == "genre" then
+	if rule.field == "genre" or rule.field == "source" then
 		local tagged = has_tag(read(item), rule.value)
 		if rule.test == "is_not" then return not tagged end
 		return tagged
@@ -183,6 +184,40 @@ function M.fit(letters, room)
 	return out
 end
 
+--- What makes two items the same title across sources: its name and its year.
+-- @tparam string title
+-- @tparam number|nil year
+-- @treturn string
+function M.matchKey(title, year)
+	local key = (title or ""):lower():gsub("^the%s+", ""):gsub("^an%s+", ""):gsub("^a%s+", ""):gsub("[^%w]", "")
+	return key .. "|" .. tostring(year or 0)
+end
+
+--- Fold items from several sources into one card each, keeping every copy.
+-- The first copy of a title wins, so put the sources you trust most first.
+-- @tparam table items each with `title`, `year`, `sources`
+-- @treturn table one item per title, each with `copies`
+function M.merge(items)
+	local out, seen = {}, {}
+	for _, item in ipairs(items) do
+		local key = M.matchKey(item.title, item.year)
+		local first = seen[key]
+		if first then
+			first.copies[#first.copies + 1] = item
+			for _, source in ipairs(item.sources or {}) do
+				if not has_tag(first.sources, source) then first.sources[#first.sources + 1] = source end
+			end
+			if (first.progress or 0) == 0 and (item.progress or 0) > 0 then first.progress = item.progress end
+		else
+			item.copies = { item }
+			item.sources = item.sources or {}
+			seen[key] = item
+			out[#out + 1] = item
+		end
+	end
+	return out
+end
+
 --- Sort a list by title the way people file them.
 -- @tparam table a
 -- @tparam table b
@@ -232,10 +267,11 @@ function M.badge(item)
 	local format
 	if item.dynamic and item.dynamic ~= "SDR" then format = item.dynamic == "Dolby Vision" and "DV" or "HDR"
 	elseif item.resolution == "2160p" then format = "4K" end
+	local copies = item.copies and #item.copies > 1 and (#item.copies .. " copies") or nil
 	if M.watchState(item) == "watched" then
 		return format and (TICK .. " " .. format) or TICK
 	end
-	return format
+	return format or copies
 end
 
 --- Titles most like this one, from what the library knows: shared genres, then the same decade.
@@ -278,7 +314,9 @@ function M.describe(set)
 	for _, rule in ipairs(set and set.rules or {}) do
 		local value = rule.value
 		local words = WORDS[rule.field] and WORDS[rule.field][value]
-		if rule.field == "dynamic" and rule.test == "is_not" and value == "SDR" then
+		if rule.field == "source" then
+			words = false
+		elseif rule.field == "dynamic" and rule.test == "is_not" and value == "SDR" then
 			parts[#parts + 1] = "HDR"
 			words = false
 		elseif rule.field == "decade" then words = value .. "s"

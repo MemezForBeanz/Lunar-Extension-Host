@@ -20,6 +20,7 @@ local ART_TALLEST = 460    -- a paused film shouldn't tower over its own control
 local SAVE_EVERY = 10     -- seconds between resume points
 local FULL_VOLUME = 100
 local END_OF_FILE = 0     -- mpv's reason when a file played to its end
+local FAILED = 4          -- and when it couldn't be played
 
 local function clock(seconds)
 	seconds = math.floor(seconds or 0)
@@ -204,6 +205,7 @@ function M.new(ctx, opts)
 	local function on_event(name, info)
 		if name == "end-file" then
 			if info and info.reason == END_OF_FILE and api.on_finished then api.on_finished() end
+			if info and info.reason == FAILED and api.on_failed then api.on_failed() end
 			return
 		end
 		if name ~= "property-change" or not info or info.value == nil then return end
@@ -310,7 +312,7 @@ function M.new(ctx, opts)
 		on_position, saved_at = request.on_position, 0
 		now = { title = request.title or now.title, position = request.start or 0, length = 0, detail = request.detail }
 		loaded = true
-		mpv:set("http-header-fields", request.header)
+		mpv:set("http-header-fields", request.header or "")
 		mpv:set("start", tostring(math.floor(request.start or 0)))
 		mpv:load(request.url)
 		playing = true

@@ -5,6 +5,7 @@
 
 local cjson = require("cjson")
 local artcache = require("libs.artcache")
+local organize = require("libs.organize")
 
 local M = {}
 local Client = {}
@@ -70,6 +71,7 @@ function M.applyDetail(item, detail)
 		item.size_gb = file.size and file.size / 1073741824 or nil
 		item.minutes = file.duration_ms and math.floor(file.duration_ms / 60000) or nil
 		item.path = file.rel_path
+		item.is_remote = file.is_remote == 1
 		item.problem = file.probe_error
 		if file.duration_ms and file.duration_ms > 0 then item.progress = position / file.duration_ms end
 	end
@@ -105,15 +107,17 @@ end
 -- @tparam[opt] table continuing the server's continue-watching items
 -- @tparam[opt] table collections the server's collections
 -- @treturn table a model with `sources`, `films`, `shows`, `continuing` and `server`
-function M.modelFrom(libraries, status, continuing, collections)
+function M.modelFrom(libraries, status, continuing, collections, source_rows)
 	local by_id = {}
 	local model = { films = {}, shows = {}, continuing = {}, sample = false,
 		sources = { { id = "home", title = "Home", icon = "home" } } }
 	local film_count, show_count = 0, 0
+	local everything = {}
 	for _, library in ipairs(libraries) do
 		for _, raw in ipairs(library.items or {}) do
 			local item = { id = raw.id, kind = raw.kind, title = raw.title, year = raw.year or 0,
-				added = added_text(raw.added_at), progress = 0,
+				added = added_text(raw.added_at), progress = 0, sources = { library.name }, web = library.source_id ~= nil,
+				art_urls = { poster = text_or_nil(raw.poster_url), backdrop = text_or_nil(raw.backdrop_url) },
 				seasons = number_or_nil(raw.seasons) or 0, episodes = number_or_nil(raw.episodes) or 0,
 				unwatched = number_or_nil(raw.unwatched) or 0,
 				art = artcache.kinds(raw.art), overview = text_or_nil(raw.overview), genres = list_of(raw.genres),
@@ -122,13 +126,28 @@ function M.modelFrom(libraries, status, continuing, collections)
 			if raw.watched == 1 then item.progress = 1 end
 			if type(raw.duration_ms) == "number" then item.minutes = math.floor(raw.duration_ms / 60000) end
 			by_id[item.id] = item
-			if raw.kind == "show" then
-				show_count = show_count + 1
-				model.shows[show_count] = item
-			else
-				film_count = film_count + 1
-				model.films[film_count] = item
-			end
+			if raw.art == nil and item.art_urls.poster then item.art.poster = true end
+			if raw.art == nil and item.art_urls.backdrop then item.art.backdrop = true end
+			everything[#everything + 1] = item
+		end
+	end
+	-- Local libraries come first, so a title's first copy is the one on this server.
+	table.sort(everything, function(a, b)
+		if a.web ~= b.web then return b.web end
+		return a.id < b.id
+	end)
+	for _, item in ipairs(organize.merge(everything)) do
+		item.copy_list = {}
+		for i, copy in ipairs(item.copies) do
+			item.copy_list[i] = { item = copy, source = copy.sources[1], web = copy.web, health = "ok" }
+			by_id[copy.id] = item   -- progress on any copy belongs to the one card
+		end
+		if item.kind == "show" then
+			show_count = show_count + 1
+			model.shows[show_count] = item
+		else
+			film_count = film_count + 1
+			model.films[film_count] = item
 		end
 	end
 	for _, raw in ipairs(continuing or {}) do
@@ -144,6 +163,7 @@ function M.modelFrom(libraries, status, continuing, collections)
 	model.sources[2] = { id = "films", title = "Films", icon = "video", count = film_count }
 	model.sources[3] = { id = "shows", title = "Shows", icon = "screen", count = show_count }
 	model.collections = collections or {}
+	model.origins = M.originsFrom(libraries, source_rows)
 	model.scanning = status.scanning
 	model.server = {
 		name = "Connected", version = "0.1.0", analysis = status.analysis or "off", files = status.files or 0,
@@ -226,7 +246,10 @@ function Client:load(done)
 				if not library then
 					return self:_request("GET", "/v1/continue", nil, function(resume)
 						self:_request("GET", "/v1/collections", nil, function(saved)
-							done(M.modelFrom(libraries, status, resume and resume.items, M.collectionsFrom(saved)))
+							self:_request("GET", "/v1/sources", nil, function(found)
+								done(M.modelFrom(libraries, status, resume and resume.items, M.collectionsFrom(saved),
+									found and found.sources))
+							end)
 						end)
 					end)
 				end
@@ -239,6 +262,28 @@ function Client:load(done)
 			next_library()
 		end)
 	end)
+end
+
+local ORIGIN_ICONS = { jellyfin = "network--4", archive = "globe", m3u = "catalog", feed = "catalog", index = "folder", torrent = "share" }
+
+--- Where a combined library comes from, for the rail.
+-- @tparam table libraries
+-- @tparam table|nil rows the server's sources
+-- @treturn table
+function M.originsFrom(libraries, rows)
+	local by_library = {}
+	for _, source in ipairs(rows or {}) do
+		if source.library_id then by_library[source.library_id] = source end
+	end
+	local out = {}
+	for _, library in ipairs(libraries) do
+		local source = by_library[library.id]
+		out[#out + 1] = { id = "l" .. tostring(library.id), name = library.name, items = #(library.items or {}),
+			icon = source and (ORIGIN_ICONS[source.kind] or "globe") or "data--base", status = source and source.status or "ok",
+			error = source and text_or_nil(source.error), provider_name = source and source.provider_name or "Folder on this server",
+			source_id = source and source.id, rules = { rules = { { field = "source", value = library.name } } } }
+	end
+	return out
 end
 
 --- Turn the server's episodes into seasons.
@@ -284,6 +329,36 @@ function Client:saveCollection(entry, done)
 		items = entry.items }, done)
 end
 
+--- The provider database.
+function Client:providers(done)
+	self:_request("GET", "/v1/providers", nil, function(answer) done(answer and answer.providers or {}) end)
+end
+
+--- Add a source.
+function Client:addSource(body, done)
+	self:_request("POST", "/v1/sources", body, done)
+end
+
+function Client:syncSource(id)
+	self:_request("POST", "/v1/sources/" .. id .. "/sync", {}, function() end)
+end
+
+function Client:removeSource(id, done)
+	self:_request("DELETE", "/v1/sources/" .. id, nil, done)
+end
+
+--- Ask how to play a remote file. `done(answer)`; an answer with `pending` means ask again.
+function Client:open(file_id, done)
+	self.http({ url = self:_url("/v1/files/" .. file_id .. "/open"), method = "POST", json = {}, timeout = 15,
+		headers = { Authorization = "Bearer " .. self.token } }, function(response, err)
+		if not response then return done({ error = err or "no answer from the server" }) end
+		if response.status == 202 then return done({ pending = true }) end
+		local ok, data = pcall(cjson.decode, response.body or "")
+		if not ok then return done({ error = "the server's answer could not be read" }) end
+		done(data)
+	end)
+end
+
 --- Fetch one picture's bytes.
 -- @tparam number id
 -- @tparam string kind `poster` or `backdrop`
@@ -310,6 +385,13 @@ end
 --- Say whether something has been watched.
 function Client:mark(id, watched)
 	self:_request("POST", "/v1/items/" .. id .. "/watched", { watched = watched }, function() end)
+end
+
+--- Fetch a picture from a source's own address.
+function Client:artFrom(url, done)
+	self.http({ url = url, method = "GET", timeout = 30 }, function(response)
+		done(response and response.ok and response.body or nil)
+	end)
 end
 
 --- Fetch one item's detail.

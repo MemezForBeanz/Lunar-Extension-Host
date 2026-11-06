@@ -54,9 +54,59 @@ function M.mount(svc)
 		return { status = 201, json = library }
 	end)
 
+	route("GET", "/v1/providers", function()
+		return { status = 200, json = { providers = svc.sources:providers() } }
+	end)
+
+	route("POST", "/v1/providers", function(req)
+		local clean, why = svc.sources:addProvider(json_body(req))
+		if not clean then return bad(400, why) end
+		return { status = 201, json = clean }
+	end)
+
+	route("GET", "/v1/sources", function()
+		return { status = 200, json = { sources = svc.sources:list() } }
+	end)
+
+	route("POST", "/v1/sources", function(req)
+		local body = json_body(req)
+		if not body then return bad(400, "a source is required") end
+		local source, why = svc.sources:add(body)
+		if not source then return bad(400, why) end
+		return { status = 201, json = { id = source.id } }
+	end)
+
+	route("POST", "/v1/sources/:id/sync", function(req)
+		local id = id_of(req.params.id)
+		if not id or not catalog:source(id) then return bad(404, "no such source") end
+		svc.sources:sync(id)
+		return { status = 202, json = { queued = true } }
+	end)
+
+	route("DELETE", "/v1/sources/:id", function(req)
+		if not svc.sources:remove(id_of(req.params.id) or 0) then return bad(404, "no such source") end
+		return { status = 204 }
+	end)
+
+	-- A remote file is played from its own address. Working that out can take a moment, so the
+	-- first answer may be 202, and the client asks again.
+	route("POST", "/v1/files/:id/open", function(req)
+		local target = catalog:fileTarget(id_of(req.params.id) or 0)
+		if not target then return bad(404, "no such file") end
+		if not target.remote then return bad(400, "this file is on the server") end
+		local answer = svc.sources:open(target)
+		if not answer then return { status = 202, json = { pending = true } } end
+		if answer.error then return bad(502, answer.error) end
+		return { status = 200, json = answer }
+	end)
+
 	route("POST", "/v1/libraries/:id/scan", function(req)
 		local library = catalog:library(id_of(req.params.id) or 0)
 		if not library then return bad(404, "no such library") end
+		if library.source_id then
+			svc.sources:sync(library.source_id)
+			return { status = 202, json = { queued = true } }
+		end
 		svc.scan(library)
 		return { status = 202, json = { queued = true } }
 	end)
@@ -158,6 +208,7 @@ function M.mount(svc)
 	local function stream(req)
 		local target = catalog:fileTarget(id_of(req.params.id) or 0)
 		if not target then return bad(404, "no such file") end
+		if target.remote then return bad(400, "this file is played from its own address") end
 		if target.missing_at then return bad(410, "this file is offline") end
 		return svc.file_response(target)
 	end

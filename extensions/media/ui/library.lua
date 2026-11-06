@@ -673,11 +673,12 @@ function M.new(ctx, opts)
 		if field == "COLUMN1" then return source.count and tostring(source.count) or nil end
 	end
 	local go_source
-	local shelf_list
+	local shelf_list, origin_list
 	local sources = RowList.new(iup, { value = source_value, count = #model.sources, row_height = 32,
 		column_widths = { 40 }, role = "flatrows_plain",
 		on_select = function(pos)
 			shelf_list:select(0)
+			origin_list:select(0)
 			go_source(model.sources[pos].id)
 		end })
 	iup.SetAttribute(sources.widget, "RASTERSIZE", "x" .. (32 * RAIL_SOURCES + 8))
@@ -698,10 +699,33 @@ function M.new(ctx, opts)
 		empty_title = "No collections yet", empty_hint = "Filter a library, then save it.",
 		on_select = function(pos)
 			sources:select(0)
+			origin_list:select(0)
 			go_source("collection", (model.collections or {})[pos])
 		end })
-	iup.SetAttribute(shelf_list.widget, "EXPAND", "YES")
+	iup.SetAttribute(shelf_list.widget, "EXPAND", "HORIZONTAL")
 	iup.SetAttribute(shelf_list.widget, "FLATSCROLLBAR", "NO")
+
+	-- Sources: where things come from, each a filter on the one combined library.
+	local function origin_value(pos, field)
+		local entry = (model.origins or {})[pos]
+		if not entry then return nil end
+		if field == "TITLE" then return entry.name end
+		if field == "IMAGE" then return Kit.icon(iup, entry.icon or "globe", 16, "text") end
+		if field == "COLUMN1" then return entry.status == "failed" and "!" or (entry.items and tostring(entry.items)) or nil end
+	end
+	origin_list = RowList.new(iup, { value = origin_value, count = #(model.origins or {}), row_height = 32,
+		column_widths = { 40 }, role = "flatrows_plain",
+		on_select = function(pos)
+			sources:select(0)
+			shelf_list:select(0)
+			go_source("collection", (model.origins or {})[pos])
+		end })
+	iup.SetAttribute(origin_list.widget, "EXPAND", "YES")
+	iup.SetAttribute(origin_list.widget, "FLATSCROLLBAR", "NO")
+	local function size_rail()
+		iup.SetAttribute(shelf_list.widget, "RASTERSIZE", "x" .. (32 * math.max(#(model.collections or {}), 1) + 8))
+	end
+	size_rail()
 	local rail_group = function(text)
 		return iup.hbox({ iup.flatlabel({ TITLE = text, THEMEROLE = "reading_muted" }), MARGIN = "12x0" })
 	end
@@ -718,6 +742,7 @@ function M.new(ctx, opts)
 	local source_rail = iup.vbox({ iup.hbox({ RASTERSIZE = L.size(SOURCE_WIDTH) }),
 		rail_group("Libraries"), sources.widget,
 		rail_group("Collections"), shelf_list.widget,
+		rail_group("Sources"), origin_list.widget,
 		L.stack(iup, { scanning, sample_note }, 2), GAP = L.gap(2), MARGIN = "0x0", EXPAND = "VERTICAL" })
 
 	-- Everything the library holds, for a collection to draw from.
@@ -743,6 +768,7 @@ function M.new(ctx, opts)
 	end
 
 	go_source = function(id, entry)
+		if id == "collection" and not entry then id = "home" end
 		source_id = id
 		collection = entry
 		if id == "shows" then base = shows elseif id == "films" then base = films end
@@ -787,6 +813,7 @@ function M.new(ctx, opts)
 	local function pick_view(name, position)
 		view = name
 		shelf_list:select(0)
+		origin_list:select(0)
 		iup.SetAttribute(segmented, "VALUEPOS", name == "ledger" and "1" or "0")
 		sources:select(position)
 	end
@@ -804,6 +831,13 @@ function M.new(ctx, opts)
 			return
 		end
 		opened = nil
+		if state == "source" then
+			shelf_list:select(0)
+			sources:select(0)
+			origin_list:select(3)
+			go_source("collection", (model.origins or {})[3])
+			return
+		end
 		if state == "filtered" then
 			pick_view("sheet", 2)
 			go_source("films")
@@ -879,6 +913,7 @@ function M.new(ctx, opts)
 		entry.count = #members(entry)
 		shelf_list:setProvider(#model.collections, collection_value)
 		shelf_list:select(#model.collections)
+		size_rail()
 		sources:select(0)
 		go_source("collection", entry)
 	end
@@ -912,6 +947,8 @@ function M.new(ctx, opts)
 		Kit.show(iup, continue_section, #continuing > 0, recent_shelf.widget)
 		sources:setProvider(#model.sources, source_value)
 		shelf_list:setProvider(#(model.collections or {}), collection_value)
+		origin_list:setProvider(#(model.origins or {}), origin_value)
+		size_rail()
 		Kit.setStatus(iup, scanning, "info", model.scanning and ("Scanning " .. model.scanning) or "")
 		Kit.show(iup, scanning, model.scanning ~= nil, sources.widget)
 		Kit.show(iup, sample_note, model.sample == true, sources.widget)
@@ -936,6 +973,7 @@ function M.new(ctx, opts)
 	--- Open a title's page.
 	-- @tparam table item
 	function api.open(item)
+		if not item then return end
 		opened = item
 		details.open(item)
 		set_chrome()
@@ -954,6 +992,13 @@ function M.new(ctx, opts)
 		sheet:setProvider(#active, cell_value(active))
 		if chosen then show_item(chosen) end
 		hero.show(hero.current())
+	end
+
+	--- Find a film by its title.
+	function api.find(title)
+		for _, film in ipairs(films) do
+			if film.title == title then return film end
+		end
 	end
 
 	function api.first()

@@ -8,6 +8,6 @@
   "modes": ["gui"],
   "capabilities": ["tabs", "settings", "routes", "local_service"],
   "provides": {
-    "tabs": ["Media", "Now playing", "Media server"]
+    "tabs": ["Media", "Now playing", "Sources", "Media server"]
   }
 }

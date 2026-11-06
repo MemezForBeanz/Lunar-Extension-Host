@@ -232,6 +232,71 @@ function Catalog:deleteCollection(id)
 	self:_rows("DELETE FROM collections WHERE id = ?", id)
 end
 
+--- Provider definitions people have added.
+function Catalog:savedProviders()
+	return self:_rows("SELECT id, def FROM providers ORDER BY added_at, id")
+end
+
+function Catalog:saveProvider(id, def, now)
+	self:_rows([[INSERT INTO providers (id, def, added_at) VALUES (?, ?, ?)
+		ON CONFLICT (id) DO UPDATE SET def = excluded.def]], id, def, now)
+end
+
+--- Every source, with the library that holds its items.
+function Catalog:sources()
+	return self:_rows([[SELECT s.*, l.id AS library_id FROM sources s
+		LEFT JOIN libraries l ON l.source_id = s.id ORDER BY s.created_at, s.id]])
+end
+
+function Catalog:source(id)
+	return self:_one("SELECT * FROM sources WHERE id = ?", id)
+end
+
+function Catalog:addSource(provider_id, name, config, now)
+	self:_rows("INSERT INTO sources (provider_id, name, config, created_at) VALUES (?, ?, ?, ?)", provider_id, name, config, now)
+	return self:_one("SELECT * FROM sources WHERE id = (SELECT MAX(id) FROM sources)")
+end
+
+--- Remove a source, and with it the library it filled and everyone's progress on it.
+function Catalog:deleteSource(id)
+	self:_rows("DELETE FROM libraries WHERE source_id = ?", id)
+	self:_rows("DELETE FROM sources WHERE id = ?", id)
+end
+
+--- The library that holds a source's items. Its root can never be a real folder.
+function Catalog:sourceLibrary(source)
+	local library = self:_one("SELECT * FROM libraries WHERE source_id = ?", source.id)
+	if library then return library end
+	local root = "source:" .. source.id
+	self:_rows("INSERT INTO libraries (name, kind, root, source_id) VALUES (?, 'movie', ?, ?)", source.name, root, source.id)
+	return self:_one("SELECT * FROM libraries WHERE root = ?", root)
+end
+
+function Catalog:sourceSynced(id, status, why, items, now)
+	self:_rows("UPDATE sources SET status = ?, error = ?, items = ?, synced_at = ? WHERE id = ?", status, why, items, now, id)
+end
+
+--- The source a file came from.
+function Catalog:sourceOfFile(file_id)
+	return self:_one([[SELECT s.* FROM files f JOIN libraries l ON l.id = f.library_id
+		JOIN sources s ON s.id = l.source_id WHERE f.id = ?]], file_id)
+end
+
+--- Record one item from a source.
+-- @tparam number library_id
+-- @tparam table entry `key`, `title`, `year`, `url`, `resolve`, `auth`, `overview`, `duration_ms`,
+--   `poster_url`, `backdrop_url`
+-- @tparam number scan
+function Catalog:saveRemote(library_id, entry, scan)
+	self:noteFile(library_id, entry.key, 0, 0, scan, { kind = "movie", title = entry.title, year = entry.year })
+	local remote = require("cjson").encode({ url = entry.url, key = entry.key, resolve = entry.resolve, auth = entry.auth })
+	self:_rows("UPDATE files SET remote = ?, duration_ms = COALESCE(?, duration_ms) WHERE library_id = ? AND rel_path = ?",
+		remote, entry.duration_ms, library_id, entry.key)
+	self:_rows([[UPDATE works SET overview = COALESCE(?, overview), poster_url = ?, backdrop_url = ?
+		WHERE id = (SELECT work_id FROM files WHERE library_id = ? AND rel_path = ?)]],
+		entry.overview, entry.poster_url, entry.backdrop_url, library_id, entry.key)
+end
+
 --- Queue analysis, unless it is already queued.
 function Catalog:queueProbe(file_id)
 	self:_rows("INSERT OR IGNORE INTO jobs (file_id) VALUES (?)", file_id)
@@ -258,7 +323,7 @@ local BROWSE = {
 		(SELECT COUNT(*) FROM works s JOIN works e ON e.parent_id = s.id WHERE s.parent_id = works.id) AS episodes,
 		(SELECT COUNT(*) FROM works s JOIN works e ON e.parent_id = s.id LEFT JOIN user_progress p
 			ON p.work_id = e.id AND p.user = ? WHERE s.parent_id = works.id AND COALESCE(p.watched, 0) = 0) AS unwatched,
-			overview, rating FROM works
+			overview, rating, library_id, poster_url, backdrop_url FROM works
 		WHERE library_id = ? AND kind IN ('movie', 'show') AND (sort_key, id) > (?, ?)
 		ORDER BY sort_key, id LIMIT ?]], "sort_key" },
 	added = { [[SELECT id, kind, title, year, sort_key, added_at,
@@ -273,7 +338,7 @@ local BROWSE = {
 			(SELECT COUNT(*) FROM works s JOIN works e ON e.parent_id = s.id WHERE s.parent_id = works.id) AS episodes,
 			(SELECT COUNT(*) FROM works s JOIN works e ON e.parent_id = s.id LEFT JOIN user_progress p
 				ON p.work_id = e.id AND p.user = ? WHERE s.parent_id = works.id AND COALESCE(p.watched, 0) = 0) AS unwatched,
-			overview, rating FROM works
+			overview, rating, library_id, poster_url, backdrop_url FROM works
 			WHERE library_id = ? AND kind IN ('movie', 'show') AND (added_at, id) < (?, ?)
 		ORDER BY added_at DESC, id DESC LIMIT ?]], "added_at" },
 }
@@ -314,8 +379,8 @@ end
 function Catalog:item(id, user)
 	local work = self:_one("SELECT * FROM works WHERE id = ?", id)
 	if not work then return nil end
-	work.files = self:_rows([[SELECT id, rel_path, size, container, duration_ms, bitrate, missing_at, probe_error
-		FROM files WHERE work_id = ? ORDER BY id]], id)
+	work.files = self:_rows([[SELECT id, rel_path, size, container, duration_ms, bitrate, missing_at, probe_error,
+		remote IS NOT NULL AS is_remote FROM files WHERE work_id = ? ORDER BY id]], id)
 	for _, file in ipairs(work.files) do
 		file.streams = self:_rows([[SELECT idx, kind, codec, language, title, channels, width, height, hdr,
 			is_default, is_forced FROM streams WHERE file_id = ? ORDER BY idx]], file.id)
@@ -372,7 +437,7 @@ end
 
 --- The file behind a streaming request, with the root it must stay inside.
 function Catalog:fileTarget(file_id)
-	return self:_one([[SELECT f.id, f.rel_path, f.container, f.missing_at, f.size, l.root
+	return self:_one([[SELECT f.id, f.rel_path, f.container, f.missing_at, f.size, f.remote, l.root
 		FROM files f JOIN libraries l ON l.id = f.library_id WHERE f.id = ?]], file_id)
 end
 

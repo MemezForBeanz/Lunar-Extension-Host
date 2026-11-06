@@ -5,7 +5,7 @@
 
 local M = {}
 
-M.VERSION = 3
+M.VERSION = 4
 
 local V1 = {
 	[[CREATE TABLE libraries (
@@ -93,6 +93,21 @@ local V3 = {
 	) WITHOUT ROWID]],
 }
 
+-- A source's items are ordinary works in a library of their own, whose files have an address
+-- instead of a path. Provider definitions people add are stored as the data they are.
+local V4 = {
+	"ALTER TABLE libraries ADD COLUMN source_id INTEGER",
+	"ALTER TABLE files ADD COLUMN remote TEXT",
+	"ALTER TABLE works ADD COLUMN poster_url TEXT",
+	"ALTER TABLE works ADD COLUMN backdrop_url TEXT",
+	[[CREATE TABLE providers (id TEXT PRIMARY KEY, def TEXT NOT NULL, added_at INTEGER NOT NULL) WITHOUT ROWID]],
+	[[CREATE TABLE sources (
+		id INTEGER PRIMARY KEY, provider_id TEXT NOT NULL, name TEXT NOT NULL, config TEXT NOT NULL,
+		enabled INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'new', error TEXT,
+		items INTEGER NOT NULL DEFAULT 0, synced_at INTEGER, created_at INTEGER NOT NULL
+	)]],
+}
+
 --- Bring a database up to `VERSION`.
 function M.migrate(db)
 	return db:migrate(M.VERSION, function(d, previous)
@@ -110,6 +125,12 @@ function M.migrate(db)
 		end
 		if previous < 3 then
 			for _, statement in ipairs(V3) do
+				local done, why = d:exec(statement)
+				if not done then return nil, why end
+			end
+		end
+		if previous < 4 then
+			for _, statement in ipairs(V4) do
 				local done, why = d:exec(statement)
 				if not done then return nil, why end
 			end

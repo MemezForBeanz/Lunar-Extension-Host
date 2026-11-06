@@ -13,6 +13,7 @@ local Probe = require("libs.probe")
 local api = require("libs.api")
 local schema = require("libs.schema")
 local art = require("libs.art")
+local Sources = require("libs.sources")
 
 local lfs = require("lfs")
 
@@ -21,6 +22,7 @@ local M = { name = "media-server" }
 local TICK_MS = 50
 local SCAN_BUDGET_MS = 8
 local MAX_PROBES = 2
+local SOURCE_TICKS = 20     -- a second of 50 ms ticks
 
 local MIME = { mp4 = "video/mp4", m4v = "video/mp4", mkv = "video/x-matroska", webm = "video/webm",
 	mov = "video/quicktime", avi = "video/x-msvideo", ts = "video/mp2t" }
@@ -143,8 +145,17 @@ function M:register(ctx)
 	self.catalog:recoverJobs()
 	local extension = self
 	local mounted = true
+	self.sources = Sources.new({ catalog = self.catalog, now = os.time, log = self.log,
+		torrent_engine = os.getenv("LUNAR_TORRENT_ENGINE"),
+		http = function(request, done) return ctx:http(request, done, extension) end,
+		spawn = function(argv) return ctx:spawn({ argv = argv }, extension) end,
+		get_secret = function(name) return ctx:getSecret(extension, name) end,
+		set_secret = function(name, value) return ctx:setSecret(extension, name, value) end,
+		delete_secret = function(name) return ctx:deleteSecret(extension, name) end,
+	})
 	api.mount({
 		catalog = self.catalog,
+		sources = self.sources,
 		now = os.time,
 		status = function() return extension:_status() end,
 		scan = function(library) extension:_queue_scan(library) end,
@@ -174,8 +185,15 @@ function M:register(ctx)
 			self:_tick_scans()
 			self:_tick_probes()
 			self:_tick_frames()
+			self.sources_wait = (self.sources_wait or 0) + 1
+			if self.sources_wait >= SOURCE_TICKS then
+				self.sources_wait = 0
+				self.sources:tick()
+			end
 		end }, self)
-		for _, library in ipairs(self.catalog:libraries()) do self:_queue_scan(library) end
+		for _, library in ipairs(self.catalog:libraries()) do
+			if not library.source_id then self:_queue_scan(library) end
+		end
 	end, self)
 	return mounted
 end
@@ -185,6 +203,7 @@ function M:shutdown()
 		run.process:kill()
 		run.process:close()
 	end
+	if self.sources then self.sources:close() end
 	if self.frame_run then
 		self.frame_run.process:kill()
 		self.frame_run.process:close()

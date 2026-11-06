@@ -255,7 +255,8 @@ function M.request(provider, config)
 		local collection = tostring((provider.config or {}).collection or config.collection or "")
 		if not collection:match("^[%w_-]+$") then return nil, "this provider has no collection" end
 		return { url = "https://archive.org/advancedsearch.php?q=collection%3A" .. collection
-			.. "+AND+mediatype%3Amovies&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=year&fl%5B%5D=date"
+			.. "+AND+mediatype%3Amovies+AND+NOT+collection%3Amoviesandfilms_adult+AND+NOT+subject%3A%28adult+OR+porn+OR+erotic%29"
+			.. "&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=year&fl%5B%5D=date"
 			.. "&fl%5B%5D=description&sort%5B%5D=downloads+desc&rows=200&output=json" }
 	end
 	if not M.isWebAddress(config.url) then return nil, "that isn't a web address" end

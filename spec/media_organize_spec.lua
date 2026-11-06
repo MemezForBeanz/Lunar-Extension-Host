@@ -95,6 +95,33 @@ describe("episodes", function()
 	end)
 end)
 
+describe("one card per title", function()
+	local function copy(title, year, source, progress)
+		return { title = title, year = year, sources = { source }, progress = progress or 0 }
+	end
+
+	it("folds the same title from two sources into one card", function()
+		local merged = organize.merge({ copy("The Salt Line", 2021, "Here"), copy("Salt Line", 2021, "NAS"), copy("Marrow", 2020, "NAS") })
+		assert.equal(2, #merged)
+		assert.equal(2, #merged[1].copies)
+		assert.same({ "Here", "NAS" }, merged[1].sources)
+	end)
+
+	it("keeps different years apart", function()
+		assert.equal(2, #organize.merge({ copy("Dune", 1984, "Here"), copy("Dune", 2021, "Here") }))
+	end)
+
+	it("carries progress from any copy", function()
+		local merged = organize.merge({ copy("Marrow", 2020, "Here"), copy("Marrow", 2020, "NAS", 0.5) })
+		assert.equal(0.5, merged[1].progress)
+	end)
+
+	it("filters by source", function()
+		local merged = organize.merge({ copy("A", 2000, "Here"), copy("B", 2000, "NAS") })
+		assert.same({ "B" }, titles(organize.apply(merged, { rules = { { field = "source", value = "NAS" } } })))
+	end)
+end)
+
 describe("facets", function()
 	it("offers only what the list has", function()
 		local facets = organize.facets(films)

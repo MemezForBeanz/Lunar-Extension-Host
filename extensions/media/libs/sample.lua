@@ -109,11 +109,79 @@ function M.seasons(show)
 	return out
 end
 
+local ARCHIVE = { { "The Lighthouse Keeper's Week", 1934 }, { "Coal Face Serenade", 1935 }, { "Rain Over Rotterdam", 1929 },
+	{ "A Railway Morning", 1936 }, { "The Grain Elevator", 1941 }, { "Harvest of the Sea", 1948 },
+	{ "Night Shift at the Mill", 1927 }, { "Under the Elevated", 1932 }, { "Three Bridges", 1925 } }
+
+local ORIGINS = {
+	{ id = "o1", name = "This server", icon = "data--base", kind = "local", status = "ok", provider_name = "Folders on this computer" },
+	{ id = "o2", name = "Living room NAS", icon = "network--4", kind = "jellyfin", status = "ok", provider_name = "Jellyfin or Emby server" },
+	{ id = "o3", name = "Internet Archive", icon = "globe", kind = "archive", status = "ok", provider_name = "Internet Archive: Feature Films" },
+	{ id = "o4", name = "Film club feed", icon = "catalog", kind = "feed", status = "failed", provider_name = "Video feed",
+		error = "It answered 503" },
+}
+
+-- Where each made-up film lives. Some have a second copy, which is what the combined view is for.
+local function place(films)
+	for i, film in ipairs(films) do
+		film.sources = { "This server" }
+		local copy = { source = "This server", quality = (film.resolution or "") .. " " .. (film.codec or ""), health = "ok" }
+		film.copy_list = { copy }
+		if i % 6 == 0 then
+			film.sources[2] = "Living room NAS"
+			film.copy_list[2] = { source = "Living room NAS", quality = "1080p H.264", health = "ok" }
+		end
+	end
+	for i, row in ipairs(ARCHIVE) do
+		local index = #films + 1
+		films[index] = { id = 5000 + i, kind = "movie", title = row[1], year = row[2], resolution = "720p", codec = "H.264",
+			dynamic = "SDR", audio = "AAC 2.0", minutes = 60 + i * 7, progress = 0, art = (i * 5) % 32 + 1,
+			overview = "A public-domain film, streamed from the archive.", genres = { "Documentary" },
+			added = "2026-07-01", sources = { "Internet Archive" }, web = true,
+			copy_list = { { source = "Internet Archive", quality = "720p H.264", health = "ok", web = true } } }
+	end
+end
+
+local function origins(films, shows)
+	local out = {}
+	for i, origin in ipairs(ORIGINS) do
+		local count = 0
+		for _, film in ipairs(films) do
+			for _, source in ipairs(film.sources or {}) do
+				if source == origin.name then count = count + 1 end
+			end
+		end
+		if i == 1 then count = count + #shows end
+		if origin.status == "failed" then count = 14 end
+		out[i] = { id = origin.id, name = origin.name, icon = origin.icon, kind = origin.kind, status = origin.status,
+			error = origin.error, provider_name = origin.provider_name, items = count,
+			rules = { rules = { { field = "source", value = origin.name } } } }
+	end
+	return out
+end
+
+M.PROVIDERS = {
+	{ id = "jellyfin", name = "Jellyfin or Emby server", summary = "Another media server you run, on this network or elsewhere.",
+		fields = { { id = "url", label = "Server address", cue = "https://media.example.org" }, { id = "key", label = "API key" } } },
+	{ id = "archive-feature-films", name = "Internet Archive: Feature Films", summary = "Public-domain and openly licensed feature films.", fields = {} },
+	{ id = "archive-prelinger", name = "Internet Archive: Prelinger Archives", summary = "Advertising, educational and home films from the Prelinger collection.", fields = {} },
+	{ id = "m3u", name = "M3U playlist", summary = "A playlist of streams at an address you give it.",
+		fields = { { id = "url", label = "Playlist address", cue = "https://example.org/list.m3u" } } },
+	{ id = "feed", name = "Video feed", summary = "A podcast or RSS feed with video enclosures.",
+		fields = { { id = "url", label = "Feed address", cue = "https://example.org/feed.xml" } } },
+	{ id = "web-folder", name = "Web folder", summary = "A folder of video files shared over the web.",
+		fields = { { id = "url", label = "Folder address", cue = "https://nas.example.org/films/" } } },
+	{ id = "torrent", name = "Torrent links", off_by_default = true,
+		summary = "Links you add yourself. Playing one uploads to other people and shows them your address, so add only what you have the right to share.",
+		fields = { { id = "links", label = "Magnet link" } } },
+}
+
 --- The whole sample library.
 function M.library()
 	local films, shows = {}, {}
 	for i, row in ipairs(FILMS) do films[i] = film(i, row) end
 	for _, row in ipairs(more_films()) do films[#films + 1] = film(#films + 1, row) end
+	place(films)
 	for i, row in ipairs(SHOWS) do shows[i] = show(i, row) end
 	return {
 		sample = true,
@@ -124,6 +192,7 @@ function M.library()
 		},
 		films = films,
 		shows = shows,
+		origins = origins(films, shows),
 		collections = {
 			{ id = "c1", name = "4K HDR", icon = "filter", rules = { match = "all", rules = {
 				{ field = "resolution", value = "2160p" }, { field = "dynamic", test = "is_not", value = "SDR" } } } },

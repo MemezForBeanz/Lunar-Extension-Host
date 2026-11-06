@@ -358,6 +358,10 @@ iup.MainLoop = function()
 		local ok, err = pcall(step, self)
 		if not ok then
 			io.stderr:write("ui_capture: ", tostring(err), string.char(10))
+	if os.getenv("LUNAR_CAPTURE_LOG") then
+		local f = io.open(os.getenv("LUNAR_CAPTURE_LOG"), "a")
+		if f then f:write(tostring(err), string.char(10)); f:close() end
+	end
 			iup.ExitLoop()
 			return iup.CLOSE
 		end
@@ -441,5 +445,9 @@ end
 local ok, err = pcall(dofile, (LUNAR_SOURCE_DIR or ".") .. "/src/lua/core/main.lua")
 if not ok then
 	io.stderr:write("ui_capture: ", tostring(err), string.char(10))
+	if os.getenv("LUNAR_CAPTURE_LOG") then
+		local f = io.open(os.getenv("LUNAR_CAPTURE_LOG"), "a")
+		if f then f:write(tostring(err), string.char(10)); f:close() end
+	end
 	os.exit(1)
 end
