@@ -386,7 +386,7 @@ function M.build(p)
             selbg = p.accent, seltext = p.accentText, hover = p.layerHover01, scrollsize = 8, scrollinset = 2, scrollfg = p.border, scrollhi = p.textMuted, scrollpress = p.accent },
         flatgrid = { bg = layer1, fg = p.text, secondary = p.textMuted, font = p.font,
             itemradius = 0, itemmarker = p.accent, hover = p.border, placeholder = p.layerHover01, scrollsize = 8, scrollinset = 2, scrollfg = p.border, scrollhi = p.textMuted, scrollpress = p.accent },
-        flatseek = { bg = layer1, track = p.border, buffer = p.textMuted, played = p.accent, mark = p.text },
+        flatseek = { bg = layer1, track = p.border, buffer = p.textMuted, played = p.accent, mark = p.textMuted },
         flatsegmented = { bg = layer1, fg = p.text, font = p.font,
             border = p.border, selbg = p.accent, seltext = p.accentText },
         progressbar   = { bg = layer1, fg = p.accent, border = p.border },

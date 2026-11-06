@@ -26,6 +26,37 @@ function M.argv(ffprobe, path)
 	return { ffprobe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", "--", path }
 end
 
+local function drain(run)
+	local chunk = run.process:read("stdout")
+	while chunk and chunk ~= "" do
+		run.size = run.size + #chunk
+		if run.size <= M.MAX_OUTPUT then run.output[#run.output + 1] = chunk end
+		chunk = run.process:read("stdout")
+	end
+end
+
+--- Start tracking a process. `process` has `read`, `poll` (the exit code, nil while running) and `kill`.
+function M.run(job, process, now)
+	return { job = job, process = process, output = {}, size = 0, started = now }
+end
+
+--- Take what a run has written and see whether it has ended.
+-- @treturn boolean true once it ended; `run.code` is then its exit code, or nil if it was killed
+function M.advance(run, now)
+	drain(run)
+	local code = run.process:poll()
+	if code ~= nil then
+		drain(run)
+		run.code = code
+		return true
+	end
+	if now - run.started > M.TIMEOUT_S then
+		run.process:kill()
+		return true
+	end
+	return false
+end
+
 --- Turn ffprobe's JSON into what the catalog stores.
 -- @treturn table|nil `{ container, duration_ms, bitrate, streams }`
 -- @treturn[2] string why it could not be read
