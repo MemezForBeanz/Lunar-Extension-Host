@@ -17,7 +17,7 @@ Lunar runs on Windows and Linux (GTK 3, under X11 or XWayland).
 | | |
 |---|---|
 | **The host** | `src\c` (IUP 3.32 + LuaJIT bootstrap, native modules) and `src\lua\core` (the shell, services and UI kit) |
-| **Themes** | Classic and Classic Dark, IBM Carbon (White, G10, G90, G100) and One Dark Pro, plus a motion system |
+| **Themes** | Classic, Lunar and One palettes, each with light and dark modes, plus a motion system |
 | **An example extension** | `exampleplugins\hello.lua` |
 
 Lunar ships with **no** bundled tools: `plugins\` is empty. Tools come from
@@ -71,7 +71,13 @@ A pack is a folder with a `profile.json` and the files it references:
   "name": "Acme Corp",
   "match": { "domains": ["acme.com"] },      // exact domain or a subdomain
   "tool_group": "Acme Tools",                 // tab group for the pack's tools (default: name)
-  "brand": { "logo": "logo.svg" },           // small status-bar logo
+  "brand": {
+    "icon": "assets/mark.svg",              // theme-tinted tool-group icon
+    "icon_color": "#01A982",                // optional: one colour in every theme instead
+    "logo": { "light": "assets/logo.png", "dark": "assets/logo-white.png",
+              "themes": { "acme_dark": "assets/logo-white.png" } }
+  },
+  "adopt_theme": true,                      // optional, one adoption per settings.theme value
   "settings": { "backend_url": "https://tools.acme.example", "theme": "acme_dark" },
   "locked": ["backend_url"],                 // users can't change these
   "retired_defaults": { "backend_url": ["https://old.acme.example"] },
@@ -294,3 +300,14 @@ vendor\           third-party sources and toolchains (mostly machine-local)
 [MIT](LICENSE). The vendored third-party code under `vendor\` keeps its own
 licenses (listed in `vendor\README.md`); the IBM Plex fonts under
 `assets\Themes\Carbon` are under the SIL Open Font License.
+
+Org brand paths must remain inside the pack and exist. Icons accept SVG only;
+logos accept SVG or PNG. A logo string applies to every theme. A logo object
+resolves `themes[theme_id]`, then `dark` or `light`, then `default`; a missing dark
+variant never selects a light-only entry. Bad entries warn and are dropped.
+Group icons follow the theme's `brandMark` palette color, falling back to neutral,
+and appear after the title or in the left tool rail. The Lunar moon stays.
+The selected pack's status logo switches live and hides below 1000px window width.
+`adopt_theme` clears saved theme/light/dark choices once per pack default theme
+value (except locked settings); subsequent user choices survive. A failed save
+retries next launch. Omit it to preserve existing user theme choices from the start.

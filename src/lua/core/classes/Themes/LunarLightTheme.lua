@@ -52,6 +52,8 @@ function LunarLightTheme:initialize()
 
     Theme.initialize(self, {
         id      = "lunar_light",
+        family  = "lunar",
+        family_label = "Lunar",
         label   = "Lunar Light",
         palette = p,
         dark    = false,

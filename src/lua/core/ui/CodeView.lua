@@ -79,6 +79,10 @@ local SCI = {
 	INDICSETSTYLE = 2080, INDICSETFORE = 2082, INDICSETUNDER = 2510,
 	SETINDICATORCURRENT = 2500, INDICATORFILLRANGE = 2504, INDICATORCLEARRANGE = 2505,
 	SETLEXERLANGUAGE = 4006, SETKEYWORDS = 4005, SETPROPERTY = 4004, COLOURISE = 4003,
+	STARTSTYLING = 2032, SETSTYLING = 2033, GETSTYLEAT = 2010, GETSELECTIONSTART = 2143, GETSELECTIONEND = 2145,
+	APPENDTEXT = 2282, SETLEXER = 4001,
+	GETDOCPOINTER = 2357, SETDOCPOINTER = 2358, CREATEDOCUMENT = 2375, ADDREFDOCUMENT = 2376,
+	RELEASEDOCUMENT = 2377, SETTEXT = 2181, GETANCHOR = 2009,
 }
 local STYLE_DEFAULT, STYLE_LINENUMBER, STYLE_BRACELIGHT, STYLE_BRACEBAD = 32, 33, 34, 35
 local SC_CP_UTF8 = 65001
@@ -326,6 +330,7 @@ function CodeView.new(iup, opts)
 		_read_only = opts.read_only ~= false,
 		_line_numbers = opts.line_numbers ~= false,
 		_wrap = opts.wrap == true,
+		_single_line = opts.single_line == true,
 		_text = opts.text or "",
 		_diagnostics = {},
 		_ready = false,
@@ -350,18 +355,43 @@ function CodeView:control() return self._control end
 function CodeView:_buildPlain()
 	local iup = self._iup
 	self._control = iup.text({
-		MULTILINE = "YES", READONLY = self._read_only and "YES" or "NO", EXPAND = "YES",
+		MULTILINE = self._single_line and "NO" or "YES", READONLY = self._read_only and "YES" or "NO", EXPAND = "YES",
 		WORDWRAP = self._wrap and "YES" or "NO", BORDER = "NO", FONT = "Consolas, 10",
 		VALUE = self._text, THEMEROLE = "outputlog",
 	})
+	-- Match the org-pack log viewers: set this after construction so IUP's
+	-- attribute order cannot turn the Win32 scrollbar back on.
+	iup.SetAttribute(self._control, "SCROLLBAR", "NO")
 	local view = self
 	function self._control:valuechanged_cb()
 		view._text = iup.GetAttribute(view._control, "VALUE") or ""
 		if view._on_change then view._on_change(view._text) end
 		return iup.DEFAULT
 	end
+	function self._control:k_any(key)
+		if view._on_key and view._on_key(key) then return iup.IGNORE end
+		return iup.CONTINUE
+	end
 	self._body = self._control
+	if not self._single_line then
+		self._plain_scroll = iup.flatscrollbox({ self._control, EXPAND = "YES", SCROLLBAR = "VERTICAL",
+			FLATSCROLLBAR = "VERTICAL", NATIVETEXTSCROLL = WINDOWS and "YES" or "NO", THEMEROLE = "outputlog_scroll" })
+		self._body = self._plain_scroll
+		self:_syncPlainScroll()
+	end
 	self._ready = true
+end
+
+function CodeView:_syncPlainScroll()
+	if not self._plain_scroll then return end
+	-- FIRSTVISIBLELINE is a Win32 fork attribute. Other drivers use the flat
+	-- container's regular scrolling, with a child sized to its text.
+	if not WINDOWS then
+		local _, lines = self._text:gsub("\n", "\n")
+		self._iup.SetAttribute(self._control, "VISIBLELINES", tostring(lines + 1))
+	end
+	self._iup.Refresh(self._plain_scroll)
+	if WINDOWS then self._iup.SetAttribute(self._plain_scroll, "SYNCFROMCHILD", "1") end
 end
 
 function CodeView:_send(message, wparam, lparam)
@@ -373,7 +403,7 @@ function CodeView:_buildScintilla()
 	local view = self
 	local control = iup.scintilla({
 		EXPAND = "YES", BORDER = "NO", SCROLLBAR = "NO",
-		VISIBLECOLUMNS = "20", VISIBLELINES = "4",
+		VISIBLECOLUMNS = "20", VISIBLELINES = self._single_line and "1" or "4",
 	})
 	self._control = control
 
@@ -437,6 +467,10 @@ function CodeView:_buildScintilla()
 	function control:killfocus_cb()
 		if view._on_blur then view._on_blur() end
 		return iup.DEFAULT
+	end
+	if self._single_line then
+		self._body = control
+		return
 	end
 
 	self._vbar = self:_scrollbar(true)
@@ -619,6 +653,7 @@ function CodeView:_configure()
 	self:_putText(self._text)
 	self:_send(SCI.SETREADONLY, self._read_only and 1 or 0)
 	self:_drawDiagnostics()
+	if self._fragments then self:setFragments(self._fragments) end
 	if self._pending_goto then
 		local target = self._pending_goto
 		self._pending_goto = nil
@@ -658,6 +693,9 @@ function CodeView:_applyTheme()
 		self:_send(SCI.INDICSETFORE, FIRST_INDICATOR + severity - 1, color)
 	end
 	self:_styleLanguage()
+	for role, style in pairs(self._role_styles or {}) do
+		self:_send(SCI.STYLESETFORE, style, bgr(colors[role] or colors.text))
+	end
 	self._digits = nil
 	self:_syncNumbers()
 	self:_updateBars()
@@ -746,10 +784,12 @@ end
 --- Replace the text. Diagnostics are cleared: they described the old text.
 function CodeView:setText(text)
 	self._text = text or ""
+	self._fragments = nil
 	self._diagnostics = {}
 	if not self._ready then return end
 	if not sci then
 		self._iup.SetAttribute(self._control, "VALUE", self._text)
+		self:_syncPlainScroll()
 		return
 	end
 	self:_putText(self._text)
@@ -762,6 +802,45 @@ function CodeView:text()
 	return self._text
 end
 
+--- Update streaming text without moving a selection or a scrolled-back viewport.
+function CodeView:setTranscript(text, fragments)
+	local follow, first = true, 0
+	if self._ready and sci then
+		local page, total
+		first, page, total = self:_scrollState(true)
+		follow = first + page >= total - 1
+		local previous = self:text()
+		if text:sub(1, #previous) == previous then
+			local tail = text:sub(#previous + 1)
+			self._setting = true
+			self:_send(SCI.SETREADONLY, 0)
+			sci.sends(self._control, SCI.APPENDTEXT, #tail, tail)
+			self:_send(SCI.SETREADONLY, self._read_only and 1 or 0)
+			self._setting = false
+			self._text = text
+			self:_syncNumbers()
+		else self:setText(text) end
+	else self:setText(text) end
+	self:setFragments(fragments)
+	if self._ready and sci then
+		if follow then self:scrollToEnd() else self:_scrollTo(true, first) end
+	end
+end
+
+function CodeView:scrollToEnd()
+	if self._ready and sci then
+		local _, page, total = self:_scrollState(true)
+		self:_scrollTo(true, math.max(0, total - page))
+	elseif self._plain_scroll then
+		-- Drive the scroll owner so a relayout cannot restore its older position.
+		self._iup.Refresh(self._plain_scroll)
+		self._iup.SetAttribute(self._plain_scroll, "POSY", self._iup.GetAttribute(self._plain_scroll, "YMAX") or "0")
+	else
+		self._iup.SetAttribute(self._control, "SCROLLTOPOS", tostring(#self._text))
+		self:_syncPlainScroll()
+	end
+end
+
 --- Change the language (a key of `CodeView.LANGUAGES`; unknown means plain text).
 function CodeView:setLanguage(language)
 	self._language = CodeView.LANGUAGES[language] and language or "text"
@@ -769,6 +848,97 @@ function CodeView:setLanguage(language)
 end
 
 function CodeView:language() return self._language end
+
+--- Style a transcript with lexer-coloured fragments and optional byte-range overlays.
+-- The lexer styles are copied to shared colour roles so adjacent languages coexist.
+function CodeView:_lexText(text, language)
+	local document = self:_send(SCI.GETDOCPOINTER)
+	local anchor, caret = self:_send(SCI.GETANCHOR), self:_send(SCI.GETCURRENTPOS)
+	local first, x = self:_send(SCI.GETFIRSTVISIBLELINE), self:_send(SCI.GETXOFFSET)
+	local setting = self._setting
+	self._setting = true
+	self:_send(SCI.ADDREFDOCUMENT, 0, document)
+	local scratch = self:_send(SCI.CREATEDOCUMENT)
+	self:_send(SCI.SETDOCPOINTER, 0, scratch)
+	self:_send(SCI.RELEASEDOCUMENT, 0, scratch)
+	-- A separate document prevents earlier terminal output from becoming lexer
+	-- context (an unmatched comment in a log must not colour the printed file).
+	local ok, result = pcall(function()
+		self:_send(SCI.SETCODEPAGE, SC_CP_UTF8)
+		sci.sends(self._control, SCI.SETTEXT, 0, text)
+		sci.sends(self._control, SCI.SETLEXERLANGUAGE, 0, language.lexer)
+		for set, words in pairs(language.keywords or {}) do sci.sends(self._control, SCI.SETKEYWORDS, set, words) end
+		for name, value in pairs(language.properties or {}) do self._iup.SetAttribute(self._control, "PROPERTY", name .. "=" .. value) end
+		self:_send(SCI.COLOURISE, 0, -1)
+		local ranges, start, last = {}, 0, nil
+		for pos = 0, #text do
+			local role = pos < #text and (language.styles[self:_send(SCI.GETSTYLEAT, pos)] or "text") or nil
+			if role ~= last then
+				if last then ranges[#ranges + 1] = { start = start, length = pos - start, role = last } end
+				start, last = pos, role
+			end
+		end
+		return ranges
+	end)
+	self:_send(SCI.SETDOCPOINTER, 0, document)
+	self:_send(SCI.RELEASEDOCUMENT, 0, document)
+	self:_send(SCI.SETSEL, anchor, caret)
+	self:_send(SCI.SETFIRSTVISIBLELINE, first)
+	self:_send(SCI.SETXOFFSET, x)
+	self._setting = setting
+	if not ok then error(result, 0) end
+	return result
+end
+
+function CodeView:setFragments(fragments)
+	self._fragments = fragments
+	if not (self._ready and sci) then return end
+	local ranges = {}
+	for _, fragment in ipairs(fragments or {}) do
+		if fragment.language and fragment.language ~= "text" then
+			local language = CodeView.LANGUAGES[fragment.language] or CodeView.LANGUAGES.text
+			fragment._lexer_ranges = fragment._lexer_ranges or self:_lexText(
+				self._text:sub(fragment.start + 1, fragment.start + fragment.length), language)
+			for _, range in ipairs(fragment._lexer_ranges) do
+				ranges[#ranges + 1] = { start = fragment.start + range.start, length = range.length, role = range.role }
+			end
+		elseif fragment.role then ranges[#ranges + 1] = fragment end
+		for _, range in ipairs(fragment.tokens or {}) do
+			ranges[#ranges + 1] = { start = fragment.start + range.start, length = range.length, role = range.role }
+		end
+	end
+	-- The null lexer recolours on the next paint and erases manual styles.
+	-- Container mode leaves styling entirely to this view.
+	self:_send(SCI.SETLEXER, 0)
+	self:_send(SCI.STARTSTYLING, 0, 255)
+	self:_send(SCI.SETSTYLING, self:_send(SCI.GETLENGTH), 0)
+	self:styleRanges(ranges)
+end
+
+--- Apply contrast-safe role colours. No server or protocol knowledge lives here.
+function CodeView:styleRanges(ranges)
+	if not (self._ready and sci) then return end
+	if self._language == "text" then self:_send(SCI.SETLEXER, 0) end
+	self._role_styles = self._role_styles or {}
+	for _, range in ipairs(ranges or {}) do
+		local role = range.role or "text"
+		local style = self._role_styles[role]
+		if not style then
+			local count = 0
+			for _ in pairs(self._role_styles) do count = count + 1 end
+			style = 64 + count
+			self._role_styles[role] = style
+		end
+		self:_send(SCI.STYLESETFORE, style, bgr(self._colors[role] or self._colors.text))
+		self:_send(SCI.STARTSTYLING, range.start, 255)
+		self:_send(SCI.SETSTYLING, range.length, style)
+	end
+end
+
+function CodeView:hasSelection()
+	if self._ready and sci then return self:_send(SCI.GETSELECTIONSTART) ~= self:_send(SCI.GETSELECTIONEND) end
+	return (self._iup.GetAttribute(self._control, "SELECTEDTEXT") or "") ~= ""
+end
 
 --- Allow or refuse edits.
 function CodeView:setReadOnly(read_only)

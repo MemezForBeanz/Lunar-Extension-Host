@@ -11,6 +11,7 @@ local StatusIcon = require("core.ui.StatusIcon")
 
 local StatusBar = {}
 StatusBar.__index = StatusBar
+local logo_seed_seq = 0
 
 --- Update indicator states: the pre-rasterized Carbon icon and its tooltip.
 StatusBar.UPDATE_STATES = {
@@ -63,6 +64,18 @@ function StatusBar.new(opts)
 		dir = opts.icon_dir, size = 16, state = "upd_complete", tip = StatusBar.UPDATE_STATES.current.tip,
 	})
 	self._ext_box = iup.hbox({ GAP = L.gap(2), ALIGNMENT = "ACENTER" })
+	if opts.has_logo then
+		-- Seed IMAGE before Map even when the startup theme has no logo variant.
+		self._logo = iup.label({
+			TIP = opts.logo_tip, PADDING = "6x0", ALIGNMENT = "ACENTER:ACENTER" })
+		self._logo_seed = iup.imagergba({ width = 1, height = 1, pixels = { 0, 0, 0, 0 } })
+		logo_seed_seq = logo_seed_seq + 1
+		local seed_name = "LunarStatusLogoSeed_" .. logo_seed_seq
+		iup.SetHandle(seed_name, self._logo_seed)
+		iup.SetAttribute(self._logo, "IMAGE", seed_name)
+		self._logo_box = iup.hbox({ self._logo, FLOATING = "YES", VISIBLE = "NO",
+			ALIGNMENT = "ACENTER", MARGIN = "6x0" })
+	end
 
 	-- Background work, in place of a word that said nothing. Empty until there is some.
 	-- Sixteen pixels of icon and one line of text, so it fits the bar however slim.
@@ -93,7 +106,7 @@ function StatusBar.new(opts)
 		ALIGNMENT = "ACENTER", GAP = L.gap(1), FLOATING = "YES", VISIBLE = "NO",
 	})
 
-	self._menu = iup.flatbutton({ TIP = "Menu", CANFOCUS = "YES", RASTERSIZE = "48x28",
+	self._settings = iup.flatbutton({ TIP = "Settings (Ctrl+,)", CANFOCUS = "YES", RASTERSIZE = "48x28",
 		PADDING = "0x0", THEMEROLE = "statusbar_button" })
 	self._command = iup.flatbutton({ TITLE = "Search or run a command", CANFOCUS = "YES",
 		IMAGEPOSITION = "LEFT", ALIGNMENT = "ALEFT:ACENTER", SPACING = "8", EXPAND = "HORIZONTAL",
@@ -105,20 +118,23 @@ function StatusBar.new(opts)
 	self._focus = iup.flatbutton({ TIP = "Focus active pane / restore split (Esc to restore)",
 		CANFOCUS = "YES", RASTERSIZE = "32x28", THEMEROLE = "statusbar_button", ACTIVE = "NO" })
 	if opts.bind_icon then
-		opts.bind_icon(self._menu, "menu")
+		opts.bind_icon(self._settings, "settings")
 		opts.bind_icon(self._command, "search")
 		opts.bind_icon(self._focus, "view")
 	end
-	function self._menu:flat_action() if bar._on_menu then bar._on_menu() end; return iup.DEFAULT end
+	function self._settings:flat_action() if bar._on_settings then bar._on_settings() end; return iup.DEFAULT end
 	local function command() if bar._on_command then bar._on_command() end; return iup.DEFAULT end
 	self._command.flat_action, self._keycap.flat_action = command, command
 	function self._focus:flat_action() if bar._on_focus then bar._on_focus() end; return iup.DEFAULT end
+	local right = { iup.fill({}) }
+	if self._logo_box then right[#right + 1] = self._logo_box end
+	right[#right + 1], right[#right + 2] = self._ext_box, self._focus
+	right.EXPAND, right.ALIGNMENT, right.GAP, right.MARGIN = "HORIZONTAL", "ACENTER", L.gap(2), "8x0"
 	self._widget = iup.hbox({
-		iup.hbox({ self._menu, self._activity_box, self._label,
+		iup.hbox({ self._settings, self._activity_box, self._label,
 			EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER", GAP = "0" }),
 		iup.hbox({ iup.fill({}), self._field, iup.fill({}), EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER" }),
-		iup.hbox({ iup.fill({}), self._ext_box, self._focus,
-			EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER", GAP = L.gap(2), MARGIN = "8x0" }),
+		iup.hbox(right),
 		HOMOGENEOUS = "YES", RASTERSIZE = "x" .. StatusBar.HEIGHT,
 		BGCOLOR = "240 240 240", THEMEROLE = "statusbar", MARGIN = "0x0", GAP = "0",
 		ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL",
@@ -130,21 +146,55 @@ end
 function StatusBar:widget() return self._widget end
 function StatusBar:commandWidget() return self._field end
 function StatusBar:onCommand(fn) self._on_command = fn end
-function StatusBar:onMenu(fn) self._on_menu = fn end
+function StatusBar:onSettings(fn) self._on_settings = fn end
+--- Show the gear pressed while Settings is the page on screen.
+-- @tparam boolean selected
+-- @tparam[opt] table colors the `statusbar_button`-style `{ bg, pressed }`
+function StatusBar:setSettingsActive(selected, colors)
+	colors = colors or {}
+	self._iup.SetAttribute(self._settings, "BGCOLOR", selected and colors.pressed or colors.bg)
+end
 function StatusBar:onFocus(fn) self._on_focus = fn end
 function StatusBar:setPaneState(split, focused)
 	self._iup.SetAttribute(self._focus, "ACTIVE", split and "YES" or "NO")
 	self._iup.SetAttribute(self._focus, "TIP", focused and "Restore split (Esc)" or "Focus active pane")
 end
 function StatusBar:fit(width)
+	self._width = width
+	self:_showLogo()
 	self._iup.SetAttribute(self._field, "RASTERSIZE", math.max(160, math.min(480, math.floor(width / 3) - 16)) .. "x24")
 	self._iup.SetAttribute(self._activity_text, "RASTERSIZE", (width < 1100 and 80 or StatusBar.ACTIVITY_WIDTH) .. "x")
+end
+
+-- Returns whether the layout changed; image-only swaps need only a repaint.
+function StatusBar:_showLogo()
+	if not self._logo_box then return false end
+	local shown = self._logo_handle ~= nil and (not self._width or self._width >= 1000)
+	if shown == (self._logo_shown or false) then return false end
+	self._logo_shown = shown
+	self._iup.SetAttribute(self._logo_box, "FLOATING", shown and "NO" or "YES")
+	self._iup.SetAttribute(self._logo_box, "VISIBLE", shown and "YES" or "NO")
+	return true
+end
+
+function StatusBar:setLogo(handle)
+	if not self._logo or self._logo_handle == handle then return end
+	local iup = self._iup
+	local image = handle and iup.GetHandle(handle)
+	local size = image and (tostring(iup.GetAttribute(image, "WIDTH")) .. "x"
+		.. tostring(iup.GetAttribute(image, "HEIGHT"))) or nil
+	local resized = size ~= self._logo_size
+	self._logo_handle, self._logo_size = handle, size
+	-- Keep the seed image while hidden: a mapped image label must stay an image label.
+	if handle then iup.SetAttribute(self._logo, "IMAGE", handle) end
+	local changed = self:_showLogo()
+	if changed or resized then iup.Refresh(self._logo_box) else iup.Update(self._logo) end
 end
 
 --- Set what a click on the activity slot does.
 function StatusBar:onActivity(fn) self._on_activity = fn end
 --- Where the activity panel opens from: the bar's left end, which nothing pushes along.
-function StatusBar:activityAnchor() return self._menu end
+function StatusBar:activityAnchor() return self._settings end
 --- The box extension status elements go in (HostAPI's `status_box`).
 function StatusBar:extBox() return self._ext_box end
 --- The update indicator (a `core.ui.StatusIcon`).
@@ -256,5 +306,22 @@ function StatusBar:stopUpdateSpin()
 	local icon = self._update_icon
 	pcall(function() icon:stopSpin() end)
 end
+
+--- Occupy a fraction of the bar's height without changing any content state.
+function StatusBar:setReveal(progress)
+	local height = math.floor(StatusBar.HEIGHT * progress + 0.5)
+	local iup, widget = self._iup, self._widget
+	self._revealed = height
+	iup.SetAttribute(widget, "FLOATING", height == 0 and "YES" or "NO")
+	iup.SetAttribute(widget, "VISIBLE", height == 0 and "NO" or "YES")
+	iup.SetAttribute(widget, "RASTERSIZE", "x" .. height)
+	iup.SetAttribute(widget, "MINSIZE", "1x" .. height)
+	iup.SetAttribute(widget, "MAXSIZE", "65535x" .. height)
+end
+
+--- How tall the bar is right now, for whatever shares the window's height with it. A
+-- hidden bar's RASTERSIZE can't say: "x0" means no size set, not no height.
+-- @treturn number|nil pixels, or nil before the first `setReveal`
+function StatusBar:revealedHeight() return self._revealed end
 
 return StatusBar

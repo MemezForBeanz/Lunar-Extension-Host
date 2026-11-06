@@ -94,6 +94,8 @@ function ClassicDarkTheme:initialize()
 
     Theme.initialize(self, {
         id      = "classic_dark",
+        family  = "classic",
+        family_label = "Classic",
         label   = "Classic Dark",
         palette = p,
     })

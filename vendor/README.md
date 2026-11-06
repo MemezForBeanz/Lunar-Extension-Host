@@ -15,6 +15,7 @@ them, so any local fix travels with the source.
 | `luasec/` | LuaSec 1.3.2 (upstream commit 989ee5f; see `VENDOR-NOTES.txt`) | MIT |
 | `copas/` | Copas 3.0.0 plus binaryheap, coxpcall and timerwheel (Lua only) | MIT |
 | `nanosvg/` | NanoSVG parser and rasterizer headers | zlib |
+| `stb/` | stb_image PNG decoder header, pinned in `stb/README.md` | MIT or public domain |
 | `certs/cacert.pem` | Mozilla's CA bundle (curl's extract, May 2026) | MPL 2.0 |
 | `subprocess.h` | sheredom/subprocess.h with a local Windows argv-quoting fix (see the file) | public domain |
 

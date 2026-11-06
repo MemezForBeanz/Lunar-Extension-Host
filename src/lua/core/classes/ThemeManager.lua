@@ -240,8 +240,8 @@ function ThemeManager:registerTheme(theme_class)
 	self._theme_by_id[id] = t
 
 	local iup = self._iup
-	if self._menu then
-		local item = self:_menuItem(t)
+	if self._menu and not self._menu_items[t:family()] then
+		local item = self:_menuItem(self:paletteOf(id))
 		iup.Append(self._menu, item)
 		pcall(iup.Map, item)
 	end
@@ -267,6 +267,7 @@ function ThemeManager:unregisterTheme(id)
 		if t:id() == id then idx = i break end
 	end
 	if not idx then return end
+	local family = self._themes[idx]:family()
 	table.remove(self._themes, idx)
 	self._theme_by_id[id] = nil
 	-- Native attribute bundles are cached per theme id; a reloaded extension may
@@ -274,11 +275,15 @@ function ThemeManager:unregisterTheme(id)
 	if self._native_handles then self._native_handles[id] = nil end
 	if self._native_role_handles then self._native_role_handles[id] = nil end
 	if self._element_handles then self._element_handles[id] = nil end
-	local item = self._menu_items[id]
-	if item then
+	local still_used = false
+	for _, t in ipairs(self._themes) do
+		if t:family() == family then still_used = true end
+	end
+	local item = self._menu_items[family]
+	if item and not still_used then
 		pcall(self._iup.Detach, item)
 		pcall(self._iup.Destroy, item)
-		self._menu_items[id] = nil
+		self._menu_items[family] = nil
 	end
 	self:_fillDropdown()
 	if self._current == id then
@@ -306,6 +311,75 @@ end
 function ThemeManager:_choose(id)
 	if self._chooser then return self._chooser(id) end
 	return self:apply(id)
+end
+
+--- The themes as palettes, in theme order: each light and dark pair is one entry.
+-- @treturn table list of `{ id, label, light = theme id, dark = theme id }`; a palette
+--   with only one mode leaves the other nil
+function ThemeManager:palettes()
+	local order, by_id = {}, {}
+	for _, t in ipairs(self._themes) do
+		local family = t:family()
+		local palette = by_id[family]
+		if not palette then
+			palette = { id = family, label = t:familyLabel() }
+			by_id[family] = palette
+			order[#order + 1] = palette
+		end
+		local mode = t:isDark() and "dark" or "light"
+		palette[mode] = palette[mode] or t:id()
+	end
+	return order
+end
+
+--- The palette a theme belongs to, or nil.
+-- @tparam string id theme id
+-- @treturn table|nil
+function ThemeManager:paletteOf(id)
+	local theme = self._theme_by_id[id]
+	if not theme then return nil end
+	for _, palette in ipairs(self:palettes()) do
+		if palette.id == theme:family() then return palette end
+	end
+end
+
+--- The other mode of a theme, or nil when its palette has only one.
+-- @tparam string id theme id
+-- @treturn string|nil theme id
+function ThemeManager:counterpart(id)
+	local theme, palette = self._theme_by_id[id], self:paletteOf(id)
+	if not palette then return nil end
+	return palette[theme:isDark() and "light" or "dark"]
+end
+
+--- Route the light/dark toggle through `fn(id)`, as `setChooser` does for picks.
+-- @tparam function|nil fn
+function ThemeManager:setModeChooser(fn)
+	self._mode_chooser = fn
+end
+
+--- Show the other mode of the current palette.
+-- @treturn boolean false when there is no other mode, or the switch was refused
+function ThemeManager:toggleMode()
+	local other = self:counterpart(self._current)
+	if not other then return false end
+	if self._mode_chooser then return self._mode_chooser(other) ~= false end
+	return self:apply(other) ~= false
+end
+
+--- Wrap every later theme change: `fn(paint)` must call `paint()` exactly once, before
+-- it returns. `core.ui.ThemeTransition` covers the repaint and fades it in.
+-- @tparam function|nil fn
+function ThemeManager:setTransition(fn)
+	self._transition = fn
+end
+
+-- A palette the user picked: keep the mode on screen where the palette has it.
+function ThemeManager:_choosePalette(palette)
+	local active = self._theme_by_id[self._current]
+	local mode = active and active:isDark() and "dark" or "light"
+	local id = palette[mode] or palette.dark or palette.light
+	if id then return self:_choose(id) end
 end
 
 function ThemeManager:themes()
@@ -1543,6 +1617,18 @@ function ThemeManager:apply(name, opts)
 		return
 	end
 
+	if self._transition and self._applied and not opts.force then
+		self._transition(function() self:_paintTheme(theme, opts) end)
+	else
+		self:_paintTheme(theme, opts)
+	end
+end
+
+-- The switch itself: the widgets, the fonts, the saved choice, then the observers.
+function ThemeManager:_paintTheme(theme, opts)
+	local settings = self._settings
+	local theme_id = theme:id()
+
 	-- A pending coalesced re-theme would otherwise run after this and clobber/redo
 	-- the work; cancel it since we're doing a full apply now.
 	self:_cancelPending()
@@ -1568,10 +1654,10 @@ function ThemeManager:apply(name, opts)
 
 	self:_syncControls()
 
-	if self._settings and not opts.skip_save then
-		self._settings:set("theme", self._current)
+	if settings and not opts.skip_save then
+		settings:set("theme", self._current)
 		pcall(function()
-			self._settings:save()
+			settings:save()
 		end)
 	end
 
@@ -1672,55 +1758,70 @@ end
 function ThemeManager:_syncControls()
 	local iup = self._iup
 
+	local current = self:paletteOf(self._current)
 	for id, item in pairs(self._menu_items) do
 		if item then
-			iup.SetAttribute(item, "VALUE", id == self._current and "ON" or "OFF")
+			iup.SetAttribute(item, "VALUE", current and id == current.id and "ON" or "OFF")
 		end
 	end
 
-	if self._dd then
-		for i, t in ipairs(self._themes) do
-			if t:id() == self._current then self._dd:setValue(i) end
+	if self._dd and current then
+		for i, palette in ipairs(self:palettes()) do
+			if palette.id == current.id then self._dd:setValue(i) end
 		end
 	end
 end
 
 function ThemeManager:buildMenu()
 	local iup = self._iup
-	local items = {}
+	local mgr = self
+	local mode = iup.item({ TITLE = "Toggle Light/Dark" })
+	function mode:action()
+		mgr:toggleMode()
+		return iup.DEFAULT
+	end
+	local items = { mode, iup.separator({}) }
 
 	self._menu_items = {}
-	for _, t in ipairs(self._themes) do
-		items[#items + 1] = self:_menuItem(t)
+	for _, palette in ipairs(self:palettes()) do
+		items[#items + 1] = self:_menuItem(palette)
 	end
 	self._menu = iup.menu(items)
 	return iup.submenu({ self._menu, TITLE = "Theme" })
 end
 
--- One radio-style Theme menu item.
-function ThemeManager:_menuItem(t)
-	local iup, mgr, id = self._iup, self, t:id()
+-- One radio-style Theme menu item, for a palette.
+function ThemeManager:_menuItem(palette)
+	local iup, mgr = self._iup, self
+	local current = self:paletteOf(self._current)
 	local item = iup.item({
-		TITLE = t:label(),
-		VALUE = (id == self._current) and "ON" or "OFF",
+		TITLE = palette.label,
+		VALUE = (current and current.id == palette.id) and "ON" or "OFF",
 	})
 	function item:action()
-		mgr:_choose(id)
+		mgr:_choosePalette(palette)
 		return iup.DEFAULT
 	end
-	self._menu_items[id] = item
+	self._menu_items[palette.id] = item
 	return item
 end
 
 -- (Re)write the Settings dropdown's entries from the theme list.
 function ThemeManager:_fillDropdown()
 	if not self._dd then return end
-	local labels, current = {}, nil
-	for i, t in ipairs(self._themes) do
-		labels[i] = t:label()
-		if t:id() == self._current then current = i end
-	end
+	local labels, current = self:_paletteLabels()
 	self._dd:setItems(labels, current)
+end
+
+-- The selector's entries, and which one is showing.
+function ThemeManager:_paletteLabels()
+	local labels, current = {}, nil
+	local active = self:paletteOf(self._current)
+	for i, palette in ipairs(self:palettes()) do
+		labels[i] = palette.label
+		if active and palette.id == active.id then current = i end
+	end
+	return labels, current
 end
 
 -- Theme selector for the Settings tab: a core.ui.FlatDropdown (an owner-drawn
@@ -1729,11 +1830,7 @@ end
 function ThemeManager:buildDropdown()
 	local FlatDropdown = require("core.ui.FlatDropdown")
 	local mgr = self
-	local labels, current = {}, nil
-	for i, t in ipairs(self._themes) do
-		labels[i] = t:label()
-		if t:id() == self._current then current = i end
-	end
+	local labels, current = self:_paletteLabels()
 	local dd = FlatDropdown.new(self._iup, {
 		items = labels,
 		value = current,
@@ -1742,8 +1839,8 @@ function ThemeManager:buildDropdown()
 		name = "themebar_theme_dropchild",
 		on_change = function(index)
 			if mgr._applying then return end
-			local t = mgr._themes[index]
-			if t then mgr:_choose(t:id()) end
+			local palette = mgr:palettes()[index]
+			if palette then mgr:_choosePalette(palette) end
 		end,
 	})
 	self._dd = dd

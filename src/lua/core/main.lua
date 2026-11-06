@@ -163,7 +163,7 @@ local function resolve_plugins_dir(app_dir)
 	return platform.path:join(app_dir, "plugins")
 end
 
--- The status bar logo belongs to the org profile (brand.logo, an SVG inside the
+-- The status bar logo belongs to the org profile (brand.logo, an SVG or PNG inside the
 -- profile folder); the neutral build shows none.
 local ICON_DIR = platform.path:join(APP_DIR, "assets", "Icons")
 Kit.setIconDir(ICON_DIR)
@@ -330,9 +330,22 @@ settings_view:setThemeWidget(function(widget) theme_mgr:themeWidget(widget) end)
 -- Status bar (built before HostAPI, which takes its extension status box).
 status_bar = StatusBar.new({
 	iup = iup,
+	has_logo = ORG_PROFILE and ORG_PROFILE.brand.logo ~= nil,
+	logo_tip = ORG_PROFILE and ORG_PROFILE.name,
 	icon_dir = ICON_DIR,
 	bind_icon = function(widget, name) Kit.bindIcon(iup, widget, name, { size = 16, role = "neutral" }) end,
 })
+
+theme_mgr:onApply(function()
+	local theme = theme_mgr:activeTheme()
+	local path = theme and OrgProfile.logoFor(ORG_PROFILE and ORG_PROFILE.brand, theme:id(), theme:isDark())
+	local handle
+	if path and VectorIcon.available then
+		local ok, result = pcall(VectorIcon.logoHandle, iup, path, 18)
+		if ok then handle = result end
+	end
+	status_bar:setLogo(handle)
+end)
 
 -- The bar across the top. The groups in it mirror the main strip, so it needs that strip.
 local title_bar = TitleBar.new({
@@ -341,13 +354,11 @@ local title_bar = TitleBar.new({
 	icon = function(widget, name, size, role, attribute)
 		Kit.bindIcon(iup, widget, name, { size = size or 16, role = role or "neutral", attribute = attribute })
 	end,
-	-- The org's logo, when its profile ships one, in place of Lunar's own mark.
-	logo = ORG_PROFILE and ORG_PROFILE.brand.logo and VectorIcon.logoHandle(iup, ORG_PROFILE.brand.logo, 20),
-	is_settings = function(page) return require("core.lib.handle").same(iup, page, settings_view:widget()) end,
 	is_hidden = function(page)
 		return require("core.lib.handle").same(iup, page, settings_view:widget())
 			or (tab_groups and tab_groups:toolbarOf(page) == "left")
 	end,
+	frame = function(name, svg) return require("core.ui.AnimatedIcon").frame(name, svg) end,
 })
 
 -- The single host context handed to every extension.
@@ -440,6 +451,7 @@ local system_theme = SystemTheme.new({
 	system_dark = platform.system_dark, system_dark_probe = platform.system_dark_probe, iup = iup,
 })
 theme_mgr:setChooser(function(id) system_theme:choose(id) end)
+theme_mgr:setModeChooser(function(id) return system_theme:switchMode(id) end)
 
 -- Appearance settings: theme and motion (core.ui.AppearanceSettings).
 AppearanceSettings.register({
@@ -465,7 +477,10 @@ local tool_rail = ToolRail.new({
 	icon = function(name, size, role) return Kit.icon(iup, name, size, role or "neutral") end,
 	is_settings = function(page) return require("core.lib.handle").same(iup, page, settings_view:widget()) end,
 })
-local workspace = iup.hbox({ tool_rail:widget(), require("core.ui.WorkspaceFrame").wrap(iup, pane_grid:widget()),
+local terminal = require("core.ui.Terminal").new({ iup = iup, host = host, settings = settings_mgr,
+	extensions = ext_mgr, themes = theme_mgr, version = APP_VERSION })
+local workspace_body = iup.vbox({ pane_grid:widget(), terminal:widget(), MARGIN = "0x0", GAP = "0", EXPAND = "YES" })
+local workspace = iup.hbox({ tool_rail:widget(), require("core.ui.WorkspaceFrame").wrap(iup, workspace_body),
 	MARGIN = "0x0", GAP = "0", EXPAND = "YES" })
 status_bar:onFocus(function()
 	pane_grid:toggleFocus()
@@ -478,6 +493,9 @@ local content_box = iup.vbox({
 	MARGIN = L.margin(0),
 	GAP = "0",
 })
+local view_layout = require("core.ui.ViewLayout").new({ iup = iup, root = content_box, motion = motion_director,
+	settings = settings_mgr, rail = tool_rail, status = status_bar, terminal = terminal })
+terminal:setLayout(view_layout)
 
 local dlg = iup.dialog({
 	iup.vbox({ title_bar:widget(), content_box, MARGIN = L.margin(0), GAP = "0" }),
@@ -525,12 +543,14 @@ end
 local function recalc_shell_budget(client_h)
 	client_h = client_h or measured_height(dlg, "CLIENTSIZE")
 	if not client_h or client_h <= 0 then return false end
+	local status = status_bar:revealedHeight() or measured_height(status_bar:widget()) or 0
 	local bands = {
 		title = TitleBar.HEIGHT,
 		corners = 24,
-		status = measured_height(status_bar:widget()) or 0,
+		status = status,
 	}
-	local cap = ShellBudget.cap(client_h, bands, L.gutter(), 2)
+	-- The gutter is the seam above the status bar: with no bar there is no seam.
+	local cap = ShellBudget.cap(client_h, bands, status > 0 and L.gutter() or 0, 2)
 	shell_budget.bands, shell_budget.cap = bands, cap
 	local value = "65535x" .. cap
 	if iup.GetAttribute(tabs, "MAXSIZE") == value then return false end
@@ -554,6 +574,8 @@ local function schedule_recenter()
 	recenter_timer.run = "NO"
 	recenter_timer.run = "YES"
 end
+
+view_layout:setBudget(function() recalc_shell_budget() end)
 
 function dlg:resize_cb(w, h)
 	title_bar:fit(w)
@@ -705,7 +727,7 @@ local function open_app_menu()
 		hint = "Enter to run   Esc to close",
 	})
 end
-status_bar:onMenu(open_app_menu)
+title_bar:onMenu(open_app_menu)
 host:registerShortcut(iup.K_cP, function() command_palette:toggle() end)
 host._key_fallback = function(c)
 	if c == iup.K_ESC and pane_grid:isFocused() then return pane_grid:restoreFocus() end
@@ -800,15 +822,22 @@ commands:addProvider({
 	id = "themes",
 	items = function()
 		local out = {}
-		for _, theme in ipairs(theme_mgr:themes()) do
+		for _, palette in ipairs(theme_mgr:palettes()) do
 			out[#out + 1] = {
-				id = "theme." .. theme.id, title = theme.label, category = "Theme", group = "Theme",
+				id = "theme." .. palette.id, title = palette.label, category = "Theme", group = "Theme",
 				run = function()
-					theme_mgr:apply(theme.id)
+					theme_mgr:_choosePalette(palette)
 					return true
 				end,
 			}
 		end
+		out[#out + 1] = {
+			id = "theme.toggle-mode", title = "Toggle Light/Dark", category = "Theme", group = "Theme",
+			run = function()
+				theme_mgr:toggleMode()
+				return true
+			end,
+		}
 		return out
 	end,
 })
@@ -1037,7 +1066,23 @@ tab_order:setTransition(tab_transition)
 -- themed widgets. Settle it first; the tab still ends up where it was going.
 theme_mgr:onApply(function() tab_transition:settle() end)
 
+local group_icons = {}
+for _, profile in ipairs(ORG_PROFILES) do
+	if profile.brand.icon then
+		group_icons[profile.tool_group] = {
+			name = profile.brand.icon:sub(1, -5), role = profile.brand.icon_color or "brand",
+		}
+	end
+end
 tab_groups = TabGroups:new({
+	group_icon = function(strip, name)
+		local icon = group_icons[name]
+		if icon then
+			Kit.bindIcon(iup, strip, icon.name, { size = 16, role = icon.role, attribute = "TABIMAGE" })
+		else
+			Kit.unbindIcon(iup, strip, "TABIMAGE")
+		end
+	end,
 	iup = iup,
 	root_strip = tabs,
 	settings = settings_mgr,
@@ -1096,10 +1141,37 @@ tool_rail:connect({ groups = tab_groups, order = tab_order, activity = host:acti
 			notify_tree_change = function(w) theme_mgr:themeWidget(w) end })
 	end,
 })
-title_bar:onSettings(function() toggle_settings() end)
+status_bar:onSettings(function() toggle_settings() end)
+title_bar:onMode(function()
+	if theme_mgr:toggleMode() == false then host:setStatus(title_bar:modeTip()) end
+end)
+title_bar:onBars(function() view_layout:toggleBars() end)
+title_bar:onTerminal(function() view_layout:toggleTerminal() end)
+local function show_view_state()
+	title_bar:setViewState(view_layout:barsVisible(), view_layout:terminalVisible())
+end
+view_layout:onChange(show_view_state)
+show_view_state()
+-- The button shows the mode on screen and says what a press will do, or why it can't.
+theme_mgr:onApply(function()
+	local theme = theme_mgr:activeTheme()
+	local locked = settings_mgr:isLocked("theme")
+	local why = locked and ("Managed by " .. (ORG_PROFILE and ORG_PROFILE.name or "your organization"))
+		or (theme:familyLabel() .. " has only one mode")
+	title_bar:setMode(theme:isDark(), not locked and theme_mgr:counterpart(theme:id()) ~= nil, why)
+end)
 host:registerShortcut(iup.K_cB, function() tool_rail:toggle() end)
 add_host_command("rail.toggle", "Toggle Sidebar", function() tool_rail:toggle() end,
 	{ keywords = "collapse expand tools rail", group = "Layout", shortcut = "Ctrl+B" })
+add_host_command("view.toggleBars", "Toggle Sidebar and Status Bar", function() view_layout:toggleBars() end,
+	{ keywords = "hide show bars rail", group = "Layout" })
+add_host_command("terminal.toggle", "Toggle Terminal", function() view_layout:toggleTerminal() end,
+	{ keywords = "lunar cli prompt panel", group = "Layout", shortcut = "Ctrl+`" })
+host:registerShortcut(0x20000000 + 96, function() view_layout:toggleTerminal() end)
+if rawget(_G, "LUNAR_DEV_SHELL") then
+	_G.LUNAR_DEV_SHELL.view_layout, _G.LUNAR_DEV_SHELL.terminal = view_layout, terminal
+	_G.LUNAR_DEV_SHELL.shell_budget = shell_budget
+end
 add_host_command("group.new", "New Tab Group", function() tab_groups:_newGroup(tab_groups:activeRoot()) end,
 	{ keywords = "add group tabs", group = "Layout" })
 for n = 1, 9 do
@@ -1113,6 +1185,12 @@ end
 local function sync_title_bar()
 	title_bar:sync(tab_groups:_children(tabs))
 	tool_rail:refresh()
+	do
+		local theme = theme_mgr:activeTheme()
+		local page = iup.GetAttribute(tabs, "VALUE_HANDLE")
+		status_bar:setSettingsActive(page ~= nil and require("core.lib.handle").same(iup, page, settings_view:widget()),
+			theme and theme:rules().statusbar_button)
+	end
 	status_bar:setPaneState(pane_grid:isSplit(), pane_grid:isFocused())
 end
 host._after_scopes = sync_title_bar
@@ -1279,6 +1357,15 @@ if not system_theme:sync(true) then
 	theme_mgr:apply(settings_mgr:get("theme") or "lunar_dark", { skip_save = true })
 end
 system_theme:start()
+-- Only now: the first paint has nothing to fade from, and the moon shouldn't turn at startup.
+title_bar:setMotion(motion_director)
+do
+	local fade = require("core.ui.ThemeTransition").new({
+		compositor = function() return require("core.lib.Compositor").forDialog(iup, dlg) end,
+		motion = motion_director,
+	})
+	theme_mgr:setTransition(function(paint) fade:run(paint) end)
+end
 
 if not settings_mgr:get("welcome_tour_completed")
 	and not settings_mgr:get("welcome_tour_dismissed") then

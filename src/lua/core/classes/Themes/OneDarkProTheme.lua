@@ -52,6 +52,8 @@ function OneDarkProTheme:initialize()
 
     Theme.initialize(self, {
         id      = "one_dark_pro",
+        family  = "one",
+        family_label = "One",
         label   = "One Dark Pro",
         palette = p,
     })
