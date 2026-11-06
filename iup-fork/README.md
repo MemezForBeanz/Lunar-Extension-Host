@@ -20,6 +20,9 @@ and scrolling features to IUP's *flat* controls:
 - `ITEMMARKERCOLOR` on `IupFlatList`: Carbon's leading marker on the selected row.
 - `SWITCH` on `IupFlatToggle`: a Carbon toggle switch, with `SWITCHPOS` for animating the knob.
 - `IupFlatRows` and `IupFlatSegmented`: a virtual rich row canvas and a joined option control (patch 0020; Lua via `core.ui.RowList`).
+- `IupFlatGrid`: a virtual cell grid and horizontal shelf that paints only the cells in view (patch 0022; Lua via `core.ui.CellGrid`).
+- `IupFlatSeek`: a seek bar with buffered ranges, marks and hover (patch 0022; Lua via `core.ui.SeekBar`).
+- `iupdrvDrawBits`: raw 32-bit pixels, opaque or premultiplied, for art that must not become an `IupImage` per cell. `iupdrvPostRedrawRect` repaints part of a control (patch 0022).
 - `IupVideoHost`: a native child window for a video output to draw into (patch 0029, droppable; Lua via `core.ui.VideoHost`).
 
 Patch 0005 also fixes behaviour rather than adding to it: GDI+ drawing is aligned to pixel

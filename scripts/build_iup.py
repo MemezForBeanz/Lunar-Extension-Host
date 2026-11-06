@@ -154,7 +154,7 @@ def source_lists():
     # name the Linux X11 help/info files and the GTK3-specific info file.
     # The fork's patches add these and upstream's config.mak does not list them;
     # build-iup-fork.ps1 names them the same way.
-    core += ["iup_flatrows.c", "iup_flatsegmented.c", "iup_videohost.c"]
+    core += ["iup_flatrows.c", "iup_flatsegmented.c", "iup_videohost.c", "iup_flatgrid.c", "iup_flatseek.c"]
     lua_scripts = assignment(lua_config, "CTRLUA")
     lua_core = assignment(lua_config, "SRC")
     lua_core = [("elem/il_" + Path(name).stem + ".c") if item == "$(GC)" else item

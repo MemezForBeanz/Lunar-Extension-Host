@@ -60,6 +60,8 @@ local CLASS_RULES = {
 	list = true,
 	flatlist = true,
 	flatrows = true,
+	flatgrid = true,
+	flatseek = true,
 	flatsegmented = true,
 	progressbar = true,
 	gauge = true,
@@ -399,6 +401,7 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 	local has_scroll = (
 		cls == "flatlist"
 		or cls == "flatrows"
+		or cls == "flatgrid"
 		or cls == "flatscrollbox"
 		or cls == "scrollbox"
 		or cls == "list"
@@ -516,7 +519,7 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 			attrs.ARROWCOLOR = r.fg
 		end
 		-- The slim, arrowless bar. Not for the native classes: they ignore these.
-		if r.scrollsize and (cls == "flatlist" or cls == "flatrows" or cls == "flatscrollbox") then
+		if r.scrollsize and (cls == "flatlist" or cls == "flatrows" or cls == "flatgrid" or cls == "flatscrollbox") then
 			attrs.SCROLLBARSIZE = tostring(r.scrollsize)
 			attrs.SHOWARROWS = "NO"
 			attrs.SB_CORNERRADIUS = tostring(r.scrollradius or math.floor(r.scrollsize / 2))
@@ -570,7 +573,25 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 			attrs.TEXTPSCOLOR = sel_text
 		end
 		attrs.HLCOLORALPHA = r.selalpha or ((r.selbg or r.hover) and "255" or "0")
-		if cls == "flatrows" then attrs.SECONDARYCOLOR = r.secondary or r.fg end
+		if cls == "flatrows" then
+			attrs.SECONDARYCOLOR = r.secondary or r.fg
+			attrs.PLACEHOLDERCOLOR = r.placeholder or r.hover or r.bg
+			attrs.HEADERCOLOR = r.header or r.bg
+			if r.border then attrs.BORDERCOLOR = r.border end
+		end
+	end
+	if cls == "flatgrid" then
+		if r.itemradius then attrs.ITEMRADIUS = tostring(r.itemradius) end
+		if r.itemmarker then attrs.ITEMMARKERCOLOR = r.itemmarker end
+		attrs.HLCOLOR = r.hover or r.bg
+		attrs.SECONDARYCOLOR = r.secondary or r.fg
+		attrs.PLACEHOLDERCOLOR = r.placeholder or r.hover or r.bg
+	end
+	if cls == "flatseek" then
+		attrs.TRACKCOLOR = r.track
+		attrs.BUFFERCOLOR = r.buffer
+		attrs.PSCOLOR = r.played
+		attrs.MARKCOLOR = r.mark
 	end
 	if cls == "flatsegmented" then
 		attrs.PSCOLOR = r.selbg or r.hover or r.bg

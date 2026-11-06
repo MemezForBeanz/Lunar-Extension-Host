@@ -129,7 +129,7 @@ $common = @(
   'iup_colorbrowser','iup_colorhsi','iup_flatlabel','iup_dropbutton','iup_flattoggle',
   'iup_flatseparator','iup_space','iup_multibox','iup_flatlist','iup_globalsdlg',
   'iup_flatval','iup_loop','iup_thread','iup_classinfo','iup_elempropdlg',
-  'iup_export','iup_flattree','iup_flatrows','iup_flatsegmented','iup_videohost'
+  'iup_export','iup_flattree','iup_flatrows','iup_flatsegmented','iup_videohost','iup_flatgrid','iup_flatseek'
 )
 $win = @(
   'win/iupwin_common','win/iupwin_brush','win/iupwin_focus','win/iupwin_font',

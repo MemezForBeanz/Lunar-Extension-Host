@@ -1,0 +1,1794 @@
+diff --git a/include/iup.h b/include/iup.h
+index 8a8b6d1..c5d4149 100644
+--- a/include/iup.h
++++ b/include/iup.h
+@@ -263,6 +263,8 @@ IUP_API Ihandle*  IupProgressBar(void);
+ IUP_API Ihandle*  IupVal        (const char *type);
+ IUP_API Ihandle*  IupFlatVal    (const char *type);
+ IUP_API Ihandle*  IupFlatTree   (void);
++IUP_API Ihandle*  IupFlatGrid   (void);
++IUP_API Ihandle*  IupFlatSeek   (void);
+ IUP_API Ihandle*  IupTabs       (Ihandle* child, ...);
+ IUP_API Ihandle*  IupTabsv      (Ihandle* *children);
+ IUP_API Ihandle*  IupFlatTabs   (Ihandle* first, ...);
+diff --git a/src/gtk/iupgtk_common.c b/src/gtk/iupgtk_common.c
+index 10352a1..71d9f8e 100644
+--- a/src/gtk/iupgtk_common.c
++++ b/src/gtk/iupgtk_common.c
+@@ -188,6 +188,11 @@ IUP_SDK_API void iupdrvBaseUnMapMethod(Ihandle* ih)
+   gtk_widget_destroy(widget);   /* To match the call to gtk_*****_new     */
+ }
+ 
++IUP_SDK_API void iupdrvPostRedrawRect(Ihandle *ih, int x, int y, int w, int h)
++{
++  gtk_widget_queue_draw_area(ih->handle, x, y, w, h);
++}
++
+ IUP_SDK_API void iupdrvPostRedraw(Ihandle *ih)
+ {
+   GdkWindow* window = iupgtkGetWindow(ih->handle);
+diff --git a/src/gtk/iupgtk_draw_cairo.c b/src/gtk/iupgtk_draw_cairo.c
+index 060b722..48d0d41 100644
+--- a/src/gtk/iupgtk_draw_cairo.c
++++ b/src/gtk/iupgtk_draw_cairo.c
+@@ -509,6 +509,18 @@ IUP_SDK_API void iupdrvDrawText(IdrawCanvas* dc, const char* text, int len, int
+     cairo_restore(dc->image_cr);
+ }
+ 
++IUP_SDK_API void iupdrvDrawBits(IdrawCanvas* dc, const unsigned char* bgra, int w, int h, int stride, int x, int y, int blend)
++{
++  cairo_surface_t* surface = cairo_image_surface_create_for_data((unsigned char*)bgra, CAIRO_FORMAT_ARGB32, w, h, stride);
++  cairo_save(dc->image_cr);
++  cairo_set_source_surface(dc->image_cr, surface, x, y);
++  cairo_set_operator(dc->image_cr, blend ? CAIRO_OPERATOR_OVER : CAIRO_OPERATOR_SOURCE);
++  cairo_rectangle(dc->image_cr, x, y, w, h);
++  cairo_fill(dc->image_cr);
++  cairo_restore(dc->image_cr);
++  cairo_surface_destroy(surface);
++}
++
+ IUP_SDK_API void iupdrvDrawImage(IdrawCanvas* dc, const char* name, int make_inactive, const char* bgcolor, int x, int y, int w, int h)
+ {
+   int bpp, img_w, img_h;
+diff --git a/src/iup_drv.h b/src/iup_drv.h
+index 250db34..b03de97 100644
+--- a/src/iup_drv.h
++++ b/src/iup_drv.h
+@@ -66,6 +66,10 @@ IUP_SDK_API void iupdrvSetActive(Ihandle* ih, int enable);
+  * \ingroup drv */
+ IUP_SDK_API void iupdrvPostRedraw(Ihandle *ih);
+ 
++/** Lunar fork: posts a redraw of part of a control.
++ * \ingroup drv */
++IUP_SDK_API void iupdrvPostRedrawRect(Ihandle *ih, int x, int y, int w, int h);
++
+ /** Force a redraw of a control and children.
+  * \ingroup drv */
+ IUP_SDK_API void iupdrvRedrawNow(Ihandle *ih);
+diff --git a/src/iup_drvdraw.h b/src/iup_drvdraw.h
+index 40f87b8..c05e64c 100644
+--- a/src/iup_drvdraw.h
++++ b/src/iup_drvdraw.h
+@@ -76,6 +76,11 @@ IUP_SDK_API void iupdrvDrawPolygon(IdrawCanvas* dc, int* points, int count, long
+  * \ingroup drvdraw */
+ IUP_SDK_API void iupdrvDrawText(IdrawCanvas* dc, const char* text, int len, int x, int y, int w, int h, long color, const char* font, int flags, double text_orientation);
+ 
++/** Lunar fork: draws 32-bit BGRA pixels at their own size, top row first. blend=0 copies them,
++ * blend=1 composites premultiplied alpha. Named images pile up handles; a cell grid cannot.
++ * \ingroup drvdraw */
++IUP_SDK_API void iupdrvDrawBits(IdrawCanvas* dc, const unsigned char* bgra, int w, int h, int stride, int x, int y, int blend);
++
+ /** Draws an image.
+  * x,y is at left,top corner of the image.
+  * \ingroup drvdraw */
+diff --git a/src/iup_flatgrid.c b/src/iup_flatgrid.c
+new file mode 100644
+index 0000000..06a9780
+--- /dev/null
++++ b/src/iup_flatgrid.c
+@@ -0,0 +1,792 @@
++/* Lunar virtual cell grid: only the cells in view are queried and painted.
++   Cells sit on lanes across the scroll direction and lines along it, so a vertical grid and a
++   horizontal shelf are the same arithmetic. The pixels of an image stay with the provider. */
++#ifdef WIN32
++#include <windows.h>
++#else
++#include <time.h>
++#endif
++#include <stdlib.h>
++#include <stdio.h>
++#include <string.h>
++#include <ctype.h>
++#include <math.h>
++#include "iup.h"
++#include "iupcbs.h"
++#include "iupkey.h"
++#include "iup_object.h"
++#include "iup_attrib.h"
++#include "iup_str.h"
++#include "iup_drv.h"
++#include "iup_stdcontrols.h"
++#include "iup_register.h"
++#include "iup_drvfont.h"
++#include "iup_drvdraw.h"
++#include "iup_draw.h"
++#include "iup_flatscrollbar.h"
++
++#define GRID_RING 6            /* room around a cell for its selection and focus rings */
++#define GRID_TYPEAHEAD_MS 900
++#define GRID_TYPEAHEAD_MAX 63
++
++enum { GRID_PLAIN, GRID_EXTEND, GRID_TOGGLE };
++
++typedef char* (*GridValueCb)(Ihandle*, int, const char*);
++typedef void* (*GridBitsCb)(Ihandle*, int, int, int, int*);
++typedef int (*GridCellCb)(Ihandle*, int, const char*);
++typedef int (*GridActionCb)(Ihandle*, int);
++typedef int (*GridTypeAheadCb)(Ihandle*, const char*);
++
++struct _IcontrolData
++{
++  iupCanvas canvas;
++  int count, cursor, anchor, hover, focused;
++  int horizontal, padding, gutter;
++  int cellw, cellh, imageh, charh;
++  int lanes, pitch, available;
++  unsigned char* marks;        /* one bit per cell, MULTIPLE only */
++  int marked;
++  unsigned char* corners;      /* four premultiplied tiles, each radius x radius */
++  int corners_radius;
++  long corners_color;
++  char typed[GRID_TYPEAHEAD_MAX + 1];
++  unsigned long typed_at;
++};
++
++typedef struct
++{
++  long bg, fg, secondary, placeholder, marker;
++  char* bgname; char* fgname; char* markername; char* hoverbg; char* font;
++  int radius, focusring, showtext;
++  GridBitsCb bits;
++} GridPaint;
++
++static unsigned long grid_ticks(void)
++{
++#ifdef WIN32
++  return (unsigned long)GetTickCount();
++#else
++  struct timespec now;
++  clock_gettime(CLOCK_MONOTONIC, &now);
++  return (unsigned long)now.tv_sec * 1000UL + (unsigned long)(now.tv_nsec / 1000000L);
++#endif
++}
++
++static int grid_max(int a, int b) { return a > b ? a : b; }
++static int grid_min(int a, int b) { return a < b ? a : b; }
++
++static char* grid_value(Ihandle* ih, const char* field, int pos)
++{
++  GridValueCb cb = (GridValueCb)IupGetCallback(ih, "CELLVALUE_CB");
++  return cb ? cb(ih, pos, field) : NULL;
++}
++
++/* ---- geometry ------------------------------------------------------------------------- */
++
++static double grid_aspect(Ihandle* ih)
++{
++  char* value = iupAttribGetStr(ih, "ASPECT");
++  double a = 0, b = 0;
++  if (value)
++  {
++    if (sscanf(value, "%lf:%lf", &a, &b) == 2 && a > 0 && b > 0) return a / b;
++    if (sscanf(value, "%lf", &a) == 1 && a > 0) return a;
++  }
++  return 2.0 / 3.0;
++}
++
++static void grid_measure(Ihandle* ih)
++{
++  struct _IcontrolData* d = ih->data;
++  int text, bar = iupAttribGetInt(ih, "SCROLLBARSIZE");
++  iupdrvFontGetCharSize(ih, NULL, &d->charh);
++  d->horizontal = iupStrEqualNoCase(iupAttribGetStr(ih, "ORIENTATION"), "HORIZONTAL");
++  d->padding = grid_max(iupAttribGetInt(ih, "PADDING"), GRID_RING);
++  d->gutter = grid_max(iupAttribGetInt(ih, "GUTTER"), 2 * GRID_RING);
++  d->cellw = grid_max(iupAttribGetInt(ih, "CELLWIDTH"), 32);
++  d->imageh = grid_max((int)(d->cellw / grid_aspect(ih) + 0.5), 16);
++  text = iupAttribGetBoolean(ih, "SHOWTEXT") ? 6 + 2 * (d->charh + 2) : 0;
++  d->cellh = d->imageh + text;
++  if (d->horizontal)
++  {
++    d->available = 0;
++    d->lanes = grid_max(iupAttribGetInt(ih, "ROWS"), 1);
++    d->pitch = d->cellw + d->gutter;
++  }
++  else
++  {
++    d->available = ih->currentwidth - 2 * d->padding - bar;
++    d->lanes = grid_max((d->available + d->gutter) / (d->cellw + d->gutter), 1);
++    d->pitch = d->cellh + d->gutter;
++  }
++}
++
++static int grid_lines(Ihandle* ih) { return (ih->data->count + ih->data->lanes - 1) / ih->data->lanes; }
++static int grid_total(Ihandle* ih)
++{
++  int lines = grid_lines(ih);
++  return lines ? 2 * ih->data->padding + lines * ih->data->pitch - ih->data->gutter : 0;
++}
++static int grid_extent(Ihandle* ih) { return ih->data->horizontal ? ih->currentwidth : ih->currentheight; }
++static int grid_scroll(Ihandle* ih) { return IupGetInt(ih, ih->data->horizontal ? "POSX" : "POSY"); }
++static void grid_set_scroll(Ihandle* ih, int value) { IupSetInt(ih, ih->data->horizontal ? "POSX" : "POSY", value); }
++
++/* The cell's corner on the canvas. Lanes spread to fill the width, so both edges of a vertical
++   grid sit on the padding; the spare pixels go in the gutters and the cell keeps its size,
++   which is what lets one decoded image serve every window width. */
++static void grid_cell_xy(Ihandle* ih, int pos, int* x, int* y)
++{
++  struct _IcontrolData* d = ih->data;
++  int lane = (pos - 1) % d->lanes, line = (pos - 1) / d->lanes;
++  int along = d->padding + line * d->pitch - grid_scroll(ih);
++  if (d->horizontal)
++  {
++    *x = along;
++    *y = d->padding + lane * (d->cellh + d->gutter);
++  }
++  else
++  {
++    *x = d->padding + (d->lanes > 1 ? lane * (d->available - d->cellw) / (d->lanes - 1) : 0);
++    *y = along;
++  }
++}
++
++static int grid_hit(Ihandle* ih, int x, int y)
++{
++  struct _IcontrolData* d = ih->data;
++  int across = d->horizontal ? y : x, along = (d->horizontal ? x : y) + grid_scroll(ih) - d->padding;
++  int span = d->horizontal ? d->cellw : d->cellh, line, lane;
++  if (along < 0 || !d->lanes) return 0;
++  line = along / d->pitch;
++  if (along % d->pitch >= span) return 0;
++  for (lane = 0; lane < d->lanes; lane++)
++  {
++    int start, size, pos = line * d->lanes + lane + 1, cx, cy;
++    if (pos > d->count) return 0;
++    grid_cell_xy(ih, pos, &cx, &cy);
++    start = d->horizontal ? cy : cx;
++    size = d->horizontal ? d->cellh : d->cellw;
++    if (across >= start && across < start + size) return pos;
++  }
++  return 0;
++}
++
++static int grid_first(Ihandle* ih)
++{
++  struct _IcontrolData* d = ih->data;
++  return d->lanes && d->pitch ? grid_scroll(ih) / d->pitch * d->lanes + 1 : 1;
++}
++
++/* A resize keeps the first cell in view where it is, whatever the lanes become. */
++static void grid_refresh(Ihandle* ih)
++{
++  struct _IcontrolData* d = ih->data;
++  int first = grid_first(ih), scrolled = grid_scroll(ih) > 0, total;
++  grid_measure(ih);
++  total = grid_total(ih);
++  if (d->horizontal)
++  {
++    IupSetInt(ih, "XMAX", total);
++    IupSetInt(ih, "DX", grid_max(ih->currentwidth, 1));
++    IupSetInt(ih, "YMAX", 0);
++    IupSetInt(ih, "DY", grid_max(ih->currentheight, 1));
++    IupSetInt(ih, "LINEX", d->pitch / 3);
++  }
++  else
++  {
++    IupSetInt(ih, "YMAX", total);
++    IupSetInt(ih, "DY", grid_max(ih->currentheight, 1));
++    IupSetInt(ih, "XMAX", 0);
++    IupSetInt(ih, "DX", grid_max(ih->currentwidth, 1));
++    IupSetInt(ih, "LINEY", d->pitch / 3);
++  }
++  if (scrolled) grid_set_scroll(ih, (first - 1) / d->lanes * d->pitch);
++  if (ih->handle) iupdrvPostRedraw(ih);
++}
++
++/* ---- painting ------------------------------------------------------------------------- */
++
++/* Rounds a rectangular image by painting the outside of each corner in the background colour,
++   with its antialiased edge. Premultiplied, because that is what the blit composites. */
++static void grid_build_corners(Ihandle* ih, int radius, long color)
++{
++  struct _IcontrolData* d = ih->data;
++  int x, y, sx, sy, i;
++  unsigned char b = iupDrawBlue(color), g = iupDrawGreen(color), r = iupDrawRed(color);
++  if (radius == d->corners_radius && color == d->corners_color && d->corners) return;
++  free(d->corners);
++  d->corners = (unsigned char*)malloc((size_t)radius * radius * 4 * 4);
++  d->corners_radius = radius;
++  d->corners_color = color;
++  if (!d->corners) { d->corners_radius = 0; return; }
++  for (y = 0; y < radius; y++)
++    for (x = 0; x < radius; x++)
++    {
++      int outside = 0;
++      unsigned char px[4];
++      for (sy = 0; sy < 4; sy++)
++        for (sx = 0; sx < 4; sx++)
++        {
++          double dx = radius - (x + (sx + 0.5) / 4.0), dy = radius - (y + (sy + 0.5) / 4.0);
++          if (dx * dx + dy * dy > (double)radius * radius) outside++;
++        }
++      px[0] = (unsigned char)(b * outside / 16);
++      px[1] = (unsigned char)(g * outside / 16);
++      px[2] = (unsigned char)(r * outside / 16);
++      px[3] = (unsigned char)(255 * outside / 16);
++      for (i = 0; i < 4; i++)
++      {
++        int tx = (i & 1) ? radius - 1 - x : x, ty = (i & 2) ? radius - 1 - y : y;
++        memcpy(d->corners + ((size_t)i * radius * radius + (size_t)ty * radius + tx) * 4, px, 4);
++      }
++    }
++}
++
++static void grid_draw_corners(Ihandle* ih, IdrawCanvas* dc, int x, int y, int w, int h, int radius)
++{
++  struct _IcontrolData* d = ih->data;
++  size_t tile = (size_t)radius * radius * 4;
++  if (radius < 1 || !d->corners) return;
++  iupdrvDrawBits(dc, d->corners, radius, radius, radius * 4, x, y, 1);
++  iupdrvDrawBits(dc, d->corners + tile, radius, radius, radius * 4, x + w - radius, y, 1);
++  iupdrvDrawBits(dc, d->corners + 2 * tile, radius, radius, radius * 4, x, y + h - radius, 1);
++  iupdrvDrawBits(dc, d->corners + 3 * tile, radius, radius, radius * 4, x + w - radius, y + h - radius, 1);
++}
++
++static int grid_is_marked(Ihandle* ih, int pos)
++{
++  struct _IcontrolData* d = ih->data;
++  if (d->marks) return (d->marks[(pos - 1) / 8] >> ((pos - 1) % 8)) & 1;
++  return pos == d->cursor;
++}
++
++static void grid_draw_cell(Ihandle* ih, IdrawCanvas* dc, int pos, int x, int y, GridPaint* p)
++{
++  struct _IcontrolData* d = ih->data;
++  int w = d->cellw, h = d->imageh, stride = 0;
++  void* bits = p->bits ? p->bits(ih, pos, w, h, &stride) : NULL;
++  char* title = grid_value(ih, "TITLE", pos);
++  char* badge = grid_value(ih, "BADGE", pos);
++  char* progress = grid_value(ih, "PROGRESS", pos);
++  char* state = grid_value(ih, "STATE", pos);
++  char* secondary;
++  int offline = state && iupStrEqualNoCase(state, "offline");
++
++  if (bits)
++    iupdrvDrawBits(dc, (const unsigned char*)bits, w, h, stride, x, y, 0);
++  else
++  {
++    iupdrvDrawRectangle(dc, x, y, x + w - 1, y + h - 1, p->placeholder, IUP_DRAW_FILL, 1);
++    if (title)  /* wrapped text ignores vertical centring, so the box is placed by hand */
++      iupdrvDrawText(dc, title, (int)strlen(title), x + 8, y + h / 2 - d->charh - 2, w - 16, h / 2, p->secondary, p->font,
++        IUP_DRAW_CENTER | IUP_DRAW_WRAP | IUP_DRAW_CLIP, 0);
++  }
++  if (progress && atoi(progress) > 0)
++  {
++    int value = grid_min(atoi(progress), 100), left = x + 4, right = x + w - 5, top = y + h - 6;
++    iupdrvDrawRectangle(dc, left, top, right, top + 2, p->bg, IUP_DRAW_FILL, 1);
++    iupdrvDrawRectangle(dc, left, top, left + (right - left) * value / 100, top + 2, p->marker, IUP_DRAW_FILL, 1);
++  }
++  if (badge && *badge)
++  {
++    int len = (int)strlen(badge), tw = iupdrvFontGetStringWidth(ih, badge) + 10, th = d->charh + 2;
++    int bx = x + w - tw - 6, by = y + 6;
++    iupdrvDrawRectangle(dc, bx, by, bx + tw - 1, by + th - 1, p->bg, IUP_DRAW_FILL, 1);
++    iupdrvDrawText(dc, badge, len, bx, by, tw, th, p->fg, p->font,
++      IUP_DRAW_CENTER | IUP_DRAW_LAYOUTCENTER | IUP_DRAW_CLIP, 0);
++  }
++  if (state && iupStrEqualNoCase(state, "unplayed"))
++    iupdrvDrawRectangle(dc, x + 6, y + 6, x + 11, y + 11, p->marker, IUP_DRAW_FILL, 1);
++  grid_draw_corners(ih, dc, x, y, w, h, p->radius);
++
++  if (grid_is_marked(ih, pos))
++    iupFlatDrawRoundBorder(dc, x - 2, x + w + 1, y - 2, y + h + 1, p->radius + 2, 2, p->markername, p->bgname, 1);
++  else if (pos == d->hover && p->hoverbg)
++    iupFlatDrawRoundBorder(dc, x - 1, x + w, y - 1, y + h, p->radius + 1, 1, p->hoverbg, p->bgname, 1);
++  if (d->focused && pos == d->cursor && p->focusring)
++    iupFlatDrawRoundBorder(dc, x - 4, x + w + 3, y - 4, y + h + 3, p->radius + 4, 1, p->fgname, p->bgname, 1);
++
++  if (p->showtext)
++  {
++    int line = d->charh + 2, ty = y + h + 6;
++    if (title)
++      iupdrvDrawText(dc, title, (int)strlen(title), x, ty, w, line, offline ? p->secondary : p->fg, p->font,
++        IUP_DRAW_LEFT | IUP_DRAW_ELLIPSIS, 0);
++    secondary = grid_value(ih, "SECONDARY", pos);
++    if (secondary)
++      iupdrvDrawText(dc, secondary, (int)strlen(secondary), x, ty + line, w, line, p->secondary, p->font,
++        IUP_DRAW_LEFT | IUP_DRAW_ELLIPSIS, 0);
++  }
++}
++
++static int grid_redraw(Ihandle* ih)
++{
++  struct _IcontrolData* d = ih->data;
++  IdrawCanvas* dc = iupdrvDrawCreateCanvas(ih);
++  int w, h, cx = 0, cy = 0, cw, ch, scroll, extent, line, lastline, lane;
++  char* clip = iupAttribGet(ih, "CLIPRECT");
++  GridPaint p;
++  iupdrvDrawGetSize(dc, &w, &h);
++  cw = w; ch = h;
++  if (clip) sscanf(clip, "%d %d %d %d", &cx, &cy, &cw, &ch);
++
++  p.bgname = IupGetAttribute(ih, "BGCOLOR");
++  p.bg = iupDrawStrToColor(p.bgname, iupDrawColor(255, 255, 255, 255));
++  p.fgname = IupGetAttribute(ih, "FGCOLOR");
++  p.fg = iupDrawStrToColor(p.fgname, iupDrawColor(30, 30, 30, 255));
++  p.secondary = iupDrawStrToColor(IupGetAttribute(ih, "SECONDARYCOLOR"), p.fg);
++  p.placeholder = iupDrawStrToColor(IupGetAttribute(ih, "PLACEHOLDERCOLOR"), p.bg);
++  p.markername = IupGetAttribute(ih, "ITEMMARKERCOLOR");
++  if (!p.markername) p.markername = IupGetAttribute(ih, "FGCOLOR");
++  p.marker = iupDrawStrToColor(p.markername, p.fg);
++  p.hoverbg = IupGetAttribute(ih, "HLCOLOR");
++  p.font = IupGetAttribute(ih, "FONT");
++  p.radius = grid_max(iupAttribGetInt(ih, "ITEMRADIUS"), 0);
++  p.focusring = IupGetInt(ih, "FOCUSFEEDBACK");
++  p.showtext = iupAttribGetBoolean(ih, "SHOWTEXT");
++  p.bits = (GridBitsCb)IupGetCallback(ih, "CELLBITS_CB");
++  if (p.radius > 0) grid_build_corners(ih, p.radius, p.bg);
++
++  iupdrvDrawRectangle(dc, cx, cy, cx + cw - 1, cy + ch - 1, p.bg, IUP_DRAW_FILL, 1);
++  if (d->count == 0)
++  {
++    char* empty = IupGetAttribute(ih, "EMPTYTITLE");
++    char* hint = IupGetAttribute(ih, "EMPTYHINT");
++    if (empty) iupdrvDrawText(dc, empty, (int)strlen(empty), 16, h / 2 - 22, w - 32, 26, p.fg, p.font,
++      IUP_DRAW_CENTER | IUP_DRAW_LAYOUTCENTER | IUP_DRAW_ELLIPSIS, 0);
++    if (hint) iupdrvDrawText(dc, hint, (int)strlen(hint), 16, h / 2 + 5, w - 32, 22, p.secondary, p.font,
++      IUP_DRAW_CENTER | IUP_DRAW_LAYOUTCENTER | IUP_DRAW_ELLIPSIS, 0);
++  }
++  scroll = grid_scroll(ih);
++  extent = d->horizontal ? w : h;
++  line = grid_max(scroll - d->padding, 0) / d->pitch;
++  lastline = (scroll + extent) / d->pitch;
++  for (; line <= lastline; line++)
++    for (lane = 0; lane < d->lanes; lane++)
++    {
++      int pos = line * d->lanes + lane + 1, x, y;
++      if (pos > d->count) break;
++      grid_cell_xy(ih, pos, &x, &y);
++      if (x + d->cellw + GRID_RING <= cx || x - GRID_RING >= cx + cw ||
++          y + d->cellh + GRID_RING <= cy || y - GRID_RING >= cy + ch) continue;
++      grid_draw_cell(ih, dc, pos, x, y, &p);
++    }
++  iupdrvDrawFlush(dc); iupdrvDrawKillCanvas(dc);
++  return IUP_DEFAULT;
++}
++
++/* Repaints one cell and whatever rings it has. Everything else keeps its pixels. */
++static void grid_touch(Ihandle* ih, int pos)
++{
++  struct _IcontrolData* d = ih->data;
++  int x, y;
++  if (!ih->handle || pos < 1 || pos > d->count) return;
++  grid_cell_xy(ih, pos, &x, &y);
++  iupdrvPostRedrawRect(ih, x - GRID_RING, y - GRID_RING, d->cellw + 2 * GRID_RING, d->cellh + 2 * GRID_RING);
++}
++
++/* ---- selection ------------------------------------------------------------------------ */
++
++static void grid_mark_all(Ihandle* ih, int on)
++{
++  struct _IcontrolData* d = ih->data;
++  if (!d->marks) return;
++  memset(d->marks, on ? 0xFF : 0, (size_t)(d->count + 7) / 8);
++  d->marked = on ? d->count : 0;
++}
++static void grid_mark(Ihandle* ih, int pos, int on)
++{
++  struct _IcontrolData* d = ih->data;
++  unsigned char bit = (unsigned char)(1 << ((pos - 1) % 8));
++  unsigned char* byte = d->marks + (pos - 1) / 8;
++  if (!!(*byte & bit) == !!on) return;
++  if (on) { *byte |= bit; d->marked++; }
++  else { *byte &= (unsigned char)~bit; d->marked--; }
++}
++static void grid_alloc_marks(Ihandle* ih)
++{
++  struct _IcontrolData* d = ih->data;
++  free(d->marks);
++  d->marks = NULL;
++  d->marked = 0;
++  if (iupAttribGetBoolean(ih, "MULTIPLE"))
++    d->marks = (unsigned char*)calloc((size_t)(d->count + 7) / 8 + 1, 1);
++}
++
++/* Brings a cell into view. Returns whether anything moved. */
++static int grid_reveal(Ihandle* ih, int pos)
++{
++  struct _IcontrolData* d = ih->data;
++  int scroll = grid_scroll(ih), extent = grid_extent(ih), span = d->horizontal ? d->cellw : d->cellh;
++  int along = d->padding + (pos - 1) / d->lanes * d->pitch, next = scroll;
++  if (along - GRID_RING < scroll) next = grid_max(along - GRID_RING, 0);
++  else if (along + span + GRID_RING > scroll + extent) next = along + span + GRID_RING - extent;
++  if (next == scroll) return 0;
++  grid_set_scroll(ih, next);
++  return 1;
++}
++
++static int grid_go(Ihandle* ih, int pos, int mode)
++{
++  struct _IcontrolData* d = ih->data;
++  int before = d->cursor, repaint = 0, changed;
++  if (!d->count) return IUP_IGNORE;
++  pos = grid_max(grid_min(pos, d->count), 1);
++  changed = pos != before;
++  if (d->marks)
++  {
++    if (mode == GRID_TOGGLE)
++    {
++      grid_mark(ih, pos, !grid_is_marked(ih, pos));
++      changed = 1;
++    }
++    else
++    {
++      int i, from, to;
++      changed = changed || d->marked != 1 || !grid_is_marked(ih, pos);
++      if (d->marked) { grid_mark_all(ih, 0); repaint = 1; }
++      from = grid_min(mode == GRID_EXTEND && d->anchor ? d->anchor : pos, pos);
++      to = grid_max(mode == GRID_EXTEND && d->anchor ? d->anchor : pos, pos);
++      for (i = from; i <= to; i++) grid_mark(ih, i, 1);
++    }
++  }
++  d->cursor = pos;
++  if (mode != GRID_EXTEND) d->anchor = pos;
++  if (grid_reveal(ih, pos)) repaint = 1;
++  if (repaint) { if (ih->handle) iupdrvPostRedraw(ih); }
++  else { grid_touch(ih, before); grid_touch(ih, pos); }
++  if (changed)
++  {
++    GridActionCb action = (GridActionCb)IupGetCallback(ih, "CELL_ACTION_CB");
++    IFn notify = (IFn)IupGetCallback(ih, "VALUECHANGED_CB");
++    if (action) action(ih, pos);
++    if (notify) notify(ih);
++  }
++  return IUP_IGNORE;
++}
++
++static int grid_activate(Ihandle* ih, int pos, const char* how)
++{
++  GridCellCb cb = (GridCellCb)IupGetCallback(ih, "CELL_ACTIVATE_CB");
++  if (cb && pos) cb(ih, pos, how);
++  return IUP_IGNORE;
++}
++
++/* ---- input ---------------------------------------------------------------------------- */
++
++static int grid_title_matches(const char* title, const char* typed)
++{
++  for (; *typed; title++, typed++)
++    if (tolower((unsigned char)*title) != tolower((unsigned char)*typed)) return 0;
++  return 1;
++}
++
++static int grid_type_ahead(Ihandle* ih, int c)
++{
++  struct _IcontrolData* d = ih->data;
++  size_t len;
++  int step, start, pos;
++  GridTypeAheadCb cb = (GridTypeAheadCb)IupGetCallback(ih, "TYPEAHEAD_CB");
++  d->typed_at = grid_ticks();
++  len = strlen(d->typed);
++  if (len < GRID_TYPEAHEAD_MAX) { d->typed[len++] = (char)c; d->typed[len] = 0; }
++  if (cb)
++  {
++    pos = cb(ih, d->typed);
++    if (pos >= 0) { if (pos > 0) grid_go(ih, pos, GRID_PLAIN); return IUP_IGNORE; }
++  }
++  start = d->cursor ? d->cursor : 1;
++  if (len == 1) start = start % d->count + 1;  /* the same letter again moves on */
++  for (step = 0, pos = start; step < d->count; step++, pos = pos % d->count + 1)
++  {
++    char* title = grid_value(ih, "TITLE", pos);
++    if (title && grid_title_matches(title, d->typed)) { grid_go(ih, pos, GRID_PLAIN); break; }
++  }
++  return IUP_IGNORE;
++}
++
++static int grid_key(Ihandle* ih, int c)
++{
++  struct _IcontrolData* d = ih->data;
++  int base = iup_XkeyBase(c), ctrl = iup_isCtrlXkey(c), shift = iup_isShiftXkey(c);
++  int mode = shift ? GRID_EXTEND : GRID_PLAIN;
++  int across = d->horizontal ? d->lanes : 1, down = d->horizontal ? 1 : d->lanes;
++  int page = grid_max(grid_extent(ih) / d->pitch, 1) * d->lanes, target;
++  if (!d->count) return IUP_CONTINUE;
++  switch (base)
++  {
++  case K_LEFT: target = d->cursor - across; break;
++  case K_RIGHT: target = d->cursor + across; break;
++  case K_UP: target = d->cursor - down; break;
++  case K_DOWN: target = d->cursor + down; break;
++  case K_PGUP: return grid_go(ih, d->cursor - page, mode);
++  case K_PGDN: return grid_go(ih, d->cursor + page, mode);
++  case K_HOME: return grid_go(ih, 1, mode);
++  case K_END: return grid_go(ih, d->count, mode);
++  case K_CR: return grid_activate(ih, d->cursor, "enter");
++  default:
++    if (ctrl && (base == 'a' || base == 'A') && d->marks)
++    {
++      grid_mark_all(ih, 1);
++      if (ih->handle) iupdrvPostRedraw(ih);
++      if (IupGetCallback(ih, "VALUECHANGED_CB")) ((IFn)IupGetCallback(ih, "VALUECHANGED_CB"))(ih);
++      return IUP_IGNORE;
++    }
++    if (ctrl || iup_isAltXkey(c) || iup_isSysXkey(c) || !iup_isprint(base)) return IUP_CONTINUE;
++    if (grid_ticks() - d->typed_at > GRID_TYPEAHEAD_MS) d->typed[0] = 0;
++    if (base == K_SP && !d->typed[0])  /* a title has spaces, so only a word in progress takes one */
++    {
++      if (d->marks && d->cursor) return grid_go(ih, d->cursor, GRID_TOGGLE);
++      return IUP_CONTINUE;
++    }
++    return grid_type_ahead(ih, base);
++  }
++  /* Past the last line, the last cell, once. Sideways off either end stays put. */
++  if (!d->cursor) return grid_go(ih, 1, mode);
++  if (target > d->count)
++    target = (d->cursor - 1) / d->lanes < (d->count - 1) / d->lanes ? d->count : d->cursor;
++  if (target < 1) target = d->cursor;
++  return grid_go(ih, target, mode);
++}
++
++static int grid_button(Ihandle* ih, int button, int pressed, int x, int y, char* status)
++{
++  struct _IcontrolData* d = ih->data;
++  int pos;
++  if (!pressed) return IUP_DEFAULT;
++  if (iupAttribGetBoolean(ih, "CANFOCUS")) IupSetFocus(ih);
++  pos = grid_hit(ih, x, y);
++  if (!pos) return IUP_DEFAULT;
++  if (button == IUP_BUTTON3)
++  {
++    GridCellCb cb = (GridCellCb)IupGetCallback(ih, "CELL_CONTEXT_CB");
++    if (!grid_is_marked(ih, pos)) grid_go(ih, pos, GRID_PLAIN);
++    if (cb) cb(ih, pos, "context");
++    return IUP_DEFAULT;
++  }
++  if (button != IUP_BUTTON1) return IUP_DEFAULT;
++  grid_go(ih, pos, !d->marks ? GRID_PLAIN : iup_iscontrol(status) ? GRID_TOGGLE : iup_isshift(status) ? GRID_EXTEND : GRID_PLAIN);
++  if (iup_isdouble(status)) grid_activate(ih, pos, "double");
++  return IUP_DEFAULT;
++}
++
++static void grid_set_hover(Ihandle* ih, int pos)
++{
++  struct _IcontrolData* d = ih->data;
++  int before = d->hover;
++  if (pos == before) return;
++  d->hover = pos;
++  grid_touch(ih, before);
++  grid_touch(ih, pos);
++}
++static int grid_motion(Ihandle* ih, int x, int y, char* status)
++{
++  (void)status;
++  iupFlatScrollBarMotionUpdate(ih, x, y);
++  grid_set_hover(ih, grid_hit(ih, x, y));
++  return IUP_DEFAULT;
++}
++static int grid_leave(Ihandle* ih) { grid_set_hover(ih, 0); return IUP_DEFAULT; }
++static int grid_focus(Ihandle* ih, int focus)
++{
++  ih->data->focused = focus;
++  grid_touch(ih, ih->data->cursor);
++  return IUP_DEFAULT;
++}
++static int grid_wheel(Ihandle* ih, float delta)
++{
++  struct _IcontrolData* d = ih->data;
++  if (d->horizontal)
++  {
++    int next = grid_scroll(ih) - (int)(delta * (d->pitch / 3));
++    grid_set_scroll(ih, grid_max(grid_min(next, grid_total(ih) - grid_extent(ih)), 0));
++    iupdrvRedrawNow(ih);
++  }
++  else
++    iupFlatScrollBarWheelUpdate(ih, delta);
++  return IUP_DEFAULT;
++}
++static int grid_scrolled(Ihandle* ih, int op, float posx, float posy)
++{
++  (void)op; (void)posx; (void)posy;
++  iupdrvRedrawNow(ih);
++  return IUP_DEFAULT;
++}
++static int grid_resize(Ihandle* ih, int w, int h) { (void)w; (void)h; grid_refresh(ih); return IUP_DEFAULT; }
++
++/* ---- attributes ----------------------------------------------------------------------- */
++
++static int grid_set_count(Ihandle* ih, const char* value)
++{
++  struct _IcontrolData* d = ih->data;
++  int n = value ? atoi(value) : 0;
++  d->count = n > 0 ? n : 0;
++  if (d->cursor > d->count) d->cursor = 0;
++  if (d->anchor > d->count) d->anchor = 0;
++  if (d->hover > d->count) d->hover = 0;
++  grid_alloc_marks(ih);
++  grid_refresh(ih);
++  return 0;
++}
++static char* grid_get_count(Ihandle* ih) { return iupStrReturnInt(ih->data->count); }
++static int grid_set_value(Ihandle* ih, const char* value)
++{
++  struct _IcontrolData* d = ih->data;
++  int pos = value ? atoi(value) : 0, before = d->cursor;
++  d->cursor = d->anchor = pos >= 1 && pos <= d->count ? pos : 0;
++  if (d->marks)
++  {
++    grid_mark_all(ih, 0);
++    if (d->cursor) grid_mark(ih, d->cursor, 1);
++    if (ih->handle) iupdrvPostRedraw(ih);
++  }
++  else { grid_touch(ih, before); grid_touch(ih, d->cursor); }
++  return 0;
++}
++static char* grid_get_value(Ihandle* ih) { return iupStrReturnInt(ih->data->cursor); }
++static char* grid_get_accessible(Ihandle* ih)
++{
++  int pos = ih->data->cursor;
++  return pos ? grid_value(ih, "TITLE", pos) : NULL;
++}
++static char* grid_get_idvalue(Ihandle* ih, int pos) { return grid_value(ih, "TITLE", pos); }
++static int grid_set_scrollto(Ihandle* ih, const char* value)
++{
++  struct _IcontrolData* d = ih->data;
++  int pos = value ? atoi(value) : 0;
++  if (pos < 1 || pos > d->count) return 0;
++  grid_set_scroll(ih, grid_max(grid_min((pos - 1) / d->lanes * d->pitch, grid_total(ih) - grid_extent(ih)), 0));
++  if (ih->handle) iupdrvPostRedraw(ih);
++  return 0;
++}
++static int grid_set_redrawcell(Ihandle* ih, const char* value) { grid_touch(ih, value ? atoi(value) : 0); return 0; }
++static char* grid_get_visiblerange(Ihandle* ih)
++{
++  struct _IcontrolData* d = ih->data;
++  int first, last;
++  if (!d->count) return NULL;
++  first = grid_max(grid_scroll(ih) - d->padding, 0) / d->pitch * d->lanes + 1;
++  last = grid_min(((grid_scroll(ih) + grid_extent(ih)) / d->pitch + 1) * d->lanes, d->count);
++  return iupStrReturnStrf("%d:%d", first, last);
++}
++static char* grid_get_hover(Ihandle* ih) { return iupStrReturnInt(ih->data->hover); }
++static char* grid_get_selectedcount(Ihandle* ih)
++{
++  return iupStrReturnInt(ih->data->marks ? ih->data->marked : (ih->data->cursor ? 1 : 0));
++}
++/* One character per cell, as IupList reports a multiple selection. */
++static char* grid_get_selectionmask(Ihandle* ih)
++{
++  struct _IcontrolData* d = ih->data;
++  int pos;
++  char* mask;
++  if (!d->count) return NULL;
++  mask = iupStrGetMemory(d->count + 1);
++  for (pos = 1; pos <= d->count; pos++) mask[pos - 1] = grid_is_marked(ih, pos) ? '+' : '-';
++  mask[d->count] = 0;
++  return mask;
++}
++static int grid_set_multiple(Ihandle* ih, const char* value)
++{
++  iupAttribSetStr(ih, "MULTIPLE", value);
++  grid_alloc_marks(ih);
++  return 1;
++}
++#define GRID_LAYOUT_ATTRIB(_fn, _name) \
++  static int _fn(Ihandle* ih, const char* value) \
++  { iupAttribSetStr(ih, _name, value); grid_refresh(ih); return 1; }  /* 0 would drop it at map */
++GRID_LAYOUT_ATTRIB(grid_set_cellwidth, "CELLWIDTH")
++GRID_LAYOUT_ATTRIB(grid_set_aspect, "ASPECT")
++GRID_LAYOUT_ATTRIB(grid_set_gutter, "GUTTER")
++GRID_LAYOUT_ATTRIB(grid_set_padding, "PADDING")
++GRID_LAYOUT_ATTRIB(grid_set_rows, "ROWS")
++GRID_LAYOUT_ATTRIB(grid_set_orientation, "ORIENTATION")
++GRID_LAYOUT_ATTRIB(grid_set_showtext, "SHOWTEXT")
++static int grid_post_redraw(Ihandle* ih, const char* value) { (void)value; if (ih->handle) iupdrvPostRedraw(ih); return 1; }
++static int grid_set_scrollbar(Ihandle* ih, const char* value)
++{
++  if (ih->handle) return IUP_DEFAULT;
++  if (value && !iupStrEqualNoCase(value, "NO") && iupFlatScrollBarCreate(ih))
++  {
++    IupSetAttribute(ih, "SCROLLBAR", "NO");
++    IupSetCallback(ih, "WHEEL_CB", (Icallback)grid_wheel);
++  }
++  return 1;
++}
++static void grid_size(Ihandle* ih, int* w, int* h, int* expand)
++{
++  grid_measure(ih);
++  *w = ih->data->cellw * 2 + ih->data->gutter + 2 * ih->data->padding;
++  *h = ih->data->cellh + 2 * ih->data->padding;
++  (void)expand;
++}
++static void grid_child_size(Ihandle* ih, int shrink) { if (iupFlatScrollBarGet(ih)) iupFlatScrollBarSetChildrenCurrentSize(ih, shrink); }
++static void grid_child_pos(Ihandle* ih, int x, int y) { if (iupFlatScrollBarGet(ih)) iupFlatScrollBarSetChildrenPosition(ih); (void)x; (void)y; }
++static void grid_destroy(Ihandle* ih)
++{
++  free(ih->data->marks);
++  free(ih->data->corners);
++  iupFlatScrollBarRelease(ih);
++}
++static int grid_create(Ihandle* ih, void** params)
++{
++  free(ih->data); ih->data = iupALLOCCTRLDATA(); (void)params;
++  ih->data->lanes = 1; ih->data->pitch = 1;
++  IupSetAttribute(ih, "EXPAND", "YES"); IupSetAttribute(ih, "SCROLLBAR", "VERTICAL");
++  IupSetCallback(ih, "ACTION", (Icallback)grid_redraw);
++  IupSetCallback(ih, "BUTTON_CB", (Icallback)grid_button);
++  IupSetCallback(ih, "MOTION_CB", (Icallback)grid_motion);
++  IupSetCallback(ih, "LEAVEWINDOW_CB", (Icallback)grid_leave);
++  IupSetCallback(ih, "FOCUS_CB", (Icallback)grid_focus);
++  IupSetCallback(ih, "RESIZE_CB", (Icallback)grid_resize);
++  IupSetCallback(ih, "SCROLL_CB", (Icallback)grid_scrolled);
++  IupSetCallback(ih, "K_ANY", (Icallback)grid_key);
++  return IUP_NOERROR;
++}
++IUP_API Ihandle* IupFlatGrid(void) { return IupCreate("flatgrid"); }
++Iclass* iupFlatGridNewClass(void)
++{
++  Iclass* ic = iupClassNew(iupRegisterFindClass("canvas"));
++  ic->name = "flatgrid"; ic->cons = "FlatGrid"; ic->nativetype = IUP_TYPECANVAS;
++  ic->childtype = IUP_CHILDNONE; ic->is_interactive = 1; ic->has_attrib_id = 1;
++  ic->New = iupFlatGridNewClass; ic->Create = grid_create; ic->Destroy = grid_destroy;
++  ic->ComputeNaturalSize = grid_size; ic->SetChildrenCurrentSize = grid_child_size; ic->SetChildrenPosition = grid_child_pos;
++  iupClassRegisterReplaceAttribDef(ic, "BORDER", "NO", NULL);
++  iupClassRegisterCallback(ic, "CELLVALUE_CB", "is=s");
++  iupClassRegisterCallback(ic, "CELLBITS_CB", "iiiV=V");
++  iupClassRegisterCallback(ic, "CELL_ACTION_CB", "i");
++  iupClassRegisterCallback(ic, "CELL_ACTIVATE_CB", "is");
++  iupClassRegisterCallback(ic, "CELL_CONTEXT_CB", "is");
++  iupClassRegisterCallback(ic, "TYPEAHEAD_CB", "s");
++  iupClassRegisterCallback(ic, "VALUECHANGED_CB", "");
++  iupClassRegisterAttribute(ic, "COUNT", grid_get_count, grid_set_count, "0", NULL, IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "VALUE", grid_get_value, grid_set_value, "0", NULL, IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "CELLWIDTH", NULL, grid_set_cellwidth, "150", NULL, IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "ASPECT", NULL, grid_set_aspect, "2:3", NULL, IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "GUTTER", NULL, grid_set_gutter, "16", NULL, IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "PADDING", NULL, grid_set_padding, "16", NULL, IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "ROWS", NULL, grid_set_rows, "1", NULL, IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "ORIENTATION", NULL, grid_set_orientation, "VERTICAL", NULL, IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "SHOWTEXT", NULL, grid_set_showtext, "YES", NULL, IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "MULTIPLE", NULL, grid_set_multiple, "NO", NULL, IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "SCROLLTO", NULL, grid_set_scrollto, NULL, NULL, IUPAF_WRITEONLY|IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "REDRAWCELL", NULL, grid_set_redrawcell, NULL, NULL, IUPAF_WRITEONLY|IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "VISIBLERANGE", grid_get_visiblerange, NULL, NULL, NULL, IUPAF_READONLY|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "HOVER", grid_get_hover, NULL, NULL, NULL, IUPAF_READONLY|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "SELECTEDCOUNT", grid_get_selectedcount, NULL, NULL, NULL, IUPAF_READONLY|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "SELECTIONMASK", grid_get_selectionmask, NULL, NULL, NULL, IUPAF_READONLY|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "ACCESSIBLEVALUE", grid_get_accessible, NULL, NULL, NULL, IUPAF_READONLY|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "VALUESTRING", grid_get_accessible, NULL, NULL, NULL, IUPAF_READONLY|IUPAF_NO_INHERIT);
++  iupClassRegisterAttributeId(ic, "IDVALUE", grid_get_idvalue, NULL, IUPAF_READONLY|IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "FGCOLOR", NULL, grid_post_redraw, IUP_FLAT_FORECOLOR, NULL, IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic, "BGCOLOR", NULL, grid_post_redraw, IUP_FLAT_BACKCOLOR, NULL, IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic, "SECONDARYCOLOR", NULL, grid_post_redraw, NULL, NULL, IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic, "PLACEHOLDERCOLOR", NULL, grid_post_redraw, NULL, NULL, IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic, "HLCOLOR", NULL, grid_post_redraw, NULL, NULL, IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic, "ITEMMARKERCOLOR", NULL, grid_post_redraw, NULL, NULL, IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic, "ITEMRADIUS", NULL, grid_post_redraw, "6", NULL, IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic, "FOCUSFEEDBACK", NULL, NULL, "YES", NULL, IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "FLATSCROLLBAR", NULL, grid_set_scrollbar, "YES", NULL, IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupFlatScrollBarRegister(ic);
++  return ic;
++}
+diff --git a/src/iup_flatrows.c b/src/iup_flatrows.c
+index 63e8f56..84a366c 100644
+--- a/src/iup_flatrows.c
++++ b/src/iup_flatrows.c
+@@ -15,10 +15,43 @@
+ #include "iup_draw.h"
+ #include "iup_flatscrollbar.h"
+ 
++#define ROWS_COLUMNS 6
++
++typedef void* (*RowBitsCb)(Ihandle*, int, int, int, int*);
++typedef int (*HeaderCb)(Ihandle*, int);
++
+ struct _IcontrolData { iupCanvas canvas; int count, selected, hover, focused; };
+ 
+-static int rows_height(Ihandle* ih) { return iupAttribGetInt(ih, "ROWHEIGHT") == 44 ? 44 : 32; }
++static int rows_height(Ihandle* ih)
++{
++  int height = iupAttribGetInt(ih, "ROWHEIGHT");
++  return height < 20 ? 20 : height > 400 ? 400 : height;
++}
++static int rows_header(Ihandle* ih) { return iupAttribGetBoolean(ih, "HEADER") ? iupAttribGetInt(ih, "HEADERHEIGHT") : 0; }
+ static int rows_count(Ihandle* ih) { return ih->data->count; }
++static void rows_image_size(Ihandle* ih, int* w, int* h)
++{
++  char* value = iupAttribGetStr(ih, "IMAGESIZE");
++  *w = *h = 16;
++  if (value && sscanf(value, "%dx%d", w, h) == 1) *h = *w;
++}
++static void rows_column_widths(Ihandle* ih, int* widths)
++{
++  int slot;
++  for (slot = 1; slot <= ROWS_COLUMNS; slot++)
++  {
++    char name[16];
++    sprintf(name, "COLUMN%dWIDTH", slot);
++    widths[slot] = IupGetInt(ih, name);
++  }
++}
++/* The band a position's row covers, for repainting it alone. */
++static void rows_touch(Ihandle* ih, int pos)
++{
++  int rh = rows_height(ih);
++  if (!ih->handle || pos < 1 || pos > ih->data->count) return;
++  iupdrvPostRedrawRect(ih, 0, rows_header(ih) + (pos-1)*rh - IupGetInt(ih, "POSY"), ih->currentwidth, rh);
++}
+ static char* rows_value(Ihandle* ih, const char* field, int pos)
+ {
+   char* value = IupGetAttributeId(ih, field, pos);
+@@ -32,7 +65,7 @@ static char* rows_value(Ihandle* ih, const char* field, int pos)
+ }
+ static void rows_refresh(Ihandle* ih)
+ {
+-  int total = rows_count(ih) * rows_height(ih);
++  int total = rows_count(ih) * rows_height(ih) + rows_header(ih);
+   IupSetInt(ih, "YMAX", total);
+   IupSetInt(ih, "DY", ih->currentheight > 0 ? ih->currentheight : 1);
+   IupSetInt(ih, "XMAX", 0);  /* rows never scroll sideways; this is what hides that bar */
+@@ -48,6 +81,7 @@ static int rows_set_count(Ihandle* ih, const char* value)
+   return 0;
+ }
+ static char* rows_get_count(Ihandle* ih) { return iupStrReturnInt(ih->data->count); }
++static char* rows_get_hover(Ihandle* ih) { return iupStrReturnInt(ih->data->hover); }
+ static int rows_set_value(Ihandle* ih, const char* value)
+ {
+   int pos = value ? atoi(value) : 0;
+@@ -62,85 +96,149 @@ static char* rows_get_accessible(Ihandle* ih)
+   return pos ? rows_value(ih, "TITLE", pos) : NULL;
+ }
+ static char* rows_get_idvalue(Ihandle* ih, int pos) { return rows_value(ih, "TITLE", pos); }
++static void rows_draw_header(Ihandle* ih, IdrawCanvas* dc, int w, const int* widths, int title_x)
++{
++  int header = rows_header(ih), right = w - 12, slot, charheight;
++  int sorted = iupAttribGetBoolean(ih, "SORTED") ? IupGetInt(ih, "SORTCOLUMN") : -1;
++  int ascending = !iupStrEqualNoCase(iupAttribGetStr(ih, "SORTDIR"), "DESC");
++  char* bg = IupGetAttribute(ih, "HEADERCOLOR");
++  char* fg = IupGetAttribute(ih, "SECONDARYCOLOR");
++  char* font = IupGetAttribute(ih, "FONT");
++  char* title = IupGetAttribute(ih, "HEADERTITLE");
++  long text;
++  if (!bg) bg = IupGetAttribute(ih, "BGCOLOR");
++  if (!fg) fg = IupGetAttribute(ih, "FGCOLOR");
++  text = iupDrawStrToColor(fg, iupDrawColor(30,30,30,255));
++  iupdrvFontGetCharSize(ih, NULL, &charheight);
++  iupdrvDrawRectangle(dc, 0, 0, w-1, header-1, iupDrawStrToColor(bg, iupDrawColor(255,255,255,255)), IUP_DRAW_FILL, 1);
++  iupdrvDrawRectangle(dc, 0, header-1, w-1, header-1, iupDrawStrToColor(IupGetAttribute(ih, "BORDERCOLOR"), text), IUP_DRAW_FILL, 1);
++  for (slot = ROWS_COLUMNS; slot >= 1; slot--)
++    if (widths[slot] > 0)
++    {
++      char name[16]; char* label; int textw;
++      right -= widths[slot];
++      sprintf(name, "HEADER%d", slot);
++      label = IupGetAttribute(ih, name);
++      if (!label) continue;
++      iupdrvDrawText(dc, label, (int)strlen(label), right, (header-charheight)/2, widths[slot]-8, charheight, text, font,
++        IUP_DRAW_RIGHT|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
++      textw = iupdrvFontGetStringWidth(ih, label);
++      if (sorted == slot)
++        iupFlatDrawArrow(dc, right+widths[slot]-8-textw-12, (header-8)/2, 8, fg, bg, 1, ascending ? IUPDRAW_ARROW_TOP : IUPDRAW_ARROW_BOTTOM);
++    }
++  if (title)
++  {
++    iupdrvDrawText(dc, title, (int)strlen(title), title_x, (header-charheight)/2, right-title_x, charheight, text, font,
++      IUP_DRAW_LEFT|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
++    if (sorted == 0)
++      iupFlatDrawArrow(dc, title_x+iupdrvFontGetStringWidth(ih, title)+4, (header-8)/2, 8, fg, bg, 1, ascending ? IUPDRAW_ARROW_TOP : IUPDRAW_ARROW_BOTTOM);
++  }
++}
+ static int rows_redraw(Ihandle* ih)
+ {
+   IdrawCanvas* dc = iupdrvDrawCreateCanvas(ih);
+   int w, h, rh = rows_height(ih), scroll = IupGetInt(ih, "POSY"), first, last, pos;
++  int header = rows_header(ih), image_w, image_h, widths[ROWS_COLUMNS+1], title_x = 12;
++  int clip_y = 0, clip_h = 0, clip_x, clip_w;
++  char* clip = iupAttribGet(ih, "CLIPRECT");
+   char* bg = IupGetAttribute(ih, "BGCOLOR");
+   char* fg = IupGetAttribute(ih, "FGCOLOR");
+   char* font = IupGetAttribute(ih, "FONT");
++  char* placeholder = IupGetAttribute(ih, "PLACEHOLDERCOLOR");
++  char* marker = IupGetAttribute(ih, "ITEMMARKERCOLOR");
+   long bgc = iupDrawStrToColor(bg, iupDrawColor(255,255,255,255));
+   long fgc = iupDrawStrToColor(fg, iupDrawColor(30,30,30,255));
++  long secondaryc = iupDrawStrToColor(IupGetAttribute(ih, "SECONDARYCOLOR"), fgc);
++  long markerc = iupDrawStrToColor(marker, fgc);
++  RowBitsCb bits = (RowBitsCb)IupGetCallback(ih, "ROWBITS_CB");
+   int charheight;
+   iupdrvFontGetCharSize(ih, NULL, &charheight);
+   iupdrvDrawGetSize(dc, &w, &h);
+-  iupdrvDrawRectangle(dc, 0, 0, w-1, h-1, bgc, IUP_DRAW_FILL, 1);
++  rows_image_size(ih, &image_w, &image_h);
++  rows_column_widths(ih, widths);
++  if (bits) title_x += image_w + 8;
++  /* A hover repaints a band or two: the rest of the buffer is never shown, so leave it. */
++  if (!clip || sscanf(clip, "%d %d %d %d", &clip_x, &clip_y, &clip_w, &clip_h) != 4) { clip_y = 0; clip_h = h; }
++  iupdrvDrawRectangle(dc, 0, clip_y, w-1, clip_y+clip_h-1, bgc, IUP_DRAW_FILL, 1);
+   if (ih->data->count == 0)
+   {
+     char* empty = IupGetAttribute(ih, "EMPTYTITLE");
+     char* hint = IupGetAttribute(ih, "EMPTYHINT");
+     if (empty) iupdrvDrawText(dc, empty, (int)strlen(empty), 16, h/2-22, w-32, 26, fgc, font,
+       IUP_DRAW_CENTER|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
+-    if (hint) iupdrvDrawText(dc, hint, (int)strlen(hint), 16, h/2+5, w-32, 22,
+-      iupDrawStrToColor(IupGetAttribute(ih,"SECONDARYCOLOR"), fgc), font,
++    if (hint) iupdrvDrawText(dc, hint, (int)strlen(hint), 16, h/2+5, w-32, 22, secondaryc, font,
+       IUP_DRAW_CENTER|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
+   }
+   first = scroll / rh + 1;
+-  last = (scroll + h) / rh + 1;
++  last = (scroll + h - header) / rh + 1;
+   if (last > ih->data->count) last = ih->data->count;
+   for (pos = first; pos <= last; pos++)
+   {
+-    int y = (pos-1)*rh-scroll, x = 12, right = w-12, slot;
+-    int line = y + (rh - charheight)/2;  /* the driver draws from the top of the box it is given */
+-    char* title = rows_value(ih, "TITLE", pos);
+-    char* image = rows_value(ih, "IMAGE", pos);
+-    char* secondary = rh == 44 ? rows_value(ih, "SECONDARY", pos) : NULL;
+-    char* action = rows_value(ih, "ACTIONTEXT", pos);
++    int y = header+(pos-1)*rh-scroll, x = 12, right = w-12, slot, line, two_lines;
++    char* title; char* image; char* secondary; char* action; char* progress;
+     long text_color = fgc;
++    if (y + rh <= clip_y || y >= clip_y + clip_h) continue;
++    line = y + (rh - charheight)/2;  /* the driver draws from the top of the box it is given */
++    title = rows_value(ih, "TITLE", pos);
++    image = rows_value(ih, "IMAGE", pos);
++    secondary = rh >= 44 ? rows_value(ih, "SECONDARY", pos) : NULL;
++    action = rows_value(ih, "ACTIONTEXT", pos);
++    progress = rows_value(ih, "PROGRESS", pos);
++    two_lines = (rh - 37) / 2;  /* a 21 pixel title over a 16 pixel second line, centred */
+     if (pos == ih->data->selected)
+     {
+       char* fill = IupGetAttribute(ih, "PSCOLOR");
+-      char* marker = IupGetAttribute(ih, "ITEMMARKERCOLOR");
+       char* textps = IupGetAttribute(ih, "TEXTPSCOLOR");
+       long fillc = iupDrawStrToColor(fill, bgc);
+       int radius = IupGetInt(ih, "ITEMRADIUS");
+       if (radius > 0) iupFlatDrawRoundBox(dc, 4, w-5, y+1, y+rh-2, radius, fill, bg, 1);
+       else iupdrvDrawRectangle(dc, 4, y, w-5, y+rh-1, fillc, IUP_DRAW_FILL, 1);
+-      if (marker) iupdrvDrawRectangle(dc, 5, y+6, 7, y+rh-7, iupDrawStrToColor(marker, fgc), IUP_DRAW_FILL, 1);
++      if (marker) iupdrvDrawRectangle(dc, 5, y+6, 7, y+rh-7, markerc, IUP_DRAW_FILL, 1);
+       if (textps) text_color = iupDrawStrToColor(textps, fgc);
+     }
+     else if (pos == ih->data->hover)
+       iupdrvDrawRectangle(dc, 4, y+1, w-5, y+rh-2,
+         iupDrawStrToColor(IupGetAttribute(ih, "HLCOLOR"), bgc), IUP_DRAW_FILL, 1);
+-    if (image) { iupdrvDrawImage(dc, image, 0, bg, x, y+(rh-16)/2, 16, 16); x += 24; }
++    if (bits)
++    {
++      int stride = 0;
++      void* pixels = bits(ih, pos, image_w, image_h, &stride);
++      int image_y = y+(rh-image_h)/2;
++      if (pixels) iupdrvDrawBits(dc, (const unsigned char*)pixels, image_w, image_h, stride, x, image_y, 0);
++      else iupdrvDrawRectangle(dc, x, image_y, x+image_w-1, image_y+image_h-1, iupDrawStrToColor(placeholder, bgc), IUP_DRAW_FILL, 1);
++      x += image_w + 8;
++    }
++    else if (image) { iupdrvDrawImage(dc, image, 0, bg, x, y+(rh-image_h)/2, image_w, image_h); x += image_w + 8; }
+     if (action && pos == ih->data->hover)
+     {
+       right -= 54;
+       iupdrvDrawText(dc, action, (int)strlen(action), right, line, 54, charheight, text_color, font,
+         IUP_DRAW_RIGHT|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_CLIP, 0);
+     }
+-    for (slot = 3; slot >= 1; slot--)
++    for (slot = ROWS_COLUMNS; slot >= 1; slot--)
+     {
+-      char field[16], widthfield[16]; char* value; int width;
+-      sprintf(field, "COLUMN%d", slot); sprintf(widthfield, "COLUMN%dWIDTH", slot);
+-      width = IupGetInt(ih, widthfield);
+-      value = width > 0 ? rows_value(ih, field, pos) : NULL;
+-      if (width > 0)
+-      {
+-        right -= width;
+-        if (value) iupdrvDrawText(dc, value, (int)strlen(value), right, line, width-8, charheight,
+-          iupDrawStrToColor(IupGetAttribute(ih, "SECONDARYCOLOR"), fgc), font,
+-          IUP_DRAW_RIGHT|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
+-      }
++      char field[16]; char* value;
++      if (widths[slot] <= 0) continue;
++      sprintf(field, "COLUMN%d", slot);
++      value = rows_value(ih, field, pos);
++      right -= widths[slot];
++      if (value) iupdrvDrawText(dc, value, (int)strlen(value), right, line, widths[slot]-8, charheight,
++        secondaryc, font, IUP_DRAW_RIGHT|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
+     }
+-    if (title) iupdrvDrawText(dc, title, (int)strlen(title), x, secondary ? y+3 : line, right-x, secondary ? 21 : charheight,
++    if (title) iupdrvDrawText(dc, title, (int)strlen(title), x, secondary ? y+two_lines : line, right-x, secondary ? 21 : charheight,
+       text_color, font, IUP_DRAW_LEFT|IUP_DRAW_LAYOUTCENTER|IUP_DRAW_ELLIPSIS, 0);
+-    if (secondary) iupdrvDrawText(dc, secondary, (int)strlen(secondary), x, y+23, right-x, 16,
+-      iupDrawStrToColor(IupGetAttribute(ih, "SECONDARYCOLOR"), fgc), font,
+-      IUP_DRAW_LEFT|IUP_DRAW_ELLIPSIS, 0);
++    if (secondary) iupdrvDrawText(dc, secondary, (int)strlen(secondary), x, y+two_lines+20, right-x, 16,
++      secondaryc, font, IUP_DRAW_LEFT|IUP_DRAW_ELLIPSIS, 0);
++    if (progress && atoi(progress) > 0)
++    {
++      int value = atoi(progress) > 100 ? 100 : atoi(progress), bottom = y+rh-4;
++      iupdrvDrawRectangle(dc, x, bottom, right-1, bottom+1, secondaryc, IUP_DRAW_FILL, 1);
++      iupdrvDrawRectangle(dc, x, bottom, x+(right-1-x)*value/100, bottom+1, markerc, IUP_DRAW_FILL, 1);
++    }
+     if (ih->data->focused && pos == ih->data->selected && IupGetInt(ih, "FOCUSFEEDBACK"))
+       iupdrvDrawFocusRect(dc, 4, y+1, w-5, y+rh-2);
+   }
++  if (header && clip_y < header) rows_draw_header(ih, dc, w, widths, title_x);
+   iupdrvDrawFlush(dc); iupdrvDrawKillCanvas(dc);
+   return IUP_DEFAULT;
+ }
+@@ -155,16 +253,35 @@ static int rows_select(Ihandle* ih, int pos)
+     if (IupGetCallback(ih, "VALUECHANGED_CB")) ((IFn)IupGetCallback(ih, "VALUECHANGED_CB"))(ih);
+   }
+   if ((pos-1)*rows_height(ih) < IupGetInt(ih, "POSY")) IupSetInt(ih, "POSY", (pos-1)*rows_height(ih));
+-  else if (pos*rows_height(ih) > IupGetInt(ih, "POSY")+ih->currentheight)
+-    IupSetInt(ih, "POSY", pos*rows_height(ih)-ih->currentheight);
++  else if (pos*rows_height(ih) > IupGetInt(ih, "POSY")+ih->currentheight-rows_header(ih))
++    IupSetInt(ih, "POSY", pos*rows_height(ih)-ih->currentheight+rows_header(ih));
+   iupdrvRedrawNow(ih);
+   return IUP_DEFAULT;
+ }
++/* 0 is the title, 1 to ROWS_COLUMNS the columns. */
++static int rows_column_at(Ihandle* ih, int x)
++{
++  int widths[ROWS_COLUMNS+1], right = ih->currentwidth-12, slot;
++  rows_column_widths(ih, widths);
++  for (slot = ROWS_COLUMNS; slot >= 1; slot--)
++    if (widths[slot] > 0)
++    {
++      right -= widths[slot];
++      if (x >= right) return slot;
++    }
++  return 0;
++}
+ static int rows_button(Ihandle* ih, int button, int pressed, int x, int y, char* status)
+ {
+-  int pos = (y+IupGetInt(ih, "POSY"))/rows_height(ih)+1;
++  int header = rows_header(ih), pos = (y-header+IupGetInt(ih, "POSY"))/rows_height(ih)+1;
+   typedef int (*RowCb)(Ihandle*, int, const char*);
+-  if (!pressed || pos < 1 || pos > ih->data->count) return IUP_DEFAULT;
++  if (pressed && button == IUP_BUTTON1 && y < header)
++  {
++    HeaderCb cb = (HeaderCb)IupGetCallback(ih, "HEADER_CB");
++    if (cb) cb(ih, rows_column_at(ih, x));
++    return IUP_DEFAULT;
++  }
++  if (!pressed || y < header || pos < 1 || pos > ih->data->count) return IUP_DEFAULT;
+   if (button == IUP_BUTTON3) { if (IupGetCallback(ih, "ROW_CONTEXT_CB")) ((RowCb)IupGetCallback(ih, "ROW_CONTEXT_CB"))(ih,pos,"context"); return IUP_DEFAULT; }
+   if (button != IUP_BUTTON1) return IUP_DEFAULT;
+   rows_select(ih, pos);
+@@ -177,18 +294,41 @@ static int rows_button(Ihandle* ih, int button, int pressed, int x, int y, char*
+ }
+ static int rows_motion(Ihandle* ih, int x, int y, char* status)
+ {
+-  int pos = (y+IupGetInt(ih,"POSY"))/rows_height(ih)+1;
+-  ih->data->hover = pos <= ih->data->count ? pos : 0;
++  int header = rows_header(ih), pos = (y-header+IupGetInt(ih,"POSY"))/rows_height(ih)+1, before = ih->data->hover;
++  if (y < header || pos > ih->data->count) pos = 0;
+   iupFlatScrollBarMotionUpdate(ih,x,y);
+-  iupdrvRedrawNow(ih); (void)status; return IUP_DEFAULT;
++  (void)status;
++  if (pos != before)
++  {
++    ih->data->hover = pos;
++    rows_touch(ih, before);
++    rows_touch(ih, pos);
++  }
++  return IUP_DEFAULT;
++}
++static int rows_leave(Ihandle* ih)
++{
++  int before = ih->data->hover;
++  ih->data->hover = 0;
++  rows_touch(ih, before);
++  return IUP_DEFAULT;
+ }
+ static int rows_focus(Ihandle* ih, int focus) { ih->data->focused=focus; iupdrvRedrawNow(ih); return IUP_DEFAULT; }
+ static int rows_up(Ihandle* ih) { return rows_select(ih, ih->data->selected > 1 ? ih->data->selected-1 : 1); }
+ static int rows_down(Ihandle* ih) { return rows_select(ih, ih->data->selected+1); }
+ static int rows_home(Ihandle* ih) { return rows_select(ih,1); }
+ static int rows_end(Ihandle* ih) { return rows_select(ih,ih->data->count); }
+-static int rows_pgup(Ihandle* ih) { return rows_select(ih,ih->data->selected-ih->currentheight/rows_height(ih)); }
+-static int rows_pgdn(Ihandle* ih) { return rows_select(ih,ih->data->selected+ih->currentheight/rows_height(ih)); }
++static int rows_page(Ihandle* ih) { return (ih->currentheight-rows_header(ih))/rows_height(ih); }
++static int rows_pgup(Ihandle* ih)
++{
++  int pos = ih->data->selected-rows_page(ih);
++  return rows_select(ih, pos < 1 ? 1 : pos);
++}
++static int rows_pgdn(Ihandle* ih)
++{
++  int pos = ih->data->selected+rows_page(ih);
++  return rows_select(ih, pos > ih->data->count ? ih->data->count : pos);
++}
+ static int rows_enter(Ihandle* ih)
+ {
+   typedef int (*RowCb)(Ihandle*, int, const char*);
+@@ -207,11 +347,12 @@ static int rows_set_scrollbar(Ihandle* ih, const char* value)
+   return 1;
+ }
+ static int rows_post_redraw(Ihandle* ih, const char* value) { if (ih->handle) iupdrvRedrawNow(ih); return 1; }
++static int rows_set_header(Ihandle* ih, const char* value) { iupAttribSetStr(ih,"HEADER",value); rows_refresh(ih); return 1; }
++static int rows_set_header_height(Ihandle* ih, const char* value) { iupAttribSetStr(ih,"HEADERHEIGHT",value); rows_refresh(ih); return 1; }
+ static int rows_set_height(Ihandle* ih, const char* value)
+ {
+-  int height = value && atoi(value) == 44 ? 44 : 32;
+-  IupSetInt(ih,"YMAX",ih->data->count*height);
+-  if (ih->handle) iupdrvRedrawNow(ih);
++  iupAttribSetStr(ih,"ROWHEIGHT",value);
++  rows_refresh(ih);
+   return 1;
+ }
+ static void rows_size(Ihandle* ih, int* w, int* h, int* expand) { *w=240; *h=rows_height(ih)*5; (void)expand; }
+@@ -225,6 +366,7 @@ static int rows_create(Ihandle* ih, void** params)
+   IupSetCallback(ih,"ACTION",(Icallback)rows_redraw);
+   IupSetCallback(ih,"BUTTON_CB",(Icallback)rows_button);
+   IupSetCallback(ih,"MOTION_CB",(Icallback)rows_motion);
++  IupSetCallback(ih,"LEAVEWINDOW_CB",(Icallback)rows_leave);
+   IupSetCallback(ih,"FOCUS_CB",(Icallback)rows_focus);
+   IupSetCallback(ih,"RESIZE_CB",(Icallback)rows_resize);
+   IupSetCallback(ih,"SCROLL_CB",(Icallback)rows_scroll);
+@@ -249,6 +391,8 @@ Iclass* iupFlatRowsNewClass(void)
+   iupClassRegisterCallback(ic,"ROW_ACTIVATE_CB","is");
+   iupClassRegisterCallback(ic,"ROW_CONTEXT_CB","is");
+   iupClassRegisterCallback(ic,"VALUECHANGED_CB","");
++  iupClassRegisterCallback(ic,"ROWBITS_CB","iiiV=V");
++  iupClassRegisterCallback(ic,"HEADER_CB","i");
+   iupClassRegisterAttribute(ic,"COUNT",rows_get_count,rows_set_count,"0",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic,"VALUE",rows_get_value,rows_set_value,"0",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic,"ACCESSIBLEVALUE",rows_get_accessible,NULL,NULL,NULL,IUPAF_READONLY|IUPAF_NO_INHERIT);
+@@ -264,6 +408,16 @@ Iclass* iupFlatRowsNewClass(void)
+   iupClassRegisterAttribute(ic,"ITEMMARKERCOLOR",NULL,rows_post_redraw,NULL,NULL,IUPAF_DEFAULT);
+   iupClassRegisterAttribute(ic,"ITEMRADIUS",NULL,rows_post_redraw,"6",NULL,IUPAF_DEFAULT);
+   iupClassRegisterAttribute(ic,"FOCUSFEEDBACK",NULL,NULL,"YES",NULL,IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic,"HOVER",rows_get_hover,NULL,NULL,NULL,IUPAF_READONLY|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic,"IMAGESIZE",NULL,rows_post_redraw,"16",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic,"PLACEHOLDERCOLOR",NULL,rows_post_redraw,NULL,NULL,IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic,"HEADER",NULL,rows_set_header,"NO",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic,"HEADERHEIGHT",NULL,rows_set_header_height,"28",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic,"HEADERCOLOR",NULL,rows_post_redraw,NULL,NULL,IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic,"BORDERCOLOR",NULL,rows_post_redraw,IUP_FLAT_BORDERCOLOR,NULL,IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic,"SORTED",NULL,rows_post_redraw,"NO",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic,"SORTCOLUMN",NULL,rows_post_redraw,"0",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic,"SORTDIR",NULL,rows_post_redraw,"ASC",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+   iupClassRegisterAttributeId(ic,"TITLE",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+   iupClassRegisterAttributeId(ic,"SECONDARY",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+   iupClassRegisterAttributeId(ic,"IMAGE",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+@@ -271,6 +425,10 @@ Iclass* iupFlatRowsNewClass(void)
+   iupClassRegisterAttributeId(ic,"COLUMN1",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+   iupClassRegisterAttributeId(ic,"COLUMN2",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+   iupClassRegisterAttributeId(ic,"COLUMN3",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttributeId(ic,"COLUMN4",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttributeId(ic,"COLUMN5",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttributeId(ic,"COLUMN6",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttributeId(ic,"PROGRESS",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+   iupClassRegisterAttribute(ic,"FLATSCROLLBAR",NULL,rows_set_scrollbar,"YES",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
+   iupFlatScrollBarRegister(ic);
+   return ic;
+diff --git a/src/iup_flatseek.c b/src/iup_flatseek.c
+new file mode 100644
+index 0000000..ebad0c3
+--- /dev/null
++++ b/src/iup_flatseek.c
+@@ -0,0 +1,298 @@
++/* Lunar seek bar: a thin line with a tall hit area. A drag shows the new place at once and
++   commits on release, and a playback tick arriving during a drag does not move the line. */
++#include <stdlib.h>
++#include <stdio.h>
++#include <string.h>
++#include "iup.h"
++#include "iupcbs.h"
++#include "iupkey.h"
++#include "iup_object.h"
++#include "iup_attrib.h"
++#include "iup_str.h"
++#include "iup_drv.h"
++#include "iup_stdcontrols.h"
++#include "iup_register.h"
++#include "iup_drvfont.h"
++#include "iup_drvdraw.h"
++#include "iup_draw.h"
++
++#define SEEK_KNOB 6
++
++typedef int (*SeekValueCb)(Ihandle*, double);
++typedef int (*SeekHoverCb)(Ihandle*, double, int);
++typedef struct { double from, to; } SeekRange;
++
++struct _IcontrolData
++{
++  iupCanvas canvas;
++  double value, max;
++  SeekRange* buffered; int nbuffered;
++  SeekRange* marks; int nmarks;       /* a point mark has from == to */
++  int hover_x, dragging, focused;
++};
++
++/* "10-20,35,90-95": a list of ranges and points, in the same unit as VALUE. Text after a
++   colon names the mark for the caller; the bar draws a range or a point the same either way. */
++static int seek_parse(const char* value, SeekRange** out)
++{
++  int count = 0, cap = 8;
++  const char* p = value;
++  SeekRange* list;
++  free(*out);
++  *out = NULL;
++  if (!value || !*value) return 0;
++  list = (SeekRange*)malloc(sizeof(SeekRange) * cap);
++  while (list && *p)
++  {
++    char* end;
++    double from = strtod(p, &end), to = from;
++    if (end == p) break;
++    p = end;
++    if (*p == '-') { to = strtod(p + 1, &end); if (end != p + 1) p = end; }
++    while (*p && *p != ',' && *p != ';') p++;
++    if (*p) p++;
++    if (count == cap)
++    {
++      SeekRange* grown = (SeekRange*)realloc(list, sizeof(SeekRange) * cap * 2);
++      if (!grown) break;
++      list = grown; cap *= 2;
++    }
++    list[count].from = from; list[count].to = to; count++;
++  }
++  *out = list;
++  return list ? count : 0;
++}
++
++static void seek_track(Ihandle* ih, int* left, int* right)
++{
++  *left = SEEK_KNOB + 1;
++  *right = ih->currentwidth - SEEK_KNOB - 2;
++  if (*right <= *left) *right = *left + 1;
++}
++static int seek_x(Ihandle* ih, double value)
++{
++  int left, right;
++  double max = ih->data->max;
++  seek_track(ih, &left, &right);
++  if (max <= 0) return left;
++  if (value < 0) value = 0;
++  if (value > max) value = max;
++  return left + (int)((right - left) * (value / max) + 0.5);
++}
++static double seek_value_at(Ihandle* ih, int x)
++{
++  int left, right;
++  seek_track(ih, &left, &right);
++  if (x < left) x = left;
++  if (x > right) x = right;
++  return ih->data->max * (double)(x - left) / (double)(right - left);
++}
++
++static int seek_redraw(Ihandle* ih)
++{
++  struct _IcontrolData* d = ih->data;
++  IdrawCanvas* dc = iupdrvDrawCreateCanvas(ih);
++  int w, h, i, left, right, active = iupdrvIsActive(ih), lively = d->hover_x >= 0 || d->dragging;
++  int thick = iupAttribGetInt(ih, "THICKNESS") + (lively ? 2 : 0), top, bottom, x;
++  char* bgname = IupGetAttribute(ih, "BGCOLOR");
++  char* played = IupGetAttribute(ih, "PSCOLOR");
++  char* markname = IupGetAttribute(ih, "MARKCOLOR");
++  long bg = iupDrawStrToColor(bgname, iupDrawColor(255, 255, 255, 255));
++  long track = iupDrawStrToColor(IupGetAttribute(ih, "TRACKCOLOR"), bg);
++  long buffered = iupDrawStrToColor(IupGetAttribute(ih, "BUFFERCOLOR"), track);
++  long fill = iupDrawStrToColor(played, track);
++  long mark = iupDrawStrToColor(markname, fill);
++  iupdrvDrawGetSize(dc, &w, &h);
++  iupdrvDrawRectangle(dc, 0, 0, w - 1, h - 1, bg, IUP_DRAW_FILL, 1);
++  seek_track(ih, &left, &right);
++  top = (h - thick) / 2;
++  bottom = top + thick - 1;
++  iupdrvDrawRectangle(dc, left, top, right, bottom, track, IUP_DRAW_FILL, 1);
++  for (i = 0; i < d->nbuffered; i++)
++    iupdrvDrawRectangle(dc, seek_x(ih, d->buffered[i].from), top, seek_x(ih, d->buffered[i].to), bottom, buffered, IUP_DRAW_FILL, 1);
++  for (i = 0; i < d->nmarks; i++)
++    if (d->marks[i].to > d->marks[i].from)
++      iupdrvDrawRectangle(dc, seek_x(ih, d->marks[i].from), top, seek_x(ih, d->marks[i].to), bottom, mark, IUP_DRAW_FILL, 1);
++  x = seek_x(ih, d->value);
++  if (d->max > 0) iupdrvDrawRectangle(dc, left, top, x, bottom, fill, IUP_DRAW_FILL, 1);
++  for (i = 0; i < d->nmarks; i++)
++    if (d->marks[i].to <= d->marks[i].from)
++    {
++      int tick = seek_x(ih, d->marks[i].from);
++      iupdrvDrawRectangle(dc, tick, top - 2, tick + 1, bottom + 2, mark, IUP_DRAW_FILL, 1);
++    }
++  if (d->hover_x >= 0 && !d->dragging)
++    iupdrvDrawRectangle(dc, d->hover_x, top - 3, d->hover_x, bottom + 3, fill, IUP_DRAW_FILL, 1);
++  if (d->max > 0 && active && (lively || d->focused))
++    iupFlatDrawDrawCircle(dc, x, h / 2, SEEK_KNOB, 1, 1, played, bgname, 1);
++  if (d->focused && IupGetInt(ih, "FOCUSFEEDBACK"))
++    iupFlatDrawDrawCircle(dc, x, h / 2, SEEK_KNOB + 2 < h / 2 ? SEEK_KNOB + 2 : SEEK_KNOB, 0, 1, played, bgname, 1);
++  iupdrvDrawFlush(dc); iupdrvDrawKillCanvas(dc);
++  return IUP_DEFAULT;
++}
++
++static void seek_changing(Ihandle* ih)
++{
++  SeekValueCb cb = (SeekValueCb)IupGetCallback(ih, "VALUECHANGING_CB");
++  if (cb) cb(ih, ih->data->value);
++}
++static void seek_commit(Ihandle* ih)
++{
++  SeekValueCb cb = (SeekValueCb)IupGetCallback(ih, "SEEK_CB");
++  if (cb) cb(ih, ih->data->value);
++}
++static int seek_button(Ihandle* ih, int button, int pressed, int x, int y, char* status)
++{
++  struct _IcontrolData* d = ih->data;
++  (void)y; (void)status;
++  if (button != IUP_BUTTON1 || d->max <= 0) return IUP_DEFAULT;
++  if (pressed)
++  {
++    if (iupAttribGetBoolean(ih, "CANFOCUS")) IupSetFocus(ih);
++    d->dragging = 1;
++    d->value = seek_value_at(ih, x);
++    seek_changing(ih);
++  }
++  else if (d->dragging)
++  {
++    d->dragging = 0;
++    seek_commit(ih);
++  }
++  iupdrvRedrawNow(ih);
++  return IUP_DEFAULT;
++}
++static int seek_motion(Ihandle* ih, int x, int y, char* status)
++{
++  struct _IcontrolData* d = ih->data;
++  SeekHoverCb cb = (SeekHoverCb)IupGetCallback(ih, "HOVER_CB");
++  (void)y; (void)status;
++  if (x == d->hover_x) return IUP_DEFAULT;
++  d->hover_x = x;
++  if (d->max > 0 && cb) cb(ih, seek_value_at(ih, x), x);
++  if (d->dragging)
++  {
++    d->value = seek_value_at(ih, x);
++    seek_changing(ih);
++  }
++  iupdrvRedrawNow(ih);
++  return IUP_DEFAULT;
++}
++static int seek_leave(Ihandle* ih)
++{
++  struct _IcontrolData* d = ih->data;
++  SeekHoverCb cb = (SeekHoverCb)IupGetCallback(ih, "HOVER_CB");
++  d->hover_x = -1;
++  if (cb) cb(ih, 0, -1);
++  iupdrvRedrawNow(ih);
++  return IUP_DEFAULT;
++}
++static int seek_step(Ihandle* ih, double by)
++{
++  struct _IcontrolData* d = ih->data;
++  d->value += by;
++  if (d->value < 0) d->value = 0;
++  if (d->value > d->max) d->value = d->max;
++  seek_commit(ih);
++  iupdrvRedrawNow(ih);
++  return IUP_IGNORE;
++}
++static int seek_key(Ihandle* ih, int c)
++{
++  struct _IcontrolData* d = ih->data;
++  int base = iup_XkeyBase(c), ctrl = iup_isCtrlXkey(c);
++  double step = iupAttribGetDouble(ih, "STEP"), page = iupAttribGetDouble(ih, "PAGESTEP");
++  if (d->max <= 0) return IUP_CONTINUE;
++  switch (base)
++  {
++  case K_LEFT: case K_DOWN: return seek_step(ih, ctrl ? -page : -step);
++  case K_RIGHT: case K_UP: return seek_step(ih, ctrl ? page : step);
++  case K_PGDN: return seek_step(ih, -page);
++  case K_PGUP: return seek_step(ih, page);
++  case K_HOME: return seek_step(ih, -d->value);
++  case K_END: return seek_step(ih, d->max - d->value);
++  }
++  return IUP_CONTINUE;
++}
++static int seek_focus(Ihandle* ih, int focus) { ih->data->focused = focus; iupdrvRedrawNow(ih); return IUP_DEFAULT; }
++
++static int seek_set_value(Ihandle* ih, const char* value)
++{
++  struct _IcontrolData* d = ih->data;
++  double v = 0;
++  if (d->dragging) return 0;
++  iupStrToDouble(value, &v);
++  d->value = v < 0 ? 0 : v > d->max ? d->max : v;
++  if (ih->handle) iupdrvPostRedraw(ih);
++  return 0;
++}
++static char* seek_get_value(Ihandle* ih) { return iupStrReturnDouble(ih->data->value); }
++static int seek_set_max(Ihandle* ih, const char* value)
++{
++  struct _IcontrolData* d = ih->data;
++  double v = 0;
++  iupStrToDouble(value, &v);
++  d->max = v > 0 ? v : 0;
++  if (d->value > d->max) d->value = d->max;
++  if (ih->handle) iupdrvPostRedraw(ih);
++  return 0;
++}
++static char* seek_get_max(Ihandle* ih) { return iupStrReturnDouble(ih->data->max); }
++static int seek_set_buffered(Ihandle* ih, const char* value)
++{
++  ih->data->nbuffered = seek_parse(value, &ih->data->buffered);
++  if (ih->handle) iupdrvPostRedraw(ih);
++  return 1;
++}
++static int seek_set_marks(Ihandle* ih, const char* value)
++{
++  ih->data->nmarks = seek_parse(value, &ih->data->marks);
++  if (ih->handle) iupdrvPostRedraw(ih);
++  return 1;
++}
++static char* seek_get_accessible(Ihandle* ih)
++{
++  return iupStrReturnStrf("%d of %d", (int)ih->data->value, (int)ih->data->max);
++}
++static int seek_post(Ihandle* ih, const char* value) { (void)value; if (ih->handle) iupdrvPostRedraw(ih); return 1; }
++static void seek_size(Ihandle* ih, int* w, int* h, int* expand) { *w = 240; *h = 24; (void)ih; (void)expand; }
++static void seek_destroy(Ihandle* ih) { free(ih->data->buffered); free(ih->data->marks); }
++static int seek_create(Ihandle* ih, void** params)
++{
++  free(ih->data); ih->data = iupALLOCCTRLDATA(); (void)params;
++  ih->data->hover_x = -1;
++  IupSetAttribute(ih, "EXPAND", "HORIZONTAL");
++  IupSetCallback(ih, "ACTION", (Icallback)seek_redraw);
++  IupSetCallback(ih, "BUTTON_CB", (Icallback)seek_button);
++  IupSetCallback(ih, "MOTION_CB", (Icallback)seek_motion);
++  IupSetCallback(ih, "LEAVEWINDOW_CB", (Icallback)seek_leave);
++  IupSetCallback(ih, "FOCUS_CB", (Icallback)seek_focus);
++  IupSetCallback(ih, "K_ANY", (Icallback)seek_key);
++  return IUP_NOERROR;
++}
++IUP_API Ihandle* IupFlatSeek(void) { return IupCreate("flatseek"); }
++Iclass* iupFlatSeekNewClass(void)
++{
++  Iclass* ic = iupClassNew(iupRegisterFindClass("canvas"));
++  ic->name = "flatseek"; ic->cons = "FlatSeek"; ic->nativetype = IUP_TYPECANVAS;
++  ic->childtype = IUP_CHILDNONE; ic->is_interactive = 1;
++  ic->New = iupFlatSeekNewClass; ic->Create = seek_create; ic->Destroy = seek_destroy; ic->ComputeNaturalSize = seek_size;
++  iupClassRegisterReplaceAttribDef(ic, "BORDER", "NO", NULL);
++  iupClassRegisterCallback(ic, "SEEK_CB", "d");
++  iupClassRegisterCallback(ic, "VALUECHANGING_CB", "d");
++  iupClassRegisterCallback(ic, "HOVER_CB", "di");
++  iupClassRegisterAttribute(ic, "VALUE", seek_get_value, seek_set_value, "0", NULL, IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "MAX", seek_get_max, seek_set_max, "0", NULL, IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "BUFFERED", NULL, seek_set_buffered, NULL, NULL, IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "MARKS", NULL, seek_set_marks, NULL, NULL, IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "STEP", NULL, NULL, "5", NULL, IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "PAGESTEP", NULL, NULL, "30", NULL, IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "THICKNESS", NULL, seek_post, "2", NULL, IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "ACCESSIBLEVALUE", seek_get_accessible, NULL, NULL, NULL, IUPAF_READONLY|IUPAF_NO_INHERIT);
++  iupClassRegisterAttribute(ic, "BGCOLOR", NULL, seek_post, IUP_FLAT_BACKCOLOR, NULL, IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic, "TRACKCOLOR", NULL, seek_post, NULL, NULL, IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic, "BUFFERCOLOR", NULL, seek_post, NULL, NULL, IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic, "PSCOLOR", NULL, seek_post, NULL, NULL, IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic, "MARKCOLOR", NULL, seek_post, NULL, NULL, IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic, "FOCUSFEEDBACK", NULL, NULL, "YES", NULL, IUPAF_NO_INHERIT);
++  return ic;
++}
+diff --git a/src/iup_register.c b/src/iup_register.c
+index 70fc196..e093a00 100644
+--- a/src/iup_register.c
++++ b/src/iup_register.c
+@@ -170,6 +170,8 @@ void iupRegisterInternalClasses(void)
+   iupRegisterClassInternal(iupGaugeNewClass());
+   iupRegisterClassInternal(iupColorbarNewClass());
+   iupRegisterClassInternal(iupColorBrowserNewClass());
++  iupRegisterClassInternal(iupFlatGridNewClass());
++  iupRegisterClassInternal(iupFlatSeekNewClass());
+   iupRegisterClassInternal(iupMultiBoxNewClass());
+   iupRegisterClassInternal(iupFlatListNewClass());
+   iupRegisterClassInternal(iupFlatRowsNewClass());
+diff --git a/src/iup_stdcontrols.h b/src/iup_stdcontrols.h
+index 23222c1..9bde980 100644
+--- a/src/iup_stdcontrols.h
++++ b/src/iup_stdcontrols.h
+@@ -73,6 +73,8 @@ Iclass* iupCalendarNewClass(void);
+ Iclass* iupDatePickNewClass(void);
+ Iclass* iupParamBoxNewClass(void);
+ Iclass* iupParamNewClass(void);
++Iclass* iupFlatGridNewClass(void);
++Iclass* iupFlatSeekNewClass(void);
+ Iclass* iupMultiBoxNewClass(void);
+ Iclass* iupFlatListNewClass(void);
+ Iclass* iupFlatRowsNewClass(void);
+diff --git a/src/win/iupwin_common.c b/src/win/iupwin_common.c
+index 1c9b093..9744362 100644
+--- a/src/win/iupwin_common.c
++++ b/src/win/iupwin_common.c
+@@ -428,6 +428,18 @@ IUP_SDK_API void iupdrvPostRedraw(Ihandle *ih)
+   RedrawWindow(ih->handle,NULL,NULL,RDW_ERASE|RDW_INVALIDATE|RDW_INTERNALPAINT);  
+ }
+ 
++IUP_SDK_API void iupdrvPostRedrawRect(Ihandle *ih, int x, int y, int w, int h)
++{
++  RECT rect;
++  if (win_layout_suspended)  /* see iupdrvPostRedraw */
++  {
++    winLayoutMarkDirty(ih->handle, WIN_LAYOUT_REDRAW_POST);
++    return;
++  }
++  SetRect(&rect, x, y, x + w, y + h);
++  InvalidateRect(ih->handle, &rect, FALSE);
++}
++
+ IUP_SDK_API void iupdrvScreenToClient(Ihandle* ih, int *x, int *y)
+ {
+   POINT p;
+diff --git a/src/win/iupwin_draw_gdi.c b/src/win/iupwin_draw_gdi.c
+index 6a81bad..53af584 100644
+--- a/src/win/iupwin_draw_gdi.c
++++ b/src/win/iupwin_draw_gdi.c
+@@ -47,6 +47,7 @@ void iupdrvDrawResetClipWDL(IdrawCanvas* dc);
+ void iupdrvDrawGetClipRectWDL(IdrawCanvas* dc, int *x1, int *y1, int *x2, int *y2);
+ void iupdrvDrawSelectRectWDL(IdrawCanvas* dc, int x1, int y1, int x2, int y2);
+ void iupdrvDrawFocusRectWDL(IdrawCanvas* dc, int x1, int y1, int x2, int y2);
++void iupdrvDrawBitsWDL(IdrawCanvas* dc, const unsigned char* bgra, int w, int h, int stride, int x, int y);
+ 
+ struct _IdrawCanvas{
+   Ihandle* ih;
+@@ -128,9 +129,12 @@ static int winDrawBackFits(int w, int h)
+   return 1;
+ }
+ 
++static void winDrawBlendFree(void);
++
+ static void winDrawBackFree(void)
+ {
+   IwinDrawBack* back = &win_draw_back;
++  winDrawBlendFree();
+   if (back->hBitmap)
+   {
+     SelectObject(back->hDC, back->hOldBitmap);
+@@ -1053,6 +1057,105 @@ IUP_SDK_API void iupdrvDrawText(IdrawCanvas* dc, const char* text, int len, int
+   }
+ }
+ 
++typedef BOOL (WINAPI *WinDrawAlphaBlend)(HDC, int, int, int, int, HDC, int, int, int, int, BLENDFUNCTION);
++
++/* Lunar fork: AlphaBlend reads from a DC, so blended pixels pass through this small DIB. */
++typedef struct _IwinDrawBlend
++{
++  HDC hDC;
++  HBITMAP hBitmap, hOldBitmap;
++  unsigned char* bits;
++  int w, h;
++  WinDrawAlphaBlend alpha_blend;
++} IwinDrawBlend;
++
++static IwinDrawBlend win_draw_blend = { NULL, NULL, NULL, NULL, 0, 0, NULL };
++
++static void winDrawBlendFree(void)
++{
++  IwinDrawBlend* blend = &win_draw_blend;
++  if (blend->hBitmap)
++  {
++    SelectObject(blend->hDC, blend->hOldBitmap);
++    DeleteObject(blend->hBitmap);
++  }
++  if (blend->hDC)
++    DeleteDC(blend->hDC);
++  memset(blend, 0, sizeof(IwinDrawBlend));
++}
++
++static int winDrawBlendFits(int w, int h)
++{
++  IwinDrawBlend* blend = &win_draw_blend;
++  if (!blend->alpha_blend)
++  {
++    HMODULE lib = LoadLibrary(TEXT("Msimg32.dll"));
++    if (lib) blend->alpha_blend = (WinDrawAlphaBlend)GetProcAddress(lib, "AlphaBlend");
++    if (!blend->alpha_blend) return 0;
++  }
++  if (!blend->hDC) blend->hDC = CreateCompatibleDC(NULL);
++  if (!blend->hDC) return 0;
++  if (w > blend->w || h > blend->h)
++  {
++    BITMAPINFO bmi;
++    void* bits = NULL;
++    HBITMAP hBitmap;
++    int new_w = (iupMAX(w, blend->w) + 31) & ~31, new_h = (iupMAX(h, blend->h) + 31) & ~31;
++    memset(&bmi, 0, sizeof(bmi));
++    bmi.bmiHeader.biSize = sizeof(bmi.bmiHeader);
++    bmi.bmiHeader.biWidth = new_w;
++    bmi.bmiHeader.biHeight = -new_h;
++    bmi.bmiHeader.biPlanes = 1;
++    bmi.bmiHeader.biBitCount = 32;
++    bmi.bmiHeader.biCompression = BI_RGB;
++    hBitmap = CreateDIBSection(NULL, &bmi, DIB_RGB_COLORS, &bits, NULL, 0);
++    if (!hBitmap) return 0;
++    if (blend->hBitmap)
++    {
++      SelectObject(blend->hDC, blend->hOldBitmap);
++      DeleteObject(blend->hBitmap);
++    }
++    blend->hBitmap = hBitmap;
++    blend->hOldBitmap = SelectObject(blend->hDC, hBitmap);
++    blend->bits = (unsigned char*)bits;
++    blend->w = new_w;
++    blend->h = new_h;
++  }
++  return 1;
++}
++
++IUP_SDK_API void iupdrvDrawBits(IdrawCanvas* dc, const unsigned char* bgra, int w, int h, int stride, int x, int y, int blend)
++{
++  if (dc->wdl_gc)
++  {
++    iupdrvDrawBitsWDL(dc->wdl_gc, bgra, w, h, stride, x, y);
++    return;
++  }
++  if (blend)
++  {
++    BLENDFUNCTION func = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
++    int row;
++    if (!winDrawBlendFits(w, h))
++      return;
++    GdiFlush();  /* the DIB is about to be written behind GDI's back */
++    for (row = 0; row < h; row++)
++      memcpy(win_draw_blend.bits + (size_t)row * win_draw_blend.w * 4, bgra + (size_t)row * stride, (size_t)w * 4);
++    win_draw_blend.alpha_blend(dc->hBitmapDC, x, y, w, h, win_draw_blend.hDC, 0, 0, w, h, func);
++  }
++  else
++  {
++    BITMAPINFO bmi;
++    memset(&bmi, 0, sizeof(bmi));
++    bmi.bmiHeader.biSize = sizeof(bmi.bmiHeader);
++    bmi.bmiHeader.biWidth = stride / 4;
++    bmi.bmiHeader.biHeight = -h;
++    bmi.bmiHeader.biPlanes = 1;
++    bmi.bmiHeader.biBitCount = 32;
++    bmi.bmiHeader.biCompression = BI_RGB;
++    SetDIBitsToDevice(dc->hBitmapDC, x, y, (DWORD)w, (DWORD)h, 0, 0, 0, (UINT)h, bgra, &bmi, DIB_RGB_COLORS);
++  }
++}
++
+ IUP_SDK_API void iupdrvDrawImage(IdrawCanvas* dc, const char* name, int make_inactive, const char* bgcolor, int x, int y, int w, int h)
+ {
+   int bpp, img_w, img_h;
+diff --git a/src/win/iupwin_draw_wdl.c b/src/win/iupwin_draw_wdl.c
+index 284d46f..ca64f3b 100644
+--- a/src/win/iupwin_draw_wdl.c
++++ b/src/win/iupwin_draw_wdl.c
+@@ -462,6 +462,31 @@ void iupdrvDrawImageWDL(IdrawCanvas* dc, const char* name, int make_inactive, co
+   }
+ }
+ 
++void iupdrvDrawBitsWDL(IdrawCanvas* dc, const unsigned char* bgra, int w, int h, int stride, int x, int y)
++{
++  /* The buffer format is bottom-up. Slow, and only for a canvas forced to Direct2D. */
++  unsigned char* flipped = malloc((size_t)w * h * 4);
++  if (flipped)
++  {
++    WD_HIMAGE hImage;
++    WD_RECT rect;
++    int row;
++    for (row = 0; row < h; row++)
++      memcpy(flipped + (size_t)(h - 1 - row) * w * 4, bgra + (size_t)row * stride, (size_t)w * 4);
++    hImage = wdCreateImageFromBuffer(w, h, w * 4, flipped, WD_PIXELFORMAT_B8G8R8A8, NULL, 0);
++    if (hImage)
++    {
++      rect.x0 = iupInt2Float(x);
++      rect.y0 = iupInt2Float(y);
++      rect.x1 = iupInt2Float(x + w);
++      rect.y1 = iupInt2Float(y + h);
++      wdBitBltImage(dc->hCanvas, hImage, &rect, NULL);
++      wdDestroyImage(hImage);
++    }
++    free(flipped);
++  }
++}
++
+ void iupdrvDrawSelectRectWDL(IdrawCanvas* dc, int x1, int y1, int x2, int y2)
+ {
+   WD_HBRUSH brush;
