@@ -1,3 +1,4 @@
+import tempfile
 """Loopback-only native transport correctness and load harness (standard Python).
 Usage: python scripts/benchmark_media.py --exe build/sol/bin/LunarCLI.exe
 --seconds 600 exercises the ten-minute goal; --tls-cert/--tls-key tests TLS.
@@ -55,7 +56,7 @@ def cpu(pid):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--exe', required=True)
-    ap.add_argument('--scratch', default='D:/lunar-council/scratch/sol/benchmark')
+    ap.add_argument('--scratch', default=os.path.join(tempfile.gettempdir(), 'lunar-media-benchmark'))
     ap.add_argument('--seconds', type=float, default=10)
     ap.add_argument('--mbps', type=float, default=0, help='pace each of eight readers; 25 tests 200Mb/s aggregate')
     ap.add_argument('--port', type=int, default=18471)
