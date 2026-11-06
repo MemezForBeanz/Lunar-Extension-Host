@@ -100,6 +100,20 @@ function M.mount(svc)
 		return { status = 200, json = item }
 	end)
 
+	route("GET", "/v1/items/:id/episodes", function(req)
+		local id = id_of(req.params.id)
+		if not id or not catalog:item(id, req.auth) then return bad(404, "no such item") end
+		return { status = 200, json = { seasons = catalog:episodes(id, req.auth) } }
+	end)
+
+	route("POST", "/v1/items/:id/watched", function(req)
+		local id, body = id_of(req.params.id), json_body(req)
+		if not id or not catalog:item(id, req.auth) then return bad(404, "no such item") end
+		if not body or type(body.watched) ~= "boolean" then return bad(400, "watched must be true or false") end
+		catalog:setWatched(req.auth, id, body.watched, svc.now())
+		return { status = 204 }
+	end)
+
 	route("GET", "/v1/search", function(req)
 		local q = (req.query or {}).q
 		if type(q) ~= "string" or q == "" then return bad(400, "q is required") end

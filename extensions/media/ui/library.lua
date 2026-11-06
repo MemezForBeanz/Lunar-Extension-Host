@@ -11,6 +11,8 @@ local SeekBar = require("core.ui.SeekBar")
 local FlatDropdown = require("core.ui.FlatDropdown")
 local Adaptive = require("core.ui.Adaptive")
 local spotlight = require("ui.spotlight")
+local title_page = require("ui.title")
+local FlatField = require("core.ui.FlatField")
 local playback = require("libs.playback")
 local organize = require("libs.organize")
 local NameDialog = require("core.ui.NameDialog")
@@ -22,7 +24,7 @@ local WIDE_CELL = 280      -- Continue watching: landscape cards, which also say
 local JUMP_SLOTS = 27      -- A to Z and #
 local JUMP_ROW = 20
 local JUMP_WIDTH = 24
-local FILTER_WIDTH = 136
+local FILTER_WIDTH = 124
 local RAIL_SOURCES = 3
 local DENSITY_LEAST = 104  -- the smallest poster the size slider gives
 local DENSITY_RANGE = 120
@@ -117,7 +119,7 @@ local function labelled(iup, label, control)
 	return iup.hbox({ name, control, GAP = L.gap(3), ALIGNMENT = "ACENTER" })
 end
 
-local function inspector(ctx, cache, art_of, on_play)
+local function inspector(ctx, cache, art_of, on_play, on_open)
 	local iup = ctx.iup
 	local current
 	local poster = CellGrid.new(iup, {
@@ -138,9 +140,14 @@ local function inspector(ctx, cache, art_of, on_play)
 	local overview = iup.flatlabel({ TITLE = "", THEMEROLE = "reading", TEXTWRAP = "YES",
 		RASTERSIZE = L.size(INSPECTOR_WIDTH - 2 * RING, 48), ALIGNMENT = "ALEFT:ATOP" })
 	local play = Kit.button(iup, { title = "Play", icon = "play--filled--alt", role = "primary_btn",
-		action = function() if current then on_play(current) end end })
+		action = function()
+			if not current then return end
+			if current.kind == "show" or on_details_only then on_open(current) else on_play(current) end
+		end })
 	iup.SetAttribute(play, "RASTERSIZE", L.size(HEAD_TEXT, ACTION_HEIGHT))
-	local queue = Kit.button(iup, { title = "Queue", icon = "add", action = function() end })
+	local queue = Kit.button(iup, { title = "Details", action = function()
+		if current then on_open(current) end
+	end })
 	iup.SetAttribute(queue, "RASTERSIZE", L.size(HEAD_TEXT, ACTION_HEIGHT))
 
 	local audio = FlatDropdown.new(iup, { items = { "Default" }, value = 1, expand = true, role = "dropbutton_quiet" })
@@ -198,7 +205,8 @@ local function inspector(ctx, cache, art_of, on_play)
 		iup.SetAttribute(title, "RASTERSIZE", L.size(INSPECTOR_WIDTH - 2 * RING, #item.title > TITLE_LINE and 72 or 36))
 		iup.SetAttribute(overview, "TITLE", item.overview or "")
 		Kit.show(iup, overview, (item.overview or "") ~= "", details)
-		iup.SetAttribute(play, "TITLE", (item.progress or 0) > 0 and item.progress < 1 and "Resume" or "Play")
+		local words = item.kind == "show" and "Episodes" or ((item.progress or 0) > 0 and item.progress < 1 and "Resume" or "Play")
+		iup.SetAttribute(play, "TITLE", words)
 		local is_show = item.kind == "show"
 		if is_show then
 			iup.SetAttribute(meta, "TITLE", string.format("%d · %s", item.year, plural(item.seasons or 0, "season")))
@@ -254,7 +262,8 @@ function M.new(ctx, opts)
 	for i, film in ipairs(model.films) do recent[i] = film end
 	table.sort(recent, SORTS[2][2])
 
-	local inspector_body, show_item, inspector_posters = inspector(ctx, cache, art_of, opts.on_play)
+	local inspector_body, show_item, inspector_posters = inspector(ctx, cache, art_of, opts.on_play,
+		function(item) api.open(item) end)
 	drains[#drains + 1] = inspector_posters
 
 	local shelves, sheet, ledger, hero
@@ -298,7 +307,8 @@ function M.new(ctx, opts)
 			on_select = function(pos) choose(list_of()[pos]) end,
 			on_activate = function(pos)
 				local item = list_of()[pos]
-				if item then opts.on_play(item) end
+				if not item then return end
+				if item.kind == "show" then api.open(item) else opts.on_play(item) end
 			end,
 		})
 		if cache then
@@ -331,7 +341,7 @@ function M.new(ctx, opts)
 		return iup.hbox({ widget, MARGIN = RING .. "x0" })
 	end
 	hero = spotlight.new(ctx, { cache = cache, art = wide_art, on_play = opts.on_play,
-		on_info = function(item) api.go("info", item) end })
+		on_info = function(item) api.open(item) end })
 	drains[#drains + 1] = hero.tick
 	local continue_section = L.stack(iup, { aligned(L.sectionTitle(iup, "Continue watching")), continue_shelf.widget }, 2)
 	local home_body = L.stack(iup, {
@@ -368,7 +378,11 @@ function M.new(ctx, opts)
 		header = { title = "Title", columns = { "Year", "Resolution", "Video", "Range", "Audio", "Size" },
 			sorted = { column = 0, descending = false } },
 		on_select = function(pos) choose(active[pos]) end,
-		on_activate = function(pos) if active[pos] then opts.on_play(active[pos]) end end,
+		on_activate = function(pos)
+			local item = active[pos]
+			if not item then return end
+			if item.kind == "show" then api.open(item) else opts.on_play(item) end
+		end,
 		on_sort = function(column, descending)
 			local key = LEDGER_KEYS[column]
 			table.sort(active, function(a, b)
@@ -390,7 +404,29 @@ function M.new(ctx, opts)
 		action = { title = "Add library", run = function() ctx:notify({ title = "Connect a server first" }, opts.owner) end } })
 	set_empty(true)
 
-	local stack = iup.zbox({ home, sheet.widget, ledger.widget, empty, EXPAND = "YES" })
+	-- A title opens over the collection and goes back to it, so nothing is lost by looking.
+	local opened
+	local details = title_page.new(ctx, { cache = cache, art = wide_art, poster = art_of,
+		on_back = function()
+			opened = nil
+			api.closeTitle()
+		end,
+		on_play = opts.on_play, on_mark = function(item, watched)
+			item.progress = watched and 1 or 0
+			if opts.on_mark then opts.on_mark(item, watched) end
+			api.repaintArt()
+		end,
+		load_seasons = opts.load_seasons,
+		pool = function()
+			local all = {}
+			for _, film in ipairs(films) do all[#all + 1] = film end
+			for _, show in ipairs(shows) do all[#all + 1] = show end
+			return all
+		end,
+		on_open = function(item) api.open(item) end })
+	drains[#drains + 1] = details.tick
+
+	local stack = iup.zbox({ home, sheet.widget, ledger.widget, empty, details.widget, EXPAND = "YES" })
 
 	-- The jump bar: letters that scroll the sheet. Slots stay for good; a list only retitles them.
 	local jump_slots = {}
@@ -407,7 +443,8 @@ function M.new(ctx, opts)
 	local jump_room = JUMP_SLOTS
 	local function fill_jump()
 		local letters = organize.letters(active)
-		local shows = source_id ~= "home" and view == "sheet" and sort == 1 and organize.jumpShows(letters, #active)
+		local shows = not opened and source_id ~= "home" and view == "sheet" and sort == 1
+			and organize.jumpShows(letters, #active)
 		Kit.show(iup, jump_box, shows, sources_anchor())
 		if not shows then return end
 		local fitted = organize.fit(letters, jump_room)
@@ -427,6 +464,7 @@ function M.new(ctx, opts)
 		local index = 0
 		if source_id ~= "home" then index = view == "ledger" and 2 or 1 end
 		if #active == 0 and source_id ~= "home" then index = 3 end
+		if opened then index = 4 end
 		iup.SetAttribute(stack, "VALUEPOS", tostring(index))
 		fill_jump()
 	end
@@ -521,9 +559,10 @@ function M.new(ctx, opts)
 
 	clear_button = iup.flatbutton({ TITLE = "Clear", THEMEROLE = "link_btn", CANFOCUS = "YES", flat_action = function()
 		filters = {}
-		fill_pickers()
-		filter_changed()
-		return iup.DEFAULT
+	fill_pickers()
+	search:setValue("")
+	filter_changed()
+	return iup.DEFAULT
 	end })
 	save_button = Kit.button(iup, { title = "Save as collection", icon = "bookmark", role = "actionbutton",
 		action = function()
@@ -550,7 +589,12 @@ function M.new(ctx, opts)
 	iup.SetAttribute(density.widget, "TIP", "Poster size")
 
 	density_box = iup.hbox({ density.widget, MARGIN = "0x0", ALIGNMENT = "ACENTER" })
-	local filter_bar = iup.hbox({ watch_box.widget, genre_box.widget, decade_box.widget, quality_box.widget,
+	local search = FlatField.new(iup, { cue = "Find a title", width = 200, on_change = function(text)
+		filters.title = text ~= "" and text or nil
+		filter_changed()
+	end })
+	api.search_field = search
+	local filter_bar = iup.hbox({ search.widget, watch_box.widget, genre_box.widget, decade_box.widget, quality_box.widget,
 		clear_button, iup.fill({}), save_button, density_box,
 		GAP = L.gap(2), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL", MARGIN = RING .. "x0" })
 
@@ -683,6 +727,18 @@ function M.new(ctx, opts)
 	end
 
 	function api.go(state, item)
+		if state == "title" then
+			pick_view("sheet", 2)
+			go_source("films")
+			api.open(model.films[2])
+			return
+		elseif state == "show" then
+			pick_view("sheet", 3)
+			go_source("shows")
+			api.open(model.shows[1])
+			return
+		end
+		opened = nil
 		if state == "filtered" then
 			pick_view("sheet", 2)
 			go_source("films")
@@ -726,7 +782,7 @@ function M.new(ctx, opts)
 		api.last_width = width
 		-- Anchored on the rail, which shows exactly when this tab does: the inspector must never
 		-- come back while another tab is in front.
-		Kit.show(iup, right, width >= Adaptive.MEDIUM and source_id ~= "home", sources.widget)
+		Kit.show(iup, right, width >= Adaptive.MEDIUM and source_id ~= "home" and not opened, sources.widget)
 		Kit.show(iup, source_rail, width >= Adaptive.NARROW, stack)
 	end
 
@@ -799,6 +855,29 @@ function M.new(ctx, opts)
 		go_source("home")
 		fill_spotlight()
 		choose(continuing[1] or recent[1] or shows[1])
+	end
+
+	local function set_chrome()
+		local browsing = source_id ~= "home" and not opened
+		Kit.show(iup, toolbar, browsing, sources.widget)
+		Kit.show(iup, filter_bar, browsing, sources.widget)
+		if api.last_width then api.fit(api.last_width) end
+		apply_view()
+		iup.Refresh(api.widget)
+	end
+
+	--- Open a title's page.
+	-- @tparam table item
+	function api.open(item)
+		opened = item
+		details.open(item)
+		set_chrome()
+	end
+
+	function api.closeTitle()
+		opened = nil
+		set_chrome()
+		mark_chosen()
 	end
 
 	--- A picture arrived: repaint whatever is showing, and pick the spotlight up too.

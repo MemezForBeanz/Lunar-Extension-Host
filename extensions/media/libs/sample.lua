@@ -68,7 +68,7 @@ local function film(index, row)
 		id = index, kind = "movie", title = row[1], year = row[2], resolution = row[3], codec = row[4],
 		dynamic = row[5], audio = row[6], bitrate = row[7], minutes = row[8], progress = row[9],
 		art = (index - 1) % 32 + 1, overview = TAGLINES[(index - 1) % #TAGLINES + 1],
-		genres = GENRES[index % #GENRES + 1],
+		genres = GENRES[index % #GENRES + 1], people = { "Ana Reyes", "Tom Okafor", "Iris Lindqvist" },
 		size_gb = math.floor(row[7] * row[8] * 60 / 8000 * 10 + 0.5) / 10,
 		added = string.format("2026-%02d-%02d", (index % 9) + 1, (index * 7) % 27 + 1),
 		subtitles = index % 2 == 0 and "English, Spanish" or "English",
@@ -84,6 +84,29 @@ local function show(index, row)
 		overview = TAGLINES[(index - 1) % #TAGLINES + 1],
 		added = string.format("2026-%02d-%02d", (index % 9) + 1, (index * 5) % 27 + 1),
 	}
+end
+
+local EPISODE_NAMES = { "Slack Water", "The Long Way Round", "Small Craft Warning", "Pilot Light", "Dead Reckoning",
+	"Spring Tide", "The Mooring", "Fog Signal", "Low Ceiling", "Harbour Master", "Night Watch", "Landfall" }
+
+--- The seasons of a sample show.
+-- @tparam table show
+-- @treturn table
+function M.seasons(show)
+	local out, id = {}, show.id * 1000
+	local per_season = math.max(1, math.floor((show.episodes or 8) / (show.seasons or 1)))
+	for number = 1, show.seasons or 1 do
+		local episodes = {}
+		for i = 1, per_season do
+			id = id + 1
+			local finished = number < (show.seasons or 1) or i <= per_season / 2
+			episodes[i] = { id = id, kind = "episode", show = show.title, season = number, episode = i,
+				title = EPISODE_NAMES[(i + number * 3) % #EPISODE_NAMES + 1], minutes = 40 + (i * 7) % 18,
+				progress = finished and 1 or 0 }
+		end
+		out[number] = { number = number, episodes = episodes }
+	end
+	return out
 end
 
 --- The whole sample library.

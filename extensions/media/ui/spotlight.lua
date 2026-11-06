@@ -106,9 +106,11 @@ function M.new(ctx, opts)
 	local play = Kit.button(iup, { title = "Play", icon = "play--filled--alt", role = "primary_btn",
 		action = function() if current then opts.on_play(current) end end })
 	iup.SetAttribute(play, "RASTERSIZE", "132x40")
-	local info = Kit.button(iup, { title = "More info", role = "actionbutton",
-		action = function() if current then opts.on_info(current) end end })
-	iup.SetAttribute(info, "RASTERSIZE", "112x40")
+	local info = Kit.button(iup, { title = "More info", role = "actionbutton", action = function()
+		if not current then return end
+		if opts.secondary then opts.secondary.run(current) else opts.on_info(current) end
+	end })
+	iup.SetAttribute(info, "RASTERSIZE", (opts.secondary and "148" or "112") .. "x40")
 
 	local dots = iup.hbox({ GAP = L.gap(1), MARGIN = "0x0", ALIGNMENT = "ACENTER" })
 	local dot_widgets = {}
@@ -183,12 +185,15 @@ function M.new(ctx, opts)
 			if candidate == item then index = i end
 		end
 		local started = (item.progress or 0) > 0 and item.progress < 1
-		iup.SetAttribute(eyebrow, "TITLE", started and "Pick up where you left off" or (item.eyebrow or "New in your library"))
+		local eyebrow_text = opts.compact and (item.kind == "show" and "Series" or "Film")
+			or (started and "Pick up where you left off" or (item.eyebrow or "New in your library"))
+		iup.SetAttribute(eyebrow, "TITLE", eyebrow_text)
 		iup.SetAttribute(title, "TITLE", item.title)
 		iup.SetAttribute(meta, "TITLE", M.meta(item))
 		iup.SetAttribute(overview, "TITLE", item.overview or "")
 		Kit.show(iup, overview, (item.overview or "") ~= "", title)
 		iup.SetAttribute(play, "TITLE", started and "Resume" or "Play")
+		if opts.secondary then iup.SetAttribute(info, "TITLE", opts.secondary.label(item)) end
 		if not opts.art(item) then
 			colour = tint.ofTitle(item.title)
 			wear()
@@ -198,6 +203,9 @@ function M.new(ctx, opts)
 	end
 
 	function api.current() return current end
+
+	--- Say what Play will start, when that isn't the title itself.
+	function api.setPlayLabel(text) iup.SetAttribute(play, "TITLE", text) end
 
 	--- Set the titles the dots step through.
 	function api.setItems(list)

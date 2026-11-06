@@ -19,6 +19,7 @@ local ART_TALLEST = 460    -- a paused film shouldn't tower over its own control
 
 local SAVE_EVERY = 10     -- seconds between resume points
 local FULL_VOLUME = 100
+local END_OF_FILE = 0     -- mpv's reason when a file played to its end
 
 local function clock(seconds)
 	seconds = math.floor(seconds or 0)
@@ -201,6 +202,10 @@ function M.new(ctx, opts)
 	local mpv, on_position, seconds, length, saved_at = nil, nil, 0, 0, 0
 
 	local function on_event(name, info)
+		if name == "end-file" then
+			if info and info.reason == END_OF_FILE and api.on_finished then api.on_finished() end
+			return
+		end
 		if name ~= "property-change" or not info or info.value == nil then return end
 		if info.name == "time-pos" then
 			seconds = info.value
@@ -298,7 +303,8 @@ function M.new(ctx, opts)
 		iup.SetAttribute(screen, "VALUEPOS", "1")
 		queue_list:setEmpty("Nothing queued", "")
 		chapter_list:setEmpty("No chapters", "")
-		queue_list:setRows({})
+		queue_list:setRows(request.queue or {})
+		iup.SetAttribute(queue_list.widget, "RASTERSIZE", "x" .. (36 * math.max(#(request.queue or {}), 1) + 8))
 		chapter_list:setRows({})
 		iup.SetAttribute(detail, "TITLE", request.detail or "")
 		on_position, saved_at = request.on_position, 0

@@ -1,0 +1,213 @@
+--- A title's own page: what it is, how to play it, and for a show, every season and episode.
+-- It opens from the collection and goes back to the same place. The spotlight's tinted surface
+-- carries over, so a film looks the same from Home to here.
+-- @module ui.title
+
+local L = require("core.lib.CarbonLayout")
+local Kit = require("core.ui.Kit")
+local CellGrid = require("core.ui.CellGrid")
+local RowList = require("core.ui.RowList")
+local FlatDropdown = require("core.ui.FlatDropdown")
+local spotlight = require("ui.spotlight")
+local organize = require("libs.organize")
+
+local M = {}
+
+local EPISODE_ROW = 56
+local RING = 6
+local SHELF_CELL = 132
+local CELL_TEXT = 62
+local SCROLLBAR = 8
+local SIMILAR = 12
+
+local function runtime(minutes)
+	if not minutes or minutes < 1 then return "" end
+	if minutes < 60 then return minutes .. " min" end
+	return string.format("%d h %d min", math.floor(minutes / 60), minutes % 60)
+end
+
+local function episode_state(episode)
+	local state = organize.watchState(episode)
+	if state == "watched" then return "Watched" end
+	if state == "progress" then
+		return math.ceil((episode.minutes or 0) * (1 - episode.progress)) .. " min left"
+	end
+	return ""
+end
+
+--- Rows for one season.
+-- @tparam table season `{ number, episodes }`
+-- @treturn table
+function M.rows(season)
+	local rows = {}
+	for i, episode in ipairs(season.episodes) do
+		rows[i] = { title = episode.title, secondary = "Episode " .. (episode.episode or i),
+			column1 = runtime(episode.minutes), column2 = episode_state(episode) }
+	end
+	return rows
+end
+
+--- Build the page.
+-- @tparam table ctx host context
+-- @tparam table opts `cache`, `art(item)`, `poster(item)`, `on_back()`, `on_play(item, queue)`,
+--   `on_mark(item, watched)`, `load_seasons(item, done)`, `pool()` (items to compare with),
+--   `on_open(item)`
+-- @treturn table `widget`, `open(item)`, `tick()`
+function M.new(ctx, opts)
+	local iup = ctx.iup
+	local api = {}
+	local current, seasons, season_index = nil, {}, 1
+	local similar = {}
+
+	local back = Kit.button(iup, { title = "Back", icon = "arrow--left", role = "actionbutton",
+		action = function() opts.on_back() end })
+	iup.SetAttribute(back, "RASTERSIZE", "x32")
+
+	local hero = spotlight.new(ctx, { cache = opts.cache, art = opts.art, compact = true,
+		on_play = function()
+			if not current then return end
+			if current.kind ~= "show" then return opts.on_play(current) end
+			local episode = organize.nextEpisode(seasons)
+			if episode then opts.on_play(episode, organize.after(seasons, episode)) end
+		end,
+		secondary = {
+			label = function(item) return organize.watchState(item) == "watched" and "Mark unwatched" or "Mark watched" end,
+			run = function(item)
+				opts.on_mark(item, organize.watchState(item) ~= "watched")
+				api.refresh()
+			end,
+		},
+	})
+
+	local facts = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL" })
+	local people = iup.flatlabel({ TITLE = "", THEMEROLE = "reading", EXPAND = "HORIZONTAL" })
+
+	local episodes = RowList.new(iup, { rows = {}, row_height = EPISODE_ROW, column_widths = { 96, 112 },
+		role = "flatrows_plain", empty_title = "No episodes yet", empty_hint = "They appear here after a scan.",
+		on_activate = function(pos)
+			local season = seasons[season_index]
+			local episode = season and season.episodes[pos]
+			if episode then opts.on_play(episode, organize.after(seasons, episode)) end
+		end })
+	iup.SetAttribute(episodes.widget, "EXPAND", "HORIZONTAL")
+
+	local function show_season(index)
+		season_index = index
+		local season = seasons[index]
+		local rows = season and M.rows(season) or {}
+		episodes:setRows(rows)
+		iup.SetAttribute(episodes.widget, "RASTERSIZE", "x" .. (EPISODE_ROW * #rows + 8))
+		iup.Refresh(api.widget)
+	end
+
+	local season_box = FlatDropdown.new(iup, { items = { "Season 1" }, value = 1, width = 168, role = "dropbutton_quiet",
+		on_change = function(index) show_season(index) end })
+	local mark_season = Kit.button(iup, { title = "Mark season watched", role = "actionbutton", action = function()
+		local season = seasons[season_index]
+		if not season then return end
+		for _, episode in ipairs(season.episodes) do opts.on_mark(episode, true) end
+		show_season(season_index)
+	end })
+	iup.SetAttribute(mark_season, "RASTERSIZE", "x32")
+
+	local season_bar = iup.hbox({ season_box.widget, iup.fill({}), mark_season, GAP = L.gap(3), ALIGNMENT = "ACENTER",
+		EXPAND = "HORIZONTAL", MARGIN = RING .. "x0" })
+	local episode_section = L.stack(iup, { season_bar, episodes.widget }, 2)
+
+	local function more_value(pos, field)
+		local item = similar[pos]
+		if not item then return nil end
+		if field == "TITLE" then return item.title end
+		if field == "SECONDARY" then return item.year and tostring(item.year) or nil end
+		if field == "BADGE" then return organize.badge(item) end
+	end
+	local more = CellGrid.new(iup, { shelf = true, count = 0, cell_width = SHELF_CELL, aspect = "2:3", gutter = 16,
+		padding = 0, role = "flatgrid_plain", value = more_value,
+		on_activate = function(pos) if similar[pos] then opts.on_open(similar[pos]) end end,
+	})
+	iup.SetAttribute(more.widget, "RASTERSIZE", "x" .. (math.floor(SHELF_CELL * 3 / 2) + CELL_TEXT + SCROLLBAR))
+	iup.SetAttribute(more.widget, "EXPAND", "HORIZONTAL")
+	local drain = opts.cache and CellGrid.posters(more, opts.cache, function(pos)
+		return similar[pos] and opts.poster(similar[pos])
+	end)
+
+	local function aligned(widget)
+		return iup.hbox({ widget, MARGIN = RING .. "x0", EXPAND = "HORIZONTAL" })
+	end
+	local more_section = L.stack(iup, { aligned(L.sectionTitle(iup, "More like this")), more.widget }, 2)
+
+	local body = L.stack(iup, {
+		aligned(back),
+		aligned(hero.widget),
+		aligned(L.stack(iup, { facts, people }, 1)),
+		episode_section,
+		more_section,
+		iup.fill({ RASTERSIZE = "x16" }),
+	}, 4)
+	iup.SetAttribute(body, "EXPAND", "HORIZONTAL")
+
+	api.widget = iup.flatscrollbox({
+		iup.flatframe({ body, TITLE = "", THEMEROLE = "settingspanel", MARGIN = "0x0", EXPAND = "HORIZONTAL" }),
+		EXPAND = "YES", SCROLLBAR = "VERTICAL", XHIDDEN = "YES", THEMEROLE = "tabscroll" })
+
+	local function fact_line(item)
+		local parts = {}
+		if item.genres and #item.genres > 0 then parts[#parts + 1] = table.concat(item.genres, ", ") end
+		if item.codec then parts[#parts + 1] = item.codec end
+		if item.audio then parts[#parts + 1] = item.audio end
+		if item.rating then parts[#parts + 1] = string.format("Rated %.1f", item.rating) end
+		return table.concat(parts, " · ")
+	end
+
+	function api.refresh()
+		if current then hero.show(current, true) end
+	end
+
+	--- Show a title.
+	-- @tparam table item
+	function api.open(item)
+		current = item
+		hero.show(item, true)
+		iup.SetAttribute(facts, "TITLE", fact_line(item))
+		local cast = item.people and #item.people > 0 and table.concat(item.people, ", ") or ""
+		iup.SetAttribute(people, "TITLE", cast)
+		Kit.show(iup, people, cast ~= "", back)
+		similar = organize.similar(item, opts.pool(), SIMILAR)
+		more:setProvider(#similar, more_value)
+		Kit.show(iup, more_section, #similar > 0, back)
+		local is_show = item.kind == "show"
+		Kit.show(iup, episode_section, is_show, back)
+		if is_show then
+			seasons = {}
+			opts.load_seasons(item, function(loaded)
+				if current ~= item then return end
+				seasons = loaded or {}
+				local names = {}
+				for i, season in ipairs(seasons) do names[i] = season.title or ("Season " .. season.number) end
+				season_box:setItems(#names > 0 and names or { "No seasons" }, 1)
+				local _, resume = organize.nextEpisode(seasons)
+				local start = 1
+				for i, season in ipairs(seasons) do
+					if season == resume then start = i end
+				end
+				season_box:setValue(start)
+				show_season(start)
+				local episode, season = organize.nextEpisode(seasons)
+				if episode then
+					hero.setPlayLabel(string.format("%s S%d E%d", (episode.progress or 0) > 0 and "Resume" or "Play",
+						season.number or 1, episode.episode or 1))
+				end
+			end)
+		end
+		iup.Refresh(api.widget)
+	end
+
+	function api.tick()
+		hero.tick()
+		if drain then drain() end
+	end
+
+	return api
+end
+
+return M

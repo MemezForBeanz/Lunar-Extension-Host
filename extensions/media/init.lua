@@ -109,6 +109,7 @@ function M:_start(item, decision)
 	local client = self.client
 	local ok, why = self.now_playing.play({
 		url = client:streamUrl(item.file_id), header = client:authHeader(), title = item.title,
+		queue = queue_rows(self.queue),
 		detail = table.concat({ item.resolution or "", item.codec or "", item.audio or "" }, " · "),
 		start = (item.position_ms or 0) / 1000,
 		on_position = function(seconds, length)
@@ -119,7 +120,28 @@ function M:_start(item, decision)
 	self.ctx:focusTab(self, NOW_PLAYING_TAB)
 end
 
-function M:_play(item)
+function M:_mark(item, watched)
+	if self.client then self.client:mark(item.id, watched) end
+end
+
+function M:_seasons(item, done)
+	if not self.client then return done(sample.seasons(item)) end
+	self.client:episodes(item.id, function(seasons, why)
+		if not seasons then self:_notify("Could not load the episodes", why, "error") end
+		done(seasons or {})
+	end)
+end
+
+local function queue_rows(queue)
+	local rows = {}
+	for i, item in ipairs(queue or {}) do
+		rows[i] = { title = item.title, column1 = item.minutes and (item.minutes .. " min") or "" }
+	end
+	return rows
+end
+
+function M:_play(item, queue)
+	self.queue = queue or {}
 	if not self.client then
 		return self:_notify("Connect a server to play media", "Add its address and token in Settings under Lunar Media.")
 	end
@@ -179,12 +201,19 @@ function M:register(ctx)
 		open = function() ctx:focusTab(self, NOW_PLAYING_TAB) end,
 		art_path = function() return art_of(model.films[1]) end })
 	self.now_playing.on_change = function() self.dock.refresh() end
+	self.now_playing.on_finished = function()
+		local upcoming = self.queue or {}
+		local following = table.remove(upcoming, 1)
+		if following then self:_play(following, upcoming) end
+	end
 	self.dock.refresh()
 	self.library = library.new(ctx, {
 		model = model, cache = self.cache, art_of = art_of, backdrop_of = backdrop_of, owner = self,
-		on_play = function(item) self:_play(item) end,
+		on_play = function(item, queue) self:_play(item, queue) end,
 		enrich = function(item, done) self:_enrich(item, done) end,
 		on_save_collection = function(entry) self:_save_collection(entry) end,
+		on_mark = function(item, watched) self:_mark(item, watched) end,
+		load_seasons = function(item, done) self:_seasons(item, done) end,
 		on_connect = function() ctx:dispatchAddress("lunar://host/settings") end,
 	})
 	self.server = server.new(ctx, { model = model })
@@ -224,7 +253,7 @@ function M:register(ctx)
 	local shell = rawget(_G, "LUNAR_DEV_SHELL")
 	if shell then
 		shell.pages = shell.pages or {}
-		shell.pages["Media"] = { states = { "home", "sheet", "filtered", "collection", "ledger", "shows" }, show = self.library.go }
+		shell.pages["Media"] = { states = { "home", "sheet", "filtered", "collection", "ledger", "shows", "title", "show" }, show = self.library.go }
 		local states = { "wait", "paused" }
 		if os.getenv("LUNAR_MEDIA_SERVER") then states = { "wait", "paused", "play", "playing", "playing2", "playing3" } end
 		shell.pages["Now playing"] = { states = states, show = function(name)

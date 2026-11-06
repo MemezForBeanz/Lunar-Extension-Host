@@ -47,6 +47,7 @@ local FIELDS = {
 	minutes = function(item) return item.minutes end,
 	year = function(item) return item.year end,
 	genre = function(item) return item.genres end,
+	title = function(item) return item.title end,
 }
 
 local TESTS = {
@@ -54,6 +55,9 @@ local TESTS = {
 	is_not = function(have, want) return have ~= want end,
 	at_least = function(have, want) return type(have) == "number" and have >= want end,
 	at_most = function(have, want) return type(have) == "number" and have <= want end,
+	contains = function(have, want)
+		return type(have) == "string" and have:lower():find(tostring(want):lower(), 1, true) ~= nil
+	end,
 }
 
 --- Does an item pass one rule?
@@ -104,6 +108,7 @@ function M.rulesFor(state)
 	for _, field in ipairs({ "watch", "genre", "decade", "resolution" }) do
 		if state[field] ~= nil then rules[#rules + 1] = { field = field, test = "is", value = state[field] } end
 	end
+	if state.title and state.title ~= "" then rules[#rules + 1] = { field = "title", test = "contains", value = state.title } end
 	return { match = "all", rules = rules }
 end
 
@@ -188,6 +193,35 @@ function M.byTitle(a, b)
 	return x < y
 end
 
+--- The episode to start from: the first one not finished.
+-- @tparam table seasons
+-- @treturn table|nil an episode
+-- @treturn table|nil the season it's in
+function M.nextEpisode(seasons)
+	for _, season in ipairs(seasons) do
+		for _, episode in ipairs(season.episodes) do
+			if M.watchState(episode) ~= "watched" then return episode, season end
+		end
+	end
+	local first = seasons[1]
+	return first and first.episodes[1], first
+end
+
+--- What plays after an episode, in order.
+-- @tparam table seasons
+-- @tparam table episode
+-- @treturn table list of episodes
+function M.after(seasons, episode)
+	local out, found = {}, false
+	for _, season in ipairs(seasons) do
+		for _, candidate in ipairs(season.episodes) do
+			if found then out[#out + 1] = candidate end
+			if candidate == episode then found = true end
+		end
+	end
+	return out
+end
+
 --- What a poster's corner should say.
 -- @tparam table item
 -- @treturn string|nil
@@ -202,6 +236,34 @@ function M.badge(item)
 		return format and (TICK .. " " .. format) or TICK
 	end
 	return format
+end
+
+--- Titles most like this one, from what the library knows: shared genres, then the same decade.
+-- @tparam table item
+-- @tparam table pool
+-- @tparam number limit
+-- @treturn table
+function M.similar(item, pool, limit)
+	local scored = {}
+	local mine = {}
+	for _, genre in ipairs(item.genres or {}) do mine[genre] = true end
+	for position, other in ipairs(pool) do
+		if other ~= item then
+			local score = 0
+			for _, genre in ipairs(other.genres or {}) do
+				if mine[genre] then score = score + 3 end
+			end
+			if M.decade(other) == M.decade(item) then score = score + 1 end
+			if score > 0 then scored[#scored + 1] = { item = other, score = score, position = position } end
+		end
+	end
+	table.sort(scored, function(a, b)
+		if a.score ~= b.score then return a.score > b.score end
+		return a.position < b.position
+	end)
+	local out = {}
+	for i = 1, math.min(limit, #scored) do out[i] = scored[i].item end
+	return out
 end
 
 local WORDS = {

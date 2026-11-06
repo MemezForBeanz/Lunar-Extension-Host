@@ -254,6 +254,10 @@ local BROWSE = {
 			(SELECT s.codec FROM files f JOIN streams s ON s.file_id = f.id WHERE f.work_id = works.id AND s.kind = 'video' LIMIT 1) AS vcodec,
 			(SELECT MAX(s.hdr) FROM files f JOIN streams s ON s.file_id = f.id WHERE f.work_id = works.id AND s.kind = 'video') AS hdr,
 			(SELECT watched FROM user_progress WHERE user = ? AND work_id = works.id) AS watched,
+		(SELECT COUNT(*) FROM works s WHERE s.parent_id = works.id) AS seasons,
+		(SELECT COUNT(*) FROM works s JOIN works e ON e.parent_id = s.id WHERE s.parent_id = works.id) AS episodes,
+		(SELECT COUNT(*) FROM works s JOIN works e ON e.parent_id = s.id LEFT JOIN user_progress p
+			ON p.work_id = e.id AND p.user = ? WHERE s.parent_id = works.id AND COALESCE(p.watched, 0) = 0) AS unwatched,
 			overview, rating FROM works
 		WHERE library_id = ? AND kind IN ('movie', 'show') AND (sort_key, id) > (?, ?)
 		ORDER BY sort_key, id LIMIT ?]], "sort_key" },
@@ -265,8 +269,12 @@ local BROWSE = {
 			(SELECT s.codec FROM files f JOIN streams s ON s.file_id = f.id WHERE f.work_id = works.id AND s.kind = 'video' LIMIT 1) AS vcodec,
 			(SELECT MAX(s.hdr) FROM files f JOIN streams s ON s.file_id = f.id WHERE f.work_id = works.id AND s.kind = 'video') AS hdr,
 			(SELECT watched FROM user_progress WHERE user = ? AND work_id = works.id) AS watched,
+			(SELECT COUNT(*) FROM works s WHERE s.parent_id = works.id) AS seasons,
+			(SELECT COUNT(*) FROM works s JOIN works e ON e.parent_id = s.id WHERE s.parent_id = works.id) AS episodes,
+			(SELECT COUNT(*) FROM works s JOIN works e ON e.parent_id = s.id LEFT JOIN user_progress p
+				ON p.work_id = e.id AND p.user = ? WHERE s.parent_id = works.id AND COALESCE(p.watched, 0) = 0) AS unwatched,
 			overview, rating FROM works
-		WHERE library_id = ? AND kind IN ('movie', 'show') AND (added_at, id) < (?, ?)
+			WHERE library_id = ? AND kind IN ('movie', 'show') AND (added_at, id) < (?, ?)
 		ORDER BY added_at DESC, id DESC LIMIT ?]], "added_at" },
 }
 
@@ -282,7 +290,8 @@ function Catalog:browse(library_id, opts)
 	else
 		key, id = key or 2 ^ 53, id or 2 ^ 53
 	end
-	local rows = self:_rows(spec[1], opts.user or "", library_id, key, id, limit + 1)
+	local user = opts.user or ""
+	local rows = self:_rows(spec[1], user, user, library_id, key, id, limit + 1)
 	local next_page
 	if #rows > limit then
 		rows[#rows] = nil
@@ -321,6 +330,44 @@ function Catalog:item(id, user)
 	work.progress = self:_one(
 		"SELECT position_ms, watched, updated_at FROM user_progress WHERE user = ? AND work_id = ?", user, id)
 	return work
+end
+
+--- A show's seasons with their episodes and this user's progress. Bounded by the show's size,
+-- which a person chose, so a show is one query rather than a page.
+-- @tparam number show_id
+-- @tparam string user
+-- @treturn table seasons, in order
+function Catalog:episodes(show_id, user)
+	local rows = self:_rows([[SELECT s.id AS season_id, s.title AS season_title, s.season, e.id, e.title, e.episode,
+		(SELECT MAX(duration_ms) FROM files WHERE work_id = e.id) AS duration_ms, p.position_ms, p.watched
+		FROM works s JOIN works e ON e.parent_id = s.id
+		LEFT JOIN user_progress p ON p.work_id = e.id AND p.user = ?
+		WHERE s.parent_id = ? ORDER BY s.season, e.episode, e.id LIMIT 10000]], user, show_id)
+	local seasons, by_id = {}, {}
+	for _, row in ipairs(rows) do
+		local season = by_id[row.season_id]
+		if not season then
+			season = { season = row.season, title = row.season_title, episodes = {} }
+			by_id[row.season_id] = season
+			seasons[#seasons + 1] = season
+		end
+		season.episodes[#season.episodes + 1] = { id = row.id, title = row.title, episode = row.episode,
+			duration_ms = row.duration_ms, position_ms = row.position_ms, watched = row.watched }
+	end
+	return seasons
+end
+
+--- Mark a work watched or not, and everything under it: a show carries its episodes.
+function Catalog:setWatched(user, work_id, watched, now)
+	return self.db:transaction(function()
+		for _, row in ipairs(self:_rows([[WITH RECURSIVE tree(id) AS (SELECT ? UNION ALL
+			SELECT w.id FROM works w JOIN tree ON w.parent_id = tree.id) SELECT id FROM tree]], work_id)) do
+			self:_rows([[INSERT INTO user_progress (user, work_id, position_ms, watched, updated_at) VALUES (?, ?, 0, ?, ?)
+				ON CONFLICT (user, work_id) DO UPDATE SET position_ms = 0, watched = excluded.watched,
+				updated_at = excluded.updated_at]], user, row.id, watched and 1 or 0, now)
+		end
+		return true
+	end)
 end
 
 --- The file behind a streaming request, with the root it must stay inside.

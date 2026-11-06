@@ -51,6 +51,50 @@ describe("rules", function()
 	end)
 end)
 
+describe("searching and similar titles", function()
+	it("finds a title by part of its name, in any case", function()
+		local set = organize.rulesFor({ title = "HARB" })
+		assert.same({ "Glass Harbour" }, titles(organize.apply(films, set)))
+	end)
+
+	it("puts shared genres before a shared decade", function()
+		local item = { title = "X", year = 1999, genres = { "Drama" } }
+		assert.same({ "The Salt Line", "Glass Harbour", "Northern Static" }, titles(organize.similar(item, films, 5)))
+	end)
+
+	it("never suggests the title itself", function()
+		assert.same({ "Glass Harbour" }, titles(organize.similar(films[1], films, 1)))
+	end)
+
+	it("suggests nothing with nothing in common", function()
+		assert.same({}, organize.similar({ title = "Y", year = 1900 }, films, 5))
+	end)
+end)
+
+describe("episodes", function()
+	local a, b, c = { title = "A", progress = 1 }, { title = "B", progress = 0.5 }, { title = "C", progress = 0 }
+	local seasons = { { number = 1, episodes = { a, b } }, { number = 2, episodes = { c } } }
+
+	it("starts at the first episode not finished", function()
+		local episode, season = organize.nextEpisode(seasons)
+		assert.equal(b, episode)
+		assert.equal(1, season.number)
+	end)
+
+	it("starts again when everything is watched", function()
+		assert.equal(a, organize.nextEpisode({ { number = 1, episodes = { a } } }))
+	end)
+
+	it("copes with a show that has nothing yet", function()
+		assert.is_nil(organize.nextEpisode({}))
+	end)
+
+	it("queues what follows, across seasons", function()
+		assert.same({ "B", "C" }, titles(organize.after(seasons, a)))
+		assert.same({}, organize.after(seasons, c))
+	end)
+end)
+
 describe("facets", function()
 	it("offers only what the list has", function()
 		local facets = organize.facets(films)

@@ -75,10 +75,8 @@ function M.applyDetail(item, detail)
 	end
 	item.position_ms = position
 	if detail.progress and detail.progress.watched == 1 then item.progress = 1 end
-	item.seasons = 0
-	for _, child in ipairs(detail.children or {}) do
-		if child.kind == "season" then item.seasons = item.seasons + 1 end
-	end
+	if detail.people then item.people = detail.people end
+	if detail.rating then item.rating = detail.rating end
 	return item
 end
 
@@ -115,7 +113,9 @@ function M.modelFrom(libraries, status, continuing, collections)
 	for _, library in ipairs(libraries) do
 		for _, raw in ipairs(library.items or {}) do
 			local item = { id = raw.id, kind = raw.kind, title = raw.title, year = raw.year or 0,
-				added = added_text(raw.added_at), progress = 0, seasons = 0, episodes = 0,
+				added = added_text(raw.added_at), progress = 0,
+				seasons = number_or_nil(raw.seasons) or 0, episodes = number_or_nil(raw.episodes) or 0,
+				unwatched = number_or_nil(raw.unwatched) or 0,
 				art = artcache.kinds(raw.art), overview = text_or_nil(raw.overview), genres = list_of(raw.genres),
 				codec = M.codecName(text_or_nil(raw.vcodec)), resolution = resolution_of(number_or_nil(raw.height)),
 				dynamic = raw.hdr == 1 and "HDR" or (type(raw.height) == "number" and "SDR" or nil) }
@@ -241,6 +241,26 @@ function Client:load(done)
 	end)
 end
 
+--- Turn the server's episodes into seasons.
+-- @tparam table answer
+-- @treturn table
+function M.seasonsFrom(answer)
+	local seasons = {}
+	for _, raw in ipairs(answer.seasons or {}) do
+		local season = { number = raw.season, title = raw.title, episodes = {} }
+		for i, entry in ipairs(raw.episodes or {}) do
+			local minutes = number_or_nil(entry.duration_ms)
+			local position = number_or_nil(entry.position_ms) or 0
+			season.episodes[i] = { id = entry.id, kind = "episode", title = entry.title, season = raw.season,
+				episode = entry.episode, minutes = minutes and math.floor(minutes / 60000) or nil,
+				progress = entry.watched == 1 and 1 or (minutes and minutes > 0 and position / minutes or 0),
+				position_ms = position }
+		end
+		seasons[#seasons + 1] = season
+	end
+	return seasons
+end
+
 --- Turn the server's collections into what the rail shows.
 -- @tparam table|nil answer the server's reply
 -- @treturn table
@@ -275,6 +295,21 @@ function Client:art(id, kind, done)
 	}, function(response)
 		done(response and response.ok and response.body or nil)
 	end)
+end
+
+--- Fetch a show's seasons and episodes.
+-- @tparam number id
+-- @tparam function done `done(seasons)` or `done(nil, why)`
+function Client:episodes(id, done)
+	self:_request("GET", "/v1/items/" .. id .. "/episodes", nil, function(answer, why)
+		if not answer then return done(nil, why) end
+		done(M.seasonsFrom(answer))
+	end)
+end
+
+--- Say whether something has been watched.
+function Client:mark(id, watched)
+	self:_request("POST", "/v1/items/" .. id .. "/watched", { watched = watched }, function() end)
 end
 
 --- Fetch one item's detail.
