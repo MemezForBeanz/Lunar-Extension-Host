@@ -17,6 +17,7 @@ local ART_EDGE = 12        -- the grid keeps 6 px each side for selection rings
 local ART_CAPTION = 84     -- what the title and status need below the poster
 
 local SAVE_EVERY = 10     -- seconds between resume points
+local FULL_VOLUME = 100
 
 local function clock(seconds)
 	seconds = math.floor(seconds or 0)
@@ -56,11 +57,18 @@ function M.new(ctx, opts)
 
 	local glyph = AnimatedIcon.new(iup, { animate = opts.animate, size = 20, role = "on_accent" })
 	local playing = false
+	local volume, muted = FULL_VOLUME, false
+	local now = { title = sample.title, position = position, length = duration, sample = true }
+	local function changed()
+		if api.on_change then api.on_change() end
+	end
 	local function toggle_playing()
 		playing = not playing
 		glyph:setPlaying(playing)
 		if api.set_paused then api.set_paused(not playing) end
+		changed()
 	end
+	api.toggle = toggle_playing
 	local picture = iup.vbox({
 		centred(iup, art.widget),
 		centred(iup, L.pageTitle(iup, sample.title)),
@@ -94,6 +102,17 @@ function M.new(ctx, opts)
 		return button
 	end
 
+	local volume_bar = SeekBar.new(iup, { max = FULL_VOLUME, role = "flatseek_plain",
+		on_seek = function(value) api.setVolume(value) end,
+		on_changing = function(value) api.setVolume(value) end })
+	iup.SetAttribute(volume_bar.widget, "RASTERSIZE", "88x")
+	iup.SetAttribute(volume_bar.widget, "EXPAND", "NO")
+	iup.SetAttribute(volume_bar.widget, "THICKNESS", "3")
+	volume_bar:setValue(FULL_VOLUME)
+	local mute_button = Kit.button(iup, { icon = "volume--up", tip = "Mute", role = "icon_btn",
+		action = function() api.toggleMute() end })
+	iup.SetAttribute(mute_button, "RASTERSIZE", "32x32")
+
 	local time = iup.flatlabel({ TITLE = clock(position) .. " / " .. clock(duration), THEMEROLE = "reading" })
 	local detail = iup.flatlabel({ THEMEROLE = "reading_muted", TITLE = string.format("%s · %s · %s", sample.resolution or "", sample.dynamic or "", sample.audio or "") })
 	local transport = iup.vbox({
@@ -104,8 +123,9 @@ function M.new(ctx, opts)
 			tool("skip--back--filled", "Previous"), toggle, tool("skip--forward--filled", "Next"),
 			iup.fill({}),
 			iup.hbox({ iup.fill({}), detail,
+				mute_button, volume_bar.widget,
 				tool("settings--adjust", "Audio and subtitles"), tool("fit-to-screen", "Fullscreen (F)"),
-				GAP = L.gap(3), ALIGNMENT = "ACENTER", RASTERSIZE = SIDE_CONTROLS }),
+				GAP = L.gap(2), ALIGNMENT = "ACENTER", RASTERSIZE = SIDE_CONTROLS }),
 			GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL", MARGIN = "6x0",
 		}),
 		GAP = L.gap(3), MARGIN = "0x0", EXPAND = "HORIZONTAL",
@@ -177,6 +197,8 @@ function M.new(ctx, opts)
 		if name ~= "property-change" or not info or info.value == nil then return end
 		if info.name == "time-pos" then
 			seconds = info.value
+			now.position = seconds
+			changed()
 			bar:setValue(seconds)
 			iup.SetAttribute(time, "TITLE", clock(seconds) .. " / " .. clock(length))
 			if on_position and math.abs(seconds - saved_at) >= SAVE_EVERY then
@@ -185,12 +207,54 @@ function M.new(ctx, opts)
 			end
 		elseif info.name == "duration" then
 			length = info.value
+			now.length = length
 			bar:setMax(length)
+			changed()
 		end
 	end
 
 	function bar.seek_to(value)
 		if mpv then mpv:seek(value) end
+	end
+
+	--- What the dock shows, or nil when nothing is loaded.
+	function api.state()
+		return { title = now.title, position = now.position, length = now.length, paused = not playing,
+			volume = volume, muted = muted, sample = now.sample }
+	end
+
+	function api.seek(value)
+		now.position = value
+		bar:setValue(value)
+		if mpv then mpv:seek(value) end
+		changed()
+	end
+
+	--- Jump relative to where playback is, inside the film.
+	function api.skip(delta)
+		api.seek(math.max(0, math.min(now.length or 0, (now.position or 0) + delta)))
+	end
+
+	function api.setVolume(value)
+		volume, muted = value, false
+		volume_bar:setValue(value)
+		if mpv then
+			mpv:set("mute", "no")
+			mpv:set("volume", tostring(math.floor(value)))
+		end
+		changed()
+	end
+
+	function api.toggleMute()
+		muted = not muted
+		volume_bar:setValue(muted and 0 or volume)
+		Kit.bindIcon(iup, mute_button, muted and "volume--mute" or "volume--up", { size = 20 })
+		if mpv then mpv:set("mute", muted and "yes" or "no") end
+		changed()
+	end
+
+	function api.pause()
+		if playing then toggle_playing() end
 	end
 
 	function api.set_paused(paused)
@@ -216,11 +280,13 @@ function M.new(ctx, opts)
 		chapter_list:setRows({})
 		iup.SetAttribute(detail, "TITLE", request.detail or "")
 		on_position, saved_at = request.on_position, 0
+		now = { title = request.title or now.title, position = request.start or 0, length = 0 }
 		mpv:set("http-header-fields", request.header)
 		mpv:set("start", tostring(math.floor(request.start or 0)))
 		mpv:load(request.url)
 		playing = true
 		glyph:setPlaying(true)
+		changed()
 		return true
 	end
 

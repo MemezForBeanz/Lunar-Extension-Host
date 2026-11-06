@@ -1185,6 +1185,47 @@ function HostAPI:onReady(fn, owner)
     table.insert(self._ready, { fn = fn, owner = owner })
 end
 
+--- Keep a band on screen across every tab, above the status bar. A player uses this so its
+-- transport stays in reach while someone browses.
+-- @tparam userdata widget the band; build it before the window shows
+-- @tparam[opt] table owner owning extension
+-- @treturn[1] table `setVisible(boolean)`
+-- @treturn[2] nil when there is no window
+function HostAPI:addDock(widget, owner)
+    local slot, iup = self._dock_slot, self.iup
+    if not slot or not iup then return nil end
+    self._docks = self._docks or {}
+    iup.SetAttribute(widget, "FLOATING", "YES")
+    iup.SetAttribute(widget, "VISIBLE", "NO")
+    iup.Append(slot, widget)
+    if self._shown then iup.Map(widget) end
+    table.insert(self._docks, { widget = widget, owner = owner })
+    local host = self
+    return { setVisible = function(visible)
+        require("core.ui.Kit").show(iup, widget, visible, slot)
+        iup.SetAttribute(widget, "VISIBLE", visible and "YES" or "NO")
+        if host._dock_changed then host._dock_changed() end
+    end }
+end
+
+--- Hear when the active tab changes. The callback gets the active page's widget.
+-- @tparam func fn callback
+-- @tparam[opt] table owner owning extension; the callback goes when it unloads
+function HostAPI:onTabChange(fn, owner)
+    self._tab_listeners = self._tab_listeners or {}
+    table.insert(self._tab_listeners, { fn = fn, owner = owner })
+end
+
+--- Tell listeners which page is active now.
+-- @local
+function HostAPI:_tabChanged()
+    local page = self:_activeTab()
+    for i = #(self._tab_listeners or {}), 1, -1 do
+        local ok, err = pcall(self._tab_listeners[i].fn, page)
+        if not ok then self:setStatus("onTabChange error: " .. tostring(err)) end
+    end
+end
+
 --- Hear when the main window hides or comes back. With Keep running when closed on, closing
 -- the window hides it and extensions carry on, so anything that only makes sense on screen,
 -- such as playing a video, should pause. The callback gets `"hidden"` or `"shown"`.
@@ -1426,6 +1467,17 @@ function HostAPI:removeOwned(owner)
 
     for i = #(self._window_listeners or {}), 1, -1 do
         if self._window_listeners[i].owner == owner then table.remove(self._window_listeners, i) end
+    end
+    for i = #(self._tab_listeners or {}), 1, -1 do
+        if self._tab_listeners[i].owner == owner then table.remove(self._tab_listeners, i) end
+    end
+    for i = #(self._docks or {}), 1, -1 do
+        local dock = self._docks[i]
+        if dock.owner == owner then
+            table.remove(self._docks, i)
+            step("remove dock", iup.Destroy, dock.widget)
+            if self._dock_changed then step("resize after dock", self._dock_changed) end
+        end
     end
     if #self._ready > 0 then
         local kept = {}

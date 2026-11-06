@@ -663,6 +663,7 @@ function M._applyTabScopes(self)
     self:_applyMenuScope()
     self:_applyStatusScope()
     if self._after_scopes then self._after_scopes() end
+    self:_tabChanged()
 end
 
 return M

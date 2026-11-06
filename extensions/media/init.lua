@@ -9,11 +9,13 @@ local Client = require("libs.client")
 local library = require("ui.library")
 local player = require("ui.player")
 local server = require("ui.server")
+local dock = require("ui.dock")
 
 local M = { name = "media" }
 
 local TICK_MS = 30
 local NOW_PLAYING_TAB = 2
+local NOW_PLAYING_TITLE = "Now playing"
 local URL_SETTING = "media.server_url"
 local TOKEN_SECRET = "server_token"
 
@@ -35,10 +37,18 @@ function M:_server_token()
 	return os.getenv("LUNAR_MEDIA_TOKEN") or self.ctx:getSecret(self, TOKEN_SECRET)
 end
 
+--- Where to connect: a server the owner named, or else this computer's own service.
+function M:_target()
+	local address, token = self:_server_address(), self:_server_token()
+	if address and address ~= "" and token then return address, token end
+	local here = self.ctx.localService and self.ctx:localService(self)
+	if here then return here.url, here.token end
+end
+
 --- Connect, or fall back to the sample library and say why.
 function M:connect()
-	local address, token = self:_server_address(), self:_server_token()
-	if not address or address == "" or not token then return end
+	local address, token = self:_target()
+	if not address then return end
 	local ctx = self.ctx
 	self.client = Client.new(function(request, done) return ctx:http(request, done, self) end, address, token)
 	self.client:load(function(model, why)
@@ -127,6 +137,11 @@ function M:register(ctx)
 	local function animate(spec) return ctx:animate(spec, self) end
 	self.now_playing = player.new(ctx, { sample = model.films[1], animate = animate, owner = self,
 		cache = self.cache, art = art_of(model.films[1]) })
+	self.dock = dock.new(ctx, { player = self.now_playing, owner = self, cache = self.cache,
+		open = function() ctx:focusTab(self, NOW_PLAYING_TAB) end,
+		art_path = function() return art_of(model.films[1]) end })
+	self.now_playing.on_change = function() self.dock.refresh() end
+	self.dock.refresh()
 	self.library = library.new(ctx, {
 		model = model, cache = self.cache, art_of = art_of, owner = self,
 		on_play = function(item) self:_play(item) end,
@@ -136,15 +151,23 @@ function M:register(ctx)
 	self.server = server.new(ctx, { model = model })
 
 	ctx:addTab("Media", self.library.widget, self, { icon = "grid" })
-	ctx:addTab("Now playing", self.now_playing.widget, self, { icon = "play--outline" })
+	ctx:addTab(NOW_PLAYING_TITLE, self.now_playing.widget, self, { icon = "play--outline" })
 	ctx:addTab("Media server", self.server.widget, self, { icon = "data--base" })
 	ctx:fitPage(self.library.widget, self.library.fit)
 	ctx:fitPage(self.now_playing.widget, self.now_playing.fit)
+	ctx:onTabChange(function(page)
+		self.dock.setAway(page ~= nil and ctx.iup.GetAttribute(page, "TABTITLE") == NOW_PLAYING_TITLE)
+	end, self)
+	-- A film can't be watched in a hidden window. Sound alone is fine, but nobody asked for it.
+	ctx:onWindow(function(state)
+		if state == "hidden" then self.now_playing.pause() end
+	end, self)
 	self:_settings()
 
 	self.timer = ctx:addTimer({ time = TICK_MS, run = true, action = function()
 		self.library.tick()
 		if self.now_playing.tick then self.now_playing.tick() end
+		self.dock.tick()
 		self.now_playing.pump()
 	end }, self)
 

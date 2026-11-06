@@ -394,6 +394,7 @@ iup.MainLoop = function()
 			for _, s in ipairs(page.path) do iup.SetAttribute(s.strip, "VALUEPOS", tostring(s.pos)) end
 			local dev_shell = rawget(_G, "LUNAR_DEV_SHELL")
 			if dev_shell and dev_shell.sync_title_bar then dev_shell.sync_title_bar() end
+			if dev_shell and dev_shell.tab_changed then dev_shell.tab_changed() end
 			fill_lists(dlg) -- an async status may have written a host since the last pass
 			iup.Refresh(dlg)
 		else

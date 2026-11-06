@@ -485,8 +485,13 @@ status_bar:onFocus(function()
 	status_bar:setPaneState(pane_grid:isSplit(), pane_grid:isFocused())
 end)
 
+-- Bands an extension keeps on screen across every tab, such as a player (HostAPI:addDock).
+local dock_slot = iup.vbox({ MARGIN = "0x0", GAP = "0", EXPAND = "HORIZONTAL" })
+host._dock_slot = dock_slot
+
 local content_box = iup.vbox({
 	workspace,
+	dock_slot,
 	status_bar:widget(),
 	MARGIN = L.margin(0),
 	GAP = "0",
@@ -542,6 +547,7 @@ local function recalc_shell_budget(client_h)
 		title = TitleBar.HEIGHT,
 		corners = 24,
 		status = measured_height(status_bar:widget()) or 0,
+		dock = measured_height(dock_slot) or 0,
 	}
 	local cap = ShellBudget.cap(client_h, bands, L.gutter(), 2)
 	shell_budget.bands, shell_budget.cap = bands, cap
@@ -1129,6 +1135,10 @@ local function sync_title_bar()
 	status_bar:setPaneState(pane_grid:isSplit(), pane_grid:isFocused())
 end
 host._after_scopes = sync_title_bar
+	host._dock_changed = function()
+		recalc_shell_budget()
+		iup.Refresh(dlg)
+	end
 -- The groups' width depends on their font, which the theme sets.
 theme_mgr:onApply(function()
 	title_bar:themeChanged()
@@ -1149,6 +1159,7 @@ do
 		sync()
 	end
 	host._after_scopes = sync_title_bar
+	if rawget(_G, "LUNAR_DEV_SHELL") then _G.LUNAR_DEV_SHELL.tab_changed = function() host:_tabChanged() end end
 	if rawget(_G, "LUNAR_DEV_SHELL") then _G.LUNAR_DEV_SHELL.sync_title_bar = sync_title_bar end
 	toggle_settings = function()
 		if not is_settings(iup.GetAttribute(tabs, "VALUE_HANDLE")) then
