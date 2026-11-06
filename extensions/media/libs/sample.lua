@@ -92,15 +92,15 @@ local EPISODE_NAMES = { "Slack Water", "The Long Way Round", "Small Craft Warnin
 --- The seasons of a sample show.
 -- @tparam table show
 -- @treturn table
-function M.seasons(show)
-	local out, id = {}, show.id * 1000
-	local per_season = math.max(1, math.floor((show.episodes or 8) / (show.seasons or 1)))
-	for number = 1, show.seasons or 1 do
+function M.seasons(series)
+	local out, id = {}, series.id * 1000
+	local per_season = math.max(1, math.floor((series.episodes or 8) / (series.seasons or 1)))
+	for number = 1, series.seasons or 1 do
 		local episodes = {}
 		for i = 1, per_season do
 			id = id + 1
-			local finished = number < (show.seasons or 1) or i <= per_season / 2
-			episodes[i] = { id = id, kind = "episode", show = show.title, season = number, episode = i,
+			local finished = number < (series.seasons or 1) or i <= per_season / 2
+			episodes[i] = { id = id, kind = "episode", show = series.title, season = number, episode = i,
 				title = EPISODE_NAMES[(i + number * 3) % #EPISODE_NAMES + 1], minutes = 40 + (i * 7) % 18,
 				progress = finished and 1 or 0 }
 		end
@@ -123,13 +123,13 @@ local ORIGINS = {
 
 -- Where each made-up film lives. Some have a second copy, which is what the combined view is for.
 local function place(films)
-	for i, film in ipairs(films) do
-		film.sources = { "This server" }
-		local copy = { source = "This server", quality = (film.resolution or "") .. " " .. (film.codec or ""), health = "ok" }
-		film.copy_list = { copy }
+	for i, entry in ipairs(films) do
+		entry.sources = { "This server" }
+		local copy = { source = "This server", quality = (entry.resolution or "") .. " " .. (entry.codec or ""), health = "ok" }
+		entry.copy_list = { copy }
 		if i % 6 == 0 then
-			film.sources[2] = "Living room NAS"
-			film.copy_list[2] = { source = "Living room NAS", quality = "1080p H.264", health = "ok" }
+			entry.sources[2] = "Living room NAS"
+			entry.copy_list[2] = { source = "Living room NAS", quality = "1080p H.264", health = "ok" }
 		end
 	end
 	for i, row in ipairs(ARCHIVE) do
@@ -146,8 +146,8 @@ local function origins(films, shows)
 	local out = {}
 	for i, origin in ipairs(ORIGINS) do
 		local count = 0
-		for _, film in ipairs(films) do
-			for _, source in ipairs(film.sources or {}) do
+		for _, entry in ipairs(films) do
+			for _, source in ipairs(entry.sources or {}) do
 				if source == origin.name then count = count + 1 end
 			end
 		end

@@ -223,7 +223,7 @@ local function arm_stop()
 	win_declare()
 	stop_event = ffi.C.CreateEventW(nil, 1, 0, (widen(event_name())))
 	local earlier = LUNAR_STOP_REQUESTED
-	function LUNAR_STOP_REQUESTED()
+	function LUNAR_STOP_REQUESTED() -- luacheck: ignore 121
 		if type(earlier) == "function" and earlier() then return true end
 		return stop_event ~= nil and ffi.C.WaitForSingleObject(stop_event, 0) == WAIT_OBJECT_0
 	end
