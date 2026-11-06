@@ -196,6 +196,11 @@ describe("poster badges", function()
 		assert.is_nil(organize.badge({ resolution = "1080p", dynamic = "SDR" }))
 	end)
 
+	it("marks a title that only streams from the web", function()
+		assert.equal("Stream", organize.badge({ web = true, resolution = "720p", dynamic = "SDR" }))
+		assert.equal("HDR · Stream", organize.badge({ web = true, dynamic = "HDR10" }))
+	end)
+
 	it("counts what's left of a show", function()
 		assert.equal("12 left", organize.badge({ kind = "show", unwatched = 12 }))
 		assert.is_nil(organize.badge({ kind = "show", unwatched = 0 }))

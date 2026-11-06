@@ -168,7 +168,8 @@ function M.new(ctx, opts)
 		copy_entries = item.copy_list or {}
 		local rows = {}
 		for i, entry in ipairs(copy_entries) do
-			rows[i] = { title = entry.source, secondary = entry.web and "Streams from the web" or "On your network",
+			local order = i == 1 and "Plays first" or "Plays if the one above fails"
+			rows[i] = { title = entry.source, secondary = (entry.web and "Streams from the web · " or "") .. order,
 				column1 = entry.quality or "", column2 = entry.health == "ok" and "Reachable" or "Unreachable" }
 		end
 		copies:setRows(rows)
@@ -244,8 +245,8 @@ function M.new(ctx, opts)
 		aligned(back),
 		aligned(hero.widget),
 		aligned(fact_box),
-		aligned(forecast_section),
 		aligned(copies_section),
+		aligned(forecast_section),
 		episode_section,
 		more_section,
 		iup.fill({ RASTERSIZE = "x16" }),

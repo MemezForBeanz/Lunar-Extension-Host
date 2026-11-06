@@ -268,6 +268,8 @@ function M.badge(item)
 	if item.dynamic and item.dynamic ~= "SDR" then format = item.dynamic == "Dolby Vision" and "DV" or "HDR"
 	elseif item.resolution == "2160p" then format = "4K" end
 	local copies = item.copies and #item.copies > 1 and (#item.copies .. " copies") or nil
+	-- A web copy says so. It may be gone tomorrow, and pretending otherwise would be a lie.
+	if item.web then format = format and (format .. " · Stream") or "Stream" end
 	if M.watchState(item) == "watched" then
 		return format and (TICK .. " " .. format) or TICK
 	end

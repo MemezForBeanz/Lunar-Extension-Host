@@ -40,6 +40,11 @@ function M.new(ctx, opts)
 		if not source then return nil end
 		if field == "TITLE" then return source.name end
 		if field == "SECONDARY" then return source.provider_name or "" end
+		if field == "IMAGE" then
+			local tone = M.health(source)
+			local status = Kit.STATUS[tone] or Kit.STATUS.idle
+			return Kit.icon(iup, status.icon, 16, status.role)
+		end
 		if field == "COLUMN1" then return tostring(source.items or 0) end
 		if field == "COLUMN2" then
 			local _, words = M.health(source)
@@ -91,7 +96,8 @@ function M.new(ctx, opts)
 		iup.SetAttribute(notice, "VALUE", "OFF")
 	end })
 	iup.SetAttribute(add, "RASTERSIZE", "x36")
-	local form = L.stack(iup, { form_title, summary, field_box, notice, iup.hbox({ add, MARGIN = "0x0" }) }, 2)
+	local form = L.stack(iup, { iup.flatseparator({ ORIENTATION = "HORIZONTAL", STYLE = "LINE", BARSIZE = "1" }),
+		form_title, summary, field_box, notice, iup.hbox({ add, MARGIN = "0x0" }) }, 2)
 	iup.SetAttribute(form, "EXPAND", "HORIZONTAL")
 
 	local function choose_provider(provider)
@@ -145,6 +151,11 @@ function M.new(ctx, opts)
 		providers = next_providers or providers
 		source_list:setProvider(#sources, source_value)
 		provider_list:setProvider(#providers, provider_value)
+		-- Sync and Remove act on a row, so there is always a row chosen.
+		if sources[1] then
+			chosen_source = sources[1]
+			source_list:select(1)
+		end
 		if providers[1] then
 			provider_list:select(1)
 			choose_provider(providers[1])

@@ -256,7 +256,7 @@ end
 function M:_start_remote(item, answer)
 	local client = self.client
 	local ok, why = self.now_playing.play({ url = answer.url, header = answer.header, title = item.title,
-		detail = item.sources and item.sources[1] or "", queue = queue_rows(self.queue),
+		detail = item.sources and item.sources[1] and ("From " .. item.sources[1]) or "", queue = queue_rows(self.queue),
 		start = (item.position_ms or 0) / 1000,
 		on_position = function(seconds, length)
 			client:saveProgress(item.id, math.floor(seconds * 1000), math.floor(length * 1000))

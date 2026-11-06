@@ -431,7 +431,7 @@ function M.new(ctx, opts)
 			ledger_rows[i] = {
 				title = item.title, column1 = tostring(item.year), column2 = item.resolution or "",
 				column3 = item.codec or "", column4 = item.dynamic or "", column5 = item.audio or "",
-				column6 = size_text(item.size_gb) or "",
+				column6 = item.web and "Stream" or size_text(item.size_gb) or "",
 			}
 		end
 	end
@@ -711,7 +711,10 @@ function M.new(ctx, opts)
 		if not entry then return nil end
 		if field == "TITLE" then return entry.name end
 		if field == "IMAGE" then return Kit.icon(iup, entry.icon or "globe", 16, "text") end
-		if field == "COLUMN1" then return entry.status == "failed" and "!" or (entry.items and tostring(entry.items)) or nil end
+		if field == "COLUMN1" then
+			local items = entry.items and tostring(entry.items) or ""
+			return entry.status == "failed" and ("! " .. items) or items
+		end
 	end
 	origin_list = RowList.new(iup, { value = origin_value, count = #(model.origins or {}), row_height = 32,
 		column_widths = { 40 }, role = "flatrows_plain",
@@ -822,7 +825,7 @@ function M.new(ctx, opts)
 		if state == "title" then
 			pick_view("sheet", 2)
 			go_source("films")
-			api.open(model.films[2])
+			api.open(model.films[6] or model.films[1])
 			return
 		elseif state == "show" then
 			pick_view("sheet", 3)
