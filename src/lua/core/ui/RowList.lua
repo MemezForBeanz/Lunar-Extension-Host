@@ -25,7 +25,8 @@ local fields = { TITLE = "title", SECONDARY = "secondary", IMAGE = "image",
 --- Create a row canvas.
 -- @tparam userdata iup
 -- @tparam[opt] table opts `rows` or `value` and `count`, `row_height`, `image_size`, `bits`,
--- `header`, `empty_title`, `empty_hint`, `column_widths`, `role`, and the `on_*` callbacks
+-- `header`, `empty_title`, `empty_hint`, `column_widths`, `column_align` (`{ [3] = "LEFT" }` for
+-- text columns; numbers stay right aligned), `role`, and the `on_*` callbacks
 -- @treturn table `widget`, `setRows`, `setProvider`, `setEmpty`, `select`, `selected`, `setSort`
 function M.new(iup, opts)
     opts = opts or {}
@@ -37,6 +38,9 @@ function M.new(iup, opts)
     iup.SetAttribute(widget, "FLATSCROLLBAR", "VERTICAL")
     iup.SetAttribute(widget, "EMPTYTITLE", opts.empty_title or "Nothing here yet")
     iup.SetAttribute(widget, "EMPTYHINT", opts.empty_hint or "")
+    for i, align in pairs(opts.column_align or {}) do
+        iup.SetAttribute(widget, "COLUMN" .. i .. "ALIGN", align)
+    end
     for i = 1, 6 do
         iup.SetAttribute(widget, "COLUMN" .. i .. "WIDTH", tostring((opts.column_widths or {})[i] or 0))
     end

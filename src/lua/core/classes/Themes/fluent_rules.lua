@@ -77,8 +77,9 @@ function M.addPlainRoles(rules, page)
         for key, value in pairs(changes) do rule[key] = value end
         rules[name] = rule
     end
-    derive("flatgrid_plain", "flatgrid", { bg = page })
-    derive("flatrows_plain", "flatrows", { bg = page, scrollbg = page, border = page })
+    local reading = (rules.flatgrid.font or ""):gsub("%d+%s*$", "11")
+    derive("flatgrid_plain", "flatgrid", { bg = page, font = reading })
+    derive("flatrows_plain", "flatrows", { bg = page, scrollbg = page, border = page, font = reading })
     derive("flatseek_plain", "flatseek", { bg = page })
     local quiet = rules.actionbutton.bg
     derive("dropbutton_quiet", "dropbutton", { bg = quiet, border = quiet })
