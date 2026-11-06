@@ -16,6 +16,8 @@ if not ok_reactor then ThemeReactor = nil end
 local L = require("core.lib.CarbonLayout")
 function M.rowList(iup, opts) return require("core.ui.RowList").new(iup, opts) end
 function M.segmented(iup, opts) return require("core.ui.RowList").segmented(iup, opts) end
+function M.cellGrid(iup, opts) return require("core.ui.CellGrid").new(iup, opts) end
+function M.seekBar(iup, opts) return require("core.ui.SeekBar").new(iup, opts) end
 
 --- The edge a row list sits in: the look of a bordered list, and room for its rounded corners.
 function M.rowFrame(iup, widget)
