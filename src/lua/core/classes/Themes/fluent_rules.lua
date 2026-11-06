@@ -78,8 +78,11 @@ function M.addPlainRoles(rules, page)
         rules[name] = rule
     end
     local reading = (rules.flatgrid.font or ""):gsub("%d+%s*$", "11")
-    derive("flatgrid_plain", "flatgrid", { bg = page, font = reading })
-    derive("flatrows_plain", "flatrows", { bg = page, scrollbg = page, border = page, font = reading })
+    derive("flatgrid_plain", "flatgrid", { bg = page, font = reading, scrollinset = 6 })
+    derive("flatrows_plain", "flatrows", { bg = page, scrollbg = page, border = page, radius = 0, font = reading })
+    -- Reading text a step above the host's body size, for pages meant to be looked at.
+    rules.reading = { fg = rules.flatgrid.fg, font = reading, padding = "0x0" }
+    rules.reading_muted = { fg = rules.flatgrid.secondary, font = rules.flatgrid.font, padding = "0x0" }
     derive("flatseek_plain", "flatseek", { bg = page })
     local quiet = rules.actionbutton.bg
     derive("dropbutton_quiet", "dropbutton", { bg = quiet, border = quiet })

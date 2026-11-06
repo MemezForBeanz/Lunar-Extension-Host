@@ -18,7 +18,9 @@ local GUTTER = 16
 local SCROLLBAR = 8
 local CELL_TEXT = 62
 local UNKNOWN = "Not analysed"
-local INSPECTOR_ART = 168
+local INSPECTOR_ART = 132
+local HEAD_TEXT = 164      -- what is left beside the poster in the inspector
+local ACTION_HEIGHT = 40
 local SOURCE_WIDTH = 184
 local INSPECTOR_WIDTH = L.SIDE.narrow
 
@@ -74,15 +76,19 @@ local function fitted_cell(width, ideal)
 	return math.floor((width - (columns - 1) * GUTTER) / columns)
 end
 
+local function muted(iup, text)
+	return iup.flatlabel({ TITLE = text or "", THEMEROLE = "reading_muted" })
+end
+
 local function fact(iup)
-	local name = L.hint(iup, "")
+	local name = muted(iup, "")
 	iup.SetAttribute(name, "RASTERSIZE", "96x")
-	local value = iup.flatlabel({ TITLE = "", EXPAND = "HORIZONTAL" })
+	local value = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL" })
 	return { row = iup.hbox({ name, value, GAP = L.gap(3), ALIGNMENT = "ACENTER" }), name = name, value = value }
 end
 
 local function labelled(iup, label, control)
-	local name = L.hint(iup, label)
+	local name = muted(iup, label)
 	iup.SetAttribute(name, "RASTERSIZE", "96x")
 	return iup.hbox({ name, control, GAP = L.gap(3), ALIGNMENT = "ACENTER" })
 end
@@ -100,12 +106,18 @@ local function inspector(ctx, cache, art_of, on_play)
 	iup.SetAttribute(poster.widget, "FLATSCROLLBAR", "NO")
 	local posters = cache and CellGrid.posters(poster, cache, function() return current and art_of(current) end)
 
-	local title = L.sectionTitle(iup, "")
-	local meta = L.hint(iup, "")
-	local overview = iup.flatlabel({ TITLE = "", TEXTWRAP = "YES", RASTERSIZE = L.size(INSPECTOR_WIDTH, 40) })
+	local title = L.pageTitle(iup, "")
+	iup.SetAttribute(title, "TEXTWRAP", "YES")
+	iup.SetAttribute(title, "RASTERSIZE", L.size(HEAD_TEXT, 68))
+	iup.SetAttribute(title, "ALIGNMENT", "ALEFT:ATOP")
+	local meta = muted(iup, "")
+	local overview = iup.flatlabel({ TITLE = "", THEMEROLE = "reading", TEXTWRAP = "YES",
+		RASTERSIZE = L.size(INSPECTOR_WIDTH - 2 * RING, 64), ALIGNMENT = "ALEFT:ATOP" })
 	local play = Kit.button(iup, { title = "Play", icon = "play--filled--alt", role = "primary_btn",
 		action = function() if current then on_play(current) end end })
+	iup.SetAttribute(play, "RASTERSIZE", L.size(HEAD_TEXT, ACTION_HEIGHT))
 	local queue = Kit.button(iup, { title = "Queue", icon = "add", action = function() end })
+	iup.SetAttribute(queue, "RASTERSIZE", L.size(HEAD_TEXT, ACTION_HEIGHT))
 
 	local audio = FlatDropdown.new(iup, { items = { "Default" }, value = 1, expand = true, role = "dropbutton_quiet" })
 	local subtitles = FlatDropdown.new(iup, { items = { "Off" }, value = 1, expand = true, role = "dropbutton_quiet" })
@@ -119,21 +131,21 @@ local function inspector(ctx, cache, art_of, on_play)
 	end
 	local section = L.sectionTitle(iup, "File")
 	local path = L.hint(iup, "")
-	iup.SetAttribute(path, "RASTERSIZE", L.size(INSPECTOR_WIDTH))
+	iup.SetAttribute(path, "RASTERSIZE", L.size(INSPECTOR_WIDTH - 2 * RING))
 
-	local body = L.stack(iup, {
+	local head = iup.hbox({
 		poster.widget,
+		iup.vbox({ title, meta, iup.fill({}), play, queue, GAP = L.gap(2), MARGIN = "0x" .. RING, EXPAND = "VERTICAL" }),
+		GAP = L.gap(3), MARGIN = "0x0", EXPAND = "HORIZONTAL",
+	})
+	local body = L.stack(iup, {
+		head,
 		iup.vbox({
-			L.stack(iup, {
-				L.stack(iup, { title, meta }, 1),
-				L.row(iup, { play, queue }),
-				overview,
-				tracks,
-			}, 4),
+			L.stack(iup, { overview, tracks }, 5),
 			L.stack(iup, { section, fact_box, path }, 3),
-			GAP = L.gap(6), MARGIN = RING .. "x0", EXPAND = "HORIZONTAL",
+			GAP = L.gap(7), MARGIN = RING .. "x0", EXPAND = "HORIZONTAL",
 		}),
-	}, 3)
+	}, 4)
 	iup.SetAttribute(body, "EXPAND", "YES")
 
 	local function fill(rows)
@@ -297,7 +309,7 @@ function M.new(ctx, opts)
 	fill_ledger(active)
 	ledger = RowList.new(iup, {
 		rows = ledger_rows, row_height = 36,
-		column_widths = { 64, 96, 72, 112, 112, 72 }, column_align = { [1] = "LEFT", [2] = "LEFT", [3] = "LEFT", [4] = "LEFT", [5] = "LEFT" },
+		column_widths = { 72, 112, 88, 128, 128, 80 }, column_align = { [1] = "LEFT", [2] = "LEFT", [3] = "LEFT", [4] = "LEFT", [5] = "LEFT" },
 		role = "flatrows_plain",
 		header = { title = "Title", columns = { "Year", "Resolution", "Video", "Range", "Audio", "Size" },
 			sorted = { column = 0, descending = false } },
@@ -321,7 +333,7 @@ function M.new(ctx, opts)
 	local empty, set_empty = Kit.emptyPane(iup, { content = iup.vbox({}), icon = "media--library",
 		title = "No media in this library yet",
 		hint = "Add a folder and Lunar will find the films and shows inside it.",
-		action = { title = "Add Library", run = function() ctx:notify({ title = "Connect a server first" }, opts.owner) end } })
+		action = { title = "Add library", run = function() ctx:notify({ title = "Connect a server first" }, opts.owner) end } })
 	set_empty(true)
 
 	local stack = iup.zbox({ home, sheet.widget, ledger.widget, empty, EXPAND = "YES" })
@@ -441,10 +453,10 @@ function M.new(ctx, opts)
 		local width = tonumber((iup.GetAttribute(stack, "RASTERSIZE") or ""):match("^(%d+)"))
 		if not width or width == last_width or width < CELL then return end
 		last_width = width
-		local cell = fitted_cell(width - 2 * RING - SCROLLBAR, CELL)
-		sheet:setCellWidth(cell)
-		for _, shelf in ipairs(shelves) do shelf.grid:setCellWidth(cell) end
-		size_shelves(cell)
+		sheet:setCellWidth(fitted_cell(width - 2 * RING - SCROLLBAR, CELL))
+		local shelf_cell = fitted_cell(width - 2 * RING, CELL)   -- a shelf's bar runs along the bottom
+		for _, shelf in ipairs(shelves) do shelf.grid:setCellWidth(shelf_cell) end
+		size_shelves(shelf_cell)
 		iup.Refresh(api.widget)
 	end
 
