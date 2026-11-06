@@ -297,7 +297,7 @@ end
 
 function M:register(ctx)
 	self.ctx = ctx
-	local model = sample.library()
+	local model = require("libs.repair_sample").apply(sample.library())
 	local art_dir = os.getenv("LUNAR_MEDIA_ART")
 	local extension = self
 	local function art_of(item)
@@ -326,6 +326,7 @@ function M:register(ctx)
 	end
 	self.dock.refresh()
 	self.library = library.new(ctx, {
+		on_sources = function() ctx:focusTab(self, 3) end,
 		model = model, cache = self.cache, art_of = art_of, backdrop_of = backdrop_of, owner = self,
 		on_play = function(item, queue) self:_play(item, queue) end,
 		enrich = function(item, done) self:_enrich(item, done) end,
@@ -335,7 +336,14 @@ function M:register(ctx)
 		decide = function(item, profile, done) self:_decide(item, profile, done) end,
 		on_connect = function() ctx:dispatchAddress("lunar://host/settings") end,
 	})
-	self.server = server.new(ctx, { model = model })
+	self.server = server.new(ctx, { model = model, owner = self,
+		on_repair = function(action, done)
+			if not self.client then return done(nil, "Sample only: no server was changed.") end
+			self.client:repair(action, function(answer, why)
+				done(answer, why)
+				if answer then self:connect() end
+			end)
+		end })
 	self.sources_page = sources_page.new(ctx, { sources = model.origins, providers = sample.PROVIDERS,
 		on_add = function(provider, config, name, accepted) self:_add_source(provider, config, name, accepted) end,
 		on_sync = function(source)
