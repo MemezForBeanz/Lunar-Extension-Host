@@ -13,7 +13,8 @@ local M = {}
 
 M.HEIGHT = 240
 local ART_HEIGHT = 228
-local ART_WIDTH = math.floor(ART_HEIGHT * 16 / 9)
+local WIDE_WIDTH = math.floor(ART_HEIGHT * 16 / 9)
+local POSTER_WIDTH = math.floor(ART_HEIGHT * 2 / 3)
 local RING = 6
 local FADE = 0.42             -- the share of the art, from its right edge, that dissolves
 local EDGE = 0.05             -- the share that softens on the other three sides
@@ -87,7 +88,9 @@ function M.new(ctx, opts)
 	local colour = tint.FALLBACK
 	local composed = { key = nil, buffer = nil }
 
-	local art = CellGrid.new(iup, { count = 1, cell_width = ART_WIDTH, aspect = "16:9", show_text = false,
+	-- A title page shows the poster whole and sharp; only the wide art on Home dissolves.
+	local ART_WIDTH = opts.compact and POSTER_WIDTH or WIDE_WIDTH
+	local art = CellGrid.new(iup, { count = 1, cell_width = ART_WIDTH, aspect = opts.compact and "2:3" or "16:9", show_text = false,
 		gutter = 0, padding = 0, value = function() return nil end, role = "flatgrid_plain" })
 	iup.SetAttribute(art.widget, "RASTERSIZE", L.size(ART_WIDTH + 2 * RING, ART_HEIGHT + 2 * RING))
 	iup.SetAttribute(art.widget, "EXPAND", "NO")
@@ -106,11 +109,11 @@ function M.new(ctx, opts)
 	local play = Kit.button(iup, { title = "Play", icon = "play--filled--alt", role = "primary_btn",
 		action = function() if current then opts.on_play(current) end end })
 	iup.SetAttribute(play, "RASTERSIZE", "132x40")
-	local info = Kit.button(iup, { title = "More info", role = "actionbutton", action = function()
+	local info = Kit.button(iup, { title = "Details", role = "actionbutton", action = function()
 		if not current then return end
 		if opts.secondary then opts.secondary.run(current) else opts.on_info(current) end
 	end })
-	iup.SetAttribute(info, "RASTERSIZE", (opts.secondary and "148" or "112") .. "x40")
+	iup.SetAttribute(info, "RASTERSIZE", (opts.secondary and "168" or "112") .. "x40")
 
 	local dots = iup.hbox({ GAP = L.gap(1), MARGIN = "0x0", ALIGNMENT = "ACENTER" })
 	local dot_widgets = {}
@@ -160,7 +163,11 @@ function M.new(ctx, opts)
 			colour = tint.ofPixels(pixels, stride, w, h)
 			composed.buffer = composed.buffer or ffi.new("uint8_t[?]", stride * h)
 			if ffi.sizeof(composed.buffer) < stride * h then composed.buffer = ffi.new("uint8_t[?]", stride * h) end
-			dissolve(composed.buffer, pixels, stride, w, h, colour)
+			if opts.compact then
+				ffi.copy(composed.buffer, pixels, stride * h)
+			else
+				dissolve(composed.buffer, pixels, stride, w, h, colour)
+			end
 			composed.key = key
 			wear()
 		end

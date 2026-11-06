@@ -19,6 +19,8 @@ local SHELF_CELL = 132
 local CELL_TEXT = 62
 local SCROLLBAR = 8
 local SIMILAR = 12
+local FACT_LABEL = 72
+local FACTS = { "Genres", "Cast", "Video", "Audio", "Rating" }
 
 local function runtime(minutes)
 	if not minutes or minutes < 1 then return "" end
@@ -71,7 +73,10 @@ function M.new(ctx, opts)
 			if episode then opts.on_play(episode, organize.after(seasons, episode)) end
 		end,
 		secondary = {
-			label = function(item) return organize.watchState(item) == "watched" and "Mark unwatched" or "Mark watched" end,
+			label = function(item)
+				local noun = item.kind == "show" and "series " or ""
+				return (organize.watchState(item) == "watched" and "Mark " .. noun .. "unwatched" or "Mark " .. noun .. "watched")
+			end,
 			run = function(item)
 				opts.on_mark(item, organize.watchState(item) ~= "watched")
 				api.refresh()
@@ -79,8 +84,16 @@ function M.new(ctx, opts)
 		},
 	})
 
-	local facts = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL" })
-	local people = iup.flatlabel({ TITLE = "", THEMEROLE = "reading", EXPAND = "HORIZONTAL" })
+	-- Labelled rows, story first, so a codec is never read as a genre.
+	local fact_rows = {}
+	local fact_box = iup.vbox({ GAP = L.gap(1), MARGIN = "0x0", EXPAND = "HORIZONTAL" })
+	for i, label in ipairs(FACTS) do
+		local name = iup.flatlabel({ TITLE = label, THEMEROLE = "reading_muted", RASTERSIZE = FACT_LABEL .. "x" })
+		local value = iup.flatlabel({ TITLE = "", THEMEROLE = "reading", EXPAND = "HORIZONTAL", TEXTELLIPSIS = "YES" })
+		local row = iup.hbox({ name, value, GAP = L.gap(3), ALIGNMENT = "ACENTER", MARGIN = "0x0", EXPAND = "HORIZONTAL" })
+		fact_rows[i] = { row = row, value = value }
+		iup.Append(fact_box, row)
+	end
 
 	local episodes = RowList.new(iup, { rows = {}, row_height = EPISODE_ROW, column_widths = { 96, 112 },
 		role = "flatrows_plain", empty_title = "No episodes yet", empty_hint = "They appear here after a scan.",
@@ -97,6 +110,12 @@ function M.new(ctx, opts)
 		local rows = season and M.rows(season) or {}
 		episodes:setRows(rows)
 		iup.SetAttribute(episodes.widget, "RASTERSIZE", "x" .. (EPISODE_ROW * #rows + 8))
+		local upcoming = organize.nextEpisode(seasons)
+		local mark = 0
+		for i, episode in ipairs(season and season.episodes or {}) do
+			if episode == upcoming then mark = i end
+		end
+		episodes:select(mark)
 		iup.Refresh(api.widget)
 	end
 
@@ -139,7 +158,7 @@ function M.new(ctx, opts)
 	local body = L.stack(iup, {
 		aligned(back),
 		aligned(hero.widget),
-		aligned(L.stack(iup, { facts, people }, 1)),
+		aligned(fact_box),
 		episode_section,
 		more_section,
 		iup.fill({ RASTERSIZE = "x16" }),
@@ -150,13 +169,10 @@ function M.new(ctx, opts)
 		iup.flatframe({ body, TITLE = "", THEMEROLE = "settingspanel", MARGIN = "0x0", EXPAND = "HORIZONTAL" }),
 		EXPAND = "YES", SCROLLBAR = "VERTICAL", XHIDDEN = "YES", THEMEROLE = "tabscroll" })
 
-	local function fact_line(item)
-		local parts = {}
-		if item.genres and #item.genres > 0 then parts[#parts + 1] = table.concat(item.genres, ", ") end
-		if item.codec then parts[#parts + 1] = item.codec end
-		if item.audio then parts[#parts + 1] = item.audio end
-		if item.rating then parts[#parts + 1] = string.format("Rated %.1f", item.rating) end
-		return table.concat(parts, " · ")
+	local function fact_values(item)
+		local joined = function(list) return list and #list > 0 and table.concat(list, ", ") or "" end
+		return { joined(item.genres), joined(item.people), item.codec or "", item.audio or "",
+			item.rating and string.format("%.1f", item.rating) or "" }
 	end
 
 	function api.refresh()
@@ -168,10 +184,10 @@ function M.new(ctx, opts)
 	function api.open(item)
 		current = item
 		hero.show(item, true)
-		iup.SetAttribute(facts, "TITLE", fact_line(item))
-		local cast = item.people and #item.people > 0 and table.concat(item.people, ", ") or ""
-		iup.SetAttribute(people, "TITLE", cast)
-		Kit.show(iup, people, cast ~= "", back)
+		for i, value in ipairs(fact_values(item)) do
+			iup.SetAttribute(fact_rows[i].value, "TITLE", value)
+			Kit.show(iup, fact_rows[i].row, value ~= "", back)
+		end
 		similar = organize.similar(item, opts.pool(), SIMILAR)
 		more:setProvider(#similar, more_value)
 		Kit.show(iup, more_section, #similar > 0, back)

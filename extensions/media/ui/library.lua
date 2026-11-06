@@ -22,9 +22,9 @@ local M = {}
 local CELL = 148           -- the size a cell aims for; columns then share the width exactly
 local WIDE_CELL = 280      -- Continue watching: landscape cards, which also say how long is left
 local JUMP_SLOTS = 27      -- A to Z and #
-local JUMP_ROW = 20
+local JUMP_ROW = 22
 local JUMP_WIDTH = 24
-local FILTER_WIDTH = 124
+local FILTER_WIDTH = 108
 local RAIL_SOURCES = 3
 local DENSITY_LEAST = 104  -- the smallest poster the size slider gives
 local DENSITY_RANGE = 120
@@ -564,14 +564,14 @@ function M.new(ctx, opts)
 	filter_changed()
 	return iup.DEFAULT
 	end })
-	save_button = Kit.button(iup, { title = "Save as collection", icon = "bookmark", role = "actionbutton",
+	save_button = Kit.button(iup, { icon = "bookmark", tip = "Save as collection", role = "icon_btn",
 		action = function()
 			local name = NameDialog.show({ iup = iup, title = "Save as collection", label = "Collection name:", ok = "Save" })
 			if name and name ~= "" and opts.on_save_collection then
 				opts.on_save_collection({ name = name, icon = "filter", rules = organize.rulesFor(filters) })
 			end
 		end })
-	iup.SetAttribute(save_button, "RASTERSIZE", "x32")
+	iup.SetAttribute(save_button, "RASTERSIZE", "32x32")
 
 	local density = SeekBar.new(iup, { max = DENSITY_RANGE, role = "flatseek_plain",
 		on_seek = function(value)
@@ -583,13 +583,13 @@ function M.new(ctx, opts)
 			api.refit()
 		end })
 	density:setValue(CELL - DENSITY_LEAST)
-	iup.SetAttribute(density.widget, "RASTERSIZE", "96x")
+	iup.SetAttribute(density.widget, "RASTERSIZE", "64x")
 	iup.SetAttribute(density.widget, "EXPAND", "NO")
 	iup.SetAttribute(density.widget, "THICKNESS", "3")
 	iup.SetAttribute(density.widget, "TIP", "Poster size")
 
-	density_box = iup.hbox({ density.widget, MARGIN = "0x0", ALIGNMENT = "ACENTER" })
-	local search = FlatField.new(iup, { cue = "Find a title", width = 200, on_change = function(text)
+	density_box = iup.hbox({ L.hint(iup, "Size"), density.widget, GAP = L.gap(2), MARGIN = "0x0", ALIGNMENT = "ACENTER" })
+	local search = FlatField.new(iup, { cue = "Find a title", width = 148, on_change = function(text)
 		filters.title = text ~= "" and text or nil
 		filter_changed()
 	end })
