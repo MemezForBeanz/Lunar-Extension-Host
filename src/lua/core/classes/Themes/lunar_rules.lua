@@ -423,6 +423,7 @@ function M.build(p)
     rules.list_mono = {}
     for key, value in pairs(rules.list_bordered) do rules.list_mono[key] = value end
     rules.list_mono.font = "Consolas, 9"
+    require("core.classes.Themes.fluent_rules").addPlainRoles(rules, p.surface or p.bg)
     for _, role in ipairs({ "flatbutton", "primary_btn", "actionbutton", "ghost_btn",
                             "danger_btn", "danger_solid", "warning_btn", "info_btn", "link_btn", "icon_btn" }) do
         rules[role].inactivebg = elevated

@@ -68,6 +68,22 @@ end
 -- gets them without restating them.
 -- @tparam table rules the rule table to extend
 -- @tparam table p the palette
+--- Roles for controls that sit straight on a page instead of in a well, and a dropdown
+-- quiet enough to sit beside a primary action.
+function M.addPlainRoles(rules, page)
+    local function derive(name, from, changes)
+        local rule = {}
+        for key, value in pairs(rules[from]) do rule[key] = value end
+        for key, value in pairs(changes) do rule[key] = value end
+        rules[name] = rule
+    end
+    derive("flatgrid_plain", "flatgrid", { bg = page })
+    derive("flatrows_plain", "flatrows", { bg = page, scrollbg = page, border = page })
+    derive("flatseek_plain", "flatseek", { bg = page })
+    local quiet = rules.actionbutton.bg
+    derive("dropbutton_quiet", "dropbutton", { bg = quiet, border = quiet })
+end
+
 function M.addShellRoles(rules, p)
     local floor = p.layer02 or p.surface2 or p.surface or p.bg
     local well = p.layer01 or p.surface or p.bg
@@ -350,6 +366,7 @@ function M.build(p)
         rules[role].inactivefg = p.textMuted
     end
     M.addShellRoles(rules, p)
+    M.addPlainRoles(rules, p.surface or p.bg)
     rules.flattabs_sub = rules.flattabs
     local floor = p.layer02 or p.surface2 or p.surface or p.bg
     return require("core.classes.Themes.shell_rules")(rules, p, {

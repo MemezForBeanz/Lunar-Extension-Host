@@ -12,7 +12,7 @@ local VideoHost = require("core.ui.VideoHost")
 
 local M = {}
 
-local ART_WIDTH = 216
+local ART_WIDTH = 264
 local ART_EDGE = 12        -- the grid keeps 6 px each side for selection rings
 
 local SAVE_EVERY = 10     -- seconds between resume points
@@ -43,7 +43,7 @@ function M.new(ctx, opts)
 	requirements.set({ VideoHost.requirement() })
 
 	local art = CellGrid.new(iup, { count = opts.art and 1 or 0, cell_width = ART_WIDTH, aspect = "2:3", show_text = false,
-		gutter = 0, padding = 0, value = function() return nil end })
+		gutter = 0, padding = 0, value = function() return nil end, role = "flatgrid_plain" })
 	iup.SetAttribute(art.widget, "RASTERSIZE", L.size(ART_WIDTH + ART_EDGE, ART_WIDTH * 3 / 2 + ART_EDGE))
 	iup.SetAttribute(art.widget, "EXPAND", "NO")
 	iup.SetAttribute(art.widget, "CANFOCUS", "NO")
@@ -52,25 +52,21 @@ function M.new(ctx, opts)
 		api.tick = CellGrid.posters(art, opts.cache, function() return opts.art end)
 	end
 
-	local glyph = AnimatedIcon.new(iup, { animate = opts.animate, size = 20, role = "text" })
+	local glyph = AnimatedIcon.new(iup, { animate = opts.animate, size = 20, role = "on_accent" })
 	local playing = false
 	local function toggle_playing()
 		playing = not playing
 		glyph:setPlaying(playing)
 		if api.set_paused then api.set_paused(not playing) end
 	end
-	local resume = Kit.button(iup, { title = "Resume", icon = "play--filled--alt", role = "primary_btn",
-		tip = "Resume (Space)", action = toggle_playing })
 	local picture = iup.vbox({
 		iup.fill({}), centred(iup, art.widget),
 		centred(iup, iup.flatlabel({ TITLE = sample.title, THEMEROLE = "sectiontitle", ALIGNMENT = "ACENTER" })),
-		centred(iup, L.hint(iup, "Paused at " .. clock(position) .. " of " .. clock(duration))),
-		centred(iup, resume),
 		iup.fill({}), GAP = L.gap(3), MARGIN = "0x0", EXPAND = "YES",
 	})
 
 	local bar
-	bar = SeekBar.new(iup, { max = duration, on_seek = function(value)
+	bar = SeekBar.new(iup, { max = duration, role = "flatseek_plain", on_seek = function(value)
 		if bar.seek_to then bar.seek_to(value) end
 	end })
 	iup.SetAttribute(bar.widget, "EXPAND", "HORIZONTAL")
@@ -78,9 +74,9 @@ function M.new(ctx, opts)
 	bar:setBuffered({ { 0, position + 240 } })
 	bar:setMarks({ { at = 1320 }, { at = 2700 }, { at = 4140 }, { at = 7200 } })
 
-	local toggle = iup.flatbutton({ TITLE = "", THEMEROLE = "icon_btn", TIP = "Play or pause (Space)", RASTERSIZE = "40x40" })
+	local toggle = iup.flatbutton({ TITLE = "", THEMEROLE = "primary_btn", TIP = "Play or pause (Space)", RASTERSIZE = "40x40" })
 	glyph.paint = function(path)
-		Kit.bindIcon(iup, toggle, (path:gsub("%.svg$", "")), { size = 20, role = "text" })
+		Kit.bindIcon(iup, toggle, (path:gsub("%.svg$", "")), { size = 20, role = "on_accent" })
 	end
 	glyph:_draw()
 	function toggle:flat_action()
@@ -108,8 +104,8 @@ function M.new(ctx, opts)
 	})
 
 	local chapters = {
-		{ title = "Opening", column1 = "0:00" }, { title = "The survey", column1 = "22:00" },
-		{ title = "Low water", column1 = "45:00" }, { title = "The boundary stone", column1 = "1:09:00" },
+		{ title = "Opening", column1 = "0:00:00" }, { title = "The survey", column1 = "0:22:00" },
+		{ title = "Low water", column1 = "0:45:00" }, { title = "The boundary stone", column1 = "1:09:00" },
 		{ title = "Credits", column1 = "2:00:00" },
 	}
 	local queue = {
