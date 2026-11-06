@@ -89,3 +89,17 @@ copy from inside a Plex install.
   so TV and phone are typical profiles, and remuxing and converting are decided but not carried out.
 - Nothing here has been compiled or run on Linux.
 - Overlays and dialogs above live video are unverified on a composited desktop.
+
+## Repair workbench
+
+`GET /v1/attention` describes offline files grouped by library, failed analysis, failing sources,
+failed frames and missing ffprobe setup, in that order of impact. `libs/repair.lua` is a pure
+mapping of catalog facts to plain copy and supported actions. Existing library scan and source
+sync routes do the work; `POST /v1/files/:id/analyse` and `POST /v1/items/:id/frame` reset failed
+online jobs for the normal workers. Disabled workers refuse retries with 409. No migration is needed.
+
+The desktop loads attention with its library model, reports action errors and refreshes after
+queuing a repair. A thin `ui/reliability.lua` strip links failing sources to Sources on Home and
+library views. Sample repair rows are explicitly invented. `HostAPI:controlLocalService` exposes
+status/start/stop only to desktop owners declaring `local_service`; these controls concern this
+computer, even when browsing a remote server. Settings > Background still controls sign-in startup.

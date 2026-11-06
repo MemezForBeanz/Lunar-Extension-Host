@@ -7,7 +7,7 @@ function M.list(data)
 			title = title, wrong = wrong, next_step = next_step, action = action }
 	end
 	for _, row in ipairs(data.offline or {}) do
-		add("offline", row.id, 1, row.name .. ": files are offline", row.count .. " files cannot be reached.",
+		add("offline", row.id, 1, row.name .. ": files are offline", row.count .. (row.count == 1 and " file cannot be reached." or " files cannot be reached."),
 			"Reconnect the folder or drive, then scan again.", { label = "Rescan library", path = "/v1/libraries/" .. row.id .. "/scan" })
 	end
 	for _, row in ipairs(data.analysis or {}) do

@@ -128,6 +128,7 @@ function M:register(ctx)
 	if self.ffprobe == "" then self.ffprobe = nil end
 	-- ffmpeg lives beside ffprobe unless someone says otherwise.
 	self.ffmpeg = os.getenv("LUNAR_FFMPEG")
+	if self.ffmpeg == "" then self.ffmpeg = nil end
 	if (not self.ffmpeg or self.ffmpeg == "") and self.ffprobe then
 		local beside = self.ffprobe:gsub("ffprobe(%.?%w*)$", "ffmpeg%1")
 		if lfs.attributes(beside, "mode") == "file" then self.ffmpeg = beside else self.ffmpeg = nil end

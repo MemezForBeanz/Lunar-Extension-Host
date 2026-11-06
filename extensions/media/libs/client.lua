@@ -107,7 +107,7 @@ end
 -- @tparam[opt] table continuing the server's continue-watching items
 -- @tparam[opt] table collections the server's collections
 -- @treturn table a model with `sources`, `films`, `shows`, `continuing` and `server`
-function M.modelFrom(libraries, status, continuing, collections, source_rows)
+function M.modelFrom(libraries, status, continuing, collections, source_rows, attention)
 	local by_id = {}
 	local model = { films = {}, shows = {}, continuing = {}, sample = false,
 		sources = { { id = "home", title = "Home", icon = "home" } } }
@@ -165,6 +165,8 @@ function M.modelFrom(libraries, status, continuing, collections, source_rows)
 	model.collections = collections or {}
 	model.origins = M.originsFrom(libraries, source_rows)
 	model.scanning = status.scanning
+	model.libraries = libraries
+	model.attention = attention or {}
 	model.server = {
 		name = "Connected", version = "0.1.0", analysis = status.analysis or "off", files = status.files or 0,
 		missing = status.missing or 0, analysing = status.analysing or 0, failed = status.failed or 0, sessions = {},
@@ -247,8 +249,12 @@ function Client:load(done)
 					return self:_request("GET", "/v1/continue", nil, function(resume)
 						self:_request("GET", "/v1/collections", nil, function(saved)
 							self:_request("GET", "/v1/sources", nil, function(found)
-								done(M.modelFrom(libraries, status, resume and resume.items, M.collectionsFrom(saved),
-									found and found.sources))
+								self:attention(function(problems, problem)
+									local model = M.modelFrom(libraries, status, resume and resume.items, M.collectionsFrom(saved),
+										found and found.sources, problems)
+									model.attention_error = problem
+									done(model)
+								end)
 							end)
 						end)
 					end)
@@ -410,4 +416,20 @@ function Client:saveProgress(id, position_ms, duration_ms)
 		{ position_ms = position_ms, duration_ms = duration_ms }, function() end)
 end
 
+--- Fetch current repair problems.
+function Client:attention(done)
+	self:_request("GET", "/v1/attention", nil, function(answer, why)
+		done(answer and answer.problems or {}, why)
+	end)
+end
+
+--- Only accept the repair routes the desktop understands.
+function Client:repair(action, done)
+	local path = action and action.path or ""
+	if not (path:match("^/v1/libraries/%d+/scan$") or path:match("^/v1/sources/%d+/sync$")
+		or path:match("^/v1/files/%d+/analyse$") or path:match("^/v1/items/%d+/frame$")) then
+		return done(nil, "unknown repair action")
+	end
+	self:_request("POST", path, {}, done)
+end
 return M

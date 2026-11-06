@@ -800,7 +800,8 @@ function M.new(ctx, opts)
 		iup.Refresh(api.widget)
 	end
 
-	local main = iup.vbox({ toolbar, filter_bar, iup.hbox({ stack, jump_box, GAP = "0", MARGIN = "0x0", EXPAND = "YES" }),
+	local reliability = require("ui.reliability").new(ctx, model, opts.on_sources)
+	local main = iup.vbox({ reliability.widget, toolbar, filter_bar, iup.hbox({ stack, jump_box, GAP = "0", MARGIN = "0x0", EXPAND = "YES" }),
 		GAP = L.gap(3), MARGIN = "0x0", EXPAND = "YES" })
 	local right = iup.vbox({ iup.hbox({ RASTERSIZE = L.size(INSPECTOR_WIDTH) }), inspector_body, MARGIN = "0x0", EXPAND = "VERTICAL" })
 	-- Collections run to the bottom of the panel, so nothing is cut short of its edge.
@@ -939,6 +940,7 @@ function M.new(ctx, opts)
 	--- Show another library. Lists are refilled in place, because the grids stay for good.
 	function api.setModel(next_model)
 		model = next_model
+		reliability.setModel(model)
 		refill(films, model.films)
 		refill(shows, model.shows)
 		refill(continuing, model.continuing or {})
