@@ -11,6 +11,7 @@ local M = {}
 
 local ROW = 52
 local HEADER = 32
+local ROW_INSET = 12       -- where rows start their text; everything on the page shares that edge
 
 -- A count that means trouble wears its colour only while it is above zero.
 local function metric(iup, label, kind)
@@ -46,8 +47,8 @@ function M.new(ctx, opts)
 	local analysing_box, set_analysing = metric(iup, "Being analysed")
 	local missing_box, set_missing = metric(iup, "Offline", "warning")
 	local failed_box, set_failed = metric(iup, "Failed", "error")
-	local metrics = iup.hbox({ playing_box, files_box, analysing_box, missing_box, failed_box,
-		GAP = L.gap(7), MARGIN = "0x0", HOMOGENEOUS = "YES", EXPAND = "HORIZONTAL" })
+	local metrics = iup.hbox({ failed_box, missing_box, playing_box, analysing_box, files_box,
+		GAP = L.gap(7), MARGIN = ROW_INSET .. "x0", HOMOGENEOUS = "YES", EXPAND = "HORIZONTAL" })
 	local function show_counts(data)
 		set_playing(#data.sessions)
 		set_files(data.files)
@@ -67,7 +68,7 @@ function M.new(ctx, opts)
 	local reach_title = L.sectionTitle(iup, "")
 	local reach = {}
 	local REACH_LABELS = { "Delivery", "Video", "Audio", "Subtitles" }
-	local reach_rows = iup.vbox({ GAP = L.gap(2), MARGIN = "0x0", EXPAND = "HORIZONTAL" })
+	local reach_rows = iup.vbox({ GAP = L.gap(2), MARGIN = ROW_INSET .. "x0", EXPAND = "HORIZONTAL" })
 	for _, label in ipairs(REACH_LABELS) do
 		local name = iup.flatlabel({ TITLE = label, THEMEROLE = "reading_muted", RASTERSIZE = "96x" })
 		reach[label] = iup.flatlabel({ TITLE = "", THEMEROLE = "reading", EXPAND = "HORIZONTAL" })
@@ -108,20 +109,26 @@ function M.new(ctx, opts)
 	local header = iup.hbox({
 		iup.vbox({ iup.flatlabel({ TITLE = "Media server", THEMEROLE = "pagetitle" }), status, GAP = L.gap(2), MARGIN = "0x0" }),
 		iup.fill({}), scan, add, GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL",
+		MARGIN = ROW_INSET .. "x0",
 	})
 
+	local function heading(text)
+		return iup.hbox({ L.sectionTitle(iup, text), MARGIN = ROW_INSET .. "x0" })
+	end
+
+	local attention = iup.vbox({
+		Kit.statusLine(iup, "error", "Marrow (2020).mkv could not be read, so it cannot play"),
+		Kit.statusLine(iup, "warning", "3 files are offline in Shows"),
+		Kit.statusLine(iup, "info", "Analysing Harbour Lights: 18 files left"),
+		GAP = L.gap(3), MARGIN = ROW_INSET .. "x0", EXPAND = "HORIZONTAL",
+	})
 	local left = L.stack(iup, {
-		L.stack(iup, { L.sectionTitle(iup, "Now playing"), sessions.widget }, 3),
-		L.stack(iup, { reach_title, reach_rows }, 3),
+		L.stack(iup, { heading("Attention"), attention }, 3),
+		L.stack(iup, { heading("Libraries"), libraries.widget }, 3),
 	}, 6)
 	local right = L.stack(iup, {
-		L.stack(iup, {
-			L.sectionTitle(iup, "Attention"),
-			Kit.statusLine(iup, "error", "Marrow (2020).mkv could not be read, so it cannot play"),
-			Kit.statusLine(iup, "warning", "3 files are offline in Shows"),
-			Kit.statusLine(iup, "info", "Analysing Harbour Lights: 18 files left"),
-		}, 3),
-		L.stack(iup, { L.sectionTitle(iup, "Libraries"), libraries.widget }, 3),
+		L.stack(iup, { heading("Now playing"), sessions.widget }, 3),
+		L.stack(iup, { iup.hbox({ reach_title, MARGIN = ROW_INSET .. "x0" }), reach_rows }, 3),
 	}, 6)
 	iup.SetAttribute(left, "EXPAND", "HORIZONTAL")
 	iup.SetAttribute(right, "EXPAND", "HORIZONTAL")

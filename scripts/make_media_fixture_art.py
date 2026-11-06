@@ -13,7 +13,7 @@ import struct
 import sys
 import zlib
 
-WIDTH, HEIGHT = 300, 450
+WIDTH, HEIGHT = 600, 900
 
 PALETTES = [
     ((15, 42, 63), (31, 111, 139), (242, 193, 78)), ((35, 25, 66), (94, 84, 142), (224, 177, 203)),
@@ -77,7 +77,7 @@ def hills(canvas, rng, a, b):
         base = HEIGHT * (.55 + .2 * i)
         phase, amp = rng.uniform(0, 6), rng.uniform(.04, .1) * HEIGHT
         points = [(0, HEIGHT)]
-        points += [(x, base + amp * math.sin(x / WIDTH * 6 + phase)) for x in range(0, WIDTH + 20, 20)]
+        points += [(x, base + amp * math.sin(x / WIDTH * 6 + phase)) for x in range(0, WIDTH + 8, 8)]
         points.append((WIDTH, HEIGHT))
         canvas.polygon(points, colour)
 
@@ -85,9 +85,9 @@ def hills(canvas, rng, a, b):
 def blocks(canvas, rng, a, b):
     x = 0
     while x < WIDTH:
-        w, h = rng.randint(30, 70), rng.uniform(.25, .75) * HEIGHT
+        w, h = rng.randint(60, 140), rng.uniform(.25, .75) * HEIGHT
         canvas.rect(x, HEIGHT - h, w, h, rng.choice((a, b)))
-        x += w + rng.randint(4, 12)
+        x += w + rng.randint(8, 24)
 
 
 def beams(canvas, rng, a, b):
