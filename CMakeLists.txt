@@ -688,3 +688,20 @@ endforeach()
 
 add_test(NAME lint COMMAND ${LUNAR_LINT_CMD} WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 set_tests_properties(lint PROPERTIES LABELS "lint" TIMEOUT 300)
+
+# File transport shares the exact LuaSec transport layout; no media enters Lua.
+add_library(file_stream_static STATIC src/c/libs/file_stream.c)
+target_include_directories(file_stream_static PRIVATE ${LUA_SRC} ${VENDOR} ${LUASEC_SRC} ${LUASEC_OPENSSL_INCLUDE})
+if(WIN32)
+    target_link_libraries(file_stream_static PUBLIC openssl_ssl openssl_crypto ws2_32 mswsock)
+else()
+    target_link_libraries(file_stream_static PUBLIC OpenSSL::SSL OpenSSL::Crypto pthread)
+endif()
+target_link_libraries(LunarCLI PRIVATE file_stream_static)
+if(TARGET Lunar)
+    target_link_libraries(Lunar PRIVATE file_stream_static)
+endif()
+
+
+add_test(NAME native.file_ranges COMMAND $<TARGET_FILE:LunarCLI> ${CMAKE_SOURCE_DIR}/scripts/media_stream_check.lua)
+set_tests_properties(native.file_ranges PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR} TIMEOUT 10)
