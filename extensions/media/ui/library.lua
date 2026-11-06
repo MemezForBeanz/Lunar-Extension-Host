@@ -80,7 +80,7 @@ local function inspector(ctx, cache, art_of, on_play)
 		count = 0, cell_width = INSPECTOR_ART, aspect = "2:3", show_text = false, gutter = 0, padding = 0,
 		value = function() return nil end,
 	})
-	iup.SetAttribute(poster.widget, "RASTERSIZE", L.size(INSPECTOR_ART, INSPECTOR_ART * 3 / 2))
+	iup.SetAttribute(poster.widget, "RASTERSIZE", L.size(INSPECTOR_ART + 12, INSPECTOR_ART * 3 / 2 + 12))
 	iup.SetAttribute(poster.widget, "EXPAND", "NO")
 	iup.SetAttribute(poster.widget, "CANFOCUS", "NO")
 	iup.SetAttribute(poster.widget, "FLATSCROLLBAR", "NO")
