@@ -51,8 +51,9 @@ static char *provider_value(int ref, Ihandle *ih, int row, const char *field)
 static char *row_value_cb(Ihandle *ih, int row, const char *field) { return provider_value(row_callbacks_ref, ih, row, field); }
 static char *grid_value_cb(Ihandle *ih, int cell, const char *field) { return provider_value(grid_callbacks_ref, ih, cell, field); }
 
-/* bits(position, width, height) -> lightuserdata, stride. The pixels stay with the provider
- * and must stay valid until the paint that asked for them returns. */
+/* bits(position, width, height) -> pixels, stride. Pixels are a lightuserdata or an FFI byte
+ * array. They stay with the provider and must stay valid until the paint that asked returns. */
+#define LUA_CDATA_TYPE 10   /* LuaJIT's LUA_TCDATA, which lua.h doesn't name */
 static void *provider_bits(int ref, Ihandle *ih, int pos, int w, int h, int *stride)
 {
     lua_State *L = row_state;
@@ -66,6 +67,9 @@ static void *provider_bits(int ref, Ihandle *ih, int pos, int w, int h, int *str
     if (lua_pcall(L, 3, 2, 0) != 0) { lua_pop(L, 2); return NULL; }
     if (lua_islightuserdata(L, -2)) {
         pixels = lua_touserdata(L, -2);
+        *stride = (int)lua_tointeger(L, -1);
+    } else if (lua_type(L, -2) == LUA_CDATA_TYPE) {
+        pixels = (void *)lua_topointer(L, -2);
         *stride = (int)lua_tointeger(L, -1);
     }
     lua_pop(L, 3);

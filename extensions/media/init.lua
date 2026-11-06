@@ -138,13 +138,17 @@ function M:register(ctx)
 	local function animate(spec) return ctx:animate(spec, self) end
 	self.now_playing = player.new(ctx, { sample = model.films[1], animate = animate, owner = self, demo = true,
 		cache = self.cache, art = art_of(model.films[1]) })
+	local function backdrop_of(item)
+		if not art_dir or not item.art then return nil end
+		return string.format("%s/backdrop-%02d.png", art_dir, item.art)
+	end
 	self.dock = dock.new(ctx, { player = self.now_playing, owner = self, cache = self.cache,
 		open = function() ctx:focusTab(self, NOW_PLAYING_TAB) end,
 		art_path = function() return art_of(model.films[1]) end })
 	self.now_playing.on_change = function() self.dock.refresh() end
 	self.dock.refresh()
 	self.library = library.new(ctx, {
-		model = model, cache = self.cache, art_of = art_of, owner = self,
+		model = model, cache = self.cache, art_of = art_of, backdrop_of = backdrop_of, owner = self,
 		on_play = function(item) self:_play(item) end,
 		enrich = function(item, done) self:_enrich(item, done) end,
 		on_connect = function() ctx:dispatchAddress("lunar://host/settings") end,

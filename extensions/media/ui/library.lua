@@ -9,10 +9,14 @@ local CellGrid = require("core.ui.CellGrid")
 local RowList = require("core.ui.RowList")
 local FlatDropdown = require("core.ui.FlatDropdown")
 local Adaptive = require("core.ui.Adaptive")
+local spotlight = require("ui.spotlight")
+local playback = require("libs.playback")
 
 local M = {}
 
 local CELL = 148           -- the size a cell aims for; columns then share the width exactly
+local WIDE_CELL = 280      -- Continue watching: landscape cards, which also say how long is left
+local SPOTLIGHT_COUNT = 5
 local RING = 6             -- the grid's room for selection rings; text outside grids lines up with it
 local GUTTER = 16
 local SCROLLBAR = 8
@@ -50,12 +54,17 @@ local function subtitle_of(item)
 	return tostring(item.year)
 end
 
-local function cell_value(list)
+local function time_left(item)
+	local minutes = item.minutes or 0
+	return playback.remaining(minutes * 60 * (1 - (item.progress or 0)))
+end
+
+local function cell_value(list, secondary)
 	return function(pos, field)
 		local item = list[pos]
 		if not item then return nil end
 		if field == "TITLE" then return item.title end
-		if field == "SECONDARY" then return subtitle_of(item) end
+		if field == "SECONDARY" then return (secondary or subtitle_of)(item) end
 		if field == "BADGE" then return badge_of(item) end
 		if field == "PROGRESS" then
 			local p = item.progress or 0
@@ -225,7 +234,7 @@ function M.new(ctx, opts)
 	local inspector_body, show_item, inspector_posters = inspector(ctx, cache, art_of, opts.on_play)
 	drains[#drains + 1] = inspector_posters
 
-	local shelves, sheet, ledger
+	local shelves, sheet, ledger, hero
 
 	local function position_in(list, item)
 		for i, candidate in ipairs(list) do
@@ -246,6 +255,7 @@ function M.new(ctx, opts)
 		chosen = item
 		show_item(item)
 		mark_chosen()
+		if source_id == "home" and hero then hero.show(item, true) end
 		if opts.enrich then
 			opts.enrich(item, function()
 				if chosen == item then show_item(item) end
@@ -255,8 +265,10 @@ function M.new(ctx, opts)
 
 	-- `list_of` is a function because the sheet shows whichever list is active.
 	local function grid_for(list_of, extra)
+		local art = extra.art or art_of
 		local grid = CellGrid.new(iup, {
-			count = #list_of(), value = cell_value(list_of()), cell_width = CELL, aspect = "2:3", gutter = GUTTER, padding = 0,
+			count = #list_of(), value = cell_value(list_of(), extra.secondary), cell_width = extra.cell or CELL,
+			aspect = extra.aspect or "2:3", gutter = GUTTER, padding = 0,
 			shelf = extra.shelf, empty_title = extra.empty, empty_hint = extra.hint, role = "flatgrid_plain",
 			on_select = function(pos) choose(list_of()[pos]) end,
 			on_activate = function(pos)
@@ -267,34 +279,46 @@ function M.new(ctx, opts)
 		if cache then
 			drains[#drains + 1] = CellGrid.posters(grid, cache, function(pos)
 				local item = list_of()[pos]
-				return item and art_of(item)
+				return item and art(item)
 			end)
 		end
 		return grid
 	end
 
-	local continue_shelf = grid_for(function() return continuing end, { shelf = true,
+	local function wide_art(item)
+		return opts.backdrop_of and opts.backdrop_of(item) or art_of(item)
+	end
+
+	local continue_shelf = grid_for(function() return continuing end, { shelf = true, cell = WIDE_CELL,
+		aspect = "16:9", art = wide_art, secondary = time_left,
 		empty = "Nothing in progress", hint = "Films you start appear here." })
 	local recent_shelf = grid_for(function() return recent end, { shelf = true,
 		empty = "Nothing here yet", hint = "New films appear here after a scan." })
 	shelves = { { grid = continue_shelf, list = continuing }, { grid = recent_shelf, list = recent } }
-	local function size_shelves(cell)
-		for _, shelf in ipairs(shelves) do
-			iup.SetAttribute(shelf.grid.widget, "RASTERSIZE", "x" .. (math.floor(cell * 3 / 2) + CELL_TEXT + SCROLLBAR))
-		end
+	local function size_shelves(cell, wide)
+		iup.SetAttribute(recent_shelf.widget, "RASTERSIZE", "x" .. (math.floor(cell * 3 / 2) + CELL_TEXT + SCROLLBAR))
+		iup.SetAttribute(continue_shelf.widget, "RASTERSIZE", "x" .. (math.floor(wide * 9 / 16) + CELL_TEXT + SCROLLBAR))
 	end
-	size_shelves(CELL)
+	size_shelves(CELL, WIDE_CELL)
 	for _, shelf in ipairs(shelves) do iup.SetAttribute(shelf.grid.widget, "EXPAND", "HORIZONTAL") end
 
 	local function aligned(widget)
 		return iup.hbox({ widget, MARGIN = RING .. "x0" })
 	end
-	local home = L.stack(iup, {
+	hero = spotlight.new(ctx, { cache = cache, art = wide_art, on_play = opts.on_play,
+		on_info = function(item) api.go("info", item) end })
+	drains[#drains + 1] = hero.tick
+	local home_body = L.stack(iup, {
+		iup.hbox({ hero.widget, MARGIN = RING .. "x0" }),
 		L.stack(iup, { aligned(L.sectionTitle(iup, "Continue watching")), continue_shelf.widget }, 2),
 		L.stack(iup, { aligned(L.sectionTitle(iup, "Recently added")), recent_shelf.widget }, 2),
-		iup.fill({}),
+		iup.fill({ RASTERSIZE = "x" .. GUTTER }),
 	}, 5)
-	iup.SetAttribute(home, "EXPAND", "YES")
+	iup.SetAttribute(home_body, "EXPAND", "HORIZONTAL")
+	-- The frame paints the page colour: labels in a scroll box have no parent colour to take.
+	local home = iup.flatscrollbox({
+		iup.flatframe({ home_body, TITLE = "", THEMEROLE = "settingspanel", MARGIN = "0x0", EXPAND = "HORIZONTAL" }),
+		EXPAND = "YES", SCROLLBAR = "VERTICAL", XHIDDEN = "YES", THEMEROLE = "tabscroll" })
 
 	sheet = grid_for(function() return active end, {})
 	iup.SetAttribute(sheet.widget, "EXPAND", "YES")
@@ -406,6 +430,7 @@ function M.new(ctx, opts)
 			if source.id == id then title = source.title end
 		end
 		iup.SetAttribute(heading, "TITLE", title)
+		if api.fit and api.last_width then api.fit(api.last_width) end
 		iup.SetAttribute(count, "TITLE", id == "home" and "" or plural(#active, "item"))
 		Kit.show(iup, toolbar, id ~= "home", sources.widget)
 		if id ~= "home" then
@@ -430,6 +455,7 @@ function M.new(ctx, opts)
 		MARGIN = "16x0", EXPAND = "YES",
 	})
 
+	local fill_spotlight
 	choose(continuing[1] or model.films[1])
 
 	local function pick_view(name, position)
@@ -438,7 +464,7 @@ function M.new(ctx, opts)
 		sources:select(position)
 	end
 
-	function api.go(state)
+	function api.go(state, item)
 		if state == "home" then
 			sources:select(1)
 			go_source("home")
@@ -447,6 +473,11 @@ function M.new(ctx, opts)
 			go_source("films")
 			choose(active[2])
 			sheet:scrollTo(2)
+		elseif state == "info" then
+			pick_view(view, item.kind == "show" and 3 or 2)
+			go_source(item.kind == "show" and "shows" or "films")
+			choose(item)
+			sheet:scrollTo(position_in(active, item))
 		elseif state == "ledger" then
 			pick_view("ledger", 2)
 			go_source("films")
@@ -459,7 +490,8 @@ function M.new(ctx, opts)
 	end
 
 	function api.fit(width)
-		Kit.show(iup, right, width >= Adaptive.MEDIUM, stack)
+		api.last_width = width
+		Kit.show(iup, right, width >= Adaptive.MEDIUM and source_id ~= "home", stack)
 		Kit.show(iup, source_rail, width >= Adaptive.NARROW, stack)
 	end
 
@@ -470,15 +502,27 @@ function M.new(ctx, opts)
 		if not width or width == last_width or width < CELL then return end
 		last_width = width
 		sheet:setCellWidth(fitted_cell(width - 2 * RING - SCROLLBAR, CELL))
-		local shelf_cell = fitted_cell(width - 2 * RING, CELL)   -- a shelf's bar runs along the bottom
-		for _, shelf in ipairs(shelves) do shelf.grid:setCellWidth(shelf_cell) end
-		size_shelves(shelf_cell)
+		local shelf_cell = fitted_cell(width - 2 * RING - SCROLLBAR, CELL)
+		local wide_cell = fitted_cell(width - 2 * RING - SCROLLBAR, WIDE_CELL)
+		recent_shelf:setCellWidth(shelf_cell)
+		continue_shelf:setCellWidth(wide_cell)
+		size_shelves(shelf_cell, wide_cell)
 		iup.Refresh(api.widget)
 	end
 
 	local function refill(target, source)
 		for i = #target, 1, -1 do target[i] = nil end
 		for i, value in ipairs(source) do target[i] = value end
+	end
+
+	-- New and unwatched first, because the spotlight's job is to offer something, not to repeat
+	-- Continue watching just below it.
+	function fill_spotlight()
+		local picks = {}
+		for _, item in ipairs(recent) do
+			if #picks < SPOTLIGHT_COUNT and (item.progress or 0) == 0 then picks[#picks + 1] = item end
+		end
+		hero.setItems(picks)
 	end
 
 	--- Show another library. Lists are refilled in place, because the grids stay for good.
@@ -489,7 +533,7 @@ function M.new(ctx, opts)
 		refill(continuing, model.continuing or {})
 		refill(recent, model.films)
 		table.sort(recent, SORTS[2][2])
-		continue_shelf:setProvider(#continuing, cell_value(continuing))
+		continue_shelf:setProvider(#continuing, cell_value(continuing, time_left))
 		recent_shelf:setProvider(#recent, cell_value(recent))
 		sources:setProvider(#model.sources, source_value)
 		Kit.setStatus(iup, scanning, "info", model.scanning and ("Scanning " .. model.scanning) or "")
@@ -497,6 +541,7 @@ function M.new(ctx, opts)
 		Kit.show(iup, sample_note, model.sample == true, sources.widget)
 		sources:select(1)
 		go_source("home")
+		fill_spotlight()
 		choose(continuing[1] or recent[1] or shows[1])
 	end
 
@@ -510,6 +555,7 @@ function M.new(ctx, opts)
 	end
 
 	go_source("home")
+	fill_spotlight()
 	return api
 end
 

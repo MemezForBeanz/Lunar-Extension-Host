@@ -97,18 +97,26 @@ def beams(canvas, rng, a, b):
         canvas.polygon([(origin, 0), (x1, HEIGHT), (x1 + rng.uniform(.1, .25) * WIDTH, HEIGHT)], a if i % 2 else b)
 
 
+def draw(path, seed):
+    rng = random.Random(seed)
+    ground, a, b = PALETTES[seed % len(PALETTES)]
+    canvas = Canvas(ground)
+    (rings, hills, blocks, beams)[seed % 4](canvas, rng, a, b)
+    with open(path, "wb") as out:
+        out.write(canvas.png())
+
+
 def main():
+    global WIDTH, HEIGHT
     out_dir = sys.argv[1]
     count = int(sys.argv[2]) if len(sys.argv) > 2 else 32
     os.makedirs(out_dir, exist_ok=True)
     for seed in range(1, count + 1):
-        rng = random.Random(seed)
-        ground, a, b = PALETTES[seed % len(PALETTES)]
-        canvas = Canvas(ground)
-        (rings, hills, blocks, beams)[seed % 4](canvas, rng, a, b)
-        with open(os.path.join(out_dir, f"poster-{seed:02d}.png"), "wb") as out:
-            out.write(canvas.png())
-    print(f"wrote {count} posters to {out_dir}")
+        WIDTH, HEIGHT = 600, 900
+        draw(os.path.join(out_dir, f"poster-{seed:02d}.png"), seed)
+        WIDTH, HEIGHT = 1280, 720
+        draw(os.path.join(out_dir, f"backdrop-{seed:02d}.png"), seed)
+    print(f"wrote {count} posters and backdrops to {out_dir}")
 
 
 if __name__ == "__main__":

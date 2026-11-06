@@ -91,7 +91,8 @@ function M.new(ctx, opts)
 			EXPAND = "HORIZONTAL" }),
 		TITLE = "", THEMEROLE = "settingscard", MARGIN = "0x0", EXPAND = "HORIZONTAL",
 	})
-	api.widget = iup.hbox({ card, MARGIN = "0x4", EXPAND = "HORIZONTAL" })
+	-- The window's frame leaves no room on the right, so the card keeps its own.
+	api.widget = iup.hbox({ card, iup.fill({ RASTERSIZE = "8x" }), MARGIN = "0x4", EXPAND = "HORIZONTAL" })
 
 	local handle = ctx:addDock(api.widget, opts.owner)
 

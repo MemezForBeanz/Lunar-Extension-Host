@@ -124,6 +124,7 @@ function M.new(ctx, opts)
 		if iup.GetAttribute(api.widget, "BGCOLOR") == wanted and iup.GetAttribute(title, "BGCOLOR") == wanted then return end
 		iup.SetAttribute(api.widget, "BGCOLOR", wanted)
 		iup.SetAttribute(api.widget, "FRAMECOLOR", wanted)
+		iup.SetAttribute(api.widget, "BORDERSHEENCOLOR", wanted)
 		for _, widget in ipairs(painted) do iup.SetAttribute(widget, "BGCOLOR", wanted) end
 		for _, dot in ipairs(dot_widgets) do iup.SetAttribute(dot, "BGCOLOR", wanted) end
 		iup.SetAttribute(title, "FGCOLOR", TEXT)
