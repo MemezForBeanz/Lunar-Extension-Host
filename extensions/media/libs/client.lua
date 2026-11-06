@@ -4,6 +4,7 @@
 -- @module libs.client
 
 local cjson = require("cjson")
+local artcache = require("libs.artcache")
 
 local M = {}
 local Client = {}
@@ -76,7 +77,9 @@ function M.modelFrom(libraries, status, continuing)
 	for _, library in ipairs(libraries) do
 		for _, raw in ipairs(library.items or {}) do
 			local item = { id = raw.id, kind = raw.kind, title = raw.title, year = raw.year or 0,
-				added = added_text(raw.added_at), progress = 0, seasons = 0, episodes = 0 }
+				added = added_text(raw.added_at), progress = 0, seasons = 0, episodes = 0,
+				art = artcache.kinds(raw.art) }
+			if type(raw.duration_ms) == "number" then item.minutes = math.floor(raw.duration_ms / 60000) end
 			by_id[item.id] = item
 			if raw.kind == "show" then
 				show_count = show_count + 1
@@ -91,6 +94,9 @@ function M.modelFrom(libraries, status, continuing)
 		local item = by_id[raw.id]
 		if item then
 			item.position_ms = raw.position_ms
+			if type(raw.duration_ms) == "number" and raw.duration_ms > 0 then
+				item.progress = raw.position_ms / raw.duration_ms
+			end
 			model.continuing[#model.continuing + 1] = item
 		end
 	end
@@ -188,6 +194,19 @@ function Client:load(done)
 			end
 			next_library()
 		end)
+	end)
+end
+
+--- Fetch one picture's bytes.
+-- @tparam number id
+-- @tparam string kind `poster` or `backdrop`
+-- @tparam function done `done(bytes)`, nil on failure
+function Client:art(id, kind, done)
+	self.http({
+		url = self:_url("/v1/items/" .. id .. "/art/" .. kind), method = "GET", timeout = 30,
+		headers = { Authorization = "Bearer " .. self.token },
+	}, function(response)
+		done(response and response.ok and response.body or nil)
 	end)
 end
 

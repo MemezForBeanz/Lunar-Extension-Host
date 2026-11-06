@@ -112,6 +112,14 @@ function M.mount(svc)
 		return bad(404, "no such file")
 	end)
 
+	route("GET", "/v1/items/:id/art/:kind", function(req)
+		local kind = req.params.kind
+		if kind ~= "poster" and kind ~= "backdrop" then return bad(404, "no such picture") end
+		local target = catalog:artTarget(id_of(req.params.id) or 0, kind)
+		if not target then return bad(404, "no such picture") end
+		return svc.art_response(target)
+	end)
+
 	local function stream(req)
 		local target = catalog:fileTarget(id_of(req.params.id) or 0)
 		if not target then return bad(404, "no such file") end

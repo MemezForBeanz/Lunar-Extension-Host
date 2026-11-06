@@ -10,6 +10,9 @@ local library = require("ui.library")
 local player = require("ui.player")
 local server = require("ui.server")
 local dock = require("ui.dock")
+local artcache = require("libs.artcache")
+local platform = require("core.platform")
+local lfs = require("lfs")
 
 local M = { name = "media" }
 
@@ -51,6 +54,7 @@ function M:connect()
 	if not address then return end
 	local ctx = self.ctx
 	self.client = Client.new(function(request, done) return ctx:http(request, done, self) end, address, token)
+	self.art_cache = self:_art_cache(address)
 	self.client:load(function(model, why)
 		if not model then
 			self.client = nil
@@ -60,6 +64,27 @@ function M:connect()
 		self.server.setModel(model)
 		self.now_playing.endDemo()
 	end)
+end
+
+-- Art from a server is kept per server, so two servers' item ids never collide.
+function M:_art_cache(address)
+	local dir = platform.path:join(platform.cache_dir(), "media-art")
+	lfs.mkdir(platform.cache_dir())
+	lfs.mkdir(dir)
+	dir = platform.path:join(dir, (address:gsub("%W", "_")))
+	lfs.mkdir(dir)
+	return artcache.new({ dir = dir,
+		fetch = function(id, kind, done) self.client:art(id, kind, done) end,
+		exists = function(path) return lfs.attributes(path, "mode") == "file" end,
+		write = function(path, bytes)
+			local file = io.open(path, "wb")
+			if not file then return false end
+			file:write(bytes)
+			file:close()
+			return true
+		end,
+		on_arrival = function() self.art_arrived = true end,
+	})
 end
 
 function M:_enrich(item, done)
@@ -130,7 +155,9 @@ function M:register(ctx)
 	self.ctx = ctx
 	local model = sample.library()
 	local art_dir = os.getenv("LUNAR_MEDIA_ART")
+	local extension = self
 	local function art_of(item)
+		if extension.art_cache and type(item.art) == "table" then return extension.art_cache:best(item, "poster") end
 		if not art_dir or not item.art then return nil end
 		return string.format("%s/poster-%02d.png", art_dir, item.art)
 	end
@@ -139,6 +166,7 @@ function M:register(ctx)
 	self.now_playing = player.new(ctx, { sample = model.films[1], animate = animate, owner = self, demo = true,
 		cache = self.cache, art = art_of(model.films[1]) })
 	local function backdrop_of(item)
+		if extension.art_cache and type(item.art) == "table" then return extension.art_cache:best(item, "backdrop") end
 		if not art_dir or not item.art then return nil end
 		return string.format("%s/backdrop-%02d.png", art_dir, item.art)
 	end
@@ -170,6 +198,10 @@ function M:register(ctx)
 	self:_settings()
 
 	self.timer = ctx:addTimer({ time = TICK_MS, run = true, action = function()
+		if self.art_arrived then
+			self.art_arrived = false
+			self.library.repaintArt()
+		end
 		self.library.tick()
 		if self.now_playing.tick then self.now_playing.tick() end
 		self.dock.tick()

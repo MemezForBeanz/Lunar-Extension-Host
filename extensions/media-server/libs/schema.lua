@@ -5,7 +5,7 @@
 
 local M = {}
 
-M.VERSION = 1
+M.VERSION = 2
 
 local V1 = {
 	[[CREATE TABLE libraries (
@@ -53,11 +53,34 @@ local V1 = {
 	"CREATE INDEX jobs_ready ON jobs (state, next_run_at, id)",
 }
 
+-- Art a person keeps beside their files is found by the scanner. A frame is taken from the
+-- file for anything without one, and is only ever one row of `art_jobs` at a time.
+local V2 = {
+	[[CREATE TABLE art (
+		work_id INTEGER NOT NULL REFERENCES works(id) ON DELETE CASCADE,
+		kind TEXT NOT NULL CHECK (kind IN ('poster', 'backdrop')),
+		origin TEXT NOT NULL CHECK (origin IN ('library', 'frame')), path TEXT NOT NULL,
+		PRIMARY KEY (work_id, kind)
+	) WITHOUT ROWID]],
+	[[CREATE TABLE art_jobs (
+		work_id INTEGER PRIMARY KEY REFERENCES works(id) ON DELETE CASCADE,
+		file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+		state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN ('queued', 'running', 'failed')),
+		error TEXT
+	)]],
+}
+
 --- Bring a database up to `VERSION`.
 function M.migrate(db)
 	return db:migrate(M.VERSION, function(d, previous)
 		if previous < 1 then
 			for _, statement in ipairs(V1) do
+				local done, why = d:exec(statement)
+				if not done then return nil, why end
+			end
+		end
+		if previous < 2 then
+			for _, statement in ipairs(V2) do
 				local done, why = d:exec(statement)
 				if not done then return nil, why end
 			end

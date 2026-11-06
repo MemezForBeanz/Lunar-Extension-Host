@@ -6,6 +6,7 @@
 local filescan = require("core.lib.filescan")
 local lfs = require("lfs")
 local naming = require("libs.naming")
+local art = require("libs.art")
 
 local Scan = {}
 Scan.__index = Scan
@@ -20,7 +21,7 @@ function M.new(catalog, library, opts)
 	opts = opts or {}
 	return setmetatable({
 		catalog = catalog, library = library, scan = (library.scan_count or 0) + 1,
-		pending = { "" }, files = {}, clock_ms = opts.clock_ms or filescan.now_ms,
+		pending = { "" }, files = {}, folders = {}, clock_ms = opts.clock_ms or filescan.now_ms,
 		list = opts.list or filescan.listDir, attr = opts.attr or lfs.attributes,
 		now = opts.now or os.time, seen = 0, added = 0, done = false,
 	}, Scan)
@@ -43,6 +44,9 @@ function Scan:_walk_one()
 		local name = entry.name
 		if entry.dir then
 			if name:sub(1, 1) ~= "." then self.pending[#self.pending + 1] = join(relative, name) end
+		elseif art.isImage(name) then
+			self.folders[relative] = self.folders[relative] or {}
+			self.folders[relative][name:lower()] = name
 		elseif name:sub(1, 1) ~= "." then
 			self.files[#self.files + 1] = join(relative, name)
 		end
@@ -59,6 +63,11 @@ function Scan:_note(relative)
 	if file_id then
 		self.added = self.added + 1
 		self.catalog:queueProbe(file_id)
+	end
+	local found = art.find(relative, self.folders, parsed.kind == "movie" and "movie" or "show")
+	if next(found) then
+		local work = self.catalog:topWorkOfFile(self.library.id, relative)
+		for kind, path in pairs(found) do self.catalog:saveArt(work, kind, "library", path) end
 	end
 end
 

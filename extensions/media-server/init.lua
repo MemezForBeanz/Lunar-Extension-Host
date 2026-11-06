@@ -12,6 +12,9 @@ local Scanner = require("libs.scanner")
 local Probe = require("libs.probe")
 local api = require("libs.api")
 local schema = require("libs.schema")
+local art = require("libs.art")
+
+local lfs = require("lfs")
 
 local M = { name = "media-server" }
 
@@ -58,6 +61,35 @@ function M:_tick_probes()
 	end
 end
 
+-- One frame at a time: a frame is a nicety, and streams come first.
+function M:_tick_frames()
+	local run = self.frame_run
+	if run then
+		local code = run.process:poll()
+		if code == nil and os.time() - run.started <= art.TIMEOUT_S then return end
+		if code == nil then run.process:kill() end
+		run.process:close()
+		self.frame_run = nil
+		if code == 0 then
+			self.catalog:finishFrame(run.job.work_id, run.name)
+		else
+			self.catalog:failFrame(run.job.work_id, code == nil and "ffmpeg timed out" or ("ffmpeg exited with " .. tostring(code)))
+		end
+		return
+	end
+	if not self.ffmpeg or not self.art_dir or self.ctx:isStopping() then return end
+	local job = self.catalog:claimFrame()
+	if not job then return end
+	local name = job.work_id .. ".jpg"
+	local process, err = self.ctx:spawn({ argv = art.frameArgv(self.ffmpeg, job.root .. "/" .. job.rel_path,
+		self.art_dir .. "/" .. name, art.frameAt(job.duration_ms)) }, self)
+	if process then
+		self.frame_run = { job = job, process = process, name = name, started = os.time() }
+	else
+		self.catalog:failFrame(job.work_id, tostring(err))
+	end
+end
+
 function M:_tick_scans()
 	if not self.scan_run then
 		local library = table.remove(self.scan_queue, 1)
@@ -92,6 +124,17 @@ function M:register(ctx)
 	self.scan_queue, self.probes = {}, {}
 	self.ffprobe = os.getenv("LUNAR_FFPROBE")
 	if self.ffprobe == "" then self.ffprobe = nil end
+	-- ffmpeg lives beside ffprobe unless someone says otherwise.
+	self.ffmpeg = os.getenv("LUNAR_FFMPEG")
+	if (not self.ffmpeg or self.ffmpeg == "") and self.ffprobe then
+		local beside = self.ffprobe:gsub("ffprobe(%.?%w*)$", "ffmpeg%1")
+		if lfs.attributes(beside, "mode") == "file" then self.ffmpeg = beside else self.ffmpeg = nil end
+	end
+	local data_dir = ctx:dataDir(self)
+	if data_dir then
+		self.art_dir = data_dir .. "/art"
+		lfs.mkdir(self.art_dir)
+	end
 	local db, err = ctx:openDatabase("catalog", self)
 	if not db then error("media-server database: " .. tostring(err), 0) end
 	local migrated, why = schema.migrate(db)
@@ -105,6 +148,12 @@ function M:register(ctx)
 		now = os.time,
 		status = function() return extension:_status() end,
 		scan = function(library) extension:_queue_scan(library) end,
+		art_response = function(target)
+			local root = target.origin == "frame" and extension.art_dir or target.root
+			local response, problem = ctx:fileResponse(root, target.path, { mime = art.mime(target.path) }, extension)
+			if not response then return { status = 503, json = { error = tostring(problem) } } end
+			return response
+		end,
 		file_response = function(target)
 			local response, problem = ctx:fileResponse(target.root, target.rel_path,
 				{ mime = mime_of(target.rel_path) }, extension)
@@ -124,6 +173,7 @@ function M:register(ctx)
 			if ctx:isStopping() then return end
 			self:_tick_scans()
 			self:_tick_probes()
+			self:_tick_frames()
 		end }, self)
 		for _, library in ipairs(self.catalog:libraries()) do self:_queue_scan(library) end
 	end, self)
@@ -134,6 +184,10 @@ function M:shutdown()
 	for _, run in ipairs(self.probes or {}) do
 		run.process:kill()
 		run.process:close()
+	end
+	if self.frame_run then
+		self.frame_run.process:kill()
+		self.frame_run.process:close()
 	end
 	if self.catalog then self.catalog:close() end
 end

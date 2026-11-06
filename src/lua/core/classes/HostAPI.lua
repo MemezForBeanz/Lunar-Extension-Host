@@ -189,6 +189,13 @@ end
 -- Returns db or nil,error. name is a simple filename stem, never a path.
 function HostAPI:openDatabase(name, owner) return Database.openDatabase(self, name, owner) end
 
+--- The folder an extension keeps files in, beside its databases. Requires "database".
+-- @tparam table owner owning extension
+-- @treturn[1] string the folder, which exists
+-- @treturn[2] nil
+-- @treturn[2] string why
+function HostAPI:dataDir(owner) return Database.dataDir(self, owner) end
+
 --- Mount an authenticated route under /ext/<manifest-id>. Requires "http".
 -- Returns an opaque handle or nil,error. owner is required.
 function HostAPI:addRoute(method, path, handler, opts, owner)

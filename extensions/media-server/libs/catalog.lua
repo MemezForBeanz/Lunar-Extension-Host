@@ -128,6 +128,61 @@ function Catalog:noteFile(library_id, rel_path, size, mtime, scan, parsed)
 	return self:_one("SELECT id FROM files WHERE library_id = ? AND rel_path = ?", library_id, rel_path).id
 end
 
+--- The work a file belongs to, and the top of its tree: art hangs off the film or the show.
+-- @treturn number|nil the id of the film or show
+function Catalog:topWorkOfFile(library_id, rel_path)
+	local row = self:_one([[SELECT w.id, w.parent_id FROM files f JOIN works w ON w.id = f.work_id
+		WHERE f.library_id = ? AND f.rel_path = ?]], library_id, rel_path)
+	while row and row.parent_id do
+		row = self:_one("SELECT id, parent_id FROM works WHERE id = ?", row.parent_id)
+	end
+	return row and row.id or nil
+end
+
+--- Remember a picture. One a person chose always replaces a generated frame.
+function Catalog:saveArt(work_id, kind, origin, path)
+	self:_rows([[INSERT INTO art (work_id, kind, origin, path) VALUES (?, ?, ?, ?)
+		ON CONFLICT (work_id, kind) DO UPDATE SET origin = excluded.origin, path = excluded.path
+		WHERE art.origin = 'frame' OR excluded.origin = 'library']], work_id, kind, origin, path)
+	if origin == "library" and kind == "backdrop" then self:_rows("DELETE FROM art_jobs WHERE work_id = ?", work_id) end
+end
+
+--- A picture to serve, with the library root or nil for a generated frame.
+function Catalog:artTarget(work_id, kind)
+	return self:_one([[SELECT a.origin, a.path, l.root FROM art a JOIN works w ON w.id = a.work_id
+		JOIN libraries l ON l.id = w.library_id WHERE a.work_id = ? AND a.kind = ?]], work_id, kind)
+end
+
+--- Ask for a frame from this file, unless the work has a backdrop or a job already.
+function Catalog:queueFrame(file_id)
+	self:_rows([[INSERT OR IGNORE INTO art_jobs (work_id, file_id)
+		SELECT top.id, ? FROM (WITH RECURSIVE up(id, parent_id) AS (
+			SELECT w.id, w.parent_id FROM files f JOIN works w ON w.id = f.work_id WHERE f.id = ?
+			UNION ALL SELECT w.id, w.parent_id FROM works w JOIN up ON w.id = up.parent_id)
+			SELECT id FROM up WHERE parent_id IS NULL) top
+		WHERE NOT EXISTS (SELECT 1 FROM art a WHERE a.work_id = top.id AND a.kind = 'backdrop')]], file_id, file_id)
+end
+
+--- Take the next frame job, or nil.
+function Catalog:claimFrame()
+	local job = self:_one([[SELECT j.work_id, j.file_id, f.rel_path, f.duration_ms, l.root FROM art_jobs j
+		JOIN files f ON f.id = j.file_id JOIN libraries l ON l.id = f.library_id
+		WHERE j.state = 'queued' ORDER BY j.work_id LIMIT 1]])
+	if job then self:_rows("UPDATE art_jobs SET state = 'running' WHERE work_id = ?", job.work_id) end
+	return job
+end
+
+--- A frame arrived.
+function Catalog:finishFrame(work_id, path)
+	self:saveArt(work_id, "backdrop", "frame", path)
+	self:_rows("DELETE FROM art_jobs WHERE work_id = ?", work_id)
+end
+
+--- A frame could not be taken. The work keeps its title tile, and the reason stays.
+function Catalog:failFrame(work_id, reason)
+	self:_rows("UPDATE art_jobs SET state = 'failed', error = ? WHERE work_id = ?", reason, work_id)
+end
+
 --- Queue analysis, unless it is already queued.
 function Catalog:queueProbe(file_id)
 	self:_rows("INSERT OR IGNORE INTO jobs (file_id) VALUES (?)", file_id)
@@ -142,10 +197,14 @@ function Catalog:finishScan(library_id, scan, now)
 end
 
 local BROWSE = {
-	title = { [[SELECT id, kind, title, year, sort_key, added_at FROM works
+	title = { [[SELECT id, kind, title, year, sort_key, added_at,
+			(SELECT group_concat(kind) FROM art WHERE work_id = works.id) AS art,
+			(SELECT MAX(duration_ms) FROM files WHERE work_id = works.id) AS duration_ms FROM works
 		WHERE library_id = ? AND kind IN ('movie', 'show') AND (sort_key, id) > (?, ?)
 		ORDER BY sort_key, id LIMIT ?]], "sort_key" },
-	added = { [[SELECT id, kind, title, year, sort_key, added_at FROM works
+	added = { [[SELECT id, kind, title, year, sort_key, added_at,
+			(SELECT group_concat(kind) FROM art WHERE work_id = works.id) AS art,
+			(SELECT MAX(duration_ms) FROM files WHERE work_id = works.id) AS duration_ms FROM works
 		WHERE library_id = ? AND kind IN ('movie', 'show') AND (added_at, id) < (?, ?)
 		ORDER BY added_at DESC, id DESC LIMIT ?]], "added_at" },
 }
@@ -215,7 +274,8 @@ end
 
 --- What this user was in the middle of, newest first.
 function Catalog:continueWatching(user, limit)
-	return self:_rows([[SELECT w.id, w.kind, w.title, w.year, p.position_ms, p.updated_at
+	return self:_rows([[SELECT w.id, w.kind, w.title, w.year, p.position_ms, p.updated_at,
+		(SELECT MAX(duration_ms) FROM files WHERE work_id = w.id) AS duration_ms
 		FROM user_progress p JOIN works w ON w.id = p.work_id
 		WHERE p.user = ? AND p.watched = 0 AND p.position_ms > 0
 		ORDER BY p.updated_at DESC LIMIT ?]], user, math.min(tonumber(limit) or 20, M.PAGE_MAX))
@@ -233,6 +293,7 @@ end
 --- A crash leaves running jobs behind; put them back on start.
 function Catalog:recoverJobs()
 	self:_rows("UPDATE jobs SET state = 'queued' WHERE state = 'running'")
+	self:_rows("UPDATE art_jobs SET state = 'queued' WHERE state = 'running'")
 end
 
 --- Store a finished analysis and clear its job.
@@ -246,6 +307,7 @@ function Catalog:saveProbe(job, info)
 			s.channels, s.width, s.height, s.hdr and 1 or 0, s.is_default and 1 or 0, s.is_forced and 1 or 0)
 	end
 	self:_rows("DELETE FROM jobs WHERE id = ?", job.id)
+	self:queueFrame(job.file_id)
 end
 
 --- Record a failed analysis. It retries with backoff, then stops and shows its reason.

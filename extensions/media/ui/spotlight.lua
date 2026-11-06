@@ -24,7 +24,7 @@ local TEXT = "255 255 255"
 local TEXT_MUTED = "204 204 216"
 
 local function runtime(minutes)
-	if not minutes then return nil end
+	if not minutes or minutes < 1 then return nil end
 	if minutes < 60 then return minutes .. " min" end
 	return string.format("%d h %d min", math.floor(minutes / 60), minutes % 60)
 end
@@ -38,7 +38,8 @@ function M.meta(item)
 	if item.kind == "show" then
 		parts[#parts + 1] = (item.seasons or 0) .. " season" .. (item.seasons == 1 and "" or "s")
 	else
-		parts[#parts + 1] = runtime(item.minutes)
+		local length = runtime(item.minutes)
+		if length then parts[#parts + 1] = length end
 	end
 	parts[#parts + 1] = item.resolution
 	if item.dynamic and item.dynamic ~= "SDR" then parts[#parts + 1] = item.dynamic end
@@ -152,7 +153,7 @@ function M.new(ctx, opts)
 	art.bits = raw_bits and function(pos, w, h)
 		local pixels, stride = raw_bits(pos, w, h)
 		if not pixels then return nil end
-		local key = tostring(current and current.id) .. "@" .. w .. "x" .. h
+		local key = tostring(current and current.id) .. "@" .. w .. "x" .. h .. "@" .. tostring(opts.art(current))
 		if composed.key ~= key then
 			colour = tint.ofPixels(pixels, stride, w, h)
 			composed.buffer = composed.buffer or ffi.new("uint8_t[?]", stride * h)
@@ -194,6 +195,8 @@ function M.new(ctx, opts)
 		mark_dots()
 		art:refreshCell(1)
 	end
+
+	function api.current() return current end
 
 	--- Set the titles the dots step through.
 	function api.setItems(list)

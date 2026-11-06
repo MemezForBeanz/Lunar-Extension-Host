@@ -309,9 +309,10 @@ function M.new(ctx, opts)
 	hero = spotlight.new(ctx, { cache = cache, art = wide_art, on_play = opts.on_play,
 		on_info = function(item) api.go("info", item) end })
 	drains[#drains + 1] = hero.tick
+	local continue_section = L.stack(iup, { aligned(L.sectionTitle(iup, "Continue watching")), continue_shelf.widget }, 2)
 	local home_body = L.stack(iup, {
 		iup.hbox({ hero.widget, MARGIN = RING .. "x0", EXPAND = "HORIZONTAL" }),
-		L.stack(iup, { aligned(L.sectionTitle(iup, "Continue watching")), continue_shelf.widget }, 2),
+		continue_section,
 		L.stack(iup, { aligned(L.sectionTitle(iup, "Recently added")), recent_shelf.widget }, 2),
 		iup.fill({ RASTERSIZE = "x" .. GUTTER }),
 	}, 5)
@@ -539,6 +540,8 @@ function M.new(ctx, opts)
 		table.sort(recent, SORTS[2][2])
 		continue_shelf:setProvider(#continuing, cell_value(continuing, time_left))
 		recent_shelf:setProvider(#recent, cell_value(recent))
+		-- An empty shelf isn't news on a first visit, so it takes no room until there's something.
+		Kit.show(iup, continue_section, #continuing > 0, recent_shelf.widget)
 		sources:setProvider(#model.sources, source_value)
 		Kit.setStatus(iup, scanning, "info", model.scanning and ("Scanning " .. model.scanning) or "")
 		Kit.show(iup, scanning, model.scanning ~= nil, sources.widget)
@@ -547,6 +550,15 @@ function M.new(ctx, opts)
 		go_source("home")
 		fill_spotlight()
 		choose(continuing[1] or recent[1] or shows[1])
+	end
+
+	--- A picture arrived: repaint whatever is showing, and pick the spotlight up too.
+	function api.repaintArt()
+		continue_shelf:setProvider(#continuing, cell_value(continuing, time_left))
+		recent_shelf:setProvider(#recent, cell_value(recent))
+		sheet:setProvider(#active, cell_value(active))
+		if chosen then show_item(chosen) end
+		hero.show(hero.current())
 	end
 
 	function api.first()
