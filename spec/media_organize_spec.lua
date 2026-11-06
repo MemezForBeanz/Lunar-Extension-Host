@@ -97,9 +97,25 @@ describe("the jump bar", function()
 	end)
 end)
 
+describe("describing a collection", function()
+	it("says its rules in a few words", function()
+		assert.equal("2160p · Not SDR", organize.describe({ match = "all", rules = {
+			{ field = "resolution", value = "2160p" }, { field = "dynamic", test = "is_not", value = "SDR" } } }))
+		assert.equal("Up to 120 min · Unwatched", organize.describe({ rules = {
+			{ field = "minutes", test = "at_most", value = 120 }, { field = "watch", value = "unwatched" } } }))
+		assert.equal("1990s or Drama", organize.describe({ match = "any", rules = {
+			{ field = "decade", value = 1990 }, { field = "genre", value = "Drama" } } }))
+	end)
+
+	it("says nothing about a hand-made one", function()
+		assert.equal("", organize.describe(nil))
+	end)
+end)
+
 describe("poster badges", function()
-	it("ticks a watched film, whatever its format", function()
-		assert.equal("\226\156\147", organize.badge({ progress = 1, dynamic = "HDR10" }))
+	it("ticks a watched film and keeps its format", function()
+		assert.equal("\226\156\147 HDR", organize.badge({ progress = 1, dynamic = "HDR10" }))
+		assert.equal("\226\156\147", organize.badge({ progress = 1, dynamic = "SDR", resolution = "1080p" }))
 	end)
 
 	it("shows format otherwise", function()

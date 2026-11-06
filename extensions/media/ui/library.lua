@@ -153,11 +153,20 @@ local function inspector(ctx, cache, art_of, on_play)
 		facts[i] = fact(iup)
 		iup.Append(fact_box, facts[i].row)
 	end
-	local section = L.sectionTitle(iup, "File")
+	local details_open = false
+	local details = iup.flatbutton({ TITLE = "Show file details", THEMEROLE = "link_btn", CANFOCUS = "YES" })
+	function details:flat_action()
+		details_open = not details_open
+		iup.SetAttribute(details, "TITLE", details_open and "Hide file details" or "Show file details")
+		Kit.show(iup, fact_box, details_open, details)
+		iup.Refresh(fact_box)
+		return iup.DEFAULT
+	end
+	Kit.show(iup, fact_box, false)
 
 	local head = iup.hbox({
 		poster.widget,
-		iup.vbox({ iup.fill({}), meta, play, queue, GAP = L.gap(2), MARGIN = "0x" .. RING, EXPAND = "VERTICAL" }),
+		iup.vbox({ meta, iup.fill({}), play, queue, GAP = L.gap(2), MARGIN = "0x" .. RING, EXPAND = "VERTICAL" }),
 		GAP = L.gap(3), MARGIN = "0x0", EXPAND = "HORIZONTAL",
 	})
 	local body = L.stack(iup, {
@@ -165,7 +174,7 @@ local function inspector(ctx, cache, art_of, on_play)
 		head,
 		iup.vbox({
 			L.stack(iup, { overview, tracks }, 4),
-			L.stack(iup, { section, fact_box }, 3),
+			L.stack(iup, { iup.hbox({ details, MARGIN = "0x0" }), fact_box }, 3),
 			GAP = L.gap(6), MARGIN = RING .. "x0", EXPAND = "HORIZONTAL",
 		}),
 	}, 2)
@@ -174,7 +183,7 @@ local function inspector(ctx, cache, art_of, on_play)
 	local function fill(rows)
 		for i, entry in ipairs(facts) do
 			local data = rows[i]
-			Kit.show(iup, entry.row, data ~= nil, section)
+			Kit.show(iup, entry.row, data ~= nil, details)
 			if data then
 				iup.SetAttribute(entry.name, "TITLE", data[1])
 				iup.SetAttribute(entry.value, "TITLE", data[2])
@@ -188,26 +197,24 @@ local function inspector(ctx, cache, art_of, on_play)
 		iup.SetAttribute(title, "TITLE", item.title)
 		iup.SetAttribute(title, "RASTERSIZE", L.size(INSPECTOR_WIDTH - 2 * RING, #item.title > TITLE_LINE and 72 or 36))
 		iup.SetAttribute(overview, "TITLE", item.overview or "")
-		Kit.show(iup, overview, (item.overview or "") ~= "", section)
+		Kit.show(iup, overview, (item.overview or "") ~= "", details)
 		iup.SetAttribute(play, "TITLE", (item.progress or 0) > 0 and item.progress < 1 and "Resume" or "Play")
 		local is_show = item.kind == "show"
 		if is_show then
 			iup.SetAttribute(meta, "TITLE", string.format("%d · %s", item.year, plural(item.seasons or 0, "season")))
-			iup.SetAttribute(section, "TITLE", "Series")
 			fill({ { "Seasons", tostring(item.seasons or 0) }, { "Episodes", tostring(item.episodes or 0) },
 				{ "Resolution", item.resolution or "Mixed" }, { "Added", item.added or "" } })
 		else
 			local length = runtime(item.minutes)
 			iup.SetAttribute(meta, "TITLE", length and (item.year .. " · " .. length) or tostring(item.year))
-			iup.SetAttribute(section, "TITLE", "File")
 			fill({ { "Resolution", item.resolution or UNKNOWN }, { "Video", item.codec or UNKNOWN },
-				{ "Range", item.dynamic or UNKNOWN }, { "Audio", item.audio or UNKNOWN },
+				{ "Range", item.dynamic or UNKNOWN },
 				{ "Bitrate", item.bitrate and string.format("%.1f Mb/s", item.bitrate) or UNKNOWN },
 				{ "Size", size_text(item.size_gb) or UNKNOWN },
 				{ "Added", item.added or UNKNOWN },
 				item.path and { "File", item.path:match("[^/\\]+$") } or nil })
 		end
-		Kit.show(iup, tracks, not is_show, section)
+		Kit.show(iup, tracks, not is_show, details)
 		audio:setItems({ item.audio or "Default" }, 1)
 		local subs = { "Off" }
 		for name in (item.subtitles or ""):gmatch("[^,%s]+") do subs[#subs + 1] = name end
@@ -389,7 +396,7 @@ function M.new(ctx, opts)
 	local jump_slots = {}
 	local jump_box = iup.vbox({ GAP = "0", MARGIN = "0x0", ALIGNMENT = "ACENTER" })
 	for i = 1, JUMP_SLOTS do
-		local slot = iup.flatbutton({ TITLE = "", THEMEROLE = "link_btn", RASTERSIZE = L.size(JUMP_WIDTH, JUMP_ROW), PADDING = "0x0" })
+		local slot = iup.flatbutton({ TITLE = "", THEMEROLE = "settings_nav", RASTERSIZE = L.size(JUMP_WIDTH, JUMP_ROW), PADDING = "0x0" })
 		function slot:flat_action()
 			if jump_slots[i].index then sheet:scrollTo(jump_slots[i].index) end
 			return iup.DEFAULT
@@ -423,11 +430,25 @@ function M.new(ctx, opts)
 		iup.SetAttribute(stack, "VALUEPOS", tostring(index))
 		fill_jump()
 	end
+	local density_box
 	local segmented = RowList.segmented(iup, { labels = { "Grid", "List" }, value_pos = 0,
 		on_change = function(pos)
 			view = pos == 1 and "ledger" or "sheet"
 			apply_view()
+			Kit.show(iup, density_box, view == "sheet", sources_anchor())
+			iup.Refresh(api.widget)
 		end })
+	-- A filter in use looks in use, so the bar says at a glance what is hiding things.
+	local function set_active(state)
+		for field, box in pairs(api.filter_boxes or {}) do
+			local wanted = state[field] ~= nil and "dropbutton" or "dropbutton_quiet"
+			if iup.GetAttribute(box.widget, "THEMEROLE") ~= wanted then
+				iup.SetAttribute(box.widget, "THEMEROLE", wanted)
+				ctx:notifyTreeChange(box.widget)
+			end
+		end
+	end
+
 	-- Filters narrow what the rail chose. `active` is rebuilt, and the grid told, in one place.
 	local function refilter()
 		active = organize.apply(base, organize.rulesFor(filters))
@@ -436,7 +457,10 @@ function M.new(ctx, opts)
 		fill_ledger(active)
 		ledger:setRows(ledger_rows)
 		local total, shown = #base, #active
-		iup.SetAttribute(count, "TITLE", shown == total and plural(total, "item") or (shown .. " of " .. total))
+		local counted = shown == total and plural(total, "item") or (shown .. " of " .. total)
+		local rule = collection and organize.describe(collection.rules) or ""
+		iup.SetAttribute(count, "TITLE", rule ~= "" and (counted .. " · " .. rule) or counted)
+		set_active(filters)
 		apply_view()
 		-- The inspector always describes something on the page.
 		if position_in(active, chosen) == 0 and active[1] then choose(active[1]) else mark_chosen() end
@@ -476,6 +500,8 @@ function M.new(ctx, opts)
 	local decade_box = picker("decade", function() return decade_values end, "Any decade", FILTER_WIDTH)
 	local quality_box = picker("resolution", function() return quality_values end, "Any quality", FILTER_WIDTH)
 
+	api.filter_boxes = { watch = watch_box, genre = genre_box, decade = decade_box, resolution = quality_box }
+
 	local function fill_pickers()
 		local facets = organize.facets(base)
 		local function fill(box, values, all, entries, text)
@@ -506,7 +532,7 @@ function M.new(ctx, opts)
 				opts.on_save_collection({ name = name, icon = "filter", rules = organize.rulesFor(filters) })
 			end
 		end })
-	iup.SetAttribute(save_button, "RASTERSIZE", "x36")
+	iup.SetAttribute(save_button, "RASTERSIZE", "x32")
 
 	local density = SeekBar.new(iup, { max = DENSITY_RANGE, role = "flatseek_plain",
 		on_seek = function(value)
@@ -523,8 +549,9 @@ function M.new(ctx, opts)
 	iup.SetAttribute(density.widget, "THICKNESS", "3")
 	iup.SetAttribute(density.widget, "TIP", "Poster size")
 
+	density_box = iup.hbox({ density.widget, MARGIN = "0x0", ALIGNMENT = "ACENTER" })
 	local filter_bar = iup.hbox({ watch_box.widget, genre_box.widget, decade_box.widget, quality_box.widget,
-		clear_button, iup.fill({}), save_button, density.widget,
+		clear_button, iup.fill({}), save_button, density_box,
 		GAP = L.gap(2), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL", MARGIN = RING .. "x0" })
 
 	-- Icons are asked for at paint time, so they follow the theme instead of the colours that
@@ -555,9 +582,10 @@ function M.new(ctx, opts)
 		if not entry then return nil end
 		if field == "TITLE" then return entry.name end
 		if field == "IMAGE" then return Kit.icon(iup, entry.icon or "bookmark", 16, "text") end
+		if field == "COLUMN1" then return entry.count and tostring(entry.count) or nil end
 	end
 	shelf_list = RowList.new(iup, { value = collection_value, count = #(model.collections or {}), row_height = 32,
-		column_widths = { 8 }, role = "flatrows_plain",
+		column_widths = { 40 }, role = "flatrows_plain",
 		empty_title = "No collections yet", empty_hint = "Filter a library, then save it.",
 		on_select = function(pos)
 			sources:select(0)
@@ -599,6 +627,10 @@ function M.new(ctx, opts)
 			if wanted[item.id] then out[#out + 1] = item end
 		end
 		return out
+	end
+
+	local function count_collections()
+		for _, entry in ipairs(model.collections or {}) do entry.count = #members(entry) end
 	end
 
 	go_source = function(id, entry)
@@ -645,6 +677,7 @@ function M.new(ctx, opts)
 
 	local function pick_view(name, position)
 		view = name
+		shelf_list:select(0)
 		iup.SetAttribute(segmented, "VALUEPOS", name == "ledger" and "1" or "0")
 		sources:select(position)
 	end
@@ -653,6 +686,7 @@ function M.new(ctx, opts)
 		if state == "filtered" then
 			pick_view("sheet", 2)
 			go_source("films")
+			Kit.show(iup, density_box, true, sources_anchor())
 			filters = { watch = "unwatched" }
 			fill_pickers()
 			watch_box:setItems({ "Any status", "Unwatched", "In progress", "Watched" }, 2)
@@ -720,6 +754,7 @@ function M.new(ctx, opts)
 	function api.addCollection(entry)
 		model.collections = model.collections or {}
 		model.collections[#model.collections + 1] = entry
+		entry.count = #members(entry)
 		shelf_list:setProvider(#model.collections, collection_value)
 		shelf_list:select(#model.collections)
 		sources:select(0)
@@ -759,6 +794,8 @@ function M.new(ctx, opts)
 		Kit.show(iup, scanning, model.scanning ~= nil, sources.widget)
 		Kit.show(iup, sample_note, model.sample == true, sources.widget)
 		sources:select(1)
+		count_collections()
+		shelf_list:setProvider(#(model.collections or {}), collection_value)
 		go_source("home")
 		fill_spotlight()
 		choose(continuing[1] or recent[1] or shows[1])
@@ -782,6 +819,8 @@ function M.new(ctx, opts)
 		for _, drain in ipairs(drains) do drain() end
 	end
 
+	count_collections()
+	shelf_list:setProvider(#(model.collections or {}), collection_value)
 	go_source("home")
 	fill_spotlight()
 	return api

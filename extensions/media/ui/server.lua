@@ -93,8 +93,8 @@ function M.new(ctx, opts)
 
 	local libraries = RowList.new(iup, {
 		rows = {
-			{ title = "Films", secondary = "D:/Media/Films", column1 = "24", column2 = "12 min ago" },
-			{ title = "Shows", secondary = "D:/Media/Shows", column1 = "8", column2 = "Now" },
+			{ title = "Films", secondary = "D:/Media/Films", column1 = tostring(#opts.model.films), column2 = "12 min ago" },
+			{ title = "Shows", secondary = "D:/Media/Shows", column1 = tostring(#opts.model.shows), column2 = "Now" },
 		},
 		row_height = ROW, column_widths = { 72, 120 }, role = "flatrows_plain",
 		header = { title = "Library", columns = { "Items", "Last scan" } },

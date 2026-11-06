@@ -10,6 +10,7 @@ M.JUMP_MIN_ITEMS = 75
 M.JUMP_MIN_LETTERS = 5
 
 local OTHER = "#"
+local TICK = "\226\156\147"
 
 local function has_tag(list, value)
 	for _, entry in ipairs(list or {}) do
@@ -194,10 +195,35 @@ function M.badge(item)
 	if item.kind == "show" then
 		return (item.unwatched or 0) > 0 and tostring(item.unwatched) or nil
 	end
-	if M.watchState(item) == "watched" then return "\226\156\147" end
-	if item.dynamic and item.dynamic ~= "SDR" then return item.dynamic == "Dolby Vision" and "DV" or "HDR" end
-	if item.resolution == "2160p" then return "4K" end
-	return nil
+	local format
+	if item.dynamic and item.dynamic ~= "SDR" then format = item.dynamic == "Dolby Vision" and "DV" or "HDR"
+	elseif item.resolution == "2160p" then format = "4K" end
+	if M.watchState(item) == "watched" then
+		return format and (TICK .. " " .. format) or TICK
+	end
+	return format
+end
+
+local WORDS = {
+	watch = { unwatched = "Unwatched", progress = "In progress", watched = "Watched" },
+}
+
+--- A rule set in a few words, for under a collection's title.
+-- @tparam table|nil set
+-- @treturn string
+function M.describe(set)
+	local parts = {}
+	for _, rule in ipairs(set and set.rules or {}) do
+		local value = rule.value
+		local words = WORDS[rule.field] and WORDS[rule.field][value]
+		if rule.field == "decade" then words = value .. "s"
+		elseif rule.field == "minutes" then words = (rule.test == "at_most" and "Up to " or "At least ") .. value .. " min"
+		elseif rule.field == "year" then words = (rule.test == "at_most" and "Up to " or "From ") .. value end
+		words = words or tostring(value)
+		if rule.test == "is_not" then words = "Not " .. words end
+		parts[#parts + 1] = words
+	end
+	return table.concat(parts, set and set.match == "any" and " or " or " · ")
 end
 
 return M
