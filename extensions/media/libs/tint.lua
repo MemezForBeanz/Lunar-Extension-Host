@@ -1,6 +1,7 @@
 --- A surface colour taken from a picture, so a page wears the colours of what is on it.
--- The result is always dark and moderately saturated: white text stays readable on it
--- whatever the art looks like, and loud art can't shout over the rest of the app.
+-- The result is moderately saturated and sits at one lightness whatever the art looks like, so
+-- text stays readable on it and loud art can't shout over the rest of the app. A dark page gets a
+-- dark surface and a light page a pale one: a dark band on a paper-white page reads as harsh.
 -- @module libs.tint
 
 local M = {}
@@ -8,8 +9,15 @@ local M = {}
 local LIGHTNESS = 0.15
 local MIN_SATURATION = 0.28
 local MAX_SATURATION = 0.55
+local LIGHT_LIGHTNESS = 0.9
+local LIGHT_MIN_SATURATION = 0.3
+local LIGHT_MAX_SATURATION = 0.5
 local SAMPLE_STEP = 8     -- pixels between samples; the average barely changes below this
+local LIFT = 34           -- how far a quieter control steps off the surface
+local LIGHT_LIFT = 26
+local LIGHT_TRACK = 0.55  -- a pale surface's seek track, as a share of the surface
 M.FALLBACK = { 34, 30, 52 }
+M.LIGHT_FALLBACK = { 234, 232, 243 }
 
 local function to_hsl(r, g, b)
 	r, g, b = r / 255, g / 255, b / 255
@@ -44,12 +52,17 @@ end
 -- @tparam number r 0 to 255
 -- @tparam number g
 -- @tparam number b
+-- @tparam[opt] boolean light for a light page
 -- @treturn table `{ r, g, b }`
-function M.surface(r, g, b)
+function M.surface(r, g, b, light)
 	local h, s = to_hsl(r, g, b)
-	if s == 0 then return { M.FALLBACK[1], M.FALLBACK[2], M.FALLBACK[3] } end
-	s = math.max(MIN_SATURATION, math.min(MAX_SATURATION, s))
-	local nr, ng, nb = to_rgb(h, s, LIGHTNESS)
+	if s == 0 then
+		local fallback = light and M.LIGHT_FALLBACK or M.FALLBACK
+		return { fallback[1], fallback[2], fallback[3] }
+	end
+	local low, high = MIN_SATURATION, MAX_SATURATION
+	if light then low, high = LIGHT_MIN_SATURATION, LIGHT_MAX_SATURATION end
+	local nr, ng, nb = to_rgb(h, math.max(low, math.min(high, s)), light and LIGHT_LIGHTNESS or LIGHTNESS)
 	return { nr, ng, nb }
 end
 
@@ -58,8 +71,8 @@ end
 -- @tparam number stride bytes per row
 -- @tparam number w
 -- @tparam number h
--- @treturn table `{ r, g, b }` surface
-function M.ofPixels(pixels, stride, w, h)
+-- @treturn table|nil `{ r, g, b }` before it becomes a surface, or nil if the picture has no colour
+function M.average(pixels, stride, w, h)
 	local p = require("ffi").cast("const uint8_t*", pixels)
 	local total_r, total_g, total_b, count = 0, 0, 0, 0
 	for y = 0, h - 1, SAMPLE_STEP do
@@ -76,8 +89,20 @@ function M.ofPixels(pixels, stride, w, h)
 			end
 		end
 	end
-	if count == 0 then return { M.FALLBACK[1], M.FALLBACK[2], M.FALLBACK[3] } end
-	return M.surface(total_r / count, total_g / count, total_b / count)
+	if count == 0 then return nil end
+	return { total_r / count, total_g / count, total_b / count }
+end
+
+--- A surface for a BGRA picture.
+-- @param pixels pointer to 32-bit BGRA rows
+-- @tparam number stride bytes per row
+-- @tparam number w
+-- @tparam number h
+-- @tparam[opt] boolean light for a light page
+-- @treturn table `{ r, g, b }` surface
+function M.ofPixels(pixels, stride, w, h, light)
+	local colour = M.average(pixels, stride, w, h) or { 128, 128, 128 }
+	return M.surface(colour[1], colour[2], colour[3], light)
 end
 
 --- A colour as IUP writes it.
@@ -89,12 +114,42 @@ end
 
 --- A stable colour for something with no art, from its title.
 -- @tparam string title
+-- @tparam[opt] boolean light for a light page
 -- @treturn table `{ r, g, b }` surface
-function M.ofTitle(title)
+function M.ofTitle(title, light)
 	local hash = 0
 	for i = 1, #(title or "") do hash = (hash * 31 + title:byte(i)) % 3600 end
 	local r, g, b = to_rgb(hash / 3600, 0.45, 0.5)
-	return M.surface(r, g, b)
+	return M.surface(r, g, b, light)
+end
+
+--- Is this page colour a light one?
+-- @tparam string|nil colour `R G B`, as a theme palette holds it
+-- @treturn boolean
+function M.isLight(colour)
+	local r, g, b = tostring(colour or ""):match("^%s*(%d+)%s+(%d+)%s+(%d+)")
+	if not r then return false end
+	return 0.2126 * tonumber(r) + 0.7152 * tonumber(g) + 0.0722 * tonumber(b) >= 128
+end
+
+local function step(colour, by)
+	return { math.max(0, math.min(255, colour[1] + by)), math.max(0, math.min(255, colour[2] + by)),
+		math.max(0, math.min(255, colour[3] + by)) }
+end
+
+--- What goes on a surface, each as IUP writes a colour.
+-- @tparam table colour `{ r, g, b }` from `surface`
+-- @tparam[opt] boolean light the surface is a pale one
+-- @treturn table `surface`, `text`, `muted`, `lift` (a quieter control, and a hover), `track` (a seek bar)
+function M.scheme(colour, light)
+	local lift = light and step(colour, -LIGHT_LIFT) or step(colour, LIFT)
+	local track = lift
+	if light then
+		track = { math.floor(colour[1] * LIGHT_TRACK), math.floor(colour[2] * LIGHT_TRACK),
+			math.floor(colour[3] * LIGHT_TRACK) }
+	end
+	return { surface = M.attr(colour), lift = M.attr(lift), track = M.attr(track),
+		text = light and "28 26 36" or "255 255 255", muted = light and "66 64 80" or "204 204 216" }
 end
 
 return M

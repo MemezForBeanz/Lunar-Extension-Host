@@ -7,6 +7,7 @@ local ffi = require("ffi")
 local L = require("core.lib.CarbonLayout")
 local Kit = require("core.ui.Kit")
 local CellGrid = require("core.ui.CellGrid")
+local ThemeReactor = require("core.ui.ThemeReactor")
 local tint = require("libs.tint")
 
 local M = {}
@@ -21,8 +22,6 @@ local EDGE = 0.05             -- the share that softens on the other three sides
 local ROTATE_TICKS = 300      -- about nine seconds of 30 ms ticks
 local DOT = 16
 local TITLE_FONT = "Segoe UI Semibold, 28"
-local TEXT = "255 255 255"
-local TEXT_MUTED = "204 204 216"
 
 local function runtime(minutes)
 	if not minutes or minutes < 1 then return nil end
@@ -85,7 +84,9 @@ function M.new(ctx, opts)
 	local api = {}
 	local items, index, current = {}, 1, nil
 	local ticks, held = 0, false
-	local colour = tint.FALLBACK
+	local light = tint.isLight(ThemeReactor.palette().bg)
+	local base                     -- the art's own colour, kept so a theme change can tint it again
+	local colour = light and tint.LIGHT_FALLBACK or tint.FALLBACK
 	local composed = { key = nil, buffer = nil }
 
 	-- A title page shows the poster whole and sharp; only the wide art on Home dissolves.
@@ -133,25 +134,37 @@ function M.new(ctx, opts)
 
 	local painted = { title, meta, overview, eyebrow, art.widget, dots }
 
+	local function recolour()
+		if base then colour = tint.surface(base[1], base[2], base[3], light)
+		else colour = tint.ofTitle(current and current.title, light) end
+	end
+
 	-- A theme change paints over these, so they are put back on the next tick.
 	local function wear()
-		local wanted = tint.attr(colour)
+		local page_light = tint.isLight(ThemeReactor.palette().bg)
+		if page_light ~= light then
+			light = page_light
+			recolour()
+			composed.key = nil
+			art:refreshCell(1)
+		end
+		local scheme = tint.scheme(colour, light)
+		local wanted = scheme.surface
 		if iup.GetAttribute(api.widget, "BGCOLOR") == wanted and iup.GetAttribute(title, "BGCOLOR") == wanted then return end
 		iup.SetAttribute(api.widget, "BGCOLOR", wanted)
 		iup.SetAttribute(api.widget, "FRAMECOLOR", wanted)
 		iup.SetAttribute(api.widget, "BORDERSHEENCOLOR", wanted)
 		for _, widget in ipairs(painted) do iup.SetAttribute(widget, "BGCOLOR", wanted) end
 		for _, dot in ipairs(dot_widgets) do iup.SetAttribute(dot, "BGCOLOR", wanted) end
-		iup.SetAttribute(title, "FGCOLOR", TEXT)
+		iup.SetAttribute(title, "FGCOLOR", scheme.text)
 		iup.SetAttribute(title, "FONT", TITLE_FONT)
-		iup.SetAttribute(overview, "FGCOLOR", TEXT)
-		iup.SetAttribute(meta, "FGCOLOR", TEXT_MUTED)
-		iup.SetAttribute(eyebrow, "FGCOLOR", TEXT_MUTED)
-		-- The second action stays quieter than Play in either theme: a lift of the same surface.
-		local lift = tint.attr({ math.min(colour[1] + 34, 255), math.min(colour[2] + 34, 255), math.min(colour[3] + 34, 255) })
-		iup.SetAttribute(info, "BGCOLOR", lift)
-		iup.SetAttribute(info, "FGCOLOR", TEXT)
-		iup.SetAttribute(info, "BORDERCOLOR", lift)
+		iup.SetAttribute(overview, "FGCOLOR", scheme.text)
+		iup.SetAttribute(meta, "FGCOLOR", scheme.muted)
+		iup.SetAttribute(eyebrow, "FGCOLOR", scheme.muted)
+		-- The second action stays quieter than Play in either theme: a step off the same surface.
+		iup.SetAttribute(info, "BGCOLOR", scheme.lift)
+		iup.SetAttribute(info, "FGCOLOR", scheme.text)
+		iup.SetAttribute(info, "BORDERCOLOR", scheme.lift)
 		iup.Update(api.widget)
 	end
 
@@ -160,7 +173,8 @@ function M.new(ctx, opts)
 		if not pixels then return nil end
 		local key = tostring(current and current.id) .. "@" .. w .. "x" .. h .. "@" .. tostring(opts.art(current))
 		if composed.key ~= key then
-			colour = tint.ofPixels(pixels, stride, w, h)
+			base = tint.average(pixels, stride, w, h) or { 128, 128, 128 }
+			recolour()
 			composed.buffer = composed.buffer or ffi.new("uint8_t[?]", stride * h)
 			if ffi.sizeof(composed.buffer) < stride * h then composed.buffer = ffi.new("uint8_t[?]", stride * h) end
 			if opts.compact then
@@ -176,7 +190,7 @@ function M.new(ctx, opts)
 
 	local function mark_dots()
 		for i, dot in ipairs(dot_widgets) do
-			Kit.bindIcon(iup, dot, "dot-mark", { size = i == index and 16 or 10, role = "on_accent" })
+			Kit.bindIcon(iup, dot, "dot-mark", { size = i == index and 16 or 10, role = "text" })
 		end
 	end
 
@@ -202,7 +216,8 @@ function M.new(ctx, opts)
 		iup.SetAttribute(play, "TITLE", started and "Resume" or "Play")
 		if opts.secondary then iup.SetAttribute(info, "TITLE", opts.secondary.label(item)) end
 		if not opts.art(item) then
-			colour = tint.ofTitle(item.title)
+			base = nil
+			recolour()
 			wear()
 		end
 		mark_dots()
