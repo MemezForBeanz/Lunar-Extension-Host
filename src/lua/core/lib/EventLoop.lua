@@ -223,14 +223,15 @@ end
 -- then keep pumping jobs and copas until no job is left or `seconds` pass.
 -- Copas tasks alone (an idle HTTP server) don't hold it open.
 -- @tparam number seconds grace period
+-- @tparam[opt] function pending additional native work to drain
 -- @treturn boolean true when every job finished in time
-function M:drain(seconds)
+function M:drain(seconds, pending)
 	for _, t in ipairs(self._timers) do t.running = false end
 	local jobs = self:_jobs_mod()
-	if not jobs then return true end
+	if not jobs and not pending then return true end
 	local deadline = self._now() + math.max(tonumber(seconds) or 0, 0)
 	self._stopped = false
-	while jobs.active() > 0 do
+	while (jobs and jobs.active() > 0) or (pending and pending()) do
 		if self._now() >= deadline then return false end
 		self:turn()
 	end

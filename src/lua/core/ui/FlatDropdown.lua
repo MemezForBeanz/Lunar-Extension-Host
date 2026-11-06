@@ -58,6 +58,7 @@ local handle_seq = 0
 -- @tparam[opt] number opts.width fixed width in pixels
 -- @tparam[opt] boolean opts.expand fill the available width instead
 -- @tparam[opt] string opts.font IUP font for the button and the list
+-- @tparam[opt="dropbutton"] string opts.role the closed control's theme role
 -- @tparam[opt=14] number opts.visible_columns popup width hint, in characters
 -- @tparam[opt=12] number opts.max_lines most rows the open list shows before scrolling
 -- @tparam[opt] string opts.name a stable prefix for the drop child's handle name
@@ -95,7 +96,7 @@ function FlatDropdown.new(iup, opts)
 		TITLE       = self._placeholder,
 		DROPCHILD   = name,
 		FONT        = opts.font,
-		THEMEROLE   = "dropbutton",
+		THEMEROLE   = opts.role or "dropbutton",
 		DROPONARROW = "NO",
 		RASTERSIZE  = opts.width and (tostring(opts.width) .. "x") or nil,
 		EXPAND      = opts.expand and "HORIZONTAL" or nil,

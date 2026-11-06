@@ -68,6 +68,28 @@ end
 -- gets them without restating them.
 -- @tparam table rules the rule table to extend
 -- @tparam table p the palette
+--- Roles for controls that sit straight on a page instead of in a well, and a dropdown
+-- quiet enough to sit beside a primary action.
+function M.addPlainRoles(rules, page)
+    local function derive(name, from, changes)
+        local rule = {}
+        for key, value in pairs(rules[from]) do rule[key] = value end
+        for key, value in pairs(changes) do rule[key] = value end
+        rules[name] = rule
+    end
+    local reading = (rules.flatgrid.font or ""):gsub("%d+%s*$", "11")
+    -- The bar takes the page colour at rest and shows under the pointer.
+    derive("flatgrid_plain", "flatgrid", { bg = page, font = reading, scrollinset = 6, scrollfg = page })
+    derive("flatrows_plain", "flatrows", { bg = page, scrollbg = page, border = page, font = reading,
+        radius = rules.flatrows.radius and 0 or nil })
+    -- Reading text a step above the host's body size, for pages meant to be looked at.
+    rules.reading = { fg = rules.flatgrid.fg, font = reading, padding = "0x0" }
+    rules.reading_muted = { fg = rules.flatgrid.secondary, font = reading, padding = "0x0" }
+    derive("flatseek_plain", "flatseek", { bg = page })
+    local quiet = rules.actionbutton.bg
+    derive("dropbutton_quiet", "dropbutton", { bg = quiet, border = rules.actionbutton.border or quiet })
+end
+
 function M.addShellRoles(rules, p)
     local floor = p.layer02 or p.surface2 or p.surface or p.bg
     local well = p.layer01 or p.surface or p.bg
@@ -331,7 +353,10 @@ function M.build(p)
         },
         flatrows = { bg = p.surface, fg = p.text, secondary = p.textMuted, font = p.font,
             border = p.border, itemradius = 4, itemmarker = p.accent,
-            selbg = p.accent, seltext = p.accentText, hover = p.surface2 },
+            selbg = p.accent, seltext = p.accentText, hover = p.surface2, scrollsize = 8, scrollinset = 2, scrollfg = p.border, scrollhi = p.textMuted, scrollpress = p.accent },
+        flatgrid = { bg = p.surface, fg = p.text, secondary = p.textMuted, font = p.font,
+            itemradius = 4, itemmarker = p.accent, hover = p.border, placeholder = p.surface2, scrollsize = 8, scrollinset = 2, scrollfg = p.border, scrollhi = p.textMuted, scrollpress = p.accent },
+        flatseek = { bg = p.surface, track = p.border, buffer = p.textMuted, played = p.accent, mark = p.textMuted },
         flatsegmented = { bg = p.surface, fg = p.text, font = p.font,
             border = p.border, selbg = p.accent, seltext = p.accentText },
         progressbar   = { bg = p.surface, fg = p.accent, border = p.border },
@@ -347,6 +372,7 @@ function M.build(p)
         rules[role].inactivefg = p.textMuted
     end
     M.addShellRoles(rules, p)
+    M.addPlainRoles(rules, p.surface or p.bg)
     rules.flattabs_sub = rules.flattabs
     local floor = p.layer02 or p.surface2 or p.surface or p.bg
     return require("core.classes.Themes.shell_rules")(rules, p, {

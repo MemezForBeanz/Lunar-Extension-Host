@@ -20,6 +20,10 @@ and scrolling features to IUP's *flat* controls:
 - `ITEMMARKERCOLOR` on `IupFlatList`: Carbon's leading marker on the selected row.
 - `SWITCH` on `IupFlatToggle`: a Carbon toggle switch, with `SWITCHPOS` for animating the knob.
 - `IupFlatRows` and `IupFlatSegmented`: a virtual rich row canvas and a joined option control (patch 0020; Lua via `core.ui.RowList`).
+- `IupFlatGrid`: a virtual cell grid and horizontal shelf that paints only the cells in view (patch 0022; Lua via `core.ui.CellGrid`).
+- `IupFlatSeek`: a seek bar with buffered ranges, marks and hover (patch 0022; Lua via `core.ui.SeekBar`).
+- `iupdrvDrawBits`: raw 32-bit pixels, opaque or premultiplied, for art that must not become an `IupImage` per cell. `iupdrvPostRedrawRect` repaints part of a control (patch 0022).
+- `IupVideoHost`: a native child window for a video output to draw into (patch 0029, droppable; Lua via `core.ui.VideoHost`).
 
 Patch 0005 also fixes behaviour rather than adding to it: GDI+ drawing is aligned to pixel
 centres (the bottom of rounded buttons was being cut off), a disabled control fades toward
@@ -106,6 +110,16 @@ overlays your working tree, and writes the diff. It refuses to emit an empty pat
 normalizes line endings to LF, and **verifies the result applies to a clean extract**
 before overwriting anything. If the series ever has more than one patch it will not
 collapse them without an explicit `-Collapse`.
+
+To add or refresh one patch of the series, use `-Incremental`:
+
+```powershell
+scripts\regen-iup-patch.ps1 -PatchName 0022-my-change.patch -Incremental
+```
+
+Its baseline is every patch before that name, and any patch after it is backed out of the
+overlay, so the file holds only its own changes. A patch meant to be droppable takes the
+last number in the series, so no other patch can depend on its context.
 
 ### Line endings
 

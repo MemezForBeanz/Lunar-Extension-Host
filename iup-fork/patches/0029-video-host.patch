@@ -1,0 +1,110 @@
+diff --git a/include/iup.h b/include/iup.h
+index 8a8b6d1..2fc7fe9 100644
+--- a/include/iup.h
++++ b/include/iup.h
+@@ -254,6 +254,7 @@ IUP_API Ihandle*  IupList       (const char* action);
+ IUP_API Ihandle*  IupFlatList   (void);
+ IUP_API Ihandle*  IupFlatRows   (void);
+ IUP_API Ihandle*  IupFlatSegmented(void);
++IUP_API Ihandle*  IupVideoHost  (void);
+ IUP_API Ihandle*  IupText       (const char* action);
+ IUP_API Ihandle*  IupMultiLine  (const char* action);
+ IUP_API Ihandle*  IupToggle     (const char* title, const char* action);
+diff --git a/src/iup_register.c b/src/iup_register.c
+index 70fc196..2a96131 100644
+--- a/src/iup_register.c
++++ b/src/iup_register.c
+@@ -174,6 +174,7 @@ void iupRegisterInternalClasses(void)
+   iupRegisterClassInternal(iupFlatListNewClass());
+   iupRegisterClassInternal(iupFlatRowsNewClass());
+   iupRegisterClassInternal(iupFlatSegmentedNewClass());
++  iupRegisterClassInternal(iupVideoHostNewClass());
+   iupRegisterClassInternal(iupFlatValNewClass());
+   iupRegisterClassInternal(iupFlatTreeNewClass());
+ }
+diff --git a/src/iup_stdcontrols.h b/src/iup_stdcontrols.h
+index 23222c1..0e01c79 100644
+--- a/src/iup_stdcontrols.h
++++ b/src/iup_stdcontrols.h
+@@ -77,6 +77,7 @@ Iclass* iupMultiBoxNewClass(void);
+ Iclass* iupFlatListNewClass(void);
+ Iclass* iupFlatRowsNewClass(void);
+ Iclass* iupFlatSegmentedNewClass(void);
++Iclass* iupVideoHostNewClass(void);
+ Iclass* iupFlatValNewClass(void);
+ Iclass* iupFlatTreeNewClass(void);
+ 
+diff --git a/src/iup_videohost.c b/src/iup_videohost.c
+new file mode 100644
+index 0000000..5521242
+--- /dev/null
++++ b/src/iup_videohost.c
+@@ -0,0 +1,68 @@
++/* Lunar native child window for a video output. The output creates its own child window
++   inside this one and presents there, so this window only ever paints its background. */
++#ifdef WIN32
++#include <windows.h>
++#endif
++#include <stdlib.h>
++#include <stdio.h>
++#include "iup.h"
++#include "iupcbs.h"
++#include "iup_object.h"
++#include "iup_attrib.h"
++#include "iup_str.h"
++#include "iup_drv.h"
++#include "iup_stdcontrols.h"
++#include "iup_register.h"
++#include "iup_drvdraw.h"
++#include "iup_draw.h"
++
++static int vh_redraw(Ihandle* ih)
++{
++  IdrawCanvas* dc = iupdrvDrawCreateCanvas(ih);
++  int w, h;
++  iupdrvDrawGetSize(dc, &w, &h);
++  iupdrvDrawRectangle(dc, 0, 0, w-1, h-1,
++    iupDrawStrToColor(IupGetAttribute(ih, "BGCOLOR"), iupDrawColor(0,0,0,255)), IUP_DRAW_FILL, 1);
++  iupdrvDrawFlush(dc); iupdrvDrawKillCanvas(dc);
++  return IUP_DEFAULT;
++}
++static char* vh_get_windowid(Ihandle* ih)
++{
++  if (!ih->handle) return NULL;
++#ifdef WIN32
++  return iupStrReturnStrf("%lld", (long long)(intptr_t)ih->handle);
++#else
++  { char* xid = IupGetAttribute(ih, "XWINDOW");
++    return xid ? iupStrReturnStrf("%lld", (long long)(intptr_t)xid) : NULL; }
++#endif
++}
++static int vh_map(Ihandle* ih)
++{
++#ifdef WIN32
++  /* Painting this window must not draw over the output's child. */
++  SetWindowLongPtr((HWND)ih->handle, GWL_STYLE, GetWindowLongPtr((HWND)ih->handle, GWL_STYLE) | WS_CLIPCHILDREN);
++#else
++  (void)ih;
++#endif
++  return IUP_NOERROR;
++}
++static void vh_size(Ihandle* ih, int* w, int* h, int* expand) { *w = 320; *h = 180; (void)ih; (void)expand; }
++static int vh_create(Ihandle* ih, void** params)
++{
++  (void)params;
++  IupSetAttribute(ih, "EXPAND", "YES");
++  IupSetCallback(ih, "ACTION", (Icallback)vh_redraw);
++  return IUP_NOERROR;
++}
++IUP_API Ihandle* IupVideoHost(void) { return IupCreate("videohost"); }
++Iclass* iupVideoHostNewClass(void)
++{
++  Iclass* ic = iupClassNew(iupRegisterFindClass("canvas"));
++  ic->name = "videohost"; ic->cons = "VideoHost"; ic->nativetype = IUP_TYPECANVAS;
++  ic->childtype = IUP_CHILDNONE; ic->is_interactive = 1;
++  ic->New = iupVideoHostNewClass; ic->Create = vh_create; ic->Map = vh_map; ic->ComputeNaturalSize = vh_size;
++  iupClassRegisterReplaceAttribDef(ic, "BORDER", "NO", NULL);
++  iupClassRegisterAttribute(ic, "BGCOLOR", NULL, NULL, "0 0 0", NULL, IUPAF_DEFAULT);
++  iupClassRegisterAttribute(ic, "WINDOWID", vh_get_windowid, NULL, NULL, NULL, IUPAF_READONLY|IUPAF_NO_INHERIT);
++  return ic;
++}

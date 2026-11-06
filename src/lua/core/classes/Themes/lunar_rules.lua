@@ -385,6 +385,9 @@ function M.build(p)
         flatrows = scroll({ bg = well, fg = p.text, secondary = p.textMuted, font = p.font,
             border = border, radius = RF, itemradius = R, itemmarker = p.accent,
             selbg = chosen, seltext = p.text, hover = hover, scrollbg = well }),
+        flatgrid = scroll({ bg = well, fg = p.text, secondary = p.textMuted, font = p.font,
+            itemradius = R, itemmarker = p.accentBright or p.accent, hover = borderS, placeholder = layer1 }),
+        flatseek = { bg = well, track = borderS, buffer = p.textMuted, played = p.accentBright or p.accent, mark = p.textMuted },
         flatsegmented = { bg = layer1, fg = p.textMuted, font = p.font,
             border = border, radius = R, selbg = chosen, seltext = p.text },
         -- A field edge in focus. core.ui.FlatField swaps its frame to this role.
@@ -420,6 +423,7 @@ function M.build(p)
     rules.list_mono = {}
     for key, value in pairs(rules.list_bordered) do rules.list_mono[key] = value end
     rules.list_mono.font = "Consolas, 9"
+    require("core.classes.Themes.fluent_rules").addPlainRoles(rules, p.surface or p.bg)
     for _, role in ipairs({ "flatbutton", "primary_btn", "actionbutton", "ghost_btn",
                             "danger_btn", "danger_solid", "warning_btn", "info_btn", "link_btn", "icon_btn" }) do
         rules[role].inactivebg = elevated
