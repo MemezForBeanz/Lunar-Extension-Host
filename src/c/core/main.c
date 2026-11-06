@@ -12,6 +12,7 @@ int luaopen_lfs(lua_State *L);
 int luaopen_cjson(lua_State *L);
 int luaopen_socket_core(lua_State *L);
 int luaopen_mime_core(lua_State *L);
+int luaopen_file_stream(lua_State *L);
 int luaopen_logscan(lua_State *L);
 int luaopen_compositor(lua_State *L);
 int luaopen_iupraw(lua_State *L);
@@ -130,6 +131,7 @@ int main(int argc, char **argv)
     preload(L, "socket.core",  luaopen_socket_core);
     preload(L, "mime.core",    luaopen_mime_core);
     host_preload_modules(L, preload);
+    preload(L, "file_stream", luaopen_file_stream);
     preload(L, "logscan",      luaopen_logscan);
     preload(L, "compositor",   luaopen_compositor);
     preload(L, "iupraw",       luaopen_iupraw);
