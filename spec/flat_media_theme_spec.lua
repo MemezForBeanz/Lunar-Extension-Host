@@ -36,6 +36,13 @@ for name, builder in pairs({ carbon = carbon, fluent = fluent, lunar = lunar }) 
 			end
 		end)
 
+		it("keep a chosen row apart from a row under the pointer", function()
+			local rule = { selbg = "1 2 3", hover = "4 5 6", seltext = "7 8 9", bg = "0 0 0" }
+			local attrs = ThemeManager._attrsFromRule({}, "flatrows", rule)
+			assert.equal("1 2 3", attrs.PSCOLOR)
+			assert.equal("4 5 6", attrs.HLCOLOR)
+		end)
+
 		it("give the seek bar every colour it paints with", function()
 			local attrs = ThemeManager._attrsFromRule({}, "flatseek", rules.flatseek)
 			for _, attr in ipairs({ "BGCOLOR", "TRACKCOLOR", "BUFFERCOLOR", "PSCOLOR", "MARKCOLOR" }) do
