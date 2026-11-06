@@ -13,10 +13,20 @@ local ROW = 52
 local HEADER = 32
 local ROW_INSET = 12       -- where rows start their text; everything on the page shares that edge
 
+local function grouped(value)
+	local text = tostring(value)
+	while true do
+		local next_text, changed = text:gsub("^(%d+)(%d%d%d)", "%1,%2")
+		text = next_text
+		if changed == 0 then return text end
+	end
+end
+
 local function metric(iup, label)
 	local number = iup.flatlabel({ TITLE = "0", THEMEROLE = "pagetitle" })
-	local box = iup.vbox({ number, L.hint(iup, label), GAP = L.gap(1), MARGIN = "0x0" })
-	return box, function(value) iup.SetAttribute(number, "TITLE", tostring(value)) end
+	local caption = iup.flatlabel({ TITLE = label, THEMEROLE = "reading_muted" })
+	local box = iup.vbox({ number, caption, GAP = L.gap(1), MARGIN = "0x0", EXPAND = "HORIZONTAL" })
+	return box, function(value) iup.SetAttribute(number, "TITLE", grouped(value)) end
 end
 
 local function sized(widget, rows, iup)
@@ -39,6 +49,7 @@ function M.new(ctx, opts)
 	local failed_box, set_failed = metric(iup, "Failed")
 	local metrics = iup.hbox({ failed_box, missing_box, playing_box, analysing_box, files_box,
 		GAP = L.gap(7), MARGIN = ROW_INSET .. "x0", HOMOGENEOUS = "YES", EXPAND = "HORIZONTAL" })
+	iup.SetAttribute(metrics, "NORMALIZESIZE", "NONE")
 	local function show_counts(data)
 		set_playing(#data.sessions)
 		set_files(data.files)
@@ -85,7 +96,7 @@ function M.new(ctx, opts)
 			{ title = "Films", secondary = "D:/Media/Films", column1 = "24", column2 = "12 min ago" },
 			{ title = "Shows", secondary = "D:/Media/Shows", column1 = "8", column2 = "Now" },
 		},
-		row_height = ROW, column_widths = { 88, 136 }, role = "flatrows_plain",
+		row_height = ROW, column_widths = { 72, 120 }, role = "flatrows_plain",
 		header = { title = "Library", columns = { "Items", "Last scan" } },
 		empty_title = "No libraries yet", empty_hint = "Add a folder to start your library.",
 	})

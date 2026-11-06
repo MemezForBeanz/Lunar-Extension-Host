@@ -21,6 +21,7 @@ local UNKNOWN = "Not analysed"
 local INSPECTOR_ART = 132
 local HEAD_TEXT = 162      -- what is left beside the poster in the inspector
 local LABEL_WIDTH = 138    -- values and controls start under the actions, not at their own edge
+local VALUE_WIDTH = 168    -- fixed, so a long file name can't push the whole inspector
 local ACTION_HEIGHT = 36
 local TITLE_LINE = 22      -- characters of page title that fit on one line across the rail
 local SOURCE_WIDTH = 184
@@ -85,7 +86,8 @@ end
 local function fact(iup)
 	local name = muted(iup, "")
 	iup.SetAttribute(name, "RASTERSIZE", LABEL_WIDTH .. "x")
-	local value = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL" })
+	local value = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted", RASTERSIZE = VALUE_WIDTH .. "x",
+		TEXTELLIPSIS = "YES" })
 	return { row = iup.hbox({ name, value, GAP = L.gap(3), ALIGNMENT = "ACENTER" }), name = name, value = value }
 end
 
@@ -127,17 +129,15 @@ local function inspector(ctx, cache, art_of, on_play)
 
 	local facts = {}
 	local fact_box = iup.vbox({ GAP = L.gap(2), MARGIN = "0x0", EXPAND = "HORIZONTAL" })
-	for i = 1, 7 do
+	for i = 1, 8 do
 		facts[i] = fact(iup)
 		iup.Append(fact_box, facts[i].row)
 	end
 	local section = L.sectionTitle(iup, "File")
-	local path = muted(iup, "")
-	iup.SetAttribute(path, "RASTERSIZE", L.size(INSPECTOR_WIDTH - 2 * RING))
 
 	local head = iup.hbox({
 		poster.widget,
-		iup.vbox({ meta, iup.fill({}), play, queue, GAP = L.gap(2), MARGIN = "0x" .. RING, EXPAND = "VERTICAL" }),
+		iup.vbox({ iup.fill({}), meta, play, queue, GAP = L.gap(2), MARGIN = "0x" .. RING, EXPAND = "VERTICAL" }),
 		GAP = L.gap(3), MARGIN = "0x0", EXPAND = "HORIZONTAL",
 	})
 	local body = L.stack(iup, {
@@ -145,7 +145,7 @@ local function inspector(ctx, cache, art_of, on_play)
 		head,
 		iup.vbox({
 			L.stack(iup, { overview, tracks }, 4),
-			L.stack(iup, { section, fact_box, path }, 3),
+			L.stack(iup, { section, fact_box }, 3),
 			GAP = L.gap(6), MARGIN = RING .. "x0", EXPAND = "HORIZONTAL",
 		}),
 	}, 2)
@@ -183,9 +183,9 @@ local function inspector(ctx, cache, art_of, on_play)
 				{ "Range", item.dynamic or UNKNOWN }, { "Audio", item.audio or UNKNOWN },
 				{ "Bitrate", item.bitrate and string.format("%.1f Mb/s", item.bitrate) or UNKNOWN },
 				{ "Size", item.size_gb and string.format("%.1f GB", item.size_gb) or UNKNOWN },
-				{ "Added", item.added or UNKNOWN } })
+				{ "Added", item.added or UNKNOWN },
+				item.path and { "File", item.path:match("[^/\\]+$") } or nil })
 		end
-		iup.SetAttribute(path, "TITLE", item.path or "")
 		Kit.show(iup, tracks, not is_show, section)
 		audio:setItems({ item.audio or "Default" }, 1)
 		local subs = { "Off" }
