@@ -359,6 +359,11 @@ do
 	drain()
 end
 
+-- Posters cut by the top edge land at a negative y, which is where a blit would go wrong.
+iup.SetAttribute(grid.widget, "POSY", "137")
+iup.Redraw(grid.widget, 0)
+pump(30)
+shot(dlg, "grid-scrolled")
 iup.SetAttribute(grid.widget, "POSY", "0")
 iup.Redraw(grid.widget, 0)
 pump(30)
@@ -425,10 +430,29 @@ do
 	pump(30)
 	report("three moves in one cell cost one cell", bit_calls <= 2, bit_calls)
 	report("leaving clears the hover", iup.GetAttribute(grid.widget, "HOVER") == "0", iup.GetAttribute(grid.widget, "HOVER"))
+	-- The wheel moves the list under a pointer that sent no motion. Here the real pointer is
+	-- not on this window, so the hover must clear rather than stay on a cell that left.
+	user32.PostMessageA(hwnd(grid.widget), WM.MOUSEMOVE, 0, point(30, 30))
+	user32.PostMessageA(hwnd(grid.widget), WM.MOUSEWHEEL, 0xFF880000, point(30, 30))
+	iup.LoopStep(); iup.LoopStep()
+	report("the wheel moves the hover with the list", iup.GetAttribute(grid.widget, "HOVER") == "0", iup.GetAttribute(grid.widget, "HOVER"))
+	iup.SetAttribute(grid.widget, "POSY", "0")
+	iup.Redraw(grid.widget, 0)
+	pump(30)
 	bit_calls = 0
 	grid:refreshCell(1)
 	pump(20)
 	report("refreshCell repaints that cell", bit_calls >= 1 and bit_calls <= 4, bit_calls)
+end
+do
+	-- The rings, posters behind them.
+	post(grid.widget, WM.LBUTTONDOWN, 1, point(250, 60))
+	post(grid.widget, WM.LBUTTONUP, 0, point(250, 60))
+	user32.PostMessageA(hwnd(grid.widget), WM.MOUSEMOVE, 0, point(430, 60))
+	iup.LoopStep()
+	iup.Redraw(grid.widget, 0)
+	shot(dlg, "grid-rings")
+	pump(30)
 end
 do
 	-- Type-ahead, against a list with real titles.
@@ -467,6 +491,12 @@ do
 	many:select(3)
 	report("select replaces the selection", many:selection()[1] == 3 and #many:selection() == 1)
 	report("a mask becomes positions", CellGrid.parseMask("-+-+")[2] == 4)
+	many:setProvider(COUNT, function(pos, field) return field == "TITLE" and ("Item " .. pos) or nil end)
+	many:select(COUNT - 1)
+	report("a selection mask covers a hundred thousand cells", #(iup.GetAttribute(many.widget, "SELECTIONMASK") or "") == COUNT and many:selection()[1] == COUNT - 1,
+		#(iup.GetAttribute(many.widget, "SELECTIONMASK") or ""))
+	many:setProvider(50, function(pos, field) return field == "TITLE" and ("Item " .. pos) or nil end)
+	many:select(3)
 	local half = iup.GetAttribute(many.widget, "SELECTEDCOUNT")
 	report("the count is reported", half == "1", half)
 	shot(box, "grid-multi")

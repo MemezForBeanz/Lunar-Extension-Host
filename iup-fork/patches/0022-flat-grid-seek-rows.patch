@@ -83,10 +83,10 @@ index 40f87b8..c05e64c 100644
   * \ingroup drvdraw */
 diff --git a/src/iup_flatgrid.c b/src/iup_flatgrid.c
 new file mode 100644
-index 0000000..06a9780
+index 0000000..f29efb5
 --- /dev/null
 +++ b/src/iup_flatgrid.c
-@@ -0,0 +1,792 @@
+@@ -0,0 +1,805 @@
 +/* Lunar virtual cell grid: only the cells in view are queried and painted.
 +   Cells sit on lanes across the scroll direction and lines along it, so a vertical grid and a
 +   horizontal shelf are the same arithmetic. The pixels of an image stay with the provider. */
@@ -412,9 +412,11 @@ index 0000000..06a9780
 +{
 +  struct _IcontrolData* d = ih->data;
 +  IdrawCanvas* dc = iupdrvDrawCreateCanvas(ih);
-+  int w, h, cx = 0, cy = 0, cw, ch, scroll, extent, line, lastline, lane;
++  int w, h, cx = 0, cy = 0, cw, ch, scroll, extent, line, lastline, lane, charh;
 +  char* clip = iupAttribGet(ih, "CLIPRECT");
 +  GridPaint p;
++  iupdrvFontGetCharSize(ih, NULL, &charh);
++  if (charh != d->charh) grid_refresh(ih);  /* a theme changed the font: the text lines changed height */
 +  iupdrvDrawGetSize(dc, &w, &h);
 +  cw = w; ch = h;
 +  if (clip) sscanf(clip, "%d %d %d %d", &cx, &cy, &cw, &ch);
@@ -682,6 +684,7 @@ index 0000000..06a9780
 +  grid_touch(ih, ih->data->cursor);
 +  return IUP_DEFAULT;
 +}
++static void grid_rehover(Ihandle* ih);
 +static int grid_wheel(Ihandle* ih, float delta)
 +{
 +  struct _IcontrolData* d = ih->data;
@@ -689,15 +692,25 @@ index 0000000..06a9780
 +  {
 +    int next = grid_scroll(ih) - (int)(delta * (d->pitch / 3));
 +    grid_set_scroll(ih, grid_max(grid_min(next, grid_total(ih) - grid_extent(ih)), 0));
++    grid_rehover(ih);
 +    iupdrvRedrawNow(ih);
 +  }
 +  else
 +    iupFlatScrollBarWheelUpdate(ih, delta);
 +  return IUP_DEFAULT;
 +}
++/* The list moved under a still pointer, and no motion event will say so. */
++static void grid_rehover(Ihandle* ih)
++{
++  int x, y;
++  iupdrvGetCursorPos(&x, &y);
++  iupdrvScreenToClient(ih, &x, &y);
++  ih->data->hover = x >= 0 && y >= 0 && x < ih->currentwidth && y < ih->currentheight ? grid_hit(ih, x, y) : 0;
++}
 +static int grid_scrolled(Ihandle* ih, int op, float posx, float posy)
 +{
 +  (void)op; (void)posx; (void)posy;
++  grid_rehover(ih);
 +  iupdrvRedrawNow(ih);
 +  return IUP_DEFAULT;
 +}
@@ -880,7 +893,7 @@ index 0000000..06a9780
 +  return ic;
 +}
 diff --git a/src/iup_flatrows.c b/src/iup_flatrows.c
-index 63e8f56..84a366c 100644
+index 63e8f56..477f73c 100644
 --- a/src/iup_flatrows.c
 +++ b/src/iup_flatrows.c
 @@ -15,10 +15,43 @@
@@ -1211,7 +1224,27 @@ index 63e8f56..84a366c 100644
  static int rows_enter(Ihandle* ih)
  {
    typedef int (*RowCb)(Ihandle*, int, const char*);
-@@ -207,11 +347,12 @@ static int rows_set_scrollbar(Ihandle* ih, const char* value)
+@@ -197,7 +337,18 @@ static int rows_enter(Ihandle* ih)
+   return IUP_IGNORE;
+ }
+ static int rows_wheel(Ihandle* ih, float delta) { iupFlatScrollBarWheelUpdate(ih,delta); return IUP_DEFAULT; }
+-static int rows_scroll(Ihandle* ih, int op, float posx, float posy) { (void)op; (void)posx; (void)posy; iupdrvRedrawNow(ih); return IUP_DEFAULT; }
++static int rows_scroll(Ihandle* ih, int op, float posx, float posy)
++{
++  /* The rows moved under a still pointer, and no motion event will say so. */
++  int x, y, header = rows_header(ih), pos;
++  (void)op; (void)posx; (void)posy;
++  iupdrvGetCursorPos(&x, &y);
++  iupdrvScreenToClient(ih, &x, &y);
++  pos = (y-header+IupGetInt(ih,"POSY"))/rows_height(ih)+1;
++  ih->data->hover = x >= 0 && x < ih->currentwidth && y >= header && y < ih->currentheight && pos <= ih->data->count ? pos : 0;
++  iupdrvRedrawNow(ih);
++  return IUP_DEFAULT;
++}
+ static int rows_resize(Ihandle* ih, int w, int h) { (void)w; (void)h; rows_refresh(ih); return IUP_DEFAULT; }
+ static int rows_set_scrollbar(Ihandle* ih, const char* value)
+ {
+@@ -207,11 +358,12 @@ static int rows_set_scrollbar(Ihandle* ih, const char* value)
    return 1;
  }
  static int rows_post_redraw(Ihandle* ih, const char* value) { if (ih->handle) iupdrvRedrawNow(ih); return 1; }
@@ -1227,7 +1260,7 @@ index 63e8f56..84a366c 100644
    return 1;
  }
  static void rows_size(Ihandle* ih, int* w, int* h, int* expand) { *w=240; *h=rows_height(ih)*5; (void)expand; }
-@@ -225,6 +366,7 @@ static int rows_create(Ihandle* ih, void** params)
+@@ -225,6 +377,7 @@ static int rows_create(Ihandle* ih, void** params)
    IupSetCallback(ih,"ACTION",(Icallback)rows_redraw);
    IupSetCallback(ih,"BUTTON_CB",(Icallback)rows_button);
    IupSetCallback(ih,"MOTION_CB",(Icallback)rows_motion);
@@ -1235,7 +1268,7 @@ index 63e8f56..84a366c 100644
    IupSetCallback(ih,"FOCUS_CB",(Icallback)rows_focus);
    IupSetCallback(ih,"RESIZE_CB",(Icallback)rows_resize);
    IupSetCallback(ih,"SCROLL_CB",(Icallback)rows_scroll);
-@@ -249,6 +391,8 @@ Iclass* iupFlatRowsNewClass(void)
+@@ -249,6 +402,8 @@ Iclass* iupFlatRowsNewClass(void)
    iupClassRegisterCallback(ic,"ROW_ACTIVATE_CB","is");
    iupClassRegisterCallback(ic,"ROW_CONTEXT_CB","is");
    iupClassRegisterCallback(ic,"VALUECHANGED_CB","");
@@ -1244,7 +1277,7 @@ index 63e8f56..84a366c 100644
    iupClassRegisterAttribute(ic,"COUNT",rows_get_count,rows_set_count,"0",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
    iupClassRegisterAttribute(ic,"VALUE",rows_get_value,rows_set_value,"0",NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
    iupClassRegisterAttribute(ic,"ACCESSIBLEVALUE",rows_get_accessible,NULL,NULL,NULL,IUPAF_READONLY|IUPAF_NO_INHERIT);
-@@ -264,6 +408,16 @@ Iclass* iupFlatRowsNewClass(void)
+@@ -264,6 +419,16 @@ Iclass* iupFlatRowsNewClass(void)
    iupClassRegisterAttribute(ic,"ITEMMARKERCOLOR",NULL,rows_post_redraw,NULL,NULL,IUPAF_DEFAULT);
    iupClassRegisterAttribute(ic,"ITEMRADIUS",NULL,rows_post_redraw,"6",NULL,IUPAF_DEFAULT);
    iupClassRegisterAttribute(ic,"FOCUSFEEDBACK",NULL,NULL,"YES",NULL,IUPAF_NO_INHERIT);
@@ -1261,7 +1294,7 @@ index 63e8f56..84a366c 100644
    iupClassRegisterAttributeId(ic,"TITLE",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
    iupClassRegisterAttributeId(ic,"SECONDARY",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
    iupClassRegisterAttributeId(ic,"IMAGE",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
-@@ -271,6 +425,10 @@ Iclass* iupFlatRowsNewClass(void)
+@@ -271,6 +436,10 @@ Iclass* iupFlatRowsNewClass(void)
    iupClassRegisterAttributeId(ic,"COLUMN1",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
    iupClassRegisterAttributeId(ic,"COLUMN2",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
    iupClassRegisterAttributeId(ic,"COLUMN3",NULL,NULL,IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
