@@ -31,6 +31,25 @@ local FILMS = {
 	{ "Foxglove", 2019, "1080p", "H.264", "SDR", "AAC 2.0", 4.4, 90, 1 },
 }
 
+-- More of the same, so the long-list tools have a long list to work on.
+local FIRST = { "Amber", "Broken", "Cold", "Distant", "Early", "Faded", "Golden", "Hidden", "Inland", "Jade",
+	"Kindred", "Last", "Mirror", "Nearer", "Open", "Pale", "Quarter", "Rusted", "Silent", "Tidal", "Upper", "Violet" }
+local SECOND = { "Acre", "Bridge", "Canal", "Dunes", "Echo", "Ferry", "Garden", "Harvest", "Island", "Junction" }
+local GENRES = { { "Drama" }, { "Thriller", "Mystery" }, { "Science fiction" }, { "Drama", "Romance" }, { "Comedy" },
+	{ "Documentary" }, { "Thriller" }, { "Adventure" } }
+local QUALITY = { { "1080p", "H.264", "SDR", "AAC 5.1", 8.2 }, { "2160p", "HEVC", "HDR10", "E-AC3 5.1", 40.5 },
+	{ "1080p", "HEVC", "SDR", "AC3 5.1", 6.1 }, { "720p", "H.264", "SDR", "AAC 2.0", 3.0 } }
+
+local function more_films()
+	local rows = {}
+	for i = 1, 72 do
+		local quality = QUALITY[i % #QUALITY + 1]
+		rows[i] = { FIRST[i % #FIRST + 1] .. " " .. SECOND[i % #SECOND + 1], 1985 + (i * 7) % 40, quality[1], quality[2],
+			quality[3], quality[4], quality[5], 84 + (i * 13) % 80, i % 5 == 0 and 1 or 0 }
+	end
+	return rows
+end
+
 local SHOWS = {
 	{ "Harbour Lights", 2021, 3, 24, "1080p" }, { "The Assessors", 2019, 5, 50, "1080p" },
 	{ "Kestrel Station", 2023, 2, 16, "2160p" }, { "Fieldnotes", 2018, 4, 38, "1080p" },
@@ -48,7 +67,8 @@ local function film(index, row)
 	return {
 		id = index, kind = "movie", title = row[1], year = row[2], resolution = row[3], codec = row[4],
 		dynamic = row[5], audio = row[6], bitrate = row[7], minutes = row[8], progress = row[9],
-		art = index, overview = TAGLINES[(index - 1) % #TAGLINES + 1],
+		art = (index - 1) % 32 + 1, overview = TAGLINES[(index - 1) % #TAGLINES + 1],
+		genres = GENRES[index % #GENRES + 1],
 		size_gb = math.floor(row[7] * row[8] * 60 / 8000 * 10 + 0.5) / 10,
 		added = string.format("2026-%02d-%02d", (index % 9) + 1, (index * 7) % 27 + 1),
 		subtitles = index % 2 == 0 and "English, Spanish" or "English",
@@ -59,7 +79,8 @@ end
 local function show(index, row)
 	return {
 		id = 100 + index, kind = "show", title = row[1], year = row[2], seasons = row[3], episodes = row[4],
-		resolution = row[5], art = #FILMS + index, progress = 0,
+		resolution = row[5], art = (24 + index - 1) % 32 + 1, progress = 0, unwatched = (index * 3) % 7 * 2,
+		genres = GENRES[index % #GENRES + 1],
 		overview = TAGLINES[(index - 1) % #TAGLINES + 1],
 		added = string.format("2026-%02d-%02d", (index % 9) + 1, (index * 5) % 27 + 1),
 	}
@@ -69,6 +90,7 @@ end
 function M.library()
 	local films, shows = {}, {}
 	for i, row in ipairs(FILMS) do films[i] = film(i, row) end
+	for _, row in ipairs(more_films()) do films[#films + 1] = film(#films + 1, row) end
 	for i, row in ipairs(SHOWS) do shows[i] = show(i, row) end
 	return {
 		sample = true,
@@ -79,6 +101,14 @@ function M.library()
 		},
 		films = films,
 		shows = shows,
+		collections = {
+			{ id = "c1", name = "4K HDR", icon = "filter", rules = { match = "all", rules = {
+				{ field = "resolution", value = "2160p" }, { field = "dynamic", test = "is_not", value = "SDR" } } } },
+			{ id = "c2", name = "Under two hours", icon = "filter", rules = { match = "all", rules = {
+				{ field = "minutes", test = "at_most", value = 120 }, { field = "watch", value = "unwatched" } } } },
+			{ id = "c3", name = "Nineties", icon = "filter", rules = { match = "all", rules = { { field = "decade", value = 1990 } } } },
+			{ id = "c4", name = "Rainy day", icon = "bookmark", items = { 2, 4, 6, 10, 15 } },
+		},
 		server = {
 			name = "Sample library", version = "0.1.0", analysis = "on", files = 1240, missing = 3, analysing = 18, failed = 1,
 			sessions = {

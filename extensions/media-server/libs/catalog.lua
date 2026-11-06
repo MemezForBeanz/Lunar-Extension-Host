@@ -183,6 +183,55 @@ function Catalog:failFrame(work_id, reason)
 	self:_rows("UPDATE art_jobs SET state = 'failed', error = ? WHERE work_id = ?", reason, work_id)
 end
 
+--- Record what a person wrote down about a work. A value already there is only replaced by
+-- one from an .nfo, which someone chose, never by a tag some encoder left in a file.
+-- @tparam number work_id
+-- @tparam table facts `overview`, `rating`, `content_rating`, `studio`, `genres`, `people`
+-- @tparam boolean chosen true for an .nfo
+function Catalog:saveFacts(work_id, facts, chosen)
+	if chosen then
+		self:_rows([[UPDATE works SET overview = COALESCE(?, overview), rating = COALESCE(?, rating),
+			content_rating = COALESCE(?, content_rating), studio = COALESCE(?, studio) WHERE id = ?]],
+			facts.overview, facts.rating, facts.content_rating, facts.studio, work_id)
+	else
+		self:_rows("UPDATE works SET overview = COALESCE(overview, ?) WHERE id = ?", facts.overview, work_id)
+	end
+	for _, genre in ipairs(facts.genres or {}) do
+		self:_rows("INSERT OR IGNORE INTO work_tags (work_id, kind, value) VALUES (?, 'genre', ?)", work_id, genre)
+	end
+	for _, person in ipairs(facts.people or {}) do
+		self:_rows("INSERT OR IGNORE INTO work_tags (work_id, kind, value) VALUES (?, 'person', ?)", work_id, person)
+	end
+end
+
+--- Every collection, oldest first, with its members when it has any.
+function Catalog:collections()
+	local rows = self:_rows("SELECT id, name, icon, rules FROM collections ORDER BY created_at, id")
+	for _, row in ipairs(rows) do
+		row.items = {}
+		for i, member in ipairs(self:_rows(
+			"SELECT work_id FROM collection_items WHERE collection_id = ? ORDER BY position, work_id", row.id)) do
+			row.items[i] = member.work_id
+		end
+	end
+	return rows
+end
+
+--- Save a collection. `rules` is a JSON string; a collection without one holds `items`.
+function Catalog:addCollection(name, icon, rules, items, now)
+	self:_rows("INSERT INTO collections (name, icon, rules, created_at) VALUES (?, ?, ?, ?)", name, icon, rules, now)
+	local id = self:_one("SELECT MAX(id) AS id FROM collections").id
+	for position, work_id in ipairs(items or {}) do
+		self:_rows("INSERT OR IGNORE INTO collection_items (collection_id, work_id, position) VALUES (?, ?, ?)",
+			id, work_id, position)
+	end
+	return id
+end
+
+function Catalog:deleteCollection(id)
+	self:_rows("DELETE FROM collections WHERE id = ?", id)
+end
+
 --- Queue analysis, unless it is already queued.
 function Catalog:queueProbe(file_id)
 	self:_rows("INSERT OR IGNORE INTO jobs (file_id) VALUES (?)", file_id)
@@ -199,18 +248,30 @@ end
 local BROWSE = {
 	title = { [[SELECT id, kind, title, year, sort_key, added_at,
 			(SELECT group_concat(kind) FROM art WHERE work_id = works.id) AS art,
-			(SELECT MAX(duration_ms) FROM files WHERE work_id = works.id) AS duration_ms FROM works
+			(SELECT group_concat(value) FROM work_tags WHERE work_id = works.id AND kind = 'genre') AS genres,
+			(SELECT MAX(duration_ms) FROM files WHERE work_id = works.id) AS duration_ms,
+			(SELECT MAX(s.height) FROM files f JOIN streams s ON s.file_id = f.id WHERE f.work_id = works.id AND s.kind = 'video') AS height,
+			(SELECT s.codec FROM files f JOIN streams s ON s.file_id = f.id WHERE f.work_id = works.id AND s.kind = 'video' LIMIT 1) AS vcodec,
+			(SELECT MAX(s.hdr) FROM files f JOIN streams s ON s.file_id = f.id WHERE f.work_id = works.id AND s.kind = 'video') AS hdr,
+			(SELECT watched FROM user_progress WHERE user = ? AND work_id = works.id) AS watched,
+			overview, rating FROM works
 		WHERE library_id = ? AND kind IN ('movie', 'show') AND (sort_key, id) > (?, ?)
 		ORDER BY sort_key, id LIMIT ?]], "sort_key" },
 	added = { [[SELECT id, kind, title, year, sort_key, added_at,
 			(SELECT group_concat(kind) FROM art WHERE work_id = works.id) AS art,
-			(SELECT MAX(duration_ms) FROM files WHERE work_id = works.id) AS duration_ms FROM works
+			(SELECT group_concat(value) FROM work_tags WHERE work_id = works.id AND kind = 'genre') AS genres,
+			(SELECT MAX(duration_ms) FROM files WHERE work_id = works.id) AS duration_ms,
+			(SELECT MAX(s.height) FROM files f JOIN streams s ON s.file_id = f.id WHERE f.work_id = works.id AND s.kind = 'video') AS height,
+			(SELECT s.codec FROM files f JOIN streams s ON s.file_id = f.id WHERE f.work_id = works.id AND s.kind = 'video' LIMIT 1) AS vcodec,
+			(SELECT MAX(s.hdr) FROM files f JOIN streams s ON s.file_id = f.id WHERE f.work_id = works.id AND s.kind = 'video') AS hdr,
+			(SELECT watched FROM user_progress WHERE user = ? AND work_id = works.id) AS watched,
+			overview, rating FROM works
 		WHERE library_id = ? AND kind IN ('movie', 'show') AND (added_at, id) < (?, ?)
 		ORDER BY added_at DESC, id DESC LIMIT ?]], "added_at" },
 }
 
 --- One page of a library.
--- @tparam table opts `sort` (`title`, `added`), `limit`, `after_key`, `after_id`
+-- @tparam table opts `sort` (`title`, `added`), `limit`, `after_key`, `after_id`, `user`
 -- @treturn table `{ items, next }`; `next` is nil on the last page
 function Catalog:browse(library_id, opts)
 	local spec = BROWSE[opts.sort or "title"] or BROWSE.title
@@ -221,7 +282,7 @@ function Catalog:browse(library_id, opts)
 	else
 		key, id = key or 2 ^ 53, id or 2 ^ 53
 	end
-	local rows = self:_rows(spec[1], library_id, key, id, limit + 1)
+	local rows = self:_rows(spec[1], opts.user or "", library_id, key, id, limit + 1)
 	local next_page
 	if #rows > limit then
 		rows[#rows] = nil
@@ -252,6 +313,11 @@ function Catalog:item(id, user)
 	end
 	work.children = self:_rows([[SELECT id, kind, title, season, episode FROM works
 		WHERE parent_id = ? ORDER BY season, episode, id LIMIT 1000]], id)
+	work.people, work.genres = {}, {}
+	for _, tag in ipairs(self:_rows("SELECT kind, value FROM work_tags WHERE work_id = ? ORDER BY value LIMIT 64", id)) do
+		local list = tag.kind == "genre" and work.genres or work.people
+		list[#list + 1] = tag.value
+	end
 	work.progress = self:_one(
 		"SELECT position_ms, watched, updated_at FROM user_progress WHERE user = ? AND work_id = ?", user, id)
 	return work
@@ -308,6 +374,10 @@ function Catalog:saveProbe(job, info)
 	end
 	self:_rows("DELETE FROM jobs WHERE id = ?", job.id)
 	self:queueFrame(job.file_id)
+	if info.facts then
+		local work = self:_one("SELECT work_id FROM files WHERE id = ?", job.file_id)
+		if work then self:saveFacts(work.work_id, info.facts, false) end
+	end
 end
 
 --- Record a failed analysis. It retries with backoff, then stops and shows its reason.

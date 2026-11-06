@@ -7,15 +7,25 @@ local L = require("core.lib.CarbonLayout")
 local Kit = require("core.ui.Kit")
 local CellGrid = require("core.ui.CellGrid")
 local RowList = require("core.ui.RowList")
+local SeekBar = require("core.ui.SeekBar")
 local FlatDropdown = require("core.ui.FlatDropdown")
 local Adaptive = require("core.ui.Adaptive")
 local spotlight = require("ui.spotlight")
 local playback = require("libs.playback")
+local organize = require("libs.organize")
+local NameDialog = require("core.ui.NameDialog")
 
 local M = {}
 
 local CELL = 148           -- the size a cell aims for; columns then share the width exactly
 local WIDE_CELL = 280      -- Continue watching: landscape cards, which also say how long is left
+local JUMP_SLOTS = 27      -- A to Z and #
+local JUMP_ROW = 20
+local JUMP_WIDTH = 24
+local FILTER_WIDTH = 136
+local RAIL_SOURCES = 3
+local DENSITY_LEAST = 104  -- the smallest poster the size slider gives
+local DENSITY_RANGE = 120
 local SPOTLIGHT_COUNT = 5
 local RING = 6             -- the grid's room for selection rings; text outside grids lines up with it
 local GUTTER = 16
@@ -48,12 +58,6 @@ local function plural(count, word)
 	return count .. " " .. word .. (count == 1 and "" or "s")
 end
 
-local function badge_of(item)
-	if item.kind == "show" then return nil end
-	if item.dynamic and item.dynamic ~= "SDR" then return item.dynamic == "Dolby Vision" and "DV" or "HDR" end
-	if item.resolution == "2160p" then return "4K" end
-end
-
 local function subtitle_of(item)
 	if item.kind == "show" then
 		return string.format("%d · %s", item.year, plural(item.seasons, "season"))
@@ -72,7 +76,7 @@ local function cell_value(list, secondary)
 		if not item then return nil end
 		if field == "TITLE" then return item.title end
 		if field == "SECONDARY" then return (secondary or subtitle_of)(item) end
-		if field == "BADGE" then return badge_of(item) end
+		if field == "BADGE" then return organize.badge(item) end
 		if field == "PROGRESS" then
 			local p = item.progress or 0
 			if p > 0 and p < 1 then return tostring(math.floor(p * 100)) end
@@ -82,7 +86,7 @@ local function cell_value(list, secondary)
 end
 
 local SORTS = {
-	{ "Title", function(a, b) return a.title < b.title end },
+	{ "Title", organize.byTitle },
 	{ "Recently added", function(a, b) return a.added > b.added end },
 	{ "Year", function(a, b) return (a.year or 0) > (b.year or 0) end },
 }
@@ -227,8 +231,12 @@ function M.new(ctx, opts)
 	local films, shows = {}, {}
 	for i, film in ipairs(model.films) do films[i] = film end
 	for i, show in ipairs(model.shows) do shows[i] = show end
-	local active = films
+	local base = films        -- what the rail chose
+	local active = films      -- what the filters left of it
+	local filters = {}
+	local collection          -- the collection on show, if any
 	local source_id = "home"
+	local ideal_cell = CELL
 	local view = "sheet"
 	local sort = 1
 	local chosen
@@ -243,6 +251,7 @@ function M.new(ctx, opts)
 	drains[#drains + 1] = inspector_posters
 
 	local shelves, sheet, ledger, hero
+	local sources_anchor
 
 	local function position_in(list, item)
 		for i, candidate in ipairs(list) do
@@ -376,6 +385,34 @@ function M.new(ctx, opts)
 
 	local stack = iup.zbox({ home, sheet.widget, ledger.widget, empty, EXPAND = "YES" })
 
+	-- The jump bar: letters that scroll the sheet. Slots stay for good; a list only retitles them.
+	local jump_slots = {}
+	local jump_box = iup.vbox({ GAP = "0", MARGIN = "0x0", ALIGNMENT = "ACENTER" })
+	for i = 1, JUMP_SLOTS do
+		local slot = iup.flatbutton({ TITLE = "", THEMEROLE = "link_btn", RASTERSIZE = L.size(JUMP_WIDTH, JUMP_ROW), PADDING = "0x0" })
+		function slot:flat_action()
+			if jump_slots[i].index then sheet:scrollTo(jump_slots[i].index) end
+			return iup.DEFAULT
+		end
+		jump_slots[i] = { button = slot }
+		iup.Append(jump_box, slot)
+	end
+	local jump_room = JUMP_SLOTS
+	local function fill_jump()
+		local letters = organize.letters(active)
+		local shows = source_id ~= "home" and view == "sheet" and sort == 1 and organize.jumpShows(letters, #active)
+		Kit.show(iup, jump_box, shows, sources_anchor())
+		if not shows then return end
+		local fitted = organize.fit(letters, jump_room)
+		for i, slot in ipairs(jump_slots) do
+			local entry = fitted[i]
+			slot.index = entry and entry.index or nil
+			iup.SetAttribute(slot.button, "TITLE", entry and entry.letter or "")
+			Kit.show(iup, slot.button, entry ~= nil, sources_anchor())
+		end
+		iup.Refresh(jump_box)
+	end
+
 	local heading = L.pageTitle and L.pageTitle(iup, "Home") or iup.flatlabel({ TITLE = "Home", THEMEROLE = "pagetitle" })
 	local count = L.hint(iup, "")
 
@@ -384,25 +421,111 @@ function M.new(ctx, opts)
 		if source_id ~= "home" then index = view == "ledger" and 2 or 1 end
 		if #active == 0 and source_id ~= "home" then index = 3 end
 		iup.SetAttribute(stack, "VALUEPOS", tostring(index))
+		fill_jump()
 	end
 	local segmented = RowList.segmented(iup, { labels = { "Grid", "List" }, value_pos = 0,
 		on_change = function(pos)
 			view = pos == 1 and "ledger" or "sheet"
 			apply_view()
 		end })
+	-- Filters narrow what the rail chose. `active` is rebuilt, and the grid told, in one place.
+	local function refilter()
+		active = organize.apply(base, organize.rulesFor(filters))
+		table.sort(active, SORTS[sort][2])
+		sheet:setProvider(#active, cell_value(active))
+		fill_ledger(active)
+		ledger:setRows(ledger_rows)
+		local total, shown = #base, #active
+		iup.SetAttribute(count, "TITLE", shown == total and plural(total, "item") or (shown .. " of " .. total))
+		apply_view()
+		-- The inspector always describes something on the page.
+		if position_in(active, chosen) == 0 and active[1] then choose(active[1]) else mark_chosen() end
+	end
+
 	local sort_box = FlatDropdown.new(iup, { items = { "Sort by title", "Sort by date added", "Sort by year" },
 		value = 1, width = 192, role = "dropbutton_quiet",
 		on_change = function(index)
 			sort = index
-			table.sort(active, SORTS[sort][2])
-			fill_ledger(active)
-			ledger:setRows(ledger_rows)
-			sheet:setProvider(#active, cell_value(active))
-			mark_chosen()
+			refilter()
 		end })
 	local controls = iup.hbox({ segmented, sort_box.widget, GAP = L.gap(3), ALIGNMENT = "ACENTER" })
 	local toolbar = iup.hbox({ heading, count, iup.fill({}), controls, GAP = L.gap(3), ALIGNMENT = "ACENTER",
 		EXPAND = "HORIZONTAL", MARGIN = RING .. "x0" })
+
+	local WATCH_VALUES = { false, "unwatched", "progress", "watched" }
+	local genre_values, decade_values, quality_values = { false }, { false }, { false }
+	local clear_button, save_button
+	local function filter_changed()
+		local any = next(filters) ~= nil
+		Kit.show(iup, clear_button, any, sources_anchor())
+		Kit.show(iup, save_button, any, sources_anchor())
+		refilter()
+		iup.Refresh(api.widget)
+	end
+	local function picker(field, values, label, width)
+		return FlatDropdown.new(iup, { items = { label }, value = 1, width = width, role = "dropbutton_quiet",
+			on_change = function(index)
+				local chosen_value = values()[index]
+				filters[field] = chosen_value or nil
+				filter_changed()
+			end })
+	end
+	local watch_box = picker("watch", function() return WATCH_VALUES end, "All", FILTER_WIDTH)
+	watch_box:setItems({ "Any status", "Unwatched", "In progress", "Watched" }, 1)
+	local genre_box = picker("genre", function() return genre_values end, "Any genre", FILTER_WIDTH)
+	local decade_box = picker("decade", function() return decade_values end, "Any decade", FILTER_WIDTH)
+	local quality_box = picker("resolution", function() return quality_values end, "Any quality", FILTER_WIDTH)
+
+	local function fill_pickers()
+		local facets = organize.facets(base)
+		local function fill(box, values, all, entries, text)
+			local labels = { all }
+			for i = #values, 2, -1 do values[i] = nil end
+			for _, entry in ipairs(entries) do
+				values[#values + 1] = entry
+				labels[#labels + 1] = text and text(entry) or tostring(entry)
+			end
+			box:setItems(labels, 1)
+		end
+		fill(genre_box, genre_values, "Any genre", facets.genres)
+		fill(decade_box, decade_values, "Any decade", facets.decades, function(decade) return decade .. "s" end)
+		fill(quality_box, quality_values, "Any quality", facets.resolutions)
+		watch_box:setItems({ "Any status", "Unwatched", "In progress", "Watched" }, 1)
+	end
+
+	clear_button = iup.flatbutton({ TITLE = "Clear", THEMEROLE = "link_btn", CANFOCUS = "YES", flat_action = function()
+		filters = {}
+		fill_pickers()
+		filter_changed()
+		return iup.DEFAULT
+	end })
+	save_button = Kit.button(iup, { title = "Save as collection", icon = "bookmark", role = "actionbutton",
+		action = function()
+			local name = NameDialog.show({ iup = iup, title = "Save as collection", label = "Collection name:", ok = "Save" })
+			if name and name ~= "" and opts.on_save_collection then
+				opts.on_save_collection({ name = name, icon = "filter", rules = organize.rulesFor(filters) })
+			end
+		end })
+	iup.SetAttribute(save_button, "RASTERSIZE", "x36")
+
+	local density = SeekBar.new(iup, { max = DENSITY_RANGE, role = "flatseek_plain",
+		on_seek = function(value)
+			ideal_cell = DENSITY_LEAST + value
+			api.refit()
+		end,
+		on_changing = function(value)
+			ideal_cell = DENSITY_LEAST + value
+			api.refit()
+		end })
+	density:setValue(CELL - DENSITY_LEAST)
+	iup.SetAttribute(density.widget, "RASTERSIZE", "96x")
+	iup.SetAttribute(density.widget, "EXPAND", "NO")
+	iup.SetAttribute(density.widget, "THICKNESS", "3")
+	iup.SetAttribute(density.widget, "TIP", "Poster size")
+
+	local filter_bar = iup.hbox({ watch_box.widget, genre_box.widget, decade_box.widget, quality_box.widget,
+		clear_button, iup.fill({}), save_button, density.widget,
+		GAP = L.gap(2), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL", MARGIN = RING .. "x0" })
 
 	-- Icons are asked for at paint time, so they follow the theme instead of the colours that
 	-- were current when the extension loaded.
@@ -414,11 +537,37 @@ function M.new(ctx, opts)
 		if field == "COLUMN1" then return source.count and tostring(source.count) or nil end
 	end
 	local go_source
+	local shelf_list
 	local sources = RowList.new(iup, { value = source_value, count = #model.sources, row_height = 32,
 		column_widths = { 40 }, role = "flatrows_plain",
-		on_select = function(pos) go_source(model.sources[pos].id) end })
-	iup.SetAttribute(sources.widget, "EXPAND", "YES")
+		on_select = function(pos)
+			shelf_list:select(0)
+			go_source(model.sources[pos].id)
+		end })
+	iup.SetAttribute(sources.widget, "RASTERSIZE", "x" .. (32 * RAIL_SOURCES + 8))
+	iup.SetAttribute(sources.widget, "EXPAND", "HORIZONTAL")
 	iup.SetAttribute(sources.widget, "FLATSCROLLBAR", "NO")
+	sources_anchor = function() return sources.widget end
+
+	-- Collections sit under the libraries. A smart one says so with its icon.
+	local function collection_value(pos, field)
+		local entry = (model.collections or {})[pos]
+		if not entry then return nil end
+		if field == "TITLE" then return entry.name end
+		if field == "IMAGE" then return Kit.icon(iup, entry.icon or "bookmark", 16, "text") end
+	end
+	shelf_list = RowList.new(iup, { value = collection_value, count = #(model.collections or {}), row_height = 32,
+		column_widths = { 8 }, role = "flatrows_plain",
+		empty_title = "No collections yet", empty_hint = "Filter a library, then save it.",
+		on_select = function(pos)
+			sources:select(0)
+			go_source("collection", (model.collections or {})[pos])
+		end })
+	iup.SetAttribute(shelf_list.widget, "EXPAND", "YES")
+	iup.SetAttribute(shelf_list.widget, "FLATSCROLLBAR", "NO")
+	local rail_group = function(text)
+		return iup.hbox({ iup.flatlabel({ TITLE = text, THEMEROLE = "reading_muted" }), MARGIN = "12x0" })
+	end
 	local scanning = Kit.statusLine(iup, "info", "")
 	Kit.show(iup, scanning, false, sources.widget)
 	local sample_note = iup.vbox({
@@ -429,34 +578,60 @@ function M.new(ctx, opts)
 		end }),
 		GAP = L.gap(1), MARGIN = "0x0", ALIGNMENT = "ALEFT",
 	})
-	local source_rail = iup.vbox({ iup.hbox({ RASTERSIZE = L.size(SOURCE_WIDTH) }), sources.widget,
-		L.stack(iup, { scanning, sample_note }, 2), GAP = L.gap(3), MARGIN = "0x0", EXPAND = "VERTICAL" })
+	local source_rail = iup.vbox({ iup.hbox({ RASTERSIZE = L.size(SOURCE_WIDTH) }),
+		rail_group("Libraries"), sources.widget,
+		rail_group("Collections"), shelf_list.widget,
+		L.stack(iup, { scanning, sample_note }, 2), GAP = L.gap(2), MARGIN = "0x0", EXPAND = "VERTICAL" })
 
-	go_source = function(id)
+	-- Everything the library holds, for a collection to draw from.
+	local function everything()
+		local all = {}
+		for _, film in ipairs(films) do all[#all + 1] = film end
+		for _, show in ipairs(shows) do all[#all + 1] = show end
+		return all
+	end
+
+	local function members(entry)
+		if entry.rules then return organize.apply(everything(), entry.rules) end
+		local wanted, out = {}, {}
+		for _, id in ipairs(entry.items or {}) do wanted[id] = true end
+		for _, item in ipairs(everything()) do
+			if wanted[item.id] then out[#out + 1] = item end
+		end
+		return out
+	end
+
+	go_source = function(id, entry)
 		source_id = id
-		if id == "shows" then active = shows elseif id == "films" then active = films end
-		local title = "Home"
+		collection = entry
+		if id == "shows" then base = shows elseif id == "films" then base = films end
+		if id == "collection" then base = members(entry) end
+		filters = {}
+		local title = entry and entry.name or "Home"
 		for _, source in ipairs(model.sources) do
 			if source.id == id then title = source.title end
 		end
 		iup.SetAttribute(heading, "TITLE", title)
 		if api.fit and api.last_width then api.fit(api.last_width) end
-		iup.SetAttribute(count, "TITLE", id == "home" and "" or plural(#active, "item"))
 		Kit.show(iup, toolbar, id ~= "home", sources.widget)
+		Kit.show(iup, filter_bar, id ~= "home", sources.widget)
+		Kit.show(iup, clear_button, false, sources.widget)
+		Kit.show(iup, save_button, false, sources.widget)
 		if id ~= "home" then
-			table.sort(active, SORTS[sort][2])
-			sheet:setProvider(#active, cell_value(active))
-			fill_ledger(active)
-			ledger:setRows(ledger_rows)
+			fill_pickers()
+			refilter()
+		else
+			iup.SetAttribute(count, "TITLE", "")
+			apply_view()
+			mark_chosen()
 		end
-		apply_view()
-		mark_chosen()
 		local place = position_in(active, chosen)
 		if place > 0 then sheet:scrollTo(place) end
 		iup.Refresh(api.widget)
 	end
 
-	local main = iup.vbox({ toolbar, stack, GAP = L.gap(5), MARGIN = "0x0", EXPAND = "YES" })
+	local main = iup.vbox({ toolbar, filter_bar, iup.hbox({ stack, jump_box, GAP = "0", MARGIN = "0x0", EXPAND = "YES" }),
+		GAP = L.gap(3), MARGIN = "0x0", EXPAND = "YES" })
 	local right = iup.vbox({ iup.hbox({ RASTERSIZE = L.size(INSPECTOR_WIDTH) }), inspector_body, MARGIN = "0x0", EXPAND = "VERTICAL" })
 	-- Collections run to the bottom of the panel, so nothing is cut short of its edge.
 	api.widget = iup.vbox({
@@ -475,6 +650,20 @@ function M.new(ctx, opts)
 	end
 
 	function api.go(state, item)
+		if state == "filtered" then
+			pick_view("sheet", 2)
+			go_source("films")
+			filters = { watch = "unwatched" }
+			fill_pickers()
+			watch_box:setItems({ "Any status", "Unwatched", "In progress", "Watched" }, 2)
+			filter_changed()
+			return
+		elseif state == "collection" then
+			shelf_list:select(1)
+			sources:select(0)
+			go_source("collection", (model.collections or {})[1])
+			return
+		end
 		if state == "home" then
 			sources:select(1)
 			go_source("home")
@@ -513,13 +702,28 @@ function M.new(ctx, opts)
 		local width = tonumber((iup.GetAttribute(stack, "RASTERSIZE") or ""):match("^(%d+)"))
 		if not width or width == last_width or width < CELL then return end
 		last_width = width
-		sheet:setCellWidth(fitted_cell(width - 2 * RING - SCROLLBAR, CELL))
-		local shelf_cell = fitted_cell(width - 3 * RING - SCROLLBAR, CELL)
+		sheet:setCellWidth(fitted_cell(width - 2 * RING - SCROLLBAR, ideal_cell))
+		local shelf_cell = fitted_cell(width - 3 * RING - SCROLLBAR, ideal_cell)
 		local wide_cell = fitted_cell(width - 3 * RING - SCROLLBAR, WIDE_CELL)
 		recent_shelf:setCellWidth(shelf_cell)
 		continue_shelf:setCellWidth(wide_cell)
 		size_shelves(shelf_cell, wide_cell)
 		iup.Refresh(api.widget)
+	end
+
+	function api.refit()
+		last_width = nil
+		fit_cells()
+	end
+
+	--- Show a new collection in the rail, and open it.
+	function api.addCollection(entry)
+		model.collections = model.collections or {}
+		model.collections[#model.collections + 1] = entry
+		shelf_list:setProvider(#model.collections, collection_value)
+		shelf_list:select(#model.collections)
+		sources:select(0)
+		go_source("collection", entry)
 	end
 
 	local function refill(target, source)
@@ -550,6 +754,7 @@ function M.new(ctx, opts)
 		-- An empty shelf isn't news on a first visit, so it takes no room until there's something.
 		Kit.show(iup, continue_section, #continuing > 0, recent_shelf.widget)
 		sources:setProvider(#model.sources, source_value)
+		shelf_list:setProvider(#(model.collections or {}), collection_value)
 		Kit.setStatus(iup, scanning, "info", model.scanning and ("Scanning " .. model.scanning) or "")
 		Kit.show(iup, scanning, model.scanning ~= nil, sources.widget)
 		Kit.show(iup, sample_note, model.sample == true, sources.widget)

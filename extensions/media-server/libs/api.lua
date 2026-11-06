@@ -67,10 +67,31 @@ function M.mount(svc)
 		local q = req.query or {}
 		local sort = q.sort == "added" and "added" or "title"
 		return { status = 200, json = catalog:browse(library.id, {
-			sort = sort, limit = q.limit,
+			sort = sort, limit = q.limit, user = req.auth,
 			after_key = sort == "added" and tonumber(q.after_key) or q.after_key,
 			after_id = tonumber(q.after_id),
 		}) }
+	end)
+
+	route("GET", "/v1/collections", function()
+		return { status = 200, json = { collections = catalog:collections() } }
+	end)
+
+	route("POST", "/v1/collections", function(req)
+		local body = json_body(req)
+		if not body or type(body.name) ~= "string" or body.name == "" or #body.name > 200 then
+			return bad(400, "a name is required")
+		end
+		local rules
+		if type(body.rules) == "table" then rules = require("cjson").encode(body.rules) end
+		if not rules and type(body.items) ~= "table" then return bad(400, "rules or items are required") end
+		local id = catalog:addCollection(body.name, type(body.icon) == "string" and body.icon or nil, rules, body.items, svc.now())
+		return { status = 201, json = { id = id } }
+	end)
+
+	route("DELETE", "/v1/collections/:id", function(req)
+		catalog:deleteCollection(id_of(req.params.id) or 0)
+		return { status = 204 }
 	end)
 
 	route("GET", "/v1/items/:id", function(req)

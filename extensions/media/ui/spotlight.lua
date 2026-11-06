@@ -11,8 +11,8 @@ local tint = require("libs.tint")
 
 local M = {}
 
-M.HEIGHT = 296
-local ART_HEIGHT = 284
+M.HEIGHT = 240
+local ART_HEIGHT = 228
 local ART_WIDTH = math.floor(ART_HEIGHT * 16 / 9)
 local RING = 6
 local FADE = 0.42             -- the share of the art, from its right edge, that dissolves

@@ -82,6 +82,21 @@ function M.applyDetail(item, detail)
 	return item
 end
 
+local function text_or_nil(value)
+	return type(value) == "string" and value or nil
+end
+
+local function number_or_nil(value)
+	return type(value) == "number" and value or nil
+end
+
+-- SQLite joins a list with commas.
+local function list_of(text)
+	local out = {}
+	for entry in tostring(type(text) == "string" and text or ""):gmatch("[^,]+") do out[#out + 1] = entry end
+	return out
+end
+
 local function added_text(seconds)
 	return seconds and os.date("!%Y-%m-%d", seconds) or ""
 end
@@ -90,8 +105,9 @@ end
 -- @tparam table libraries the libraries, each with `items` from its pages
 -- @tparam table status the server's status answer
 -- @tparam[opt] table continuing the server's continue-watching items
+-- @tparam[opt] table collections the server's collections
 -- @treturn table a model with `sources`, `films`, `shows`, `continuing` and `server`
-function M.modelFrom(libraries, status, continuing)
+function M.modelFrom(libraries, status, continuing, collections)
 	local by_id = {}
 	local model = { films = {}, shows = {}, continuing = {}, sample = false,
 		sources = { { id = "home", title = "Home", icon = "home" } } }
@@ -100,7 +116,10 @@ function M.modelFrom(libraries, status, continuing)
 		for _, raw in ipairs(library.items or {}) do
 			local item = { id = raw.id, kind = raw.kind, title = raw.title, year = raw.year or 0,
 				added = added_text(raw.added_at), progress = 0, seasons = 0, episodes = 0,
-				art = artcache.kinds(raw.art) }
+				art = artcache.kinds(raw.art), overview = text_or_nil(raw.overview), genres = list_of(raw.genres),
+				codec = M.codecName(text_or_nil(raw.vcodec)), resolution = resolution_of(number_or_nil(raw.height)),
+				dynamic = raw.hdr == 1 and "HDR" or (type(raw.height) == "number" and "SDR" or nil) }
+			if raw.watched == 1 then item.progress = 1 end
 			if type(raw.duration_ms) == "number" then item.minutes = math.floor(raw.duration_ms / 60000) end
 			by_id[item.id] = item
 			if raw.kind == "show" then
@@ -124,6 +143,7 @@ function M.modelFrom(libraries, status, continuing)
 	end
 	model.sources[2] = { id = "films", title = "Films", icon = "video", count = film_count }
 	model.sources[3] = { id = "shows", title = "Shows", icon = "screen", count = show_count }
+	model.collections = collections or {}
 	model.scanning = status.scanning
 	model.server = {
 		name = "Connected", version = "0.1.0", analysis = status.analysis or "off", files = status.files or 0,
@@ -205,7 +225,9 @@ function Client:load(done)
 				local library = libraries[index]
 				if not library then
 					return self:_request("GET", "/v1/continue", nil, function(resume)
-						done(M.modelFrom(libraries, status, resume and resume.items))
+						self:_request("GET", "/v1/collections", nil, function(saved)
+							done(M.modelFrom(libraries, status, resume and resume.items, M.collectionsFrom(saved)))
+						end)
 					end)
 				end
 				library.items = {}
@@ -217,6 +239,29 @@ function Client:load(done)
 			next_library()
 		end)
 	end)
+end
+
+--- Turn the server's collections into what the rail shows.
+-- @tparam table|nil answer the server's reply
+-- @treturn table
+function M.collectionsFrom(answer)
+	local out = {}
+	for _, raw in ipairs(answer and answer.collections or {}) do
+		local rules
+		if type(raw.rules) == "string" then
+			local ok, decoded = pcall(cjson.decode, raw.rules)
+			if ok and type(decoded) == "table" then rules = decoded end
+		end
+		out[#out + 1] = { id = raw.id, name = raw.name, icon = text_or_nil(raw.icon) or (rules and "filter" or "bookmark"),
+			rules = rules, items = raw.items }
+	end
+	return out
+end
+
+--- Save a collection.
+function Client:saveCollection(entry, done)
+	self:_request("POST", "/v1/collections", { name = entry.name, icon = entry.icon, rules = entry.rules,
+		items = entry.items }, done)
 end
 
 --- Fetch one picture's bytes.

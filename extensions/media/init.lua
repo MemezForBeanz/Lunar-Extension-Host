@@ -87,6 +87,11 @@ function M:_art_cache(address)
 	})
 end
 
+function M:_save_collection(entry)
+	self.library.addCollection(entry)
+	if self.client then self.client:saveCollection(entry, function() end) end
+end
+
 function M:_enrich(item, done)
 	if not self.client or item.detailed then return end
 	self.client:detail(item.id, function(detail)
@@ -179,6 +184,7 @@ function M:register(ctx)
 		model = model, cache = self.cache, art_of = art_of, backdrop_of = backdrop_of, owner = self,
 		on_play = function(item) self:_play(item) end,
 		enrich = function(item, done) self:_enrich(item, done) end,
+		on_save_collection = function(entry) self:_save_collection(entry) end,
 		on_connect = function() ctx:dispatchAddress("lunar://host/settings") end,
 	})
 	self.server = server.new(ctx, { model = model })
@@ -218,7 +224,7 @@ function M:register(ctx)
 	local shell = rawget(_G, "LUNAR_DEV_SHELL")
 	if shell then
 		shell.pages = shell.pages or {}
-		shell.pages["Media"] = { states = { "home", "sheet", "ledger", "shows" }, show = self.library.go }
+		shell.pages["Media"] = { states = { "home", "sheet", "filtered", "collection", "ledger", "shows" }, show = self.library.go }
 		local states = { "wait", "paused" }
 		if os.getenv("LUNAR_MEDIA_SERVER") then states = { "wait", "paused", "play", "playing", "playing2", "playing3" } end
 		shell.pages["Now playing"] = { states = states, show = function(name)

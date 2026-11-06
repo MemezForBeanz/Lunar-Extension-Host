@@ -5,7 +5,7 @@
 
 local M = {}
 
-M.VERSION = 2
+M.VERSION = 3
 
 local V1 = {
 	[[CREATE TABLE libraries (
@@ -70,6 +70,29 @@ local V2 = {
 	)]],
 }
 
+-- What people keep beside their files, or in them. Collections are stored as written: a smart
+-- one is a rule set the clients evaluate, so the server never has to guess at a new field.
+local V3 = {
+	"ALTER TABLE works ADD COLUMN overview TEXT",
+	"ALTER TABLE works ADD COLUMN rating REAL",
+	"ALTER TABLE works ADD COLUMN content_rating TEXT",
+	"ALTER TABLE works ADD COLUMN studio TEXT",
+	[[CREATE TABLE work_tags (
+		work_id INTEGER NOT NULL REFERENCES works(id) ON DELETE CASCADE,
+		kind TEXT NOT NULL CHECK (kind IN ('genre', 'person')), value TEXT NOT NULL,
+		PRIMARY KEY (work_id, kind, value)
+	) WITHOUT ROWID]],
+	"CREATE INDEX work_tags_value ON work_tags (kind, value, work_id)",
+	[[CREATE TABLE collections (
+		id INTEGER PRIMARY KEY, name TEXT NOT NULL, icon TEXT, rules TEXT, created_at INTEGER NOT NULL
+	)]],
+	[[CREATE TABLE collection_items (
+		collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+		work_id INTEGER NOT NULL REFERENCES works(id) ON DELETE CASCADE,
+		position INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (collection_id, work_id)
+	) WITHOUT ROWID]],
+}
+
 --- Bring a database up to `VERSION`.
 function M.migrate(db)
 	return db:migrate(M.VERSION, function(d, previous)
@@ -81,6 +104,12 @@ function M.migrate(db)
 		end
 		if previous < 2 then
 			for _, statement in ipairs(V2) do
+				local done, why = d:exec(statement)
+				if not done then return nil, why end
+			end
+		end
+		if previous < 3 then
+			for _, statement in ipairs(V3) do
 				local done, why = d:exec(statement)
 				if not done then return nil, why end
 			end
