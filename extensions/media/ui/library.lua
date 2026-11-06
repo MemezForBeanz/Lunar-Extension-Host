@@ -183,7 +183,7 @@ local function inspector(ctx, cache, art_of, on_play)
 	local function fill(rows)
 		for i, entry in ipairs(facts) do
 			local data = rows[i]
-			Kit.show(iup, entry.row, data ~= nil, details)
+			Kit.show(iup, entry.row, data ~= nil, details_open and details or nil)
 			if data then
 				iup.SetAttribute(entry.name, "TITLE", data[1])
 				iup.SetAttribute(entry.value, "TITLE", data[2])
