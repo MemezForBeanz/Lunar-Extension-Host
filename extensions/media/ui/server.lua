@@ -86,7 +86,7 @@ function M.new(ctx, opts)
 		GAP = L.gap(2), EXPAND = "HORIZONTAL" }))
 	api.widget = iup.vbox({
 		iup.hbox({ iup.vbox({ iup.flatlabel({ TITLE = "Media server", THEMEROLE = "pagetitle" }), status,
-			GAP = L.gap(1) }), iup.fill({}), service_box, ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" }),
+			GAP = L.gap(1) }), iup.fill({}), service_box, ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL", MARGIN = "15x0" }),   -- 15: the sections' margin and their frame's inset
 		health,
 		iup.hbox({ section("Activity", sessions.widget), section("Libraries", libraries.widget),
 			HOMOGENEOUS = "YES", GAP = L.gap(4), EXPAND = "HORIZONTAL" }),
