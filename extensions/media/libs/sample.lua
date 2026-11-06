@@ -84,7 +84,7 @@ function M.library()
 			sessions = {
 				{ user = "Alice", title = "The Salt Line", device = "Living room", mode = "Direct",
 					video = "Original HEVC HDR10, client decodes it", audio = "Original E-AC3 5.1, client decodes it",
-					subtitles = "Off", position = "53:12", duration = "2:08:00", bitrate = "62 Mb/s" },
+					subtitles = "Off", position = "53:45", duration = "2:08:00", bitrate = "62 Mb/s" },
 				{ user = "Ben", title = "Harbour Lights S2 E4", device = "Laptop", mode = "Remux",
 					video = "Copied, client decodes H.264", audio = "Copied, client decodes AAC",
 					subtitles = "English, rendered by the client", position = "12:40", duration = "48:00", bitrate = "9 Mb/s" },

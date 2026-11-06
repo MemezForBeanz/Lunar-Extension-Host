@@ -22,15 +22,21 @@ function M.remaining(seconds)
 	return string.format("%d h %d min left", math.floor(minutes / 60), minutes % 60)
 end
 
+--- Time left in a playback state, or nothing when its length is unknown.
+-- @tparam table state `position`, `length`
+-- @treturn string
+function M.left(state)
+	local left = (state.length or 0) - (state.position or 0)
+	return left > 0 and M.remaining(left) or ""
+end
+
 --- The line under a title in the dock.
--- @tparam table state `paused`, `position`, `length`
+-- @tparam table state `paused`, `detail`
 -- @treturn string
 function M.status(state)
-	local left = (state.length or 0) - (state.position or 0)
-	local parts = {}
-	if state.paused then parts[#parts + 1] = "Paused" end
-	if left > 0 then parts[#parts + 1] = M.remaining(left) end
-	return table.concat(parts, " · ")
+	local word = state.paused and "Paused" or "Playing"
+	if state.detail and state.detail ~= "" then return word .. " · " .. state.detail end
+	return word
 end
 
 return M

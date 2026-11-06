@@ -58,7 +58,10 @@ function M.new(ctx, opts)
 	local glyph = AnimatedIcon.new(iup, { animate = opts.animate, size = 20, role = "on_accent" })
 	local playing = false
 	local volume, muted = FULL_VOLUME, false
-	local now = { title = sample.title, position = position, length = duration, sample = true }
+	local MARKS = { { at = 1320 }, { at = 2700 }, { at = 4140 }, { at = 7200 } }
+	local now = { title = sample.title, position = position, length = duration, marks = MARKS,
+		detail = tostring(sample.year) }
+	local loaded = opts.demo == true   -- the dock only appears once something has played
 	local function changed()
 		if api.on_change then api.on_change() end
 	end
@@ -84,7 +87,7 @@ function M.new(ctx, opts)
 	iup.SetAttribute(bar.widget, "EXPAND", "HORIZONTAL")
 	iup.SetAttribute(bar.widget, "THICKNESS", "4")
 	bar:setValue(position)
-	bar:setMarks({ { at = 1320 }, { at = 2700 }, { at = 4140 }, { at = 7200 } })
+	bar:setMarks(MARKS)
 
 	local toggle = iup.flatbutton({ TITLE = "", THEMEROLE = "primary_btn", TIP = "Play or pause (Space)", RASTERSIZE = "40x40" })
 	glyph.paint = function(path)
@@ -96,9 +99,10 @@ function M.new(ctx, opts)
 		return iup.DEFAULT
 	end
 
-	local function tool(icon, tip)
-		local button = Kit.button(iup, { icon = icon, tip = tip, role = "icon_btn" })
+	local function tool(icon, tip, run)
+		local button = Kit.button(iup, { icon = icon, tip = tip, role = "icon_btn", action = run })
 		iup.SetAttribute(button, "RASTERSIZE", "32x32")
+		Kit.bindIcon(iup, button, icon, { size = 20 })
 		return button
 	end
 
@@ -120,7 +124,9 @@ function M.new(ctx, opts)
 		iup.hbox({
 			iup.hbox({ time, iup.fill({}), ALIGNMENT = "ACENTER", RASTERSIZE = SIDE_CONTROLS }),
 			iup.fill({}),
-			tool("skip--back--filled", "Previous"), toggle, tool("skip--forward--filled", "Next"),
+			tool("skip--back--filled", "Previous"), tool("rewind--10", "Back 10 seconds", function() api.skip(-10) end),
+			toggle, tool("forward--30", "Forward 30 seconds", function() api.skip(30) end),
+			tool("skip--forward--filled", "Next"),
 			iup.fill({}),
 			iup.hbox({ iup.fill({}), detail,
 				mute_button, volume_bar.widget,
@@ -219,8 +225,9 @@ function M.new(ctx, opts)
 
 	--- What the dock shows, or nil when nothing is loaded.
 	function api.state()
+		if not loaded then return nil end
 		return { title = now.title, position = now.position, length = now.length, paused = not playing,
-			volume = volume, muted = muted, sample = now.sample }
+			volume = volume, muted = muted, detail = now.detail, marks = now.marks }
 	end
 
 	function api.seek(value)
@@ -257,6 +264,20 @@ function M.new(ctx, opts)
 		if playing then toggle_playing() end
 	end
 
+	--- Stop playback and let the dock go.
+	function api.stop()
+		if mpv then mpv:stop() end
+		if playing then toggle_playing() end
+		loaded = false
+		changed()
+	end
+
+	--- The sample's paused film is a preview, so it goes when a real library arrives.
+	function api.endDemo()
+		if not mpv then loaded = false end
+		changed()
+	end
+
 	function api.set_paused(paused)
 		if mpv then mpv:set("pause", paused and "yes" or "no") end
 	end
@@ -280,7 +301,8 @@ function M.new(ctx, opts)
 		chapter_list:setRows({})
 		iup.SetAttribute(detail, "TITLE", request.detail or "")
 		on_position, saved_at = request.on_position, 0
-		now = { title = request.title or now.title, position = request.start or 0, length = 0 }
+		now = { title = request.title or now.title, position = request.start or 0, length = 0, detail = request.detail }
+		loaded = true
 		mpv:set("http-header-fields", request.header)
 		mpv:set("start", tostring(math.floor(request.start or 0)))
 		mpv:load(request.url)

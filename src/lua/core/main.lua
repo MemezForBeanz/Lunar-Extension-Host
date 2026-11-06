@@ -478,20 +478,21 @@ local tool_rail = ToolRail.new({
 	icon = function(name, size, role) return Kit.icon(iup, name, size, role or "neutral") end,
 	is_settings = function(page) return require("core.lib.handle").same(iup, page, settings_view:widget()) end,
 })
-local workspace = iup.hbox({ tool_rail:widget(), require("core.ui.WorkspaceFrame").wrap(iup, pane_grid:widget()),
+-- Bands an extension keeps on screen across every tab, such as a player (HostAPI:addDock).
+-- They sit in the workspace column, so the tool rail runs unbroken beside them.
+local dock_slot = iup.vbox({ MARGIN = "0x0", GAP = "0", EXPAND = "HORIZONTAL" })
+host._dock_slot = dock_slot
+local workspace = iup.hbox({ tool_rail:widget(),
+	iup.vbox({ require("core.ui.WorkspaceFrame").wrap(iup, pane_grid:widget()), dock_slot,
+		MARGIN = "0x0", GAP = "0", EXPAND = "YES" }),
 	MARGIN = "0x0", GAP = "0", EXPAND = "YES" })
 status_bar:onFocus(function()
 	pane_grid:toggleFocus()
 	status_bar:setPaneState(pane_grid:isSplit(), pane_grid:isFocused())
 end)
 
--- Bands an extension keeps on screen across every tab, such as a player (HostAPI:addDock).
-local dock_slot = iup.vbox({ MARGIN = "0x0", GAP = "0", EXPAND = "HORIZONTAL" })
-host._dock_slot = dock_slot
-
 local content_box = iup.vbox({
 	workspace,
-	dock_slot,
 	status_bar:widget(),
 	MARGIN = L.margin(0),
 	GAP = "0",

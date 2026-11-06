@@ -16,8 +16,11 @@ local ART_WIDTH = 32
 local ART_EDGE = 12     -- the grid keeps 6 px each side for selection rings
 local SIDE_WIDTH = 300  -- both ends share a width, so the transport stays centred
 local VOLUME_WIDTH = 88
-local BUTTON = 36
-local PLAY = 40
+local BUTTON = 32
+local PLAY = 36
+local ICON = 20
+local TIME_WIDTH = 56
+local LEFT_WIDTH = 104
 
 --- Build the dock.
 -- @tparam table ctx host context
@@ -44,6 +47,7 @@ function M.new(ctx, opts)
 	local function tool(icon, tip, run, size)
 		local button = Kit.button(iup, { icon = icon, tip = tip, role = "icon_btn", action = run })
 		iup.SetAttribute(button, "RASTERSIZE", L.size(size or BUTTON, size or BUTTON))
+		Kit.bindIcon(iup, button, icon, { size = ICON })
 		return button
 	end
 
@@ -56,7 +60,9 @@ function M.new(ctx, opts)
 	iup.SetAttribute(bar.widget, "EXPAND", "HORIZONTAL")
 	iup.SetAttribute(bar.widget, "THICKNESS", "3")
 
-	local time = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted" })
+	local elapsed = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted", ALIGNMENT = "ARIGHT:ACENTER",
+		RASTERSIZE = TIME_WIDTH .. "x" })
+	local left_time = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted", RASTERSIZE = LEFT_WIDTH .. "x" })
 	local volume = SeekBar.new(iup, { max = 100, role = "flatseek_plain",
 		on_seek = function(value) player.setVolume(value) end,
 		on_changing = function(value) player.setVolume(value) end })
@@ -66,26 +72,26 @@ function M.new(ctx, opts)
 	local mute = tool("volume--up", "Mute", function() player.toggleMute() end)
 
 	local left = iup.hbox({ art.widget,
-		iup.vbox({ title, status, GAP = L.gap(1), MARGIN = "0x0" }),
+		iup.vbox({ title, status, GAP = "0", MARGIN = "0x0" }),
 		GAP = L.gap(2), ALIGNMENT = "ACENTER", MARGIN = "0x0", RASTERSIZE = SIDE_WIDTH .. "x" })
-	local middle = iup.hbox({
-		tool("rewind--10", "Back 10 seconds", function() player.skip(-10) end), toggle,
-		tool("forward--30", "Forward 30 seconds", function() player.skip(30) end),
-		GAP = L.gap(2), ALIGNMENT = "ACENTER", MARGIN = "0x0" })
-	local right = iup.hbox({ iup.fill({}), time, mute, volume.widget,
+	local middle = iup.vbox({
+		iup.hbox({ iup.fill({}),
+			tool("rewind--10", "Back 10 seconds", function() player.skip(-10) end), toggle,
+			tool("forward--30", "Forward 30 seconds", function() player.skip(30) end),
+			iup.fill({}), GAP = L.gap(2), ALIGNMENT = "ACENTER", MARGIN = "0x0" }),
+		iup.hbox({ elapsed, bar.widget, left_time, GAP = L.gap(2), ALIGNMENT = "ACENTER", MARGIN = "0x0" }),
+		GAP = "0", MARGIN = "0x0", EXPAND = "HORIZONTAL" })
+	local right = iup.hbox({ iup.fill({}), mute, volume.widget,
 		tool("launch", "Open Now playing", function() opts.open() end),
+		tool("close", "Stop and close", function() player.stop() end),
 		GAP = L.gap(2), ALIGNMENT = "ACENTER", MARGIN = "0x0", RASTERSIZE = SIDE_WIDTH .. "x" })
 
 	local card = iup.flatframe({
-		iup.vbox({
-			bar.widget,
-			iup.hbox({ left, iup.fill({}), middle, iup.fill({}), right,
-				ALIGNMENT = "ACENTER", MARGIN = L.gap(3) .. "x0", EXPAND = "HORIZONTAL" }),
-			GAP = "0", MARGIN = "0x2", EXPAND = "HORIZONTAL",
-		}),
+		iup.hbox({ left, middle, right, GAP = L.gap(5), ALIGNMENT = "ACENTER", MARGIN = L.gap(3) .. "x2",
+			EXPAND = "HORIZONTAL" }),
 		TITLE = "", THEMEROLE = "settingscard", MARGIN = "0x0", EXPAND = "HORIZONTAL",
 	})
-	api.widget = iup.hbox({ card, MARGIN = "12x4", EXPAND = "HORIZONTAL" })
+	api.widget = iup.hbox({ card, MARGIN = "0x4", EXPAND = "HORIZONTAL" })
 
 	local handle = ctx:addDock(api.widget, opts.owner)
 
@@ -104,12 +110,14 @@ function M.new(ctx, opts)
 		if not state or not shown then return end
 		iup.SetAttribute(title, "TITLE", state.title or "")
 		iup.SetAttribute(status, "TITLE", playback.status(state))
-		iup.SetAttribute(time, "TITLE", playback.clock(state.position) .. " / " .. playback.clock(state.length))
+		iup.SetAttribute(elapsed, "TITLE", playback.clock(state.position))
+		iup.SetAttribute(left_time, "TITLE", playback.left(state))
 		bar:setMax(math.max(state.length or 0, 1))
+		bar:setMarks(state.marks or {})
 		bar:setValue(state.position or 0)
 		volume:setValue(state.muted and 0 or (state.volume or 100))
-		Kit.bindIcon(iup, toggle, state.paused and "play--filled--alt" or "pause--filled", { size = 20, role = "on_accent" })
-		Kit.bindIcon(iup, mute, state.muted and "volume--mute" or "volume--up", { size = 20 })
+		Kit.bindIcon(iup, toggle, state.paused and "play--filled--alt" or "pause--filled", { size = ICON, role = "on_accent" })
+		Kit.bindIcon(iup, mute, state.muted and "volume--mute" or "volume--up", { size = ICON })
 	end
 
 	--- Step aside, or come back.

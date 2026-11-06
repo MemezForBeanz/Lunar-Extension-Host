@@ -58,6 +58,7 @@ function M:connect()
 		end
 		self.library.setModel(model)
 		self.server.setModel(model)
+		self.now_playing.endDemo()
 	end)
 end
 
@@ -135,7 +136,7 @@ function M:register(ctx)
 	end
 	self.cache = poster_cache()
 	local function animate(spec) return ctx:animate(spec, self) end
-	self.now_playing = player.new(ctx, { sample = model.films[1], animate = animate, owner = self,
+	self.now_playing = player.new(ctx, { sample = model.films[1], animate = animate, owner = self, demo = true,
 		cache = self.cache, art = art_of(model.films[1]) })
 	self.dock = dock.new(ctx, { player = self.now_playing, owner = self, cache = self.cache,
 		open = function() ctx:focusTab(self, NOW_PLAYING_TAB) end,

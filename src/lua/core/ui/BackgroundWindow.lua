@@ -246,6 +246,7 @@ function M.registerSettings(opts)
 	function panel.refresh()
 		local running = Service.running()
 		Kit.setStatus(iup, status, running and "ok" or "idle", running and "Running" or "Stopped")
+		if not running then Kit.bindIcon(iup, status, "stop--outline", { size = Kit.ICON_STATUS, role = "neutral" }) end
 		iup.SetAttribute(action, "TITLE", running and "Stop" or "Start")
 	end
 	panel.refresh()
