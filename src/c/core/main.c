@@ -16,6 +16,7 @@ int luaopen_file_stream(lua_State *L);
 int luaopen_logscan(lua_State *L);
 int luaopen_compositor(lua_State *L);
 int luaopen_iupraw(lua_State *L);
+int luaopen_media_native(lua_State *L);
 int luaopen_themeapply(lua_State *L);
 int luaopen_svgicon(lua_State *L);
 int luaopen_appimages(lua_State *L);
@@ -135,6 +136,7 @@ int main(int argc, char **argv)
     preload(L, "logscan",      luaopen_logscan);
     preload(L, "compositor",   luaopen_compositor);
     preload(L, "iupraw",       luaopen_iupraw);
+    preload(L, "media_native", luaopen_media_native);
     preload(L, "themeapply",   luaopen_themeapply);
     preload(L, "svgicon",      luaopen_svgicon);
     preload(L, "appimages",    luaopen_appimages);

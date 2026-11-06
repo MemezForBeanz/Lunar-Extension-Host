@@ -380,6 +380,7 @@ add_executable(Lunar WIN32
     src/c/libs/winredraw_wrap.c
     src/c/libs/winframe_wrap.c
     src/c/libs/iupraw_wrap.c
+    src/c/libs/media_native.c
     src/c/libs/themeapply_wrap.c
     src/c/libs/nanosvg_impl.c
     src/c/libs/svgicon_wrap.c
@@ -535,6 +536,7 @@ add_executable(Lunar
     src/c/libs/compositor/compositor_lua.c
     src/c/libs/compositor/gtk.c
     src/c/libs/iupraw_wrap.c
+    src/c/libs/media_native.c
     src/c/libs/themeapply_wrap.c
     src/c/libs/nanosvg_impl.c
     src/c/libs/svgicon_wrap.c
