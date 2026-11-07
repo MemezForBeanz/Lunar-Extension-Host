@@ -1,5 +1,6 @@
 # Lunar Extension Host release notes
 
+<<<<<<< HEAD
 ## 1.6.0
 
 Lunar adds a personal media library, native playback and streaming, with more
@@ -26,6 +27,8 @@ control over appearance and background services.
 - **Fixes:** improved layout, theme contrast, media filtering and queued playback;
   corrected Linux build and documentation issues.
 
+=======
+>>>>>>> 0da4e7be79ede7f9d89785ce17e92f842d5482fe
 ## 1.5.0
 
 Lunar gives your tools more room, with independent top and left toolbars, simpler
