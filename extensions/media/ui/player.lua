@@ -333,6 +333,12 @@ function M.new(ctx, opts)
 	end
 
 	local function on_event(name, info)
+		if name == "file-loaded" then
+			-- keep-open can pause the old file after loadfile was requested. Apply the
+			-- transport state once the new file is ready, preserving a pause during loading.
+			mpv:set("pause", playing and "no" or "yes")
+			return
+		end
 		if name == "end-file" then
 			if info and info.reason == END_OF_FILE then finish() end
 			if info and info.reason == FAILED and api.on_failed then api.on_failed() end
