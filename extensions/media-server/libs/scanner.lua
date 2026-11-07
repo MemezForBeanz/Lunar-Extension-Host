@@ -6,6 +6,8 @@
 local filescan = require("core.lib.filescan")
 local lfs = require("lfs")
 local naming = require("libs.naming")
+local art = require("libs.art")
+local nfo = require("libs.nfo")
 
 local Scan = {}
 Scan.__index = Scan
@@ -20,7 +22,7 @@ function M.new(catalog, library, opts)
 	opts = opts or {}
 	return setmetatable({
 		catalog = catalog, library = library, scan = (library.scan_count or 0) + 1,
-		pending = { "" }, files = {}, clock_ms = opts.clock_ms or filescan.now_ms,
+		pending = { "" }, files = {}, folders = {}, read_nfo = {}, clock_ms = opts.clock_ms or filescan.now_ms,
 		list = opts.list or filescan.listDir, attr = opts.attr or lfs.attributes,
 		now = opts.now or os.time, seen = 0, added = 0, done = false,
 	}, Scan)
@@ -43,6 +45,9 @@ function Scan:_walk_one()
 		local name = entry.name
 		if entry.dir then
 			if name:sub(1, 1) ~= "." then self.pending[#self.pending + 1] = join(relative, name) end
+		elseif art.isImage(name) or name:lower():match("%.nfo$") then
+			self.folders[relative] = self.folders[relative] or {}
+			self.folders[relative][name:lower()] = name
 		elseif name:sub(1, 1) ~= "." then
 			self.files[#self.files + 1] = join(relative, name)
 		end
@@ -59,6 +64,28 @@ function Scan:_note(relative)
 	if file_id then
 		self.added = self.added + 1
 		self.catalog:queueProbe(file_id)
+	end
+	local found = art.find(relative, self.folders, parsed.kind == "movie" and "movie" or "show")
+	if next(found) then
+		local work = self.catalog:topWorkOfFile(self.library.id, relative)
+		for kind, path in pairs(found) do self.catalog:saveArt(work, kind, "library", path) end
+	end
+	self:_read_nfo(relative, parsed)
+end
+
+-- A show's .nfo is one file for many episodes, so each file is read only once a scan.
+function Scan:_read_nfo(relative, parsed)
+	local kind = parsed.kind == "movie" and "movie" or "show"
+	local path = nfo.find(relative, self.folders, kind)
+	if not path or self.read_nfo[path] then return end
+	self.read_nfo[path] = true
+	local file = io.open(self:_absolute(path), "rb")
+	if not file then return end
+	local text = file:read(nfo.MAX_BYTES + 1)
+	file:close()
+	local facts = nfo.parse(text)
+	if facts then
+		self.catalog:saveFacts(self.catalog:topWorkOfFile(self.library.id, relative), facts, true)
 	end
 end
 

@@ -358,6 +358,10 @@ iup.MainLoop = function()
 		local ok, err = pcall(step, self)
 		if not ok then
 			io.stderr:write("ui_capture: ", tostring(err), string.char(10))
+	if os.getenv("LUNAR_CAPTURE_LOG") then
+		local f = io.open(os.getenv("LUNAR_CAPTURE_LOG"), "a")
+		if f then f:write(tostring(err), string.char(10)); f:close() end
+	end
 			iup.ExitLoop()
 			return iup.CLOSE
 		end
@@ -394,6 +398,7 @@ iup.MainLoop = function()
 			for _, s in ipairs(page.path) do iup.SetAttribute(s.strip, "VALUEPOS", tostring(s.pos)) end
 			local dev_shell = rawget(_G, "LUNAR_DEV_SHELL")
 			if dev_shell and dev_shell.sync_title_bar then dev_shell.sync_title_bar() end
+			if dev_shell and dev_shell.tab_changed then dev_shell.tab_changed() end
 			fill_lists(dlg) -- an async status may have written a host since the last pass
 			iup.Refresh(dlg)
 		else
@@ -440,5 +445,9 @@ end
 local ok, err = pcall(dofile, (LUNAR_SOURCE_DIR or ".") .. "/src/lua/core/main.lua")
 if not ok then
 	io.stderr:write("ui_capture: ", tostring(err), string.char(10))
+	if os.getenv("LUNAR_CAPTURE_LOG") then
+		local f = io.open(os.getenv("LUNAR_CAPTURE_LOG"), "a")
+		if f then f:write(tostring(err), string.char(10)); f:close() end
+	end
 	os.exit(1)
 end

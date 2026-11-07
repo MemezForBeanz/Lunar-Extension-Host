@@ -18,11 +18,11 @@ function LunarLightTheme:initialize()
         layer01         = rgb("#f6f6f9"),
         layer02         = rgb("#ffffff"),
         layerHover01    = rgb("#ececf3"),
-        layerSelected01 = rgb("#e2e2ee"),
+        layerSelected01 = rgb("#d6d6e6"),
         borderSubtle01  = rgb("#d0d0da"),
         borderStrong01  = rgb("#b8b8c8"),
         text            = rgb("#27272f"),
-        textMuted       = rgb("#666a73"),
+        textMuted       = rgb("#565a63"),  -- 4.5:1 on every fill it sits on, a chosen row included
         accent          = rgb("#6a5ae0"),  -- violet, deepened for light surfaces
         accentText      = rgb("#ffffff"),
         error           = rgb("#b3243d"),

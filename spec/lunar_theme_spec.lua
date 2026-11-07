@@ -84,10 +84,11 @@ describe("lunar_rules", function()
         -- The main verb is the only filled button at rest.
         assert.equal(palette().accent, l.primary_btn.bg)
         assert.not_equal(palette().accent, l.actionbutton.bg)
-        -- Every button wears the body font: text and control stay proportionate.
-        for _, role in ipairs({ "primary_btn", "actionbutton", "ghost_btn" }) do
-            assert.equal(palette().font, l[role].font)
+        -- Filled buttons read a step above body text; a ghost button stays at body size.
+        for _, role in ipairs({ "primary_btn", "actionbutton" }) do
+            assert.equal("Segoe UI, 11", l[role].font)
         end
+        assert.equal(palette().font, l.ghost_btn.font)
     end)
 
     it("sizes buttons at VS Code scale, not Carbon slabs", function()
@@ -240,5 +241,22 @@ describe("lunar_rules switch", function()
     it("keeps the knob 3:1 on the off track, on a dark page and a light one", function()
         assert.is_true(knob_clears("255 255 255", "80 84 96", "167 172 186") >= 3)
         assert.is_true(knob_clears("255 255 255", "190 190 200", "90 94 106") >= 3)
+    end)
+end)
+
+describe("Lunar Light contrast", function()
+    local p = require("core.classes.Themes.LunarLightTheme"):new():palette()
+
+    it("keeps secondary text readable on every fill it sits on", function()
+        for _, fill in ipairs({ "bg", "layer01", "layer02", "layerHover01", "layerSelected01", "accentSoft" }) do
+            assert.is_true(lunar.contrast(p.textMuted, p[fill]) >= 4.5, fill)
+        end
+    end)
+
+    it("keeps a chosen row and its marker visible on the page", function()
+        assert.is_true(lunar.contrast(p.accentSoft, p.layer01) >= 1.3)
+        assert.is_true(lunar.contrast(p.layerSelected01, p.layer01) >= 1.3)
+        assert.is_true(lunar.contrast(p.accent, p.accentSoft) >= 3)
+        assert.is_true(lunar.contrast(p.text, p.accentSoft) >= 7)
     end)
 end)

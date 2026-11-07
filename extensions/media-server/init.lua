@@ -12,12 +12,17 @@ local Scanner = require("libs.scanner")
 local Probe = require("libs.probe")
 local api = require("libs.api")
 local schema = require("libs.schema")
+local art = require("libs.art")
+local Sources = require("libs.sources")
+
+local lfs = require("lfs")
 
 local M = { name = "media-server" }
 
 local TICK_MS = 50
 local SCAN_BUDGET_MS = 8
 local MAX_PROBES = 2
+local SOURCE_TICKS = 20     -- a second of 50 ms ticks
 
 local MIME = { mp4 = "video/mp4", m4v = "video/mp4", mkv = "video/x-matroska", webm = "video/webm",
 	mov = "video/quicktime", avi = "video/x-msvideo", ts = "video/mp2t" }
@@ -58,6 +63,35 @@ function M:_tick_probes()
 	end
 end
 
+-- One frame at a time: a frame is a nicety, and streams come first.
+function M:_tick_frames()
+	local run = self.frame_run
+	if run then
+		local code = run.process:poll()
+		if code == nil and os.time() - run.started <= art.TIMEOUT_S then return end
+		if code == nil then run.process:kill() end
+		run.process:close()
+		self.frame_run = nil
+		if code == 0 then
+			self.catalog:finishFrame(run.job.work_id, run.name)
+		else
+			self.catalog:failFrame(run.job.work_id, code == nil and "ffmpeg timed out" or ("ffmpeg exited with " .. tostring(code)))
+		end
+		return
+	end
+	if not self.ffmpeg or not self.art_dir or self.ctx:isStopping() then return end
+	local job = self.catalog:claimFrame()
+	if not job then return end
+	local name = job.work_id .. ".jpg"
+	local process, err = self.ctx:spawn({ argv = art.frameArgv(self.ffmpeg, job.root .. "/" .. job.rel_path,
+		self.art_dir .. "/" .. name, art.frameAt(job.duration_ms)) }, self)
+	if process then
+		self.frame_run = { job = job, process = process, name = name, started = os.time() }
+	else
+		self.catalog:failFrame(job.work_id, tostring(err))
+	end
+end
+
 function M:_tick_scans()
 	if not self.scan_run then
 		local library = table.remove(self.scan_queue, 1)
@@ -92,6 +126,18 @@ function M:register(ctx)
 	self.scan_queue, self.probes = {}, {}
 	self.ffprobe = os.getenv("LUNAR_FFPROBE")
 	if self.ffprobe == "" then self.ffprobe = nil end
+	-- ffmpeg lives beside ffprobe unless someone says otherwise.
+	self.ffmpeg = os.getenv("LUNAR_FFMPEG")
+	if self.ffmpeg == "" then self.ffmpeg = nil end
+	if (not self.ffmpeg or self.ffmpeg == "") and self.ffprobe then
+		local beside = self.ffprobe:gsub("ffprobe(%.?%w*)$", "ffmpeg%1")
+		if lfs.attributes(beside, "mode") == "file" then self.ffmpeg = beside else self.ffmpeg = nil end
+	end
+	local data_dir = ctx:dataDir(self)
+	if data_dir then
+		self.art_dir = data_dir .. "/art"
+		lfs.mkdir(self.art_dir)
+	end
 	local db, err = ctx:openDatabase("catalog", self)
 	if not db then error("media-server database: " .. tostring(err), 0) end
 	local migrated, why = schema.migrate(db)
@@ -100,11 +146,27 @@ function M:register(ctx)
 	self.catalog:recoverJobs()
 	local extension = self
 	local mounted = true
+	self.sources = Sources.new({ catalog = self.catalog, now = os.time, log = self.log,
+		torrent_engine = os.getenv("LUNAR_TORRENT_ENGINE"),
+		http = function(request, done) return ctx:http(request, done, extension) end,
+		spawn = function(argv) return ctx:spawn({ argv = argv }, extension) end,
+		get_secret = function(name) return ctx:getSecret(extension, name) end,
+		set_secret = function(name, value) return ctx:setSecret(extension, name, value) end,
+		delete_secret = function(name) return ctx:deleteSecret(extension, name) end,
+	})
 	api.mount({
 		catalog = self.catalog,
+		frames_enabled = self.ffmpeg ~= nil and self.art_dir ~= nil,
+		sources = self.sources,
 		now = os.time,
 		status = function() return extension:_status() end,
 		scan = function(library) extension:_queue_scan(library) end,
+		art_response = function(target)
+			local root = target.origin == "frame" and extension.art_dir or target.root
+			local response, problem = ctx:fileResponse(root, target.path, { mime = art.mime(target.path) }, extension)
+			if not response then return { status = 503, json = { error = tostring(problem) } } end
+			return response
+		end,
 		file_response = function(target)
 			local response, problem = ctx:fileResponse(target.root, target.rel_path,
 				{ mime = mime_of(target.rel_path) }, extension)
@@ -124,8 +186,16 @@ function M:register(ctx)
 			if ctx:isStopping() then return end
 			self:_tick_scans()
 			self:_tick_probes()
+			self:_tick_frames()
+			self.sources_wait = (self.sources_wait or 0) + 1
+			if self.sources_wait >= SOURCE_TICKS then
+				self.sources_wait = 0
+				self.sources:tick()
+			end
 		end }, self)
-		for _, library in ipairs(self.catalog:libraries()) do self:_queue_scan(library) end
+		for _, library in ipairs(self.catalog:libraries()) do
+			if not library.source_id then self:_queue_scan(library) end
+		end
 	end, self)
 	return mounted
 end
@@ -134,6 +204,11 @@ function M:shutdown()
 	for _, run in ipairs(self.probes or {}) do
 		run.process:kill()
 		run.process:close()
+	end
+	if self.sources then self.sources:close() end
+	if self.frame_run then
+		self.frame_run.process:kill()
+		self.frame_run.process:close()
 	end
 	if self.catalog then self.catalog:close() end
 end

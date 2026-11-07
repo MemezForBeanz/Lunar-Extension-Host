@@ -704,6 +704,11 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 	if r.pressedtext then
 		attrs.TEXTPSCOLOR = r.pressedtext
 	end
+	-- A row is filled with PSCOLOR while it is chosen and HLCOLOR under the pointer, so `hover`
+	-- must not take the chosen row's colour.
+	if cls == "flatrows" and r.selbg then
+		attrs.PSCOLOR = r.selbg
+	end
 
 	if r.forceflat then
 		attrs.FLAT = "YES"

@@ -189,6 +189,13 @@ end
 -- Returns db or nil,error. name is a simple filename stem, never a path.
 function HostAPI:openDatabase(name, owner) return Database.openDatabase(self, name, owner) end
 
+--- The folder an extension keeps files in, beside its databases. Requires "database".
+-- @tparam table owner owning extension
+-- @treturn[1] string the folder, which exists
+-- @treturn[2] nil
+-- @treturn[2] string why
+function HostAPI:dataDir(owner) return Database.dataDir(self, owner) end
+
 --- Mount an authenticated route under /ext/<manifest-id>. Requires "http".
 -- Returns an opaque handle or nil,error. owner is required.
 function HostAPI:addRoute(method, path, handler, opts, owner)
@@ -1185,6 +1192,96 @@ function HostAPI:onReady(fn, owner)
     table.insert(self._ready, { fn = fn, owner = owner })
 end
 
+--- Keep a band on screen across every tab, above the status bar. A player uses this so its
+-- transport stays in reach while someone browses.
+-- @tparam userdata widget the band; build it before the window shows
+-- @tparam[opt] table owner owning extension
+-- @treturn[1] table `setVisible(boolean)`
+-- @treturn[2] nil when there is no window
+function HostAPI:addDock(widget, owner)
+    local slot, iup = self._dock_slot, self.iup
+    if not slot or not iup then return nil end
+    self._docks = self._docks or {}
+    iup.SetAttribute(widget, "FLOATING", "YES")
+    iup.SetAttribute(widget, "VISIBLE", "NO")
+    iup.Append(slot, widget)
+    if self._shown then iup.Map(widget) end
+    table.insert(self._docks, { widget = widget, owner = owner })
+    local host = self
+    return { setVisible = function(visible)
+        require("core.ui.Kit").show(iup, widget, visible, slot)
+        iup.SetAttribute(widget, "VISIBLE", visible and "YES" or "NO")
+        if host._dock_changed then host._dock_changed() end
+    end }
+end
+
+--- Hear when the active tab changes. The callback gets the active page's widget.
+-- @tparam func fn callback
+-- @tparam[opt] table owner owning extension; the callback goes when it unloads
+function HostAPI:onTabChange(fn, owner)
+    self._tab_listeners = self._tab_listeners or {}
+    table.insert(self._tab_listeners, { fn = fn, owner = owner })
+end
+
+--- Tell listeners which page is active now.
+-- @local
+function HostAPI:_tabChanged()
+    local page = self:_activeTab()
+    for i = #(self._tab_listeners or {}), 1, -1 do
+        local ok, err = pcall(self._tab_listeners[i].fn, page)
+        if not ok then self:setStatus("onTabChange error: " .. tostring(err)) end
+    end
+end
+
+--- Hear when the main window hides or comes back. With Keep running when closed on, closing
+-- the window hides it and extensions carry on, so anything that only makes sense on screen,
+-- such as playing a video, should pause. The callback gets `"hidden"` or `"shown"`.
+-- @tparam func fn callback
+-- @tparam[opt] table owner owning extension; the callback goes when it unloads
+-- @usage ctx:onWindow(function(state) if state == "hidden" then player:pause() end end, M)
+function HostAPI:onWindow(fn, owner)
+    self._window_listeners = self._window_listeners or {}
+    table.insert(self._window_listeners, { fn = fn, owner = owner })
+end
+
+--- Tell listeners the window hid or came back.
+-- @local
+function HostAPI:_windowState(state)
+    for i = #(self._window_listeners or {}), 1, -1 do
+        local entry = self._window_listeners[i]
+        local ok, err = pcall(entry.fn, state)
+        if not ok then self:setStatus("onWindow error: " .. tostring(err)) end
+    end
+end
+
+--- Where this user's background service listens, for an extension that declares the
+-- `local_service` capability. The token signs requests to the service's routes.
+-- @tparam table owner owning extension
+-- @treturn[1] table `url`, `token`
+-- @treturn[2] nil when no service is running or the capability is missing
+function HostAPI:localService(owner)
+    local manifest = self._manifest_by_owner and self._manifest_by_owner[owner]
+    if not manifest then return nil end
+    for _, capability in ipairs(manifest.capabilities or {}) do
+        if capability == "local_service" then return require("core.lib.Service").endpoint() end
+    end
+    return nil
+end
+
+--- Inspect or start/stop this computer's service, with the local_service capability.
+function HostAPI:controlLocalService(owner, action)
+    local manifest = self._manifest_by_owner and self._manifest_by_owner[owner]
+    local allowed = false
+    for _, capability in ipairs(manifest and manifest.capabilities or {}) do
+        if capability == "local_service" then allowed = true end
+    end
+    if not allowed or not self.iup then return nil, "local service control is unavailable" end
+    local service = require("core.lib.Service")
+    if action == "start" or action == "stop" then return service[action]() end
+    if action ~= nil then return nil, "unknown service action" end
+    return { running = service.running() }
+end
+
 --- Is the host shutting down? Headless, this turns true when the process is told
 -- to stop: running jobs get a grace period to finish, and an extension should not
 -- start new work (for example the next job of a sequence) once it is set.
@@ -1389,6 +1486,20 @@ function HostAPI:removeOwned(owner)
     self._route_handlers[owner] = nil
     self._route_serializers[owner] = nil
 
+    for i = #(self._window_listeners or {}), 1, -1 do
+        if self._window_listeners[i].owner == owner then table.remove(self._window_listeners, i) end
+    end
+    for i = #(self._tab_listeners or {}), 1, -1 do
+        if self._tab_listeners[i].owner == owner then table.remove(self._tab_listeners, i) end
+    end
+    for i = #(self._docks or {}), 1, -1 do
+        local dock = self._docks[i]
+        if dock.owner == owner then
+            table.remove(self._docks, i)
+            step("remove dock", iup.Destroy, dock.widget)
+            if self._dock_changed then step("resize after dock", self._dock_changed) end
+        end
+    end
     if #self._ready > 0 then
         local kept = {}
         for _, e in ipairs(self._ready) do

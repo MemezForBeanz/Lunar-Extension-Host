@@ -36,6 +36,22 @@ function M.mount(svc)
 	local route = svc.route
 
 	route("GET", "/v1/status", function() return svc.status() end)
+	route("GET", "/v1/attention", function()
+		local data = catalog:repairData()
+		data.analysis_enabled = svc.status().json.analysis == "on"
+		data.frames_enabled = svc.frames_enabled == true
+		return { status = 200, json = { problems = require("libs.repair").list(data) } }
+	end)
+	route("POST", "/v1/files/:id/analyse", function(req)
+		if svc.status().json.analysis ~= "on" then return bad(409, "file analysis is turned off") end
+		if not catalog:retryAnalysis(id_of(req.params.id) or 0) then return bad(409, "no failed online analysis to retry") end
+		return { status = 202, json = { queued = true } }
+	end)
+	route("POST", "/v1/items/:id/frame", function(req)
+		if not svc.frames_enabled then return bad(409, "frame extraction is turned off") end
+		if not catalog:retryFrame(id_of(req.params.id) or 0) then return bad(409, "no failed online frame to retry") end
+		return { status = 202, json = { queued = true } }
+	end)
 
 	route("GET", "/v1/libraries", function()
 		return { status = 200, json = { libraries = catalog:libraries() } }
@@ -54,9 +70,59 @@ function M.mount(svc)
 		return { status = 201, json = library }
 	end)
 
+	route("GET", "/v1/providers", function()
+		return { status = 200, json = { providers = svc.sources:providers() } }
+	end)
+
+	route("POST", "/v1/providers", function(req)
+		local clean, why = svc.sources:addProvider(json_body(req))
+		if not clean then return bad(400, why) end
+		return { status = 201, json = clean }
+	end)
+
+	route("GET", "/v1/sources", function()
+		return { status = 200, json = { sources = svc.sources:list() } }
+	end)
+
+	route("POST", "/v1/sources", function(req)
+		local body = json_body(req)
+		if not body then return bad(400, "a source is required") end
+		local source, why = svc.sources:add(body)
+		if not source then return bad(400, why) end
+		return { status = 201, json = { id = source.id } }
+	end)
+
+	route("POST", "/v1/sources/:id/sync", function(req)
+		local id = id_of(req.params.id)
+		if not id or not catalog:source(id) then return bad(404, "no such source") end
+		svc.sources:sync(id)
+		return { status = 202, json = { queued = true } }
+	end)
+
+	route("DELETE", "/v1/sources/:id", function(req)
+		if not svc.sources:remove(id_of(req.params.id) or 0) then return bad(404, "no such source") end
+		return { status = 204 }
+	end)
+
+	-- A remote file is played from its own address. Working that out can take a moment, so the
+	-- first answer may be 202, and the client asks again.
+	route("POST", "/v1/files/:id/open", function(req)
+		local target = catalog:fileTarget(id_of(req.params.id) or 0)
+		if not target then return bad(404, "no such file") end
+		if not target.remote then return bad(400, "this file is on the server") end
+		local answer = svc.sources:open(target)
+		if not answer then return { status = 202, json = { pending = true } } end
+		if answer.error then return bad(502, answer.error) end
+		return { status = 200, json = answer }
+	end)
+
 	route("POST", "/v1/libraries/:id/scan", function(req)
 		local library = catalog:library(id_of(req.params.id) or 0)
 		if not library then return bad(404, "no such library") end
+		if library.source_id then
+			svc.sources:sync(library.source_id)
+			return { status = 202, json = { queued = true } }
+		end
 		svc.scan(library)
 		return { status = 202, json = { queued = true } }
 	end)
@@ -67,16 +133,51 @@ function M.mount(svc)
 		local q = req.query or {}
 		local sort = q.sort == "added" and "added" or "title"
 		return { status = 200, json = catalog:browse(library.id, {
-			sort = sort, limit = q.limit,
+			sort = sort, limit = q.limit, user = req.auth,
 			after_key = sort == "added" and tonumber(q.after_key) or q.after_key,
 			after_id = tonumber(q.after_id),
 		}) }
+	end)
+
+	route("GET", "/v1/collections", function()
+		return { status = 200, json = { collections = catalog:collections() } }
+	end)
+
+	route("POST", "/v1/collections", function(req)
+		local body = json_body(req)
+		if not body or type(body.name) ~= "string" or body.name == "" or #body.name > 200 then
+			return bad(400, "a name is required")
+		end
+		local rules
+		if type(body.rules) == "table" then rules = require("cjson").encode(body.rules) end
+		if not rules and type(body.items) ~= "table" then return bad(400, "rules or items are required") end
+		local id = catalog:addCollection(body.name, type(body.icon) == "string" and body.icon or nil, rules, body.items, svc.now())
+		return { status = 201, json = { id = id } }
+	end)
+
+	route("DELETE", "/v1/collections/:id", function(req)
+		catalog:deleteCollection(id_of(req.params.id) or 0)
+		return { status = 204 }
 	end)
 
 	route("GET", "/v1/items/:id", function(req)
 		local item = catalog:item(id_of(req.params.id) or 0, req.auth)
 		if not item then return bad(404, "no such item") end
 		return { status = 200, json = item }
+	end)
+
+	route("GET", "/v1/items/:id/episodes", function(req)
+		local id = id_of(req.params.id)
+		if not id or not catalog:item(id, req.auth) then return bad(404, "no such item") end
+		return { status = 200, json = { seasons = catalog:episodes(id, req.auth) } }
+	end)
+
+	route("POST", "/v1/items/:id/watched", function(req)
+		local id, body = id_of(req.params.id), json_body(req)
+		if not id or not catalog:item(id, req.auth) then return bad(404, "no such item") end
+		if not body or type(body.watched) ~= "boolean" then return bad(400, "watched must be true or false") end
+		catalog:setWatched(req.auth, id, body.watched, svc.now())
+		return { status = 204 }
 	end)
 
 	route("GET", "/v1/search", function(req)
@@ -112,9 +213,18 @@ function M.mount(svc)
 		return bad(404, "no such file")
 	end)
 
+	route("GET", "/v1/items/:id/art/:kind", function(req)
+		local kind = req.params.kind
+		if kind ~= "poster" and kind ~= "backdrop" then return bad(404, "no such picture") end
+		local target = catalog:artTarget(id_of(req.params.id) or 0, kind)
+		if not target then return bad(404, "no such picture") end
+		return svc.art_response(target)
+	end)
+
 	local function stream(req)
 		local target = catalog:fileTarget(id_of(req.params.id) or 0)
 		if not target then return bad(404, "no such file") end
+		if target.remote then return bad(400, "this file is played from its own address") end
 		if target.missing_at then return bad(410, "this file is offline") end
 		return svc.file_response(target)
 	end

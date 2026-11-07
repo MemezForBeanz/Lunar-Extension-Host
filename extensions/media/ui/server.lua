@@ -1,160 +1,153 @@
---- The Media Server tab: what the server is doing and why. A session states how each stream
--- reaches its client, because "why is this converting" is the question an owner opens this
--- page to answer. Anything wrong is coloured; everything else stays quiet.
--- @module ui.server
-
+--- The repair workbench. Problem copy and actions come from the catalog, including in samples.
 local L = require("core.lib.CarbonLayout")
 local Kit = require("core.ui.Kit")
 local RowList = require("core.ui.RowList")
-
+local ThemeReactor = require("core.ui.ThemeReactor")
 local M = {}
-
-local ROW = 52
-local HEADER = 32
-local ROW_INSET = 12       -- where rows start their text; everything on the page shares that edge
-
 local function grouped(value)
-	local text = tostring(value)
+	local text = tostring(value or 0)
 	while true do
 		local next_text, changed = text:gsub("^(%d+)(%d%d%d)", "%1,%2")
 		text = next_text
 		if changed == 0 then return text end
 	end
 end
-
-local function metric(iup, label)
-	local number = iup.flatlabel({ TITLE = "0", THEMEROLE = "pagetitle" })
-	local caption = iup.flatlabel({ TITLE = label, THEMEROLE = "reading_muted" })
-	local box = iup.vbox({ number, caption, GAP = L.gap(1), MARGIN = "0x0", EXPAND = "HORIZONTAL" })
-	return box, function(value) iup.SetAttribute(number, "TITLE", grouped(value)) end
-end
-
-local function sized(widget, rows, iup)
-	iup.SetAttribute(widget, "RASTERSIZE", "x" .. (HEADER + ROW * rows + 8))
-	iup.SetAttribute(widget, "EXPAND", "HORIZONTAL")
-end
-
---- Build the tab.
--- @tparam table ctx host context
--- @tparam table opts `model`
 function M.new(ctx, opts)
-	local iup = ctx.iup
-	local server = opts.model.server
-	local api = {}
-
-	local playing_box, set_playing = metric(iup, "Now playing")
-	local files_box, set_files = metric(iup, "Files")
-	local analysing_box, set_analysing = metric(iup, "Being analysed")
-	local missing_box, set_missing = metric(iup, "Offline")
-	local failed_box, set_failed = metric(iup, "Failed")
-	local metrics = iup.hbox({ failed_box, missing_box, playing_box, analysing_box, files_box,
-		GAP = L.gap(7), MARGIN = ROW_INSET .. "x0", HOMOGENEOUS = "YES", EXPAND = "HORIZONTAL" })
-	iup.SetAttribute(metrics, "NORMALIZESIZE", "NONE")
-	local function show_counts(data)
-		set_playing(#data.sessions)
-		set_files(data.files)
-		set_analysing(data.analysing)
-		set_missing(data.missing)
-		set_failed(data.failed)
+	local iup, model = ctx.iup, opts.model
+	local api, targets = {}, {}
+	local feedback = Kit.statusLine(iup, "info", "")
+	Kit.show(iup, feedback, false)
+	local attention = iup.vbox({ GAP = L.gap(2), EXPAND = "HORIZONTAL", MARGIN = "0x0" })
+	local function act(action, button)
+		iup.SetAttribute(button, "ACTIVE", "NO")
+		opts.on_repair(action, function(answer, why)
+			iup.SetAttribute(button, "ACTIVE", "YES")
+			Kit.show(iup, feedback, true)
+			Kit.setStatus(iup, feedback, answer and "ok" or "warning", answer and "Queued. The server will update after the work finishes." or why)
+		end)
 	end
-	show_counts(server)
-
-	local session_rows = {}
-	for i, session in ipairs(server.sessions) do
-		session_rows[i] = {
-			title = session.title, secondary = session.user .. " on " .. session.device,
-			column1 = session.mode, column2 = session.position .. " / " .. session.duration, column3 = session.bitrate,
-		}
+	local metrics = iup.hbox({ HOMOGENEOUS = "YES", GAP = L.gap(3), EXPAND = "HORIZONTAL", MARGIN = "0x0" })
+	local setters, semantic_numbers = {}, {}
+	for _, entry in ipairs({ { "failed", "Failed", "analysis" }, { "missing", "Offline", "offline" },
+		{ "playing", "Now playing" }, { "analysing", "Being analysed" }, { "files", "Files" } }) do
+		local key, caption, kind = entry[1], entry[2], entry[3]
+		local number = iup.flatlabel({ TITLE = "0", THEMEROLE = kind and "sectiontitle" or "reading", EXPAND = "HORIZONTAL" })
+		if kind then semantic_numbers[key] = number end
+		local label = kind and Kit.statusLine(iup, key == "failed" and "error" or "warning", caption)
+			or iup.flatlabel({ TITLE = caption, THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL" })
+		local jump = Kit.button(iup, { title = "View", role = "link_btn", action = function()
+			if targets[kind] then iup.SetFocus(targets[kind]) end
+		end })
+		Kit.show(iup, jump, kind ~= nil)
+		setters[key] = function(value) iup.SetAttribute(number, "TITLE", grouped(value)) end
+		iup.Append(metrics, iup.vbox({ number, iup.hbox({ label, jump, ALIGNMENT = "ACENTER" }),
+			GAP = L.gap(1), MARGIN = "12x8", EXPAND = "HORIZONTAL" }))
 	end
-	local reach_title = L.sectionTitle(iup, "")
-	local reach = {}
-	local REACH_LABELS = { "Delivery", "Video", "Audio", "Subtitles" }
-	local reach_rows = iup.vbox({ GAP = L.gap(2), MARGIN = ROW_INSET .. "x0", EXPAND = "HORIZONTAL" })
-	for _, label in ipairs(REACH_LABELS) do
-		local name = iup.flatlabel({ TITLE = label, THEMEROLE = "reading_muted", RASTERSIZE = "96x" })
-		reach[label] = iup.flatlabel({ TITLE = "", THEMEROLE = "reading", EXPAND = "HORIZONTAL" })
-		iup.Append(reach_rows, iup.hbox({ name, reach[label], GAP = L.gap(3), ALIGNMENT = "ACENTER" }))
+	local function rows_for(libraries)
+		local rows = {}
+		for _, library in ipairs(libraries or {}) do
+			rows[#rows + 1] = { title = library.name, secondary = library.root,
+				column1 = tostring(#(library.items or {})), column2 = library.scanned_at and os.date("%b %d %H:%M", library.scanned_at) or "Not scanned" }
+		end
+		return rows
 	end
-	local function explain(pos)
-		local session = server.sessions[pos]
-		if not session then return end
-		iup.SetAttribute(reach_title, "TITLE", "How " .. session.title .. " reaches " .. session.user)
-		iup.SetAttribute(reach.Delivery, "TITLE", session.mode)
-		iup.SetAttribute(reach.Video, "TITLE", session.video)
-		iup.SetAttribute(reach.Audio, "TITLE", session.audio)
-		iup.SetAttribute(reach.Subtitles, "TITLE", session.subtitles)
+	local libraries = RowList.new(iup, { rows = {}, row_height = 44, role = "flatrows_plain",
+		column_widths = { 55, 125 }, header = { title = "Library", columns = { "Items", "Last scan" } },
+		empty_title = "No libraries yet", empty_hint = "Add a folder through the server API." })
+	local sessions = RowList.new(iup, { rows = {}, row_height = 44, role = "flatrows_plain",
+		column_widths = { 85, 130 }, header = { title = "Now playing", columns = { "Delivery", "Position" } },
+		empty_title = "Nothing is playing", empty_hint = "Sessions appear when reported by the server." })
+	local status = Kit.statusLine(iup, "ok", "")
+	local service_line = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted" })
+	local service_button
+	local function service_refresh()
+		local state = ctx.controlLocalService and ctx:controlLocalService(opts.owner)
+		if state then
+			iup.SetAttribute(service_line, "TITLE", "This computer's service: " .. (state.running and "running" or "stopped"))
+			iup.SetAttribute(service_button, "TITLE", state.running and "Stop" or "Start")
+		end
+		return state
 	end
-	local sessions = RowList.new(iup, { rows = session_rows, row_height = ROW, column_widths = { 88, 168, 96 },
-		role = "flatrows_plain",
-		header = { title = "Title", columns = { "Delivery", "Position", "Bitrate" } },
-		empty_title = "Nothing is playing", empty_hint = "Sessions appear here while someone is watching.",
-		on_select = explain })
-	sized(sessions.widget, #session_rows, iup)
-
-	local libraries = RowList.new(iup, {
-		rows = {
-			{ title = "Films", secondary = "D:/Media/Films", column1 = "24", column2 = "12 min ago" },
-			{ title = "Shows", secondary = "D:/Media/Shows", column1 = "8", column2 = "Now" },
-		},
-		row_height = ROW, column_widths = { 72, 120 }, role = "flatrows_plain",
-		header = { title = "Library", columns = { "Items", "Last scan" } },
-		empty_title = "No libraries yet", empty_hint = "Add a folder to start your library.",
-	})
-	sized(libraries.widget, 2, iup)
-
-	local scan = Kit.button(iup, { title = "Scan all", icon = "renew", role = "actionbutton" })
-	iup.SetAttribute(scan, "RASTERSIZE", "x36")
-	local add = Kit.button(iup, { title = "Add library", icon = "add", role = "primary_btn" })
-	iup.SetAttribute(add, "RASTERSIZE", "x36")
-
-	local status = Kit.statusLine(iup, "ok", server.name .. " · version " .. server.version .. " · analysis " .. server.analysis)
-
-	local header = iup.hbox({
-		iup.vbox({ iup.flatlabel({ TITLE = "Media server", THEMEROLE = "pagetitle" }), status, GAP = L.gap(2), MARGIN = "0x0" }),
-		iup.fill({}), scan, add, GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL",
-		MARGIN = ROW_INSET .. "x0",
-	})
-
-	local function heading(text)
-		return iup.hbox({ L.sectionTitle(iup, text), MARGIN = ROW_INSET .. "x0" })
+	service_button = Kit.button(iup, { title = "Start", role = "actionbutton", action = function()
+		local state = service_refresh()
+		if not state then return end
+		local ok, why = ctx:controlLocalService(opts.owner, state.running and "stop" or "start")
+		Kit.show(iup, feedback, true)
+		Kit.setStatus(iup, feedback, ok and "info" or "error", ok and "Service request sent. Status will refresh shortly." or tostring(why))
+		service_refresh()
+	end })
+	local service_box = iup.hbox({ service_line, service_button, GAP = L.gap(2), ALIGNMENT = "ACENTER" })
+	Kit.show(iup, service_box, service_refresh() ~= nil)
+	local function section(title, children)
+		local box = iup.vbox({ L.sectionTitle(iup, title), children, MARGIN = "12x8", GAP = L.gap(2), EXPAND = "HORIZONTAL" })
+		return iup.flatframe({ box, TITLE = "", MARGIN = "0x0", THEMEROLE = "settingspanel", EXPAND = "HORIZONTAL" })
 	end
-
-	local attention = iup.vbox({
-		Kit.statusLine(iup, "error", "Marrow (2020).mkv could not be read, so it cannot play"),
-		Kit.statusLine(iup, "warning", "3 files are offline in Shows"),
-		Kit.statusLine(iup, "info", "Analysing Harbour Lights: 18 files left"),
-		GAP = L.gap(3), MARGIN = ROW_INSET .. "x0", EXPAND = "HORIZONTAL",
-	})
-	local left = L.stack(iup, {
-		L.stack(iup, { heading("Now playing"), sessions.widget }, 3),
-		L.stack(iup, { iup.hbox({ reach_title, MARGIN = ROW_INSET .. "x0" }), reach_rows }, 3),
-	}, 6)
-	local right = L.stack(iup, {
-		L.stack(iup, { heading("Libraries"), libraries.widget }, 3),
-	}, 6)
-	iup.SetAttribute(left, "EXPAND", "HORIZONTAL")
-	iup.SetAttribute(right, "EXPAND", "HORIZONTAL")
-
+	local health = section("Health", iup.vbox({ metrics, L.sectionTitle(iup, "Attention"), attention, feedback,
+		GAP = L.gap(2), EXPAND = "HORIZONTAL" }))
 	api.widget = iup.vbox({
-		header, metrics,
-		L.stack(iup, { heading("Attention"), attention }, 3),
-		iup.hbox({ left, right, GAP = L.gap(8), MARGIN = "0x0", EXPAND = "HORIZONTAL", HOMOGENEOUS = "YES" }),
-		iup.fill({}),
-		GAP = L.gap(7), MARGIN = L.margin(5), EXPAND = "YES",
+		iup.hbox({ iup.vbox({ iup.flatlabel({ TITLE = "Media server", THEMEROLE = "pagetitle" }), status,
+			GAP = L.gap(1) }), iup.fill({}), service_box, ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL", MARGIN = "15x0" }),   -- 15: the sections' margin and their frame's inset
+		health,
+		iup.hbox({ section("Activity", sessions.widget), section("Libraries", libraries.widget),
+			HOMOGENEOUS = "YES", GAP = L.gap(4), EXPAND = "HORIZONTAL" }),
+		iup.fill({}), GAP = L.gap(3), MARGIN = L.margin(4), EXPAND = "YES",
 	})
-	sessions:select(1)
-	explain(1)
-
-	--- Show a connected server's counts.
-	function api.setModel(model)
-		server = model.server
-		show_counts(server)
-		Kit.setStatus(iup, status, "ok", server.name .. " · analysis " .. server.analysis)
-		sessions:setRows({})
-		iup.SetAttribute(reach_title, "TITLE", "")
-		for _, label in pairs(reach) do iup.SetAttribute(label, "TITLE", "") end
+	-- Flat labels need an explicit background on Windows in light themes. Keep it
+	-- local to this page, and reapply after each host theme pass.
+	function api:_afterThemePass()
+		local palette = ThemeReactor.palette()
+		local function paint(widget, background)
+			if iup.GetAttribute(widget, "THEMEROLE") == "settingspanel" then background = palette.layer01 or palette.surface end
+			local class = iup.GetClassName(widget)
+			if background and (class == "flatlabel" or class == "flatframe" or class == "scrollbox" or class == "vbox" or class == "hbox") then
+				iup.SetAttribute(widget, "BGCOLOR", background)
+			end
+			local index, child = 0, iup.GetChild(widget, 0)
+			while child do paint(child, background); index = index + 1; child = iup.GetChild(widget, index) end
+		end
+		paint(self.widget, palette.layer01 or palette.surface or palette.bg)
+		for key, number in pairs(semantic_numbers) do
+			local color = key == "failed" and palette.error or palette.warning
+			if color then iup.SetAttribute(number, "FGCOLOR", color) end
+		end
 	end
+	ThemeReactor.register(api)
+	function api.setModel(next_model)
+		model = next_model
+		local server = model.server
+		for key, setter in pairs(setters) do setter(key == "playing" and #(server.sessions or {}) or server[key]) end
+		Kit.setStatus(iup, status, model.sample and "info" or "ok", server.name .. " · analysis " .. server.analysis ..
+			(model.sample and " · all examples below are made up" or ""))
+		while iup.GetChild(attention, 0) do iup.Destroy(iup.GetChild(attention, 0)) end
+		targets = {}
+		local problems = {}
+		for _, problem in ipairs(model.attention or {}) do problems[#problems + 1] = problem end
+		table.sort(problems, function(a, b) return a.severity < b.severity end)
+		for _, problem in ipairs(problems) do
+			local line = Kit.statusLine(iup, problem.severity <= 2 and "error" or "warning", problem.title .. " — " .. problem.wrong)
+			local next_step = iup.flatlabel({ TITLE = "Next: " .. problem.next_step, THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL" })
+			local button = Kit.button(iup, { title = problem.action and problem.action.label or "", role = "actionbutton" })
+			function button:flat_action() act(problem.action, button) end
+			Kit.show(iup, button, problem.action ~= nil)
+			if problem.action and not targets[problem.kind] then targets[problem.kind] = button end
+			iup.Append(attention, iup.hbox({ iup.vbox({ line, next_step, GAP = L.gap(1), EXPAND = "HORIZONTAL" }), button,
+				GAP = L.gap(3), ALIGNMENT = "ACENTER", MARGIN = "0x5", EXPAND = "HORIZONTAL" }))
+		end
+		if #problems == 0 then iup.Append(attention, Kit.statusLine(iup, model.attention_error and "warning" or "ok",
+			model.attention_error and ("Could not load attention: " .. model.attention_error) or "Everything looks healthy.")) end
+		libraries:setRows(rows_for(model.libraries))
+		iup.SetAttribute(libraries.widget, "RASTERSIZE", "x" .. (40 + 44 * math.max(1, #(model.libraries or {}))))
+		local rows = {}
+		for _, session in ipairs(server.sessions or {}) do rows[#rows + 1] = { title = session.title,
+			secondary = session.user .. " on " .. session.device, column1 = session.mode, column2 = session.position .. " / " .. session.duration } end
+		sessions:setRows(rows)
+		iup.SetAttribute(sessions.widget, "RASTERSIZE", "x" .. (40 + 44 * math.max(1, #rows)))
+		api:_afterThemePass()
+		iup.Refresh(api.widget)
+	end
+	api.setModel(model)
+	api.widget = iup.scrollbox({ api.widget, EXPAND = "YES", SCROLLBAR = "VERTICAL" })
+	if ctx.addTimer then ctx:addTimer({ time = 2000, run = true, action = function() service_refresh(); api:_afterThemePass() end }, opts.owner) end
 	return api
 end
-
 return M

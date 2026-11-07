@@ -4,6 +4,8 @@
 -- @module libs.client
 
 local cjson = require("cjson")
+local artcache = require("libs.artcache")
+local organize = require("libs.organize")
 
 local M = {}
 local Client = {}
@@ -19,6 +21,29 @@ local function resolution_of(height)
 		if height >= step[1] then return step[2] end
 	end
 	return height .. "p"
+end
+
+local CODECS = { h264 = "H.264", hevc = "HEVC", av1 = "AV1", vp9 = "VP9", vp8 = "VP8", mpeg2video = "MPEG-2",
+	mpeg4 = "MPEG-4", aac = "AAC", ac3 = "AC3", eac3 = "E-AC3", dts = "DTS", truehd = "TrueHD", flac = "FLAC",
+	opus = "Opus", mp3 = "MP3", vorbis = "Vorbis" }
+local LAYOUTS = { [1] = "1.0", [2] = "2.0", [6] = "5.1", [8] = "7.1" }
+
+--- A codec the way people write it.
+-- @tparam string|nil codec ffprobe's name
+-- @treturn string|nil
+function M.codecName(codec)
+	return codec and (CODECS[codec] or codec:upper()) or nil
+end
+
+--- An audio track the way people write it.
+-- @tparam string|nil codec
+-- @tparam number|nil channels
+-- @treturn string|nil
+function M.audioName(codec, channels)
+	local name = M.codecName(codec)
+	if not name then return nil end
+	if not channels then return name end
+	return name .. " " .. (LAYOUTS[channels] or (channels .. " ch"))
 end
 
 local function stream_of(file, kind)
@@ -39,24 +64,37 @@ function M.applyDetail(item, detail)
 	if file then
 		local video, audio = stream_of(file, "video"), stream_of(file, "audio")
 		item.resolution = video and resolution_of(video.height) or nil
-		item.codec = video and video.codec and video.codec:upper() or nil
+		item.codec = video and M.codecName(video.codec) or nil
 		item.dynamic = video and (video.hdr == 1 and "HDR" or "SDR") or nil
-		item.audio = audio and audio.codec and
-			(audio.codec:upper() .. (audio.channels and (" " .. audio.channels .. " ch") or "")) or nil
+		item.audio = audio and M.audioName(audio.codec, audio.channels) or nil
 		item.bitrate = file.bitrate and file.bitrate / 1000000 or nil
 		item.size_gb = file.size and file.size / 1073741824 or nil
 		item.minutes = file.duration_ms and math.floor(file.duration_ms / 60000) or nil
 		item.path = file.rel_path
+		item.is_remote = file.is_remote == 1
 		item.problem = file.probe_error
 		if file.duration_ms and file.duration_ms > 0 then item.progress = position / file.duration_ms end
 	end
 	item.position_ms = position
 	if detail.progress and detail.progress.watched == 1 then item.progress = 1 end
-	item.seasons = 0
-	for _, child in ipairs(detail.children or {}) do
-		if child.kind == "season" then item.seasons = item.seasons + 1 end
-	end
+	if detail.people then item.people = detail.people end
+	if detail.rating then item.rating = detail.rating end
 	return item
+end
+
+local function text_or_nil(value)
+	return type(value) == "string" and value or nil
+end
+
+local function number_or_nil(value)
+	return type(value) == "number" and value or nil
+end
+
+-- SQLite joins a list with commas.
+local function list_of(text)
+	local out = {}
+	for entry in tostring(type(text) == "string" and text or ""):gmatch("[^,]+") do out[#out + 1] = entry end
+	return out
 end
 
 local function added_text(seconds)
@@ -67,36 +105,68 @@ end
 -- @tparam table libraries the libraries, each with `items` from its pages
 -- @tparam table status the server's status answer
 -- @tparam[opt] table continuing the server's continue-watching items
+-- @tparam[opt] table collections the server's collections
 -- @treturn table a model with `sources`, `films`, `shows`, `continuing` and `server`
-function M.modelFrom(libraries, status, continuing)
+function M.modelFrom(libraries, status, continuing, collections, source_rows, attention)
 	local by_id = {}
 	local model = { films = {}, shows = {}, continuing = {}, sample = false,
 		sources = { { id = "home", title = "Home", icon = "home" } } }
 	local film_count, show_count = 0, 0
+	local everything = {}
 	for _, library in ipairs(libraries) do
 		for _, raw in ipairs(library.items or {}) do
 			local item = { id = raw.id, kind = raw.kind, title = raw.title, year = raw.year or 0,
-				added = added_text(raw.added_at), progress = 0, seasons = 0, episodes = 0 }
+				added = added_text(raw.added_at), progress = 0, sources = { library.name }, web = library.source_id ~= nil,
+				art_urls = { poster = text_or_nil(raw.poster_url), backdrop = text_or_nil(raw.backdrop_url) },
+				seasons = number_or_nil(raw.seasons) or 0, episodes = number_or_nil(raw.episodes) or 0,
+				unwatched = number_or_nil(raw.unwatched) or 0,
+				art = artcache.kinds(raw.art), overview = text_or_nil(raw.overview), genres = list_of(raw.genres),
+				codec = M.codecName(text_or_nil(raw.vcodec)), resolution = resolution_of(number_or_nil(raw.height)),
+				dynamic = raw.hdr == 1 and "HDR" or (type(raw.height) == "number" and "SDR" or nil) }
+			if raw.watched == 1 then item.progress = 1 end
+			if type(raw.duration_ms) == "number" then item.minutes = math.floor(raw.duration_ms / 60000) end
 			by_id[item.id] = item
-			if raw.kind == "show" then
-				show_count = show_count + 1
-				model.shows[show_count] = item
-			else
-				film_count = film_count + 1
-				model.films[film_count] = item
-			end
+			if raw.art == nil and item.art_urls.poster then item.art.poster = true end
+			if raw.art == nil and item.art_urls.backdrop then item.art.backdrop = true end
+			everything[#everything + 1] = item
+		end
+	end
+	-- Local libraries come first, so a title's first copy is the one on this server.
+	table.sort(everything, function(a, b)
+		if a.web ~= b.web then return b.web end
+		return a.id < b.id
+	end)
+	for _, item in ipairs(organize.merge(everything)) do
+		item.copy_list = {}
+		for i, copy in ipairs(item.copies) do
+			item.copy_list[i] = { item = copy, source = copy.sources[1], web = copy.web, health = "ok" }
+			by_id[copy.id] = item   -- progress on any copy belongs to the one card
+		end
+		if item.kind == "show" then
+			show_count = show_count + 1
+			model.shows[show_count] = item
+		else
+			film_count = film_count + 1
+			model.films[film_count] = item
 		end
 	end
 	for _, raw in ipairs(continuing or {}) do
 		local item = by_id[raw.id]
 		if item then
 			item.position_ms = raw.position_ms
+			if type(raw.duration_ms) == "number" and raw.duration_ms > 0 then
+				item.progress = raw.position_ms / raw.duration_ms
+			end
 			model.continuing[#model.continuing + 1] = item
 		end
 	end
 	model.sources[2] = { id = "films", title = "Films", icon = "video", count = film_count }
 	model.sources[3] = { id = "shows", title = "Shows", icon = "screen", count = show_count }
+	model.collections = collections or {}
+	model.origins = M.originsFrom(libraries, source_rows)
 	model.scanning = status.scanning
+	model.libraries = libraries
+	model.attention = attention or {}
 	model.server = {
 		name = "Connected", version = "0.1.0", analysis = status.analysis or "off", files = status.files or 0,
 		missing = status.missing or 0, analysing = status.analysing or 0, failed = status.failed or 0, sessions = {},
@@ -177,7 +247,16 @@ function Client:load(done)
 				local library = libraries[index]
 				if not library then
 					return self:_request("GET", "/v1/continue", nil, function(resume)
-						done(M.modelFrom(libraries, status, resume and resume.items))
+						self:_request("GET", "/v1/collections", nil, function(saved)
+							self:_request("GET", "/v1/sources", nil, function(found)
+								self:attention(function(problems, problem)
+									local model = M.modelFrom(libraries, status, resume and resume.items, M.collectionsFrom(saved),
+										found and found.sources, problems)
+									model.attention_error = problem
+									done(model)
+								end)
+							end)
+						end)
 					end)
 				end
 				library.items = {}
@@ -191,14 +270,144 @@ function Client:load(done)
 	end)
 end
 
+local ORIGIN_ICONS = { jellyfin = "network--4", archive = "globe", m3u = "catalog", feed = "catalog", index = "folder", torrent = "share" }
+
+--- Where a combined library comes from, for the rail.
+-- @tparam table libraries
+-- @tparam table|nil rows the server's sources
+-- @treturn table
+function M.originsFrom(libraries, rows)
+	local by_library = {}
+	for _, source in ipairs(rows or {}) do
+		if source.library_id then by_library[source.library_id] = source end
+	end
+	local out = {}
+	for _, library in ipairs(libraries) do
+		local source = by_library[library.id]
+		out[#out + 1] = { id = "l" .. tostring(library.id), name = library.name, items = #(library.items or {}),
+			icon = source and (ORIGIN_ICONS[source.kind] or "globe") or "data--base", status = source and source.status or "ok",
+			error = source and text_or_nil(source.error), provider_name = source and source.provider_name or "Folder on this server",
+			source_id = source and source.id, rules = { rules = { { field = "source", value = library.name } } } }
+	end
+	return out
+end
+
+--- Turn the server's episodes into seasons.
+-- @tparam table answer
+-- @treturn table
+function M.seasonsFrom(answer)
+	local seasons = {}
+	for _, raw in ipairs(answer.seasons or {}) do
+		local season = { number = raw.season, title = raw.title, episodes = {} }
+		for i, entry in ipairs(raw.episodes or {}) do
+			local minutes = number_or_nil(entry.duration_ms)
+			local position = number_or_nil(entry.position_ms) or 0
+			season.episodes[i] = { id = entry.id, kind = "episode", title = entry.title, season = raw.season,
+				episode = entry.episode, minutes = minutes and math.floor(minutes / 60000) or nil,
+				progress = entry.watched == 1 and 1 or (minutes and minutes > 0 and position / minutes or 0),
+				position_ms = position }
+		end
+		seasons[#seasons + 1] = season
+	end
+	return seasons
+end
+
+--- Turn the server's collections into what the rail shows.
+-- @tparam table|nil answer the server's reply
+-- @treturn table
+function M.collectionsFrom(answer)
+	local out = {}
+	for _, raw in ipairs(answer and answer.collections or {}) do
+		local rules
+		if type(raw.rules) == "string" then
+			local ok, decoded = pcall(cjson.decode, raw.rules)
+			if ok and type(decoded) == "table" then rules = decoded end
+		end
+		out[#out + 1] = { id = raw.id, name = raw.name, icon = text_or_nil(raw.icon) or (rules and "filter" or "bookmark"),
+			rules = rules, items = raw.items }
+	end
+	return out
+end
+
+--- Save a collection.
+function Client:saveCollection(entry, done)
+	self:_request("POST", "/v1/collections", { name = entry.name, icon = entry.icon, rules = entry.rules,
+		items = entry.items }, done)
+end
+
+--- The provider database.
+function Client:providers(done)
+	self:_request("GET", "/v1/providers", nil, function(answer) done(answer and answer.providers or {}) end)
+end
+
+--- Add a source.
+function Client:addSource(body, done)
+	self:_request("POST", "/v1/sources", body, done)
+end
+
+function Client:syncSource(id)
+	self:_request("POST", "/v1/sources/" .. id .. "/sync", {}, function() end)
+end
+
+function Client:removeSource(id, done)
+	self:_request("DELETE", "/v1/sources/" .. id, nil, done)
+end
+
+--- Ask how to play a remote file. `done(answer)`; an answer with `pending` means ask again.
+function Client:open(file_id, done)
+	self.http({ url = self:_url("/v1/files/" .. file_id .. "/open"), method = "POST", json = {}, timeout = 15,
+		headers = { Authorization = "Bearer " .. self.token } }, function(response, err)
+		if not response then return done({ error = err or "no answer from the server" }) end
+		if response.status == 202 then return done({ pending = true }) end
+		local ok, data = pcall(cjson.decode, response.body or "")
+		if not ok then return done({ error = "the server's answer could not be read" }) end
+		done(data)
+	end)
+end
+
+--- Fetch one picture's bytes.
+-- @tparam number id
+-- @tparam string kind `poster` or `backdrop`
+-- @tparam function done `done(bytes)`, nil on failure
+function Client:art(id, kind, done)
+	self.http({
+		url = self:_url("/v1/items/" .. id .. "/art/" .. kind), method = "GET", timeout = 30,
+		headers = { Authorization = "Bearer " .. self.token },
+	}, function(response)
+		done(response and response.ok and response.body or nil)
+	end)
+end
+
+--- Fetch a show's seasons and episodes.
+-- @tparam number id
+-- @tparam function done `done(seasons)` or `done(nil, why)`
+function Client:episodes(id, done)
+	self:_request("GET", "/v1/items/" .. id .. "/episodes", nil, function(answer, why)
+		if not answer then return done(nil, why) end
+		done(M.seasonsFrom(answer))
+	end)
+end
+
+--- Say whether something has been watched.
+function Client:mark(id, watched)
+	self:_request("POST", "/v1/items/" .. id .. "/watched", { watched = watched }, function() end)
+end
+
+--- Fetch a picture from a source's own address.
+function Client:artFrom(url, done)
+	self.http({ url = url, method = "GET", timeout = 30 }, function(response)
+		done(response and response.ok and response.body or nil)
+	end)
+end
+
 --- Fetch one item's detail.
 function Client:detail(id, done)
 	self:_request("GET", "/v1/items/" .. id, nil, done)
 end
 
---- Ask how a file reaches this client.
-function Client:decision(file_id, done)
-	self:_request("POST", "/v1/files/" .. file_id .. "/decision", { capabilities = M.CAPABILITIES }, done)
+--- Ask how a file reaches this client, or a device described by `capabilities`.
+function Client:decision(file_id, done, capabilities)
+	self:_request("POST", "/v1/files/" .. file_id .. "/decision", { capabilities = capabilities or M.CAPABILITIES }, done)
 end
 
 --- Save a resume point. Failures are ignored: the next save carries a newer position.
@@ -207,4 +416,20 @@ function Client:saveProgress(id, position_ms, duration_ms)
 		{ position_ms = position_ms, duration_ms = duration_ms }, function() end)
 end
 
+--- Fetch current repair problems.
+function Client:attention(done)
+	self:_request("GET", "/v1/attention", nil, function(answer, why)
+		done(answer and answer.problems or {}, why)
+	end)
+end
+
+--- Only accept the repair routes the desktop understands.
+function Client:repair(action, done)
+	local path = action and action.path or ""
+	if not (path:match("^/v1/libraries/%d+/scan$") or path:match("^/v1/sources/%d+/sync$")
+		or path:match("^/v1/files/%d+/analyse$") or path:match("^/v1/items/%d+/frame$")) then
+		return done(nil, "unknown repair action")
+	end
+	self:_request("POST", path, {}, done)
+end
 return M
