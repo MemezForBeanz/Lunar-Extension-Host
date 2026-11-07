@@ -45,8 +45,9 @@ jobs:
 
       # Everything bootstrap.ps1 restores. The key covers every pin and build
       # script, so a dependency change rebuilds from source.
+      # Restore only: alternate refs must never write caches in the caller scope.
       - name: Cache dependencies
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             vendor/.downloads
@@ -95,7 +96,7 @@ jobs:
 
       # WiX is downloaded into build\tools on first use; keep it between runs.
       - name: Cache WiX
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: build/tools
           key: wix-${{ runner.os }}-${{ hashFiles('scripts/build.ps1') }}
@@ -155,7 +156,7 @@ jobs:
       # cached; `make install` is cheap and needs root, so it runs every time.
       - name: Cache LuaJIT build
         id: luajit-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/LuaJIT
           key: luajit-${{ runner.os }}-${{ runner.arch }}-${{ env.LUAJIT_COMMIT }}
@@ -171,7 +172,7 @@ jobs:
         run: sudo make -C ~/LuaJIT install PREFIX=/usr/local
 
       - name: Cache rocks and downloads
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             vendor/luarocks-tree
@@ -182,7 +183,7 @@ jobs:
         run: scripts/dev.sh bootstrap
 
       - name: Cache IUP (GTK3)
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: vendor/iup-src-linux
           key: iup-linux-${{ env.LUAJIT_COMMIT }}-${{ hashFiles('iup-fork/patches/*', 'scripts/build_iup.py') }}
