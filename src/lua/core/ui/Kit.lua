@@ -8,6 +8,7 @@
 -- @module core.ui.Kit
 local M = {}
 
+local attr = require("core.lib.attr")
 local ok_icon, VectorIcon = pcall(require, "core.ui.VectorIcon")
 if not ok_icon then VectorIcon = nil end
 local ok_reactor, ThemeReactor = pcall(require, "core.ui.ThemeReactor")
@@ -63,7 +64,8 @@ end
 -- What a widget's icon is, kept on the widget: an extension's widgets are built before the
 -- first theme applies, and go away on a reload, so the widget tree is the only list of them
 -- that is always right.
-local SPEC = "KITICON"
+-- Internal attributes do not inherit: a group icon must not repaint its descendants.
+local SPEC = "_IUPLUNAR_KITICON"
 
 local function paint(iup, widget, spec)
 	local name, size, role, attribute = spec:match("^([^|]*)|([^|]*)|([^|]*)|([^|]*)$")
@@ -83,7 +85,7 @@ local function paint(iup, widget, spec)
 end
 
 local function repaint(iup, widget)
-	local spec = iup.GetAttribute(widget, SPEC)
+	local spec = attr.get(iup, widget, SPEC) -- iup.GetAttribute hides _IUP names
 	if spec then paint(iup, widget, spec) end
 	local i, child = 0, iup.GetChild(widget, 0)
 	while child do
@@ -123,6 +125,20 @@ function M.bindIcon(iup, widget, name, opts)
 	iup.SetAttribute(widget, SPEC, spec)
 	paint(iup, widget, spec)
 	return widget
+end
+
+--- Take a widget's themed icon away, so theme switches leave it alone.
+-- @tparam userdata iup
+-- @param widget
+-- @tparam[opt] string attribute default IMAGE
+function M.unbindIcon(iup, widget, attribute)
+	attribute = attribute or "IMAGE"
+	iup.SetAttribute(widget, SPEC, nil)
+	iup.SetAttribute(widget, attribute, nil)
+	if attribute == "TABIMAGE" and iup.GetParent(widget) and iup.GetChildPos then
+		local strip = iup.GetParent(widget)
+		pcall(iup.SetAttributeId, strip, "TABIMAGE", iup.GetChildPos(strip, widget), nil)
+	end
 end
 
 --- Hand a widget a little air on one side, so panes either side of a divider don't sit on it.

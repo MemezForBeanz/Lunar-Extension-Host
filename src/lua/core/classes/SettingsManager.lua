@@ -282,6 +282,7 @@ function SettingsManager:applyProfile(profile)
     self._org = profile
     self._org_defaults = (profile and profile.settings) or {}
     self._locked = (profile and profile.locked) or {}
+    self:adoptProfileTheme(profile)
     if self._user.pending_retirement and profile and profile.retired and next(profile.retired) then
         local dropped = {}
         for key, values in pairs(profile.retired) do
@@ -298,6 +299,30 @@ function SettingsManager:applyProfile(profile)
             self._user.pending_retirement = true
         end
     end
+end
+
+--- Adopt an opted-in pack default once per theme value; later user picks survive.
+-- A failed save restores the user layer and marker so the next run can retry.
+function SettingsManager:adoptProfileTheme(profile)
+    local theme = profile and profile.settings and profile.settings.theme
+    if not profile or not profile.adopt_theme or type(theme) ~= "string" then return false end
+    local old_marker = self._user.org_theme_applied
+    local marker = type(old_marker) == "table" and old_marker or {}
+    if marker[profile.id] == theme then return false end
+    local next_marker, dropped = {}, {}
+    for id, value in pairs(marker) do next_marker[id] = value end
+    for _, key in ipairs({ "theme", "theme_light", "theme_dark" }) do
+        if not self._locked[key] then
+            dropped[key] = self._user[key]
+            self._user[key] = nil
+        end
+    end
+    next_marker[profile.id] = theme
+    self._user.org_theme_applied = next_marker
+    if self:save() then return true end
+    self._user.org_theme_applied = old_marker
+    for key, value in pairs(dropped) do self._user[key] = value end
+    return false
 end
 
 --- The applied org profile, or `nil` when running neutral.

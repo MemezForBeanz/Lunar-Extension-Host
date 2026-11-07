@@ -374,6 +374,23 @@ M.ROLES = {
 		style    = "productive",
 	},
 
+	-- Every colour in the window fading to a new theme. Long for a fade, because the
+	-- whole window is changing and the eye needs to follow it; rare enough to afford it.
+	theme_transition = {
+		duration = M.DURATION.slow_01,
+		curve    = "standard",
+		style    = "productive",
+	},
+
+	-- The moon and sun turning into each other. It outlasts `theme_transition` on
+	-- purpose: the old window is fading out on top of this button, and the end of
+	-- the turn is what should be seen clearly.
+	theme_mode_icon = {
+		duration = M.DURATION.slow_02,
+		curve    = "standard",
+		style    = "expressive",
+	},
+
 	-- The status line changing text. A cross-fade at the fade token: the status
 	-- bar is peripheral, and a hard swap there catches the eye far more than the
 	-- information usually deserves.

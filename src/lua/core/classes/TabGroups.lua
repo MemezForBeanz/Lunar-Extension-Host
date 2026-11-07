@@ -148,6 +148,7 @@ function TabGroups:initialize(opts)
 	self._notify     = opts.notify_tree_change
 	self._height_cap = tonumber(opts.height_cap)
 	self._extra_icon = opts.extra_icon
+	self._group_icon = opts.group_icon -- (strip, final group name), including restored groups
 
 	self._shown    = false
 	self._restored = false
@@ -697,6 +698,7 @@ function TabGroups:_createGroup(parent_strip, name, source, index)
 	pcall(iup.SetAttribute, strip, NAME_ATTR, name)
 	pcall(iup.SetAttribute, strip, SOURCE_ATTR, source or "user")
 	pcall(iup.SetAttribute, strip, "TABTITLE", name)
+	if self._group_icon then self._group_icon(strip, name) end
 
 	self:_prepareStrip(strip)
 	self:_insertAt(parent_strip, strip, index)
@@ -736,6 +738,7 @@ function TabGroups:renameGroup(strip, name)
 	if name == "" then return false end
 	pcall(self._iup.SetAttribute, strip, NAME_ATTR, name)
 	pcall(self._iup.SetAttribute, strip, "TABTITLE", name)
+	if self._group_icon then self._group_icon(strip, name) end
 	self:_syncTitles(self:stripOf(strip))
 	self:_changed()
 	return true

@@ -3,7 +3,8 @@
 --
 -- Lunar looks the same for every org: a profile doesn't rename or recolour the
 -- app. The org shows up as a tab group holding its pack's tools (`tool_group`,
--- e.g. "Acme Tools"), a small logo in the status bar, and its settings
+-- e.g. "Acme Tools") with a theme-tinted SVG icon, an SVG/PNG logo in the status
+-- bar (optionally selected by theme id or light/dark appearance), and its settings
 -- (which may pick a default theme the pack ships).
 --
 -- A profile is **data only**: a folder holding `profile.json` plus its assets. It
@@ -145,7 +146,7 @@ end
 -- @tparam string dir The pack folder (used to resolve and confine assets).
 -- @tparam[opt] table opts `{ trusted = bool, fs = table, dir_name = string }`.
 -- @treturn[1] table The profile: `{ id, name, version, trusted, dir, domains,
---   tool_group, brand = { logo }, settings, locked, retired, legacy_config_dir }`.
+--   tool_group, brand = { icon, icon_color, logo }, adopt_theme, settings, locked, retired, legacy_config_dir }`.
 --   `tool_group` is the tab group the pack's extensions open in (the file's
 --   `tool_group`, else the profile name).
 --   `locked` is a set (`key -> true`), empty when the profile is untrusted.
@@ -214,17 +215,39 @@ function M.validate(data, dir, opts)
 				warn("brand." .. key .. " is no longer used: Lunar looks the same for every org")
 			end
 		end
-		if b.logo ~= nil then
-			if not confined(b.logo) or not b.logo:lower():match("%.svg$") then
-				warn("brand.logo must be an .svg path inside the profile folder; ignored")
-			else
-				local path = dir .. SEP .. (b.logo:gsub("[/\\]", SEP))
-				if fs.exists(path) then
-					brand.logo = path
-				else
-					warn("brand.logo not found: " .. b.logo)
-				end
+		local function asset(rel, key, svg_only)
+			if not confined(rel) or not (rel:lower():match("%.svg$")
+				or (not svg_only and rel:lower():match("%.png$"))) then
+				warn(key .. " must be an " .. (svg_only and ".svg" or ".svg or .png")
+					.. " path inside the profile folder; ignored")
+				return nil
 			end
+			local path = dir .. SEP .. (rel:gsub("[/\\]", SEP))
+			if fs.exists(path) then return path end
+			warn(key .. " not found: " .. rel)
+		end
+		if b.icon ~= nil then brand.icon = asset(b.icon, "brand.icon", true) end
+		if type(b.icon_color) == "string" and b.icon_color:match("^#%x%x%x%x%x%x$") then
+			brand.icon_color = b.icon_color
+		elseif b.icon_color ~= nil then
+			warn("brand.icon_color must be #RRGGBB; ignored")
+		end
+		if type(b.logo) == "table" then
+			local logo = {}
+			for _, key in ipairs({ "default", "dark", "light" }) do
+				if b.logo[key] ~= nil then logo[key] = asset(b.logo[key], "brand.logo." .. key) end
+			end
+			if type(b.logo.themes) == "table" then
+				logo.themes = {}
+				for id, rel in pairs(b.logo.themes) do
+					if type(id) == "string" then
+						logo.themes[id] = asset(rel, "brand.logo.themes." .. id)
+					else warn("brand.logo.themes keys must be theme ids; ignored") end
+				end
+			elseif b.logo.themes ~= nil then warn("brand.logo.themes must be an object; ignored") end
+			brand.logo = logo
+		elseif b.logo ~= nil then
+			brand.logo = asset(b.logo, "brand.logo")
 		end
 	end
 
@@ -310,12 +333,22 @@ function M.validate(data, dir, opts)
 		domains = domains,
 		tool_group = tool_group,
 		brand = brand,
+		adopt_theme = data.adopt_theme == true,
 		settings = settings,
 		locked = locked,
 		retired = retired,
 		legacy_config_dir = legacy_config_dir,
 		warnings = warnings,
 	}
+end
+
+--- Resolve a logo without ever crossing from a dark theme into a light-only entry.
+function M.logoFor(brand, theme_id, is_dark)
+	local logo = brand and brand.logo
+	if type(logo) == "string" then return logo end
+	if type(logo) ~= "table" then return nil end
+	return (logo.themes and logo.themes[theme_id])
+		or logo[is_dark and "dark" or "light"] or logo.default
 end
 
 --- Load and validate the profile in one pack folder.

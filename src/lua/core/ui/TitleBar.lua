@@ -1,7 +1,8 @@
---- The window caption: Settings, branding and top toolbar tabs.
+--- The window caption: the light/dark button, top toolbar tabs and the view controls.
 -- @classmod core.ui.TitleBar
 
 local WindowChrome = require("core.ui.WindowChrome")
+local ModeIcon = require("core.ui.ModeIcon")
 
 local StripView = require("core.ui.TabStripView")
 
@@ -15,14 +16,16 @@ local SIDE_MARGIN = 8
 local GAP = 8
 local BUTTON = 32
 local MARK = 20
+local VIEW_BUTTONS = 3
 -- A strip has no natural width of its own: it takes its page's, and these pages are empty.
 -- So the bar works it out, with a little over for what the control adds around a title.
 local TAB_SLACK = 10
 
 --- Space for tabs, leaving a caption drag area and the native window buttons.
 function TitleBar.layout(width, reserved, tabs)
-	local before = SIDE_MARGIN + BUTTON + GAP + MARK + GAP
-	local available = math.max(0, width - before - (reserved or 0) - 80)
+	local before = SIDE_MARGIN + BUTTON + GAP
+	local after = VIEW_BUTTONS * BUTTON
+	local available = math.max(0, width - before - after - (reserved or 0) - 80)
 	local groups = math.min(available, tabs or available)
 	return { left = before + groups, groups = groups }
 end
@@ -31,36 +34,42 @@ end
 -- @tparam userdata opts.iup
 -- @tparam userdata opts.root the main strip
 -- @tparam function opts.icon `(name, size) -> image handle`, an icon that follows the theme
--- @tparam[opt] userdata opts.logo the org's logo, an image handle, in place of the mark
 -- @tparam[opt] function opts.is_hidden `(page) -> bool`: pages that keep no tab in the bar
+-- @tparam[opt] function opts.frame `(name, svg) -> path`, where animation frames are kept
 function TitleBar.new(opts)
 	local iup = opts.iup
 	local self = setmetatable({
-		_iup = iup, _root = opts.root, _is_settings = opts.is_settings,
+		_iup = iup, _root = opts.root, _icon = opts.icon, _frame = opts.frame, _dark = true,
 	}, TitleBar)
 	local bar = self
 
-	self._menu = iup.flatbutton({
-		TIP = "Settings (Ctrl+,)", CANFOCUS = "YES", RASTERSIZE = BUTTON .. "x" .. BUTTON_HEIGHT,
-		THEMEROLE = "titlebar_button",
-	})
-	opts.icon(self._menu, "settings")
-	function self._menu:flat_action()
-		if bar._on_settings then bar._on_settings() end
-		return iup.DEFAULT
+	local function button(tip, on_press)
+		local widget = iup.flatbutton({
+			TIP = tip, CANFOCUS = "YES", FOCUSFEEDBACK = "NO", RASTERSIZE = BUTTON .. "x" .. BUTTON_HEIGHT,
+			THEMEROLE = "titlebar_button",
+		})
+		function widget:flat_action()
+			on_press()
+			return iup.DEFAULT
+		end
+		return widget
 	end
 
-	self._mark = iup.label({
-		TITLE = "", TIP = "Lunar Extension Host", RASTERSIZE = MARK .. "x" .. MARK, ALIGNMENT = "ACENTER:ACENTER",
-	})
-	if opts.logo then
-		iup.SetAttribute(self._mark, "IMAGE", opts.logo)
-	else
-		opts.icon(self._mark, "lunar-mark", MARK, "accent")
-	end
+	self._mode = button("Switch to light theme", function()
+		if bar._on_mode then bar._on_mode() end
+	end)
+	opts.icon(self._mode, "lunar-mark", MARK, "accent")
+	self._menu = button("Menu", function() if bar._on_menu then bar._on_menu() end end)
+	opts.icon(self._menu, "menu")
+	self._bars = button("Hide sidebar and status bar", function() if bar._on_bars then bar._on_bars() end end)
+	opts.icon(self._bars, "open-panel--filled--left")
+	self._terminal = button("Show terminal (Ctrl+`)", function()
+		if bar._on_terminal then bar._on_terminal() end
+	end)
+	opts.icon(self._terminal, "open-panel--bottom")
 
 	self._groups = iup.flattabs({
-		EXPAND = "NO", CANFOCUS = "NO", THEMEROLE = "titlebar_tabs", EXTRABUTTONS = "1",
+		EXPAND = "NO", CANFOCUS = "NO", THEMEROLE = "titlebar_tabs", EXTRABUTTONS = "1", TABSIMAGEPOSITION = "RIGHT",
 	})
 	self._view = StripView.new({ iup = iup, root = opts.root, strip = self._groups, is_hidden = opts.is_hidden })
 	opts.icon(self._groups, "add", 16, "neutral", "EXTRAIMAGE1")
@@ -73,14 +82,14 @@ function TitleBar.new(opts)
 	-- A fill, not a label: anything with a window here would cover the painted buttons.
 	self._reserved = iup.fill({ RASTERSIZE = "1x" })
 	self._left = iup.hbox({
-		self._menu, self._mark,
+		self._mode,
 		iup.vbox({ iup.fill({}), self._groups, EXPAND = "VERTICALFREE" }),
 		ALIGNMENT = "ACENTER", GAP = tostring(GAP), MARGIN = SIDE_MARGIN .. "x0",
 	})
 	self._widget = iup.hbox({
 		-- The strut holds the bar's height: a box takes its height from its children.
 		iup.label({ TITLE = "", RASTERSIZE = "0x" .. TitleBar.HEIGHT }),
-		self._left, iup.fill({}), self._reserved,
+		self._left, iup.fill({}), self._menu, self._bars, self._terminal, self._reserved,
 		ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL", GAP = "0",
 		MARGIN = "0x0",
 	})
@@ -90,23 +99,84 @@ end
 function TitleBar:widget() return self._widget end
 --- The top toolbar's mirror of the main tree.
 function TitleBar:groupStrip() return self._groups end
-function TitleBar:onSettings(fn) self._on_settings = fn end
+function TitleBar:onMode(fn) self._on_mode = fn end
+function TitleBar:onMenu(fn) self._on_menu = fn end
+function TitleBar:onBars(fn) self._on_bars = fn end
+function TitleBar:onTerminal(fn) self._on_terminal = fn end
+function TitleBar:setMotion(director) self._motion = director end
 function TitleBar:setOrder(order) self._view:setOrder(order) end
-function TitleBar:themeChanged() self._view:themeChanged() end
+function TitleBar:themeChanged()
+	self._view:themeChanged()
+	self._iup.Update(self._mode) -- its accent colour changed, and the bar behind it may not have
+end
 function TitleBar:sync(pages)
 	local visible = self._view:sync(pages)
 	local hidden = {}
 	for i, show in ipairs(visible) do hidden[i] = not show end
 	self:_measureTabs(pages, hidden)
 	self:fit(self._width, true)
+end
+
+--- Say what the two view buttons will do, and show what is open.
+-- @tparam boolean bars the sidebar and status bar are showing
+-- @tparam boolean terminal the terminal is open
+function TitleBar:setViewState(bars, terminal)
 	local iup = self._iup
-	local manager = require("core.ui.ThemeReactor").themeManager()
-	local theme = manager and manager:activeTheme()
-	local rules = theme and theme:rules() or {}
-	local colors = rules.titlebar_window or {}
-	local page = iup.GetAttribute(self._root, "VALUE_HANDLE")
-	local selected = page and self._is_settings and self._is_settings(page)
-	iup.SetAttribute(self._menu, "BGCOLOR", selected and colors.pressed or colors.bg)
+	self._icon(self._bars, bars and "open-panel--filled--left" or "open-panel--left")
+	iup.SetAttribute(self._bars, "TIP", (bars and "Hide" or "Show") .. " sidebar and status bar")
+	iup.Update(self._bars)
+	self._icon(self._terminal, terminal and "open-panel--filled--bottom" or "open-panel--bottom")
+	iup.SetAttribute(self._terminal, "TIP", (terminal and "Hide" or "Show") .. " terminal (Ctrl+`)")
+	iup.Update(self._terminal)
+end
+
+--- What the mode button says right now.
+function TitleBar:modeTip() return self._iup.GetAttribute(self._mode, "TIP") end
+
+--- The theme mode on screen: a moon for dark, a sun for light.
+-- @tparam boolean dark
+-- @tparam[opt] boolean can_change false when the other mode can't be reached
+-- @tparam[opt] string why what the button says then
+function TitleBar:setMode(dark, can_change, why)
+	local iup = self._iup
+	iup.SetAttribute(self._mode, "TIP",
+		can_change == false and why or ("Switch to " .. (dark and "light" or "dark") .. " theme"))
+	if dark == self._dark then return end
+	self._dark = dark
+	local target = dark and 0 or 1
+	local function finish()
+		self._turn, self._progress = nil, target
+		self._icon(self._mode, dark and "lunar-mark" or "light", MARK, "accent")
+		iup.Update(self._mode)
+	end
+	if self._turn then self._turn:cancel() end
+	if not self._motion or not self._motion:enabled() then return finish() end
+	local start = self._progress or (1 - target)
+	self._turn = self._motion:animate({
+		role = "theme_mode_icon", from = start, to = target,
+		on_frame = function(value)
+			self._progress = value
+			self:_paintFrame(value)
+		end,
+		on_done = function(completed) if completed then finish() end end,
+	})
+end
+
+-- One frame of the turn. A frame that can't be drawn is skipped: the turn still ends on
+-- the real icon.
+function TitleBar:_paintFrame(value)
+	if not self._frame then return end
+	local step = math.floor(math.max(0, math.min(1, value)) * ModeIcon.FRAMES + 0.5)
+	local path = self._frame("mode-1-" .. step, ModeIcon.svg(step / ModeIcon.FRAMES))
+	if not path or path == self._frame_path then return end
+	self._frame_path = path
+	local VectorIcon = require("core.ui.VectorIcon")
+	if not VectorIcon.available then return end
+	local handle = VectorIcon.imageHandle(self._iup, { path = path, size = MARK, color = VectorIcon.roleColor("accent") })
+	if handle then
+		self._iup.SetAttribute(self._mode, "IMAGE", handle)
+		self._iup.Update(self._mode) -- a flat button doesn't redraw for a new image alone
+	end
 end
 
 -- The width of a tab's title in the strip's own font, from IUP's driver: only the strip
@@ -131,6 +201,12 @@ function TitleBar:_measureTabs(pages, hidden)
 		if not hidden[i] then
 			local title = iup.GetAttributeId(self._root, "TABTITLE", i - 1) or ""
 			total = total + text_width(self._groups, title) + 2 * pad + TAB_SLACK
+			local image = iup.GetAttributeId(self._root, "TABIMAGE", i - 1)
+			if image then
+				local handle = iup.GetHandle(image)
+				local width = handle and tonumber(iup.GetAttribute(handle, "WIDTH")) or 16
+				total = total + width + (tonumber(iup.GetAttribute(self._groups, "TABSIMAGESPACING")) or 2)
+			end
 		end
 	end
 	self._tabs_width = math.max(80, total + 32)

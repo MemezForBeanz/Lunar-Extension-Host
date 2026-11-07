@@ -16,3 +16,21 @@ describe("core.ui.TitleBar layout", function()
 		assert.equal(0, TitleBar.layout(180, 138, 100).groups)
 	end)
 end)
+
+
+describe("TitleBar image measurement", function()
+	it("adds actual image width and configured spacing", function()
+		local images = false
+		local iup = {
+			GetAttribute = function(w, key) return w[key] end,
+			GetAttributeId = function(_, key) return key == "TABTITLE" and "Tools" or (images and "mark" or nil) end,
+			GetHandle = function() return { WIDTH = "20" } end,
+		}
+		local bar = setmetatable({ _iup = iup, _root = {}, _groups = { TABSPADDING = "12x4", TABSIMAGESPACING = "7" } }, TitleBar)
+		bar:_measureTabs({ {} }, {})
+		local before = bar._tabs_width
+		images = true
+		bar:_measureTabs({ {} }, {})
+		assert.equal(before + 27, bar._tabs_width)
+	end)
+end)

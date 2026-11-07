@@ -384,6 +384,7 @@ add_executable(Lunar WIN32
     src/c/libs/themeapply_wrap.c
     src/c/libs/nanosvg_impl.c
     src/c/libs/svgicon_wrap.c
+    src/c/libs/pngimage_wrap.c
     src/c/libs/appimages_wrap.c
     assets/Lunar.rc
 )
@@ -540,6 +541,7 @@ add_executable(Lunar
     src/c/libs/themeapply_wrap.c
     src/c/libs/nanosvg_impl.c
     src/c/libs/svgicon_wrap.c
+    src/c/libs/pngimage_wrap.c
     src/c/libs/appimages_wrap.c
 )
 add_dependencies(Lunar embed_lua embed_images iup_fork lunar_exports)

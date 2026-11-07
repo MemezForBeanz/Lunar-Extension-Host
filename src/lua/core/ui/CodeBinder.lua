@@ -352,6 +352,33 @@ function CodeBinder.byteColumn(line_text, character, encoding)
 	return Documents.characterToByte(line_text or "", character or 0, encoding)
 end
 
+--- Colour a printed snapshot using an already running server, without starting one.
+-- Borrow an editor's document only when its text agrees; never change it for a print.
+function CodeBinder.semanticSnapshot(opts)
+	if not opts.registry then return nil end
+	local client, language = opts.registry:runningClientFor(opts.path)
+	if not client or not client:supports("semanticTokens") then return nil end
+	local uri = Uri.fromPath(opts.path)
+	local release_document = client:retainSnapshot(uri, language, opts.text)
+	if not release_document then return nil end
+	local closed = false
+	local function release()
+		if closed then return end
+		closed = true
+		release_document()
+		if opts.on_done then opts.on_done() end
+	end
+	local request = client:semanticTokens(uri, function(tokens)
+		if closed then return end
+		release()
+		if tokens then opts.on_tokens(tokens) end
+	end)
+	return { cancel = function()
+		if request then request.cancel() end
+		release()
+	end }
+end
+
 --- Close the document with the server and stop listening. The view is left alone.
 function CodeBinder:detach()
 	if self._detached then return end

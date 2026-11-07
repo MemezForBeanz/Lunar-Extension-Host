@@ -19,6 +19,7 @@ int luaopen_iupraw(lua_State *L);
 int luaopen_media_native(lua_State *L);
 int luaopen_themeapply(lua_State *L);
 int luaopen_svgicon(lua_State *L);
+int luaopen_pngimage(lua_State *L);
 int luaopen_appimages(lua_State *L);
 #ifdef LUNAR_HAVE_SCINTILLA
 /* IupScintilla for core.ui.CodeView (src/c/libs/scintilla_wrap.c). */
@@ -186,6 +187,7 @@ int main(int argc, char **argv)
     preload(L, "media_native", luaopen_media_native);
     preload(L, "themeapply",   luaopen_themeapply);
     preload(L, "svgicon",      luaopen_svgicon);
+    preload(L, "pngimage",     luaopen_pngimage);
     preload(L, "appimages",    luaopen_appimages);
 #ifdef LUNAR_HAVE_SCINTILLA
     /* Opened on first require, so a session that never shows code never
