@@ -105,6 +105,7 @@ end
 --- Where a redirect goes, or nil and why it isn't followed (pure).
 -- @tparam string from the URL that answered
 -- @tparam string location its `Location` header
+-- @tparam[opt=false] boolean same_origin refuse redirects to a different origin
 -- @treturn[1] string the absolute target
 -- @treturn[2] nil
 -- @treturn[2] string why not

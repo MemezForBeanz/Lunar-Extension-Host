@@ -218,8 +218,8 @@ function Catalog:saveFacts(work_id, facts, chosen)
 		local protected = not chosen and (self:_one("SELECT field FROM metadata_local_fields WHERE work_id = ? AND field = ?", work_id, pair[1])
 			or self:_one("SELECT work_id FROM work_metadata WHERE work_id = ?", work_id))
 		if not protected then
-			for _, value in ipairs(facts[pair[1]] or {}) do
-				self:_rows("INSERT OR IGNORE INTO work_tags (work_id, kind, value) VALUES (?, ?, ?)", work_id, pair[2], value)
+			for _, tag in ipairs(facts[pair[1]] or {}) do
+				self:_rows("INSERT OR IGNORE INTO work_tags (work_id, kind, value) VALUES (?, ?, ?)", work_id, pair[2], tag)
 			end
 		end
 	end
@@ -311,8 +311,8 @@ function Catalog:saveMetadata(work_id, facts, now, refresh_at)
 		for _, pair in ipairs({ { "genres", "genre" }, { "people", "person" } }) do
 			if not self:_one("SELECT field FROM metadata_local_fields WHERE work_id = ? AND field = ?", work_id, pair[1]) then
 				self:_rows("DELETE FROM work_tags WHERE work_id = ? AND kind = ?", work_id, pair[2])
-				for _, value in ipairs(facts[pair[1]] or {}) do
-					self:_rows("INSERT OR IGNORE INTO work_tags (work_id, kind, value) VALUES (?, ?, ?)", work_id, pair[2], value)
+				for _, tag in ipairs(facts[pair[1]] or {}) do
+					self:_rows("INSERT OR IGNORE INTO work_tags (work_id, kind, value) VALUES (?, ?, ?)", work_id, pair[2], tag)
 				end
 			end
 		end

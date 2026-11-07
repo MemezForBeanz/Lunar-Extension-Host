@@ -269,12 +269,12 @@ function M.new(ctx, opts)
 	local function fact_values(item)
 		local joined = function(list) return list and #list > 0 and table.concat(list, ", ") or "" end
 		local people, roles = {}, {}
-		local metadata = item.metadata or {}
-		for _, actor in ipairs(metadata.cast or {}) do if actor.name and actor.role then roles[actor.name] = actor.role end end
+		local facts = item.metadata or {}
+		for _, actor in ipairs(facts.cast or {}) do if actor.name and actor.role then roles[actor.name] = actor.role end end
 		for _, name in ipairs(item.people or {}) do people[#people + 1] = name .. (roles[name] and (" (" .. roles[name] .. ")") or "") end
 		return { joined(item.genres), joined(people), item.codec or "", item.audio or "",
 			item.rating and string.format("%.1f", item.rating) or "", item.studio or "", item.content_rating or "",
-			metadata.original_title ~= item.title and metadata.original_title or "", metadata.provider and metadata.provider:upper() or "" }
+			facts.original_title ~= item.title and facts.original_title or "", facts.provider and facts.provider:upper() or "" }
 	end
 
 	--- Take the width the page really has.

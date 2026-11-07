@@ -20,6 +20,16 @@
     },
     "tasks": [
         {
+            "label": "Run Lunar with all project extensions (dev)",
+            "detail": "Loads extensions/ and built-in plugins directly from source. Starts a private local media server; closing the desktop stops it. Windows dev build.",
+            "type": "process",
+            "command": "powershell.exe",
+            "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}/scripts/run-dev-extensions.ps1"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "dependsOn": "Build (dev)",
+            "problemMatcher": []
+        },
+        {
             "label": "Run Lunar with demo data (dev)",
             "detail": "Interactive UI capture fixtures: leaves Lunar open to explore populated pages. Help > Reload demo data restores the fixtures.",
             "type": "process",

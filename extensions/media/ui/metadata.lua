@@ -1,5 +1,4 @@
 -- Provider lookup remains available when there is no media-server extension.
-local Kit=require('core.ui.Kit')
 local Dropdown=require('core.ui.FlatDropdown')
 local Match=require('ui.metadata_match')
 local M={}

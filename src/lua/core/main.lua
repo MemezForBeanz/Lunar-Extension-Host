@@ -62,6 +62,7 @@ local subprocess = platform.is_windows and require("subprocess") or nil
 -- so the Lunar shortcut is instant. A capture or test harness always runs on its own.
 local BackgroundWindow = require("core.ui.BackgroundWindow")
 local HARNESS = rawget(_G, "arg") ~= nil or os.getenv("LUNAR_CAPTURE_CLIENT") ~= nil
+	or (DEV_BUILD and os.getenv('LUNAR_DEV_EXTENSIONS') == '1')
 local APP_INSTANCE
 if not HARNESS then
 	APP_INSTANCE = BackgroundWindow.claim()
@@ -254,6 +255,12 @@ end
 -- itself is trusted (admin-installed); a dev build also takes LUNAR_PROFILE_DIR
 -- packs so pack extensions can be developed without installing them.
 local extension_roots = { { dir = resolve_plugins_dir(APP_DIR), source = "built-in", create = true } }
+-- Opt-in development task: discover the project extensions without copying or installing them.
+if DEV_BUILD and os.getenv('LUNAR_DEV_EXTENSIONS') == '1' then
+	extension_roots[#extension_roots + 1] = {
+		dir = platform.path:join(LUNAR_SOURCE_DIR, 'extensions'), source = 'project',
+	}
+end
 for _, profile in ipairs(ORG_PROFILES) do
 	if profile.trusted or DEV_BUILD then
 		extension_roots[#extension_roots + 1] = {

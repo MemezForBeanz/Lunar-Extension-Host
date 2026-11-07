@@ -72,7 +72,6 @@ function M.parse(html, base, provider, query, details, context)
    followup={url=(config.base or base)..'wp-json/9animetv/v1/episodes/'..series..'?active=0'}} end
  end
  if config.adapter=='generic' then
-  local facts=M.metadata(html,base)
   return {items={{key=base,title=facts.title~='' and facts.title or base,url=base,resolve='webpage',
    overview=facts.overview,poster_url=facts.poster_url,is_page=true}},page_url=base,title=facts.title,overview=facts.overview,has_more=false}
  end
