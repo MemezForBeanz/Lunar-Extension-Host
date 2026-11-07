@@ -1,5 +1,31 @@
 # Lunar Extension Host release notes
 
+## 1.6.0
+
+Lunar adds a personal media library, native playback and streaming, with more
+control over appearance and background services.
+
+- **Lunar Media:** browse movies, shows and music, open title and episode pages,
+  search and filter libraries, and save collections. Local artwork, metadata and
+  generated thumbnails enrich your library without an outside metadata service.
+- **Playback:** native playback includes a persistent player dock, volume,
+  progress, resume and episode queues. Playback Forecast explains device delivery
+  choices, and Fits Tonight builds a viewing plan for the time available.
+- **Sources and repair:** combine local libraries and supported remote providers,
+  inspect available copies and source health, fall back when a copy fails, and
+  use catalog repair actions to diagnose and retry problems. Torrent sources
+  require accepting a notice before enabling them.
+- **Background services:** closing the window hides Lunar to the tray; opening
+  Lunar again restores it. Headless extensions can run in a service at sign-in,
+  with service status and start/stop controls in Settings.
+- **Appearance and navigation:** palettes have separate light and dark modes,
+  with a title-bar toggle and optional transitions. New view controls hide the
+  tool rail and status bar; the Lunar terminal runs CLI commands in the app.
+- **Organization branding:** packs can provide themes, tab icons and corner
+  logos, including icons that retain one color across themes.
+- **Fixes:** improved layout, theme contrast, media filtering and queued playback;
+  corrected Linux build and documentation issues.
+
 ## 1.5.0
 
 Lunar gives your tools more room, with independent top and left toolbars, simpler
