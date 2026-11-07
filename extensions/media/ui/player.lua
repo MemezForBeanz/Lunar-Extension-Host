@@ -327,6 +327,8 @@ function M.new(ctx, opts)
 	local function finish()
 		if ended then return end
 		playing, ended, stalled_since = false, true, nil
+		-- The last time-pos event can fall short of the periodic save interval.
+		if on_position then on_position(length > 0 and length or seconds, length) end
 		glyph:setPlaying(false)
 		changed()
 		if api.on_finished then api.on_finished() end
