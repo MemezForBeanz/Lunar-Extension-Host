@@ -1,6 +1,23 @@
 # Lunar Extension Host release notes
 
-<<<<<<< HEAD
+## 1.6.1
+
+- **Extension installation:** Windows and Linux setup now offer compatible extensions
+  from the project's `extensions/` folder alongside built-in plugins. Each is a
+  separate installer choice; Windows MSI deployments can select individual features.
+  Portable packages carry the same extension payload. Packaging rejects duplicate
+  extension IDs and conflicting payload names.
+- **Contained media tools:** Windows Media and Media Server extensions bundle their
+  playback, analysis and extraction tools, with automatic private-cache preparation
+  when a runtime payload is missing.
+- **Media discovery and metadata:** browse supported website catalogs, save selected
+  entries, look up public movie and TV metadata, and correct matches through the
+  title page. Website playback depends on the selected video host's support.
+- **Development:** added a VS Code task that loads project extensions and runs a
+  private local media server. Fixed Windows PowerShell task executable paths.
+- **Build checks:** resolved media lint warnings and documented redirect origin
+  restrictions so CI lint and API reference checks pass.
+
 ## 1.6.0
 
 Lunar adds a personal media library, native playback and streaming, with more
@@ -27,8 +44,6 @@ control over appearance and background services.
 - **Fixes:** improved layout, theme contrast, media filtering and queued playback;
   corrected Linux build and documentation issues.
 
-=======
->>>>>>> 0da4e7be79ede7f9d89785ce17e92f842d5482fe
 ## 1.5.0
 
 Lunar gives your tools more room, with independent top and left toolbars, simpler

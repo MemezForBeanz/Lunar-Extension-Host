@@ -70,7 +70,8 @@ stage_app() {   # stage_app <dir>
 	mkdir -p "$dir"
 	install -m 0755 "$bin/lunar" "$dir/lunar"
 	strip --strip-unneeded "$dir/lunar"
-	cp -a "$bin/assets" "$bin/certs" "$bin/plugins" "$dir/"
+	cp -a "$bin/assets" "$bin/certs" "$dir/"
+	"$bin/lunar-cli" "$repo/scripts/stage-extensions.lua" "$repo" "$bin/plugins" "$repo/extensions" "$dir/plugins" linux
 	# Windows build inputs that ride along in assets/ (the exe resource script,
 	# manifest and .ico, and the SVG they come from) aren't used on Linux.
 	rm -f "$dir/assets/"*.rc "$dir/assets/"*.manifest "$dir/assets/"*.ico "$dir/assets/lunar-icon.svg"

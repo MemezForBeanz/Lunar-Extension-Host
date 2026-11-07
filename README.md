@@ -231,6 +231,15 @@ A **dev** build (`LUNAR_DEV_BUILD=ON`) loads extensions from the repo's `plugins
 and honors `LUNAR_PROFILE`. A **release** build loads code only from its own
 folder and trusted org packs, and ignores the working directory and `LUA_PATH`.
 
+Release packaging combines the built-in `plugins/` with every compatible extension
+in the project's `extensions/` folder. Folder extensions (`init.lua` plus a manifest)
+and single-file Lua extensions appear as individual choices in the Windows and
+Linux setup wizard; Windows also exposes each as an MSI feature. Names, descriptions,
+versions and IDs come from extension manifests. Portable packages carry the same
+extension payload. ZIP downloads and loose notes in `extensions/` are not installer
+features. Duplicate IDs or staging names cause packaging to fail instead of replacing
+another extension. Adding an extension does not require maintaining an installer list.
+
 On Windows, **Tasks: Run Task > Run Lunar with all project extensions (dev)** builds
 and runs the desktop with every compatible extension in `extensions/`, alongside
 the built-in plugins. New extension folders are discovered on the next run or

@@ -413,14 +413,16 @@ function Copy-AppFiles($dest) {
 # bundled helper executables, and plugin-authoring notes.
 $script:PluginExcludePatterns = @('*.c', '*.h', '*.cs', 'README.md')
 
-# Copy build\bin\plugins into $dest, minus the development-only files above.
+# Merge build\bin\plugins and the project's extensions into the release payload.
 # Both the portable layout and the MSI harvest go through here so the two
 # payloads cannot drift apart.
 function Copy-PluginFiles($dest) {
     $src = Join-Path $BinDir 'plugins'
     if (-not (Test-Path -LiteralPath $src)) { throw "plugins not found in build output: $src" }
     if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
-    Copy-Item -LiteralPath $src -Destination $dest -Recurse -Force
+    & (Join-Path $BinDir 'LunarCLI.exe') (Join-Path $PSScriptRoot 'stage-extensions.lua') `
+        $RepoRoot $src (Join-Path $RepoRoot 'extensions') $dest 'windows'
+    if ($LASTEXITCODE -ne 0) { throw 'Extension payload staging failed' }
 
     # Media extensions own their native tools. Both MSI and portable payloads use this
     # path, so a normal install is usable offline without a second dependency installer.

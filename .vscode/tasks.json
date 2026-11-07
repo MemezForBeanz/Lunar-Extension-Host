@@ -5,7 +5,7 @@
     "version": "2.0.0",
     "windows": {
         "options": {
-            "shell": { "executable": "powershell.exe", "args": ["-NoProfile", "-Command"] },
+            "shell": { "executable": "${env:SystemRoot}/System32/WindowsPowerShell/v1.0/powershell.exe", "args": ["-NoProfile", "-Command"] },
             "env": {
                 "PATH": "C:\\msys64\\mingw64\\bin;${env:PATH}",
                 "LUNAR_REPO": "${workspaceFolder}"
@@ -23,7 +23,7 @@
             "label": "Run Lunar with all project extensions (dev)",
             "detail": "Loads extensions/ and built-in plugins directly from source. Starts a private local media server; closing the desktop stops it. Windows dev build.",
             "type": "process",
-            "command": "powershell.exe",
+            "command": "${env:SystemRoot}/System32/WindowsPowerShell/v1.0/powershell.exe",
             "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}/scripts/run-dev-extensions.ps1"],
             "options": { "cwd": "${workspaceFolder}" },
             "dependsOn": "Build (dev)",
@@ -33,7 +33,7 @@
             "label": "Run Lunar with demo data (dev)",
             "detail": "Interactive UI capture fixtures: leaves Lunar open to explore populated pages. Help > Reload demo data restores the fixtures.",
             "type": "process",
-            "command": "powershell.exe",
+            "command": "${env:SystemRoot}/System32/WindowsPowerShell/v1.0/powershell.exe",
             "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}/scripts/run-gui-tests.ps1"],
             "options": {
                 "env": {
@@ -54,7 +54,7 @@
             "label": "Run Lunar with a test script (dev)",
             "detail": "Choose a script, or override the selection by typing a filename. Scripts own the GUI lifecycle; close interactive harnesses to finish.",
             "type": "process",
-            "command": "powershell.exe",
+            "command": "${env:SystemRoot}/System32/WindowsPowerShell/v1.0/powershell.exe",
             "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}/scripts/run-gui-tests.ps1"],
             "options": {
                 "env": {
@@ -75,7 +75,7 @@
             "label": "Run Lunar with multiple test scripts (dev)",
             "detail": "Run comma- or semicolon-separated scripts in order, each in a fresh Lunar process. Close interactive harnesses to advance.",
             "type": "process",
-            "command": "powershell.exe",
+            "command": "${env:SystemRoot}/System32/WindowsPowerShell/v1.0/powershell.exe",
             "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}/scripts/run-gui-tests.ps1"],
             "options": {
                 "env": {
