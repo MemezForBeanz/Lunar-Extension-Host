@@ -39,7 +39,6 @@ local SAVE_EVERY = 10     -- seconds between resume points
 local FULL_VOLUME = 100
 local END_OF_FILE = 0     -- mpv's reason when a file played to its end
 local FAILED = 4          -- and when it couldn't be played
-local STALL_S = 30        -- no progress for this long while playing counts as failing
 
 local function clock(seconds)
 	seconds = math.floor(seconds or 0)
@@ -323,18 +322,29 @@ function M.new(ctx, opts)
 
 	local mpv, on_position, seconds, length, saved_at = nil, nil, 0, 0, 0
 	local stalled_since
+	local ended = false        -- the file finished or was stopped, so nothing should be arriving
+
+	local function finish()
+		if ended then return end
+		playing, ended, stalled_since = false, true, nil
+		glyph:setPlaying(false)
+		changed()
+		if api.on_finished then api.on_finished() end
+	end
 
 	local function on_event(name, info)
 		if name == "end-file" then
-			if info and info.reason == END_OF_FILE and api.on_finished then api.on_finished() end
+			if info and info.reason == END_OF_FILE then finish() end
 			if info and info.reason == FAILED and api.on_failed then api.on_failed() end
 			return
 		end
 		if name ~= "property-change" or not info or info.value == nil then return end
-		if info.name == "time-pos" then
+		if info.name == "eof-reached" then
+			if info.value == true then finish() end
+		elseif info.name == "time-pos" then
 			seconds = info.value
 			now.position = seconds
-			stalled_since = os.time()
+			if not ended then stalled_since = os.time() end
 			changed()
 			bar:setValue(seconds)
 			iup.SetAttribute(time, "TITLE", clock(seconds) .. " / " .. clock(length))
@@ -396,13 +406,14 @@ function M.new(ctx, opts)
 	end
 
 	function api.resumeClock()
-		stalled_since = os.time()
+		if not ended then stalled_since = os.time() end
 	end
 
 	--- Stop playback and let the dock go.
 	function api.stop()
 		if mpv then mpv:stop() end
 		if playing then toggle_playing() end
+		ended, stalled_since = true, nil
 		loaded = false
 		changed()
 	end
@@ -428,6 +439,7 @@ function M.new(ctx, opts)
 			if not mpv then return nil, err end
 			mpv:observe("time-pos", "double")
 			mpv:observe("duration", "double")
+			mpv:observe("eof-reached", "flag")
 		end
 		iup.SetAttribute(screen, "VALUEPOS", "1")
 		in_film = true
@@ -448,10 +460,11 @@ function M.new(ctx, opts)
 		wear()
 		iup.Refresh(api.widget)
 		loaded = true
+		mpv:set("pause", "no")
 		mpv:set("http-header-fields", request.header or "")
 		mpv:set("start", tostring(math.floor(request.start or 0)))
 		mpv:load(request.url)
-		playing = true
+		playing, ended = true, false
 		stalled_since = os.time()
 		glyph:setPlaying(true)
 		iup.SetAttribute(eyebrow, "TITLE", "Playing")
@@ -464,7 +477,7 @@ function M.new(ctx, opts)
 		mpv:poll()
 		-- A stream that starts and then stops arriving ends in silence, not in an error, so the
 		-- next copy has to be fetched on a clock.
-		if playing and stalled_since and os.time() - stalled_since >= STALL_S then
+		if playback.stalled({ playing = playing, ended = ended, since = stalled_since }, os.time()) then
 			stalled_since = nil
 			mpv:stop()
 			if api.on_failed then api.on_failed() end

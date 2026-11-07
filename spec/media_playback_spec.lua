@@ -21,6 +21,36 @@ describe("media playback words", function()
 		assert.equal("", playback.left({ position = 0, length = 0 }))
 	end)
 
+	describe("the stall decision", function()
+		local LIMIT = playback.STALL_S
+
+		it("calls a playing stream with no progress stalled", function()
+			assert.is_true(playback.stalled({ playing = true, since = 100 }, 100 + LIMIT))
+			assert.is_true(playback.stalled({ playing = true, since = 100 }, 100 + LIMIT + 60))
+		end)
+
+		it("waits for the whole limit", function()
+			assert.is_false(playback.stalled({ playing = true, since = 100 }, 100 + LIMIT - 1))
+		end)
+
+		it("stays quiet while paused", function()
+			assert.is_false(playback.stalled({ playing = false, since = 100 }, 100 + LIMIT * 10))
+		end)
+
+		it("stays quiet once the file has ended, even if something restarts its clock", function()
+			assert.is_false(playback.stalled({ playing = false, ended = true }, 100 + LIMIT * 10))
+			assert.is_false(playback.stalled({ playing = true, ended = true, since = 100 }, 100 + LIMIT * 10))
+		end)
+
+		it("stays quiet with the clock off", function()
+			assert.is_false(playback.stalled({ playing = true }, 100 + LIMIT * 10))
+		end)
+
+		it("gives a clock that has just restarted the whole limit again", function()
+			assert.is_false(playback.stalled({ playing = true, since = 500 }, 500))
+		end)
+	end)
+
 	it("says how long a film runs", function()
 		assert.equal("52 min", playback.runtime(52))
 		assert.equal("1 h 44 min", playback.runtime(104))

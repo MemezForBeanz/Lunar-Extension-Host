@@ -3,6 +3,8 @@
 
 local M = {}
 
+M.STALL_S = 30   -- no progress for this long while playing counts as failing
+
 --- A position as a clock.
 -- @tparam number seconds
 -- @treturn string `53:12` or `1:53:12`
@@ -28,6 +30,16 @@ end
 function M.left(state)
 	local left = (state.length or 0) - (state.position or 0)
 	return left > 0 and M.remaining(left) or ""
+end
+
+--- Has a stream that should be moving stopped arriving? A paused or finished film isn't moving,
+-- and that is not a failure.
+-- @tparam table state `playing`, `ended`, `since` (when it last moved, nil while the clock is off)
+-- @tparam number now seconds
+-- @treturn boolean
+function M.stalled(state, now)
+	if not state.playing or state.ended or not state.since then return false end
+	return now - state.since >= M.STALL_S
 end
 
 --- A running time, in the words a person would use.
