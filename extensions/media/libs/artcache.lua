@@ -18,8 +18,14 @@ function M.new(opts)
 end
 
 --- Where a picture lives.
-function Cache:path(id, kind)
-	return string.format("%s/%d-%s.img", self.dir, id, kind)
+function Cache:path(id, kind, revision)
+	local suffix = ""
+	if type(revision) == "string" and revision ~= "" then
+		local hash = 0
+		for i = 1, #revision do hash = (hash * 131 + revision:byte(i)) % 4294967296 end
+		suffix = string.format("-%08x", hash)
+	end
+	return string.format("%s/%d-%s%s.img", self.dir, id, kind, suffix)
 end
 
 function Cache:_pump()
@@ -43,8 +49,8 @@ end
 -- @tparam number id
 -- @tparam string kind `poster` or `backdrop`
 -- @treturn string|nil
-function Cache:get(id, kind)
-	local path = self:path(id, kind)
+function Cache:get(id, kind, revision)
+	local path = self:path(id, kind, revision)
 	if self.known[path] then return path end
 	if self.failed[path] then return nil end
 	if self.exists(path) then
@@ -64,8 +70,8 @@ end
 function Cache:best(item, wanted)
 	local other = wanted == "poster" and "backdrop" or "poster"
 	local kinds = item.art or {}
-	if kinds[wanted] then return self:get(item.id, wanted) end
-	if kinds[other] then return self:get(item.id, other) end
+	if kinds[wanted] then return self:get(item.id, wanted, item.art_urls and item.art_urls[wanted]) end
+	if kinds[other] then return self:get(item.id, other, item.art_urls and item.art_urls[other]) end
 	return nil
 end
 

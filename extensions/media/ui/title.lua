@@ -20,10 +20,10 @@ local SHELF_CELL = 132
 local CELL_TEXT = 62
 local SCROLLBAR = 8
 local SIMILAR = 12
-local FACT_LABEL = 72
+local FACT_LABEL = 96
 local FORECAST_DEVICE = 168
 local FORECAST_HEADLINE = 216
-local FACTS = { "Genres", "Cast", "Video", "Audio", "Rating" }
+local FACTS = { "Genres", "Cast", "Video", "Audio", "Rating", "Studio", "Content rating", "Original title", "Metadata" }
 
 local function runtime(minutes)
 	if not minutes or minutes < 1 then return "" end
@@ -240,10 +240,19 @@ function M.new(ctx, opts)
 	-- A scroll box sizes to its content, so the page is told how wide it is.
 	local page_width
 	local holder = iup.hbox({ RASTERSIZE = "400x" })
+	local metadata = require('ui.metadata_match').new(ctx, { on_metadata = opts.on_metadata, on_changed = opts.on_metadata_changed })
+	local matching = false
+	local fix_match = Kit.button(iup, { title = 'Fix match', role = 'actionbutton', action = function()
+		matching = not matching
+		Kit.show(iup, metadata.widget, matching, back)
+		iup.Refresh(api.widget)
+	end })
 	local body = L.stack(iup, {
 		holder,
 		aligned(back),
 		aligned(hero.widget),
+		aligned(fix_match),
+		aligned(metadata.widget),
 		aligned(fact_box),
 		aligned(copies_section),
 		aligned(forecast_section),
@@ -259,8 +268,13 @@ function M.new(ctx, opts)
 
 	local function fact_values(item)
 		local joined = function(list) return list and #list > 0 and table.concat(list, ", ") or "" end
-		return { joined(item.genres), joined(item.people), item.codec or "", item.audio or "",
-			item.rating and string.format("%.1f", item.rating) or "" }
+		local people, roles = {}, {}
+		local metadata = item.metadata or {}
+		for _, actor in ipairs(metadata.cast or {}) do if actor.name and actor.role then roles[actor.name] = actor.role end end
+		for _, name in ipairs(item.people or {}) do people[#people + 1] = name .. (roles[name] and (" (" .. roles[name] .. ")") or "") end
+		return { joined(item.genres), joined(people), item.codec or "", item.audio or "",
+			item.rating and string.format("%.1f", item.rating) or "", item.studio or "", item.content_rating or "",
+			metadata.original_title ~= item.title and metadata.original_title or "", metadata.provider and metadata.provider:upper() or "" }
 	end
 
 	--- Take the width the page really has.
@@ -279,6 +293,10 @@ function M.new(ctx, opts)
 	-- @tparam table item
 	function api.open(item)
 		current = item
+		metadata.open(item)
+		matching = false
+		Kit.show(iup, metadata.widget, false, back)
+		Kit.show(iup, fix_match, opts.on_metadata ~= nil, back)
 		hero.show(item, true)
 		for i, value in ipairs(fact_values(item)) do
 			iup.SetAttribute(fact_rows[i].value, "TITLE", value)
@@ -318,6 +336,7 @@ function M.new(ctx, opts)
 	end
 
 	function api.tick()
+		metadata.tick()
 		hero.tick()
 		if drain then drain() end
 	end

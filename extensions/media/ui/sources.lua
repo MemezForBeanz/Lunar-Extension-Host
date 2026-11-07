@@ -137,29 +137,43 @@ function M.new(ctx, opts)
 	iup.SetAttribute(left, "EXPAND", "YES")
 	iup.SetAttribute(right, "EXPAND", "YES")
 
-	api.widget = iup.vbox({
+	local manage = iup.vbox({
 		iup.hbox({ iup.vbox({ iup.flatlabel({ TITLE = "Sources", THEMEROLE = "pagetitle" }),
 			L.hint(iup, "Every library here joins one view, with one card for each title."), GAP = L.gap(1), MARGIN = "0x0" }),
 			MARGIN = INSET .. "x0" }),
 		iup.hbox({ left, right, GAP = L.gap(8), MARGIN = "0x0", EXPAND = "YES", HOMOGENEOUS = "YES" }),
 		GAP = L.gap(6), MARGIN = L.margin(5), EXPAND = "YES",
 	})
+	local discovery = require("ui.discover").new(ctx, opts)
+	local pages = iup.zbox({ discovery.widget, manage, EXPAND = "YES", VALUEPOS = "0" })
+	api.widget = iup.vbox({ iup.hbox({
+		Kit.button(iup, { title = "Discover", role = "actionbutton", action = function() iup.SetAttribute(pages, "VALUEPOS", "0") end }),
+		Kit.button(iup, { title = "Manage sources", role = "actionbutton", action = function() iup.SetAttribute(pages, "VALUEPOS", "1") end }),
+		GAP = L.gap(2), MARGIN = "0x0" }), pages,
+		GAP = L.gap(3), MARGIN = L.margin(4), EXPAND = "YES" })
+	api.tick = discovery.tick
 
 	--- Show what the server says.
 	function api.setData(next_sources, next_providers)
+		local selected_source = chosen_source and chosen_source.id
+		local selected_provider = chosen_provider and chosen_provider.id
 		sources = next_sources or sources
-		providers = next_providers or providers
+		if next_providers then
+			discovery.setProviders(next_providers)
+			providers = {}
+			for _, provider in ipairs(next_providers) do if provider.kind ~= "website" then providers[#providers + 1] = provider end end
+		end
 		source_list:setProvider(#sources, source_value)
 		provider_list:setProvider(#providers, provider_value)
 		-- Sync and Remove act on a row, so there is always a row chosen.
-		if sources[1] then
-			chosen_source = sources[1]
-			source_list:select(1)
-		end
-		if providers[1] then
-			provider_list:select(1)
-			choose_provider(providers[1])
-		end
+		chosen_source = nil
+		for i, source in ipairs(sources) do if source.id == selected_source then chosen_source = source; source_list:select(i); break end end
+		if not chosen_source and sources[1] then chosen_source = sources[1]; source_list:select(1) end
+		local kept
+		for i, provider in ipairs(providers) do if provider.id == selected_provider then kept = provider; provider_list:select(i); break end end
+		if kept then chosen_provider = kept
+		elseif providers[1] then provider_list:select(1); choose_provider(providers[1])
+		else chosen_provider = nil end
 	end
 
 	api.setData(sources, providers)

@@ -141,10 +141,15 @@ end
 
 --- Remember a picture. One a person chose always replaces a generated frame.
 function Catalog:saveArt(work_id, kind, origin, path)
+	if origin == "frame" and self:_one("SELECT id FROM works WHERE id = ? AND backdrop_url IS NOT NULL", work_id) then return end
 	self:_rows([[INSERT INTO art (work_id, kind, origin, path) VALUES (?, ?, ?, ?)
 		ON CONFLICT (work_id, kind) DO UPDATE SET origin = excluded.origin, path = excluded.path
 		WHERE art.origin = 'frame' OR excluded.origin = 'library']], work_id, kind, origin, path)
 	if origin == "library" and kind == "backdrop" then self:_rows("DELETE FROM art_jobs WHERE work_id = ?", work_id) end
+	if origin == "library" then
+		local column = kind == "poster" and "poster_url" or "backdrop_url"
+		self:_rows("UPDATE works SET " .. column .. " = NULL WHERE id = ?", work_id)
+	end
 end
 
 --- A picture to serve, with the library root or nil for a generated frame.
@@ -160,7 +165,8 @@ function Catalog:queueFrame(file_id)
 			SELECT w.id, w.parent_id FROM files f JOIN works w ON w.id = f.work_id WHERE f.id = ?
 			UNION ALL SELECT w.id, w.parent_id FROM works w JOIN up ON w.id = up.parent_id)
 			SELECT id FROM up WHERE parent_id IS NULL) top
-		WHERE NOT EXISTS (SELECT 1 FROM art a WHERE a.work_id = top.id AND a.kind = 'backdrop')]], file_id, file_id)
+		WHERE NOT EXISTS (SELECT 1 FROM art a WHERE a.work_id = top.id AND a.kind = 'backdrop')
+		AND NOT EXISTS (SELECT 1 FROM works w WHERE w.id = top.id AND w.backdrop_url IS NOT NULL)]], file_id, file_id)
 end
 
 --- Take the next frame job, or nil.
@@ -190,18 +196,135 @@ end
 -- @tparam boolean chosen true for an .nfo
 function Catalog:saveFacts(work_id, facts, chosen)
 	if chosen then
+		for _, field in ipairs({ "title", "year", "overview", "rating", "content_rating", "studio", "genres", "people" }) do
+			local v = facts[field]
+			if v ~= nil and (type(v) ~= "table" or #v > 0) then
+				self:_rows("INSERT OR IGNORE INTO metadata_local_fields (work_id, field) VALUES (?, ?)", work_id, field)
+			end
+		end
+		if facts.title then
+			self:_rows("UPDATE works SET title = ?, sort_key = ? WHERE id = ?", facts.title, naming.sortKey(facts.title), work_id)
+		end
+		if facts.year then self:_rows("UPDATE works SET year = ? WHERE id = ?", facts.year, work_id) end
 		self:_rows([[UPDATE works SET overview = COALESCE(?, overview), rating = COALESCE(?, rating),
 			content_rating = COALESCE(?, content_rating), studio = COALESCE(?, studio) WHERE id = ?]],
 			facts.overview, facts.rating, facts.content_rating, facts.studio, work_id)
 	else
 		self:_rows("UPDATE works SET overview = COALESCE(overview, ?) WHERE id = ?", facts.overview, work_id)
 	end
-	for _, genre in ipairs(facts.genres or {}) do
-		self:_rows("INSERT OR IGNORE INTO work_tags (work_id, kind, value) VALUES (?, 'genre', ?)", work_id, genre)
+	if chosen and #(facts.genres or {}) > 0 then self:_rows("DELETE FROM work_tags WHERE work_id = ? AND kind = 'genre'", work_id) end
+	if chosen and #(facts.people or {}) > 0 then self:_rows("DELETE FROM work_tags WHERE work_id = ? AND kind = 'person'", work_id) end
+	for _, pair in ipairs({ { "genres", "genre" }, { "people", "person" } }) do
+		local protected = not chosen and (self:_one("SELECT field FROM metadata_local_fields WHERE work_id = ? AND field = ?", work_id, pair[1])
+			or self:_one("SELECT work_id FROM work_metadata WHERE work_id = ?", work_id))
+		if not protected then
+			for _, value in ipairs(facts[pair[1]] or {}) do
+				self:_rows("INSERT OR IGNORE INTO work_tags (work_id, kind, value) VALUES (?, ?, ?)", work_id, pair[2], value)
+			end
+		end
 	end
-	for _, person in ipairs(facts.people or {}) do
-		self:_rows("INSERT OR IGNORE INTO work_tags (work_id, kind, value) VALUES (?, 'person', ?)", work_id, person)
+end
+
+--- Queue a bounded group of titles first seen since metadata last ran.
+function Catalog:queueMissingMetadata(now, limit)
+	self:_rows([[INSERT OR IGNORE INTO metadata_jobs (work_id, updated_at)
+		SELECT w.id, ? FROM works w WHERE w.kind IN ('movie','show')
+		AND NOT EXISTS (SELECT 1 FROM metadata_jobs j WHERE j.work_id = w.id)
+		ORDER BY w.id LIMIT ?]], now, math.max(1, math.min(tonumber(limit) or 100, 1000)))
+end
+
+--- Explicit refresh resets exhausted/no-match work, preserving a job already in flight.
+function Catalog:queueMetadata(work_id, now)
+	if work_id then
+		local work = self:_one("SELECT id FROM works WHERE id = ? AND kind IN ('movie','show')", work_id)
+		if not work then return nil, "no movie or show with that id" end
+		self:_rows([[INSERT INTO metadata_jobs (work_id, updated_at) VALUES (?, ?)
+			ON CONFLICT (work_id) DO UPDATE SET state = 'queued', attempts = 0, next_run_at = 0, error = NULL,
+			updated_at = excluded.updated_at WHERE metadata_jobs.state <> 'running']], work_id, now)
+	else
+		self:queueMissingMetadata(now, 1000)
+		self:_rows([[UPDATE metadata_jobs SET state = 'queued', attempts = 0, next_run_at = 0,
+			error = NULL, updated_at = ? WHERE state <> 'running']], now)
 	end
+	return true
+end
+
+function Catalog:recoverMetadata()
+	self:_rows("UPDATE metadata_jobs SET state = 'queued' WHERE state = 'running'")
+end
+
+function Catalog:claimMetadata(now)
+	local job = self:_one([[SELECT j.*, w.kind, w.title, w.year, m.external_id, m.provider FROM metadata_jobs j
+		JOIN works w ON w.id = j.work_id LEFT JOIN work_metadata m ON m.work_id = w.id
+		WHERE j.state IN ('queued','matched','unmatched') AND j.next_run_at <= ?
+		ORDER BY j.next_run_at, j.work_id LIMIT 1]], now)
+	if job then self:_rows("UPDATE metadata_jobs SET state = 'running' WHERE work_id = ?", job.work_id) end
+	return job
+end
+
+function Catalog:metadataWork(id)
+	return self:_one("SELECT id, kind, title, year FROM works WHERE id = ? AND kind IN ('movie','show')", id)
+end
+
+function Catalog:metadataStatus()
+	return self:_one([[SELECT
+		(SELECT COALESCE(MAX(fetched_at), 0) FROM work_metadata) AS revision,
+		(SELECT COUNT(*) FROM metadata_jobs WHERE state IN ('queued','running')) AS queued,
+		(SELECT COUNT(*) FROM metadata_jobs WHERE state = 'matched') AS matched,
+		(SELECT COUNT(*) FROM metadata_jobs WHERE state = 'unmatched') AS unmatched,
+		(SELECT COUNT(*) FROM metadata_jobs WHERE state = 'failed') AS failed]])
+end
+
+function Catalog:unmatchedMetadata(job, reason, now, retry_at)
+	self:_rows([[UPDATE metadata_jobs SET state = 'unmatched', attempts = 0, error = ?, updated_at = ?,
+		next_run_at = ? WHERE work_id = ?]], reason, now, retry_at, job.work_id)
+end
+
+function Catalog:failMetadata(job, reason, now, retry_at)
+	local attempts = (job.attempts or 0) + 1
+	self:_rows([[UPDATE metadata_jobs SET state = ?, attempts = ?, error = ?, updated_at = ?,
+		next_run_at = ? WHERE work_id = ?]], attempts >= 3 and "failed" or "queued", attempts,
+		reason, now, retry_at, job.work_id)
+end
+
+--- Store provider facts without modifying a media file or overriding a local sidecar choice.
+function Catalog:saveMetadata(work_id, facts, now, refresh_at)
+	return self:batch(function()
+		for _, field in ipairs({ "title", "year", "overview", "rating", "content_rating", "studio" }) do
+			if facts[field] ~= nil then
+				self:_rows("UPDATE works SET " .. field .. [[ = ? WHERE id = ? AND NOT EXISTS
+					(SELECT 1 FROM metadata_local_fields WHERE work_id = ? AND field = ?)]], facts[field], work_id, work_id, field)
+			end
+		end
+		local title = self:_one("SELECT title FROM works WHERE id = ?", work_id)
+		if not title then return nil, "work no longer exists" end
+		self:_rows("UPDATE works SET sort_key = ? WHERE id = ?", naming.sortKey(title.title), work_id)
+		for _, pair in ipairs({ { "poster", "poster_url" }, { "backdrop", "backdrop_url" } }) do
+			if facts[pair[2]] then
+				self:_rows("UPDATE works SET " .. pair[2] .. [[ = ? WHERE id = ? AND NOT EXISTS
+					(SELECT 1 FROM art WHERE work_id = ? AND kind = ? AND origin = 'library')]],
+					facts[pair[2]], work_id, work_id, pair[1])
+			end
+		end
+		if facts.backdrop_url then self:_rows("DELETE FROM art_jobs WHERE work_id = ?", work_id) end
+		if facts.backdrop_url then self:_rows("DELETE FROM art WHERE work_id = ? AND kind = 'backdrop' AND origin = 'frame'", work_id) end
+		for _, pair in ipairs({ { "genres", "genre" }, { "people", "person" } }) do
+			if not self:_one("SELECT field FROM metadata_local_fields WHERE work_id = ? AND field = ?", work_id, pair[1]) then
+				self:_rows("DELETE FROM work_tags WHERE work_id = ? AND kind = ?", work_id, pair[2])
+				for _, value in ipairs(facts[pair[1]] or {}) do
+					self:_rows("INSERT OR IGNORE INTO work_tags (work_id, kind, value) VALUES (?, ?, ?)", work_id, pair[2], value)
+				end
+			end
+		end
+		self:_rows([[INSERT INTO work_metadata (work_id, provider, external_id, source_url, fetched_at, facts)
+			VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (work_id) DO UPDATE SET provider = excluded.provider,
+			external_id = excluded.external_id, source_url = excluded.source_url, fetched_at = excluded.fetched_at,
+			facts = excluded.facts]], work_id, facts.provider, tostring(facts.external_id), facts.source_url, now, require("cjson").encode(facts))
+		self:_rows([[INSERT INTO metadata_jobs (work_id, state, updated_at, next_run_at) VALUES (?, 'matched', ?, ?)
+			ON CONFLICT (work_id) DO UPDATE SET state = 'matched', attempts = 0, error = NULL,
+			updated_at = excluded.updated_at, next_run_at = excluded.next_run_at]], work_id, now, refresh_at)
+		return true
+	end)
 end
 
 --- Every collection, oldest first, with its members when it has any.
@@ -288,13 +411,23 @@ end
 --   `poster_url`, `backdrop_url`
 -- @tparam number scan
 function Catalog:saveRemote(library_id, entry, scan)
-	self:noteFile(library_id, entry.key, 0, 0, scan, { kind = "movie", title = entry.title, year = entry.year })
+	local parsed = { kind = "movie", title = entry.title, year = entry.year }
+	if entry.kind == "episode" and type(entry.show) == "string" and tonumber(entry.episode) then
+		parsed = { kind = "episode", show = entry.show, show_year = entry.show_year, season = tonumber(entry.season) or 1, episode = tonumber(entry.episode) }
+	end
+	self:noteFile(library_id, entry.key, 0, 0, scan, parsed)
 	local remote = require("cjson").encode({ url = entry.url, key = entry.key, resolve = entry.resolve, auth = entry.auth })
 	self:_rows("UPDATE files SET remote = ?, duration_ms = COALESCE(?, duration_ms) WHERE library_id = ? AND rel_path = ?",
 		remote, entry.duration_ms, library_id, entry.key)
 	self:_rows([[UPDATE works SET overview = COALESCE(?, overview), poster_url = ?, backdrop_url = ?
 		WHERE id = (SELECT work_id FROM files WHERE library_id = ? AND rel_path = ?)]],
 		entry.overview, entry.poster_url, entry.backdrop_url, library_id, entry.key)
+	if parsed.kind == "episode" then
+		local top = self:topWorkOfFile(library_id, entry.key)
+		self:_rows([[UPDATE works SET overview = COALESCE(overview, ?), poster_url = COALESCE(poster_url, ?)
+			WHERE id = ?]], entry.overview, entry.poster_url, top)
+		self:_rows("UPDATE works SET title = ? WHERE id = (SELECT work_id FROM files WHERE library_id = ? AND rel_path = ?)", entry.title, library_id, entry.key)
+	end
 end
 
 --- Queue analysis, unless it is already queued.
@@ -394,6 +527,14 @@ function Catalog:item(id, user)
 	end
 	work.progress = self:_one(
 		"SELECT position_ms, watched, updated_at FROM user_progress WHERE user = ? AND work_id = ?", user, id)
+	work.metadata = self:_one("SELECT provider, external_id, source_url, fetched_at, facts FROM work_metadata WHERE work_id = ?", id)
+	if work.metadata then
+		local ok, facts = pcall(require("cjson").decode, work.metadata.facts)
+		work.metadata.facts = nil
+		if ok and type(facts) == "table" then
+			work.metadata.cast, work.metadata.original_title, work.metadata.tagline = facts.cast, facts.original_title, facts.tagline
+		end
+	end
 	return work
 end
 

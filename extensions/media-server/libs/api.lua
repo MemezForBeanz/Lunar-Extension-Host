@@ -34,12 +34,57 @@ end
 function M.mount(svc)
 	local catalog = svc.catalog
 	local route = svc.route
+	local function frames_enabled()
+		if type(svc.frames_enabled) == "function" then return svc.frames_enabled() end
+		return svc.frames_enabled == true
+	end
 
 	route("GET", "/v1/status", function() return svc.status() end)
+	if svc.metadata then
+		local jobs, serial = {}, 0
+		local function start_metadata(run)
+			local now = os.time(); local count = 0
+			for id, job in pairs(jobs) do if now - job.created > 300 then jobs[id] = nil else count = count + 1 end end
+			if count >= 24 then return bad(429, "Too many metadata requests; try again shortly.") end
+			serial = serial + 1; local id = tostring(serial)
+			local job = { state = "running", created = now }; jobs[id] = job
+			run(function(result, why) job.state = result and "ready" or "failed"; job.result = result; job.error = why end)
+			return { status = 202, json = { id = id } }
+		end
+		route("GET", "/v1/metadata", function() return { status = 200, json = svc.metadata:status() } end)
+		route('POST','/v1/items/:id/metadata/apply',function(req)
+			local body=json_body(req)
+			local ok,why=svc.metadata:apply(id_of(req.params.id),body)
+			if not ok then return bad(400,why) end
+			return {status=200,json={saved=true}}
+		end)
+		route("POST", "/v1/metadata/refresh", function(req)
+			local body = json_body(req) or {}
+			local id = body.work_id ~= nil and id_of(body.work_id) or nil
+			if body.work_id ~= nil and not id then return bad(400, "Invalid title.") end
+			local ok, why = svc.metadata:refresh(id)
+			if not ok then return bad(400, why) end
+			return { status = 202, json = { queued = true } }
+		end)
+		route("POST", "/v1/items/:id/metadata/search", function(req)
+			local body = json_body(req) or {}
+			return start_metadata(function(done) svc.metadata:search(id_of(req.params.id), body.query, done,body.provider) end)
+		end)
+		route("POST", "/v1/items/:id/metadata/match", function(req)
+			local body = json_body(req) or {}
+			return start_metadata(function(done) svc.metadata:match(id_of(req.params.id), body.external_id, done,body.provider) end)
+		end)
+		route("GET", "/v1/metadata/jobs/:id", function(req)
+			local job = jobs[req.params.id]
+			if job and os.time() - job.created > 300 then jobs[req.params.id] = nil; job = nil end
+			if not job then return bad(404, "This metadata request expired.") end
+			return { status = job.state == "running" and 202 or 200, json = job }
+		end)
+	end
 	route("GET", "/v1/attention", function()
 		local data = catalog:repairData()
 		data.analysis_enabled = svc.status().json.analysis == "on"
-		data.frames_enabled = svc.frames_enabled == true
+		data.frames_enabled = frames_enabled()
 		return { status = 200, json = { problems = require("libs.repair").list(data) } }
 	end)
 	route("POST", "/v1/files/:id/analyse", function(req)
@@ -48,7 +93,7 @@ function M.mount(svc)
 		return { status = 202, json = { queued = true } }
 	end)
 	route("POST", "/v1/items/:id/frame", function(req)
-		if not svc.frames_enabled then return bad(409, "frame extraction is turned off") end
+		if not frames_enabled() then return bad(409, "frame extraction is turned off") end
 		if not catalog:retryFrame(id_of(req.params.id) or 0) then return bad(409, "no failed online frame to retry") end
 		return { status = 202, json = { queued = true } }
 	end)
@@ -72,6 +117,24 @@ function M.mount(svc)
 
 	route("GET", "/v1/providers", function()
 		return { status = 200, json = { providers = svc.sources:providers() } }
+	end)
+	-- Discovery is bounded background work; clients poll rather than hold a request open.
+	route("POST", "/v1/discover", function(req)
+		local job, why = svc.sources.discovery:begin(json_body(req))
+		if not job then return bad(400, why) end
+		return { status = 202, json = job }
+	end)
+	route("GET", "/v1/discover/:id", function(req)
+		local job = svc.sources.discovery:poll(req.params.id)
+		if not job then return bad(404, "This discovery request expired.") end
+		return { status = (job.state == "queued" or job.state == "running") and 202 or 200, json = job }
+	end)
+	route("POST", "/v1/discover/:id/import", function(req)
+		local body = json_body(req)
+		if not body or type(body.key) ~= "string" or #body.key > 2048 then return bad(400, "Choose a title from discovery.") end
+		local saved, why = svc.sources:importDiscovery(req.params.id, body.key)
+		if not saved then return bad(400, why) end
+		return { status = 201, json = saved }
 	end)
 
 	route("POST", "/v1/providers", function(req)

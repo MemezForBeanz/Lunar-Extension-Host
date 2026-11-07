@@ -3,6 +3,18 @@
 
 local M = {}
 
+--- mpv's string-list property uses commas; preserve commas within individual headers.
+function M.headerFields(headers, legacy)
+	if type(headers) ~= "table" then return legacy or "" end
+	local out = {}
+	for _, header in ipairs(headers) do
+		if type(header) == "string" and not header:find("[\r\n]") then
+			out[#out + 1] = header:gsub("\\", "\\\\"):gsub(",", "\\,")
+		end
+	end
+	return table.concat(out, ",")
+end
+
 M.STALL_S = 30   -- no progress for this long while playing counts as failing
 
 --- A position as a clock.

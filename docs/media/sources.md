@@ -17,6 +17,34 @@ from a file or a friend can't run anything.
 | `feed` | An RSS feed with video enclosures. |
 | `index` | A web server's folder listing. |
 | `torrent` | Magnet links you add yourself. See [Torrents](#torrents). |
+| `website` | Bounded title/episode browsing and lazy video-host extraction. |
+
+## Website discovery
+
+The desktop's Sources tab opens **Discover**, with **Manage sources** available alongside it.
+Built-in adapters cover WCO, 9anime.or.at, kissanime.tv.in and a generic video webpage. Search or
+browse a source, open a series page to inspect episodes, then save a series or an individual
+entry. A saved series fetches its episodes in the background and refreshes every six hours,
+preserving progress and marking disappeared episodes missing. KissAnime search filters the current catalog page. Next page and Back preserve the
+browsing path. Catalog entries are not imported automatically.
+
+Discovery runs on media-server: at most two HTTP fetches, bounded page sizes, five-minute job
+and cache lifetimes, and one contained extractor process at a time. Playable URLs are resolved
+when needed rather than continuously crawling websites. The player owns only the controls and
+results. Adapters are Lua modules shipped with the extension; downloaded provider definitions
+remain data and cannot install executable adapter code.
+
+Website catalog support does not guarantee playback of every embedded host. Access refusals,
+unsupported hosts, extractor preparation and timeouts appear as errors. There is no browser or
+site-script execution fallback. No accounts, cookies, login sessions or DRM handling are bundled.
+
+Native HTTP integration validation on 2026-11-07 returned 100 WCO catalog entries, 76 KissAnime
+catalog entries and 22 episode entries for the tested 9anime series. Its latest episode resolved
+through the public server-selection API to a direct media URL that passed a HEAD request.
+The sampled KissAnime video host reported that its video was unavailable; another older 9anime
+host reported a removed file. Those failures are surfaced rather than treated as playable URLs.
+PowerShell received WCO HTTP 403 while Lunar's native client succeeded, so access is client-dependent.
+These checks do not establish that every episode or video host works. See [compatibility](source-compatibility.md).
 
 Add one with `POST /v1/providers`:
 
@@ -52,7 +80,7 @@ costs a moment rather than an evening. Progress on any copy shows on the one car
   wrong card, and differently spelled titles stay apart.
 - Files from a source are not analysed, so the Forecast can't judge them, and they have no frames.
 - A source that doesn't support byte ranges may never start playing.
-- Shows from sources arrive as separate items. Seasons are only read from local folders.
+- Website adapters group numbered episodes under series; feeds without episode identity remain separate items.
 - `archive` providers ask the Internet Archive to leave out adult material, but its tags are
   written by uploaders, so some can get through.
 - Anyone with a token can add a source, and the server will fetch whatever address it names.

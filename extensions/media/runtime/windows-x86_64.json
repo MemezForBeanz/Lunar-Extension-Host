@@ -1,0 +1,15 @@
+{
+  "id": "media-player-20261107-1",
+  "platform": "windows-x86_64",
+  "tools": { "libmpv": "bin/libmpv-2.dll" },
+  "packages": [
+    {
+      "id": "libmpv-20261107",
+      "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261107/mpv-dev-x86_64-20261107-git-9028187538.7z",
+      "sha256": "df7c433a2d481fdaf6163b201f26abbb0eff0c215c51368397088c6d8f7a001b",
+      "format": "7z",
+      "files": { "libmpv-2.dll": "bin/libmpv-2.dll" },
+      "source": "https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/20261107"
+    }
+  ]
+}

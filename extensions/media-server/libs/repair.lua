@@ -21,12 +21,12 @@ function M.list(data)
 	end
 	for _, row in ipairs(data.frames or {}) do
 		add("frame", row.id, 4, row.title .. ": frame failed", row.error or "A picture could not be made.",
-			"Check the file and ffmpeg setup, then retry the frame.", data.frames_enabled and
+			"Check that the file is readable and the server's media tools are ready, then retry.", data.frames_enabled and
 			{ label = "Retry frame", path = "/v1/items/" .. row.id .. "/frame" } or nil)
 	end
 	if not data.analysis_enabled then
-		add("analysis_off", "setup", 5, "File analysis is turned off", "LUNAR_FFPROBE is not set on the server.",
-			"Set LUNAR_FFPROBE to ffprobe, then restart the server.")
+		add("analysis_off", "setup", 5, "File analysis is waiting for media tools", "The server's contained media tools are not ready.",
+			"Open Media server to check tool preparation or download errors.")
 	end
 	table.sort(out, function(a, b)
 		if a.severity ~= b.severity then return a.severity < b.severity end

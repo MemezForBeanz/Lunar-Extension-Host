@@ -78,6 +78,8 @@ function M.applyDetail(item, detail)
 	item.position_ms = position
 	if detail.progress and detail.progress.watched == 1 then item.progress = 1 end
 	if detail.people then item.people = detail.people end
+	if detail.genres then item.genres = detail.genres end
+	item.studio, item.content_rating, item.metadata = detail.studio, detail.content_rating, detail.metadata
 	if detail.rating then item.rating = detail.rating end
 	return item
 end
@@ -126,8 +128,10 @@ function M.modelFrom(libraries, status, continuing, collections, source_rows, at
 			if raw.watched == 1 then item.progress = 1 end
 			if type(raw.duration_ms) == "number" then item.minutes = math.floor(raw.duration_ms / 60000) end
 			by_id[item.id] = item
-			if raw.art == nil and item.art_urls.poster then item.art.poster = true end
-			if raw.art == nil and item.art_urls.backdrop then item.art.backdrop = true end
+			if item.art.poster then item.art_urls.poster = nil end
+			if item.art.backdrop then item.art_urls.backdrop = nil end
+			if item.art_urls.poster then item.art.poster = true end
+			if item.art_urls.backdrop then item.art.backdrop = true end
 			everything[#everything + 1] = item
 		end
 	end
@@ -171,6 +175,7 @@ function M.modelFrom(libraries, status, continuing, collections, source_rows, at
 		name = "Connected", version = "0.1.0", analysis = status.analysis or "off", files = status.files or 0,
 		missing = status.missing or 0, analysing = status.analysing or 0, failed = status.failed or 0, sessions = {},
 	}
+	model.server.metadata, model.server.runtime = status.metadata, status.runtime
 	return model
 end
 
@@ -201,7 +206,11 @@ function Client:_request(method, path, body, done)
 		headers = { Authorization = "Bearer " .. self.token },
 	}, function(response, err)
 		if not response then return done(nil, err or "no answer from the server") end
-		if not response.ok then return done(nil, "the server answered " .. tostring(response.status)) end
+		if not response.ok then
+			local decoded, problem = pcall(cjson.decode, response.body or "")
+			return done(nil, decoded and type(problem) == "table" and type(problem.error) == "string" and problem.error
+				or ("the server answered " .. tostring(response.status)))
+		end
 		if response.status == 204 then return done({}) end
 		local ok, data = pcall(cjson.decode, response.body or "")
 		if not ok then return done(nil, "the server's answer could not be read") end
@@ -340,6 +349,19 @@ function Client:providers(done)
 	self:_request("GET", "/v1/providers", nil, function(answer) done(answer and answer.providers or {}) end)
 end
 
+function Client:discover(body, done) self:_request("POST", "/v1/discover", body, done) end
+function Client:metadataStatus(done) self:_request("GET", "/v1/metadata", nil, done) end
+function Client:status(done) self:_request("GET", "/v1/status", nil, done) end
+function Client:refreshMetadata(work_id, done) self:_request("POST", "/v1/metadata/refresh", { work_id = work_id }, done) end
+function Client:searchMetadata(work_id, query, done) self:_request("POST", "/v1/items/" .. tostring(work_id) .. "/metadata/search", { query = query }, done) end
+function Client:matchMetadata(work_id, external_id, done) self:_request("POST", "/v1/items/" .. tostring(work_id) .. "/metadata/match", { external_id = external_id }, done) end
+function Client:metadataJob(id, done) self:_request("GET", "/v1/metadata/jobs/" .. tostring(id), nil, done) end
+function Client:applyMetadata(work_id,facts,done) self:_request('POST','/v1/items/'..tostring(work_id)..'/metadata/apply',facts,done) end
+function Client:discovery(id, done) self:_request("GET", "/v1/discover/" .. tostring(id), nil, done) end
+function Client:importDiscovery(id, key, done)
+	self:_request("POST", "/v1/discover/" .. tostring(id) .. "/import", { key = key }, done)
+end
+
 --- Add a source.
 function Client:addSource(body, done)
 	self:_request("POST", "/v1/sources", body, done)
@@ -395,7 +417,7 @@ end
 
 --- Fetch a picture from a source's own address.
 function Client:artFrom(url, done)
-	self.http({ url = url, method = "GET", timeout = 30 }, function(response)
+	self.http({ url = url, method = "GET", timeout = 30, max_bytes = 8 * 1024 * 1024 }, function(response)
 		done(response and response.ok and response.body or nil)
 	end)
 end

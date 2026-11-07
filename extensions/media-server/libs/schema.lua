@@ -5,7 +5,7 @@
 
 local M = {}
 
-M.VERSION = 4
+M.VERSION = 5
 
 local V1 = {
 	[[CREATE TABLE libraries (
@@ -108,6 +108,37 @@ local V4 = {
 	)]],
 }
 
+-- Provider metadata is separate from media files. Local sidecar fields remain authoritative.
+local V5 = {
+	[[CREATE TABLE metadata_local_fields (
+		work_id INTEGER NOT NULL REFERENCES works(id) ON DELETE CASCADE, field TEXT NOT NULL,
+		PRIMARY KEY (work_id, field)
+	) WITHOUT ROWID]],
+	[[CREATE TABLE work_metadata (
+		work_id INTEGER PRIMARY KEY REFERENCES works(id) ON DELETE CASCADE,
+		provider TEXT NOT NULL, external_id TEXT NOT NULL, source_url TEXT NOT NULL,
+		fetched_at INTEGER NOT NULL, facts TEXT NOT NULL
+	)]],
+	[[CREATE TABLE metadata_jobs (
+		work_id INTEGER PRIMARY KEY REFERENCES works(id) ON DELETE CASCADE,
+		state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN ('queued','running','matched','unmatched','failed')),
+		attempts INTEGER NOT NULL DEFAULT 0, next_run_at INTEGER NOT NULL DEFAULT 0,
+		error TEXT, updated_at INTEGER NOT NULL DEFAULT 0
+	)]],
+	"CREATE INDEX metadata_jobs_ready ON metadata_jobs (state, next_run_at, work_id)",
+	-- Older versions did not record provenance: preserve existing descriptive facts conservatively.
+	[[INSERT INTO metadata_local_fields (work_id, field)
+		SELECT id, 'overview' FROM works WHERE overview IS NOT NULL AND overview <> '']],
+	[[INSERT INTO metadata_local_fields (work_id, field)
+		SELECT id, 'rating' FROM works WHERE rating IS NOT NULL]],
+	[[INSERT INTO metadata_local_fields (work_id, field)
+		SELECT id, 'studio' FROM works WHERE studio IS NOT NULL AND studio <> '']],
+	[[INSERT INTO metadata_local_fields (work_id, field)
+		SELECT id, 'content_rating' FROM works WHERE content_rating IS NOT NULL AND content_rating <> '']],
+	[[INSERT OR IGNORE INTO metadata_local_fields (work_id, field)
+		SELECT work_id, CASE kind WHEN 'genre' THEN 'genres' ELSE 'people' END FROM work_tags]],
+}
+
 --- Bring a database up to `VERSION`.
 function M.migrate(db)
 	return db:migrate(M.VERSION, function(d, previous)
@@ -131,6 +162,12 @@ function M.migrate(db)
 		end
 		if previous < 4 then
 			for _, statement in ipairs(V4) do
+				local done, why = d:exec(statement)
+				if not done then return nil, why end
+			end
+		end
+		if previous < 5 then
+			for _, statement in ipairs(V5) do
 				local done, why = d:exec(statement)
 				if not done then return nil, why end
 			end

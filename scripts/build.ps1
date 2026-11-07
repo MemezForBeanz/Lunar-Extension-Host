@@ -422,6 +422,10 @@ function Copy-PluginFiles($dest) {
     if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
     Copy-Item -LiteralPath $src -Destination $dest -Recurse -Force
 
+    # Media extensions own their native tools. Both MSI and portable payloads use this
+    # path, so a normal install is usable offline without a second dependency installer.
+    & (Join-Path $PSScriptRoot 'package-media-runtime.ps1') -PluginsRoot $dest
+
     Get-ChildItem -LiteralPath $dest -Recurse -File |
         Where-Object {
             $item = $_

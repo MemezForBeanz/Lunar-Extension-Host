@@ -98,6 +98,7 @@ function M.prepare(req)
 	if req.cafile ~= nil and type(req.cafile) ~= "string" then return nil, "cafile must be a path" end
 	out.cafile = req.cafile
 	out.max_bytes = tonumber(req.max_bytes) or M.DEFAULT_MAX_BYTES
+	out.same_origin = req.same_origin == true
 	return out
 end
 
@@ -107,7 +108,7 @@ end
 -- @treturn[1] string the absolute target
 -- @treturn[2] nil
 -- @treturn[2] string why not
-function M.redirect_target(from, location)
+function M.redirect_target(from, location, same_origin)
 	if type(location) ~= "string" or location == "" then return nil, "redirect without a location" end
 	local url = require("socket.url")
 	local target = url.absolute(from, location)
@@ -115,6 +116,11 @@ function M.redirect_target(from, location)
 	if scheme ~= "http" and scheme ~= "https" then return nil, "redirect to an unsupported URL" end
 	if from:lower():match("^https://") and scheme == "http" then
 		return nil, "refused a redirect from https:// to http://"
+	end
+	if same_origin then
+		local a,b=url.parse(from),url.parse(target)
+		local function origin(p) return (p.scheme or ''):lower()..'://'..(p.host or ''):lower()..':'..tostring(p.port or (p.scheme=='https' and 443 or 80)) end
+		if origin(a)~=origin(b) or b.userinfo then return nil,'refused a redirect outside the provider origin' end
 	end
 	return target
 end
@@ -283,7 +289,7 @@ function M.request(req)
 			res.ok = res.status >= 200 and res.status < 300
 			return setmetatable(res, Response)
 		end
-		local target, why = M.redirect_target(url, res.headers.location)
+		local target, why = M.redirect_target(url, res.headers.location, p.same_origin or p.headers.authorization ~= nil or p.headers.cookie ~= nil)
 		if not target then return nil, why end
 		url = target
 		p.scheme = url:match("^(%a+)://"):lower()

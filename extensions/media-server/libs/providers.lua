@@ -44,7 +44,7 @@ M.BUILTIN = {
 		fields = { { id = "links", label = "Magnet links, one per line", multiline = true } } },
 }
 
-M.KINDS = { jellyfin = true, archive = true, m3u = true, feed = true, index = true, torrent = true }
+M.KINDS = { jellyfin = true, archive = true, m3u = true, feed = true, index = true, torrent = true, website = true }
 
 --- Check a provider someone wants to add to the database. It stays data: only known kinds, and
 -- fields that say what to ask for.
@@ -250,6 +250,7 @@ end
 -- @treturn[2] string why
 function M.request(provider, config)
 	local kind = provider.kind
+	if kind == "website" then return require("libs.websources").request(provider, "", 1, config.url) end
 	if kind == "torrent" then return { local_text = config.links or "" } end
 	if kind == "archive" then
 		local collection = tostring((provider.config or {}).collection or config.collection or "")
@@ -274,6 +275,16 @@ end
 -- @treturn table entries
 function M.parse(provider, config, text)
 	local kind = provider.kind
+	if kind == "website" then
+		local web = require("libs.websources")
+		local base = config.url or (provider.config or {}).base
+		local result = web.parse(text, base, provider)
+		if #result.items == 0 then
+			result.items[1] = { key = base, title = result.title ~= "" and result.title or base,
+				url = base, resolve = "webpage", overview = result.overview, poster_url = result.poster_url }
+		end
+		return result.items
+	end
 	if kind == "m3u" then return M.parseM3u(text) end
 	if kind == "feed" then return M.parseFeed(text) end
 	if kind == "index" then return M.parseIndex(text, config.url) end

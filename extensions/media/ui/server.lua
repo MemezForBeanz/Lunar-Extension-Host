@@ -58,6 +58,8 @@ function M.new(ctx, opts)
 		column_widths = { 85, 130 }, header = { title = "Now playing", columns = { "Delivery", "Position" } },
 		empty_title = "Nothing is playing", empty_hint = "Sessions appear when reported by the server." })
 	local status = Kit.statusLine(iup, "ok", "")
+	local metadata_status = Kit.statusLine(iup, "info", "")
+	local runtime_status = Kit.statusLine(iup, "info", "")
 	local service_line = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted" })
 	local service_button
 	local function service_refresh()
@@ -85,8 +87,12 @@ function M.new(ctx, opts)
 	local health = section("Health", iup.vbox({ metrics, L.sectionTitle(iup, "Attention"), attention, feedback,
 		GAP = L.gap(2), EXPAND = "HORIZONTAL" }))
 	api.widget = iup.vbox({
-		iup.hbox({ iup.vbox({ iup.flatlabel({ TITLE = "Media server", THEMEROLE = "pagetitle" }), status,
+		iup.hbox({ iup.vbox({ iup.flatlabel({ TITLE = "Media server", THEMEROLE = "pagetitle" }), status, metadata_status, runtime_status,
 			GAP = L.gap(1) }), iup.fill({}), service_box, ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL", MARGIN = "15x0" }),   -- 15: the sections' margin and their frame's inset
+		Kit.button(iup, { title = 'Refresh all metadata', role = 'actionbutton', action = function()
+			if opts.on_refresh_metadata then opts.on_refresh_metadata() end
+		end }),
+		require('ui.credits').new(iup),
 		health,
 		iup.hbox({ section("Activity", sessions.widget), section("Libraries", libraries.widget),
 			HOMOGENEOUS = "YES", GAP = L.gap(4), EXPAND = "HORIZONTAL" }),
@@ -118,6 +124,14 @@ function M.new(ctx, opts)
 		for key, setter in pairs(setters) do setter(key == "playing" and #(server.sessions or {}) or server[key]) end
 		Kit.setStatus(iup, status, model.sample and "info" or "ok", server.name .. " · analysis " .. server.analysis ..
 			(model.sample and " · all examples below are made up" or ""))
+		local meta = server.metadata
+		Kit.show(iup, metadata_status, meta ~= nil)
+		if meta then Kit.setStatus(iup, metadata_status, meta.configured and "info" or "warning", meta.configured and
+			("Metadata: " .. tostring(meta.matched or 0) .. " matched · " .. tostring(meta.queued or 0) .. " queued · " .. tostring(meta.unmatched or 0) .. " need a match")
+			or "Keyless metadata providers supply posters and descriptions.") end
+		local runtime = server.runtime
+		Kit.show(iup, runtime_status, runtime ~= nil and runtime.state ~= "ready")
+		if runtime then Kit.setStatus(iup, runtime_status, runtime.state == "failed" and "error" or "info", runtime.message or "Media tools ready") end
 		while iup.GetChild(attention, 0) do iup.Destroy(iup.GetChild(attention, 0)) end
 		targets = {}
 		local problems = {}

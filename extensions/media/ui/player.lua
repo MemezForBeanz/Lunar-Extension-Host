@@ -59,12 +59,20 @@ local BAR_INSET = 7        -- the seek bar keeps this much for its thumb; words 
 function M.new(ctx, opts)
 	local iup = ctx.iup
 	local api = {}
-	local sample = opts.sample
+	local sample = opts.sample or { title = "Nothing is playing", year = 0 }
 	local duration = (sample.minutes or 0) * 60
 	local position = math.floor(duration * (sample.progress or 0))
 
 	local requirements = Kit.requirements(iup, { ready = "Player ready" })
-	requirements.set({ VideoHost.requirement() })
+	local runtime_state
+	local function runtime_requirement()
+		if not opts.runtime then return VideoHost.requirement() end
+		local library = opts.runtime:tool("libmpv")
+		if library then return VideoHost.requirement({ library = library }) end
+		local status = opts.runtime:status()
+		return { label = "Player runtime", ok = false, optional = true, problem = status.message or "Preparing playback tools" }
+	end
+	requirements.set({ runtime_requirement() })
 
 	local art = CellGrid.new(iup, { count = opts.art and 1 or 0, cell_width = ART_WIDTH, aspect = "2:3", show_text = false,
 		gutter = 0, padding = 0, value = function() return nil end, role = "flatgrid_plain" })
@@ -75,16 +83,16 @@ function M.new(ctx, opts)
 	local drain = opts.cache and opts.art and CellGrid.posters(art, opts.cache, function() return opts.art end)
 	local raw_bits = art.bits
 
-	local eyebrow = iup.flatlabel({ TITLE = "Paused", THEMEROLE = "reading_muted" })
+	local eyebrow = iup.flatlabel({ TITLE = opts.sample and "Paused" or "Ready", THEMEROLE = "reading_muted" })
 	local title = L.pageTitle(iup, sample.title)
-	local meta = iup.flatlabel({ TITLE = spotlight.meta(sample) .. " · " .. (sample.audio or ""), THEMEROLE = "reading_muted" })
+	local meta = iup.flatlabel({ TITLE = opts.sample and (spotlight.meta(sample) .. " · " .. (sample.audio or "")) or "Choose a title from your library", THEMEROLE = "reading_muted" })
 	local overview = iup.flatlabel({ TITLE = sample.overview or "", THEMEROLE = "reading", TEXTWRAP = "YES",
 		EXPAND = "HORIZONTAL", ALIGNMENT = "ALEFT:ATOP", RASTERSIZE = "x44" })
 
 	local glyph = AnimatedIcon.new(iup, { animate = opts.animate, size = 20, role = "on_accent" })
 	local playing = false
 	local volume, muted = FULL_VOLUME, false
-	local MARKS = { { at = 1320 }, { at = 2700 }, { at = 4140 }, { at = 7200 } }
+	local MARKS = opts.demo and { { at = 1320 }, { at = 2700 }, { at = 4140 }, { at = 7200 } } or {}
 	local now = { title = sample.title, position = position, length = duration, marks = MARKS,
 		detail = tostring(sample.year) }
 	local loaded = opts.demo == true   -- the dock only appears once something has played
@@ -166,11 +174,11 @@ function M.new(ctx, opts)
 		return iup.hbox({ widget, MARGIN = ROW_INSET .. "x0" })
 	end
 
-	local chapters = {
+	local chapters = opts.demo and {
 		{ title = "Opening", column1 = "0:00:00" }, { title = "The survey", column1 = "0:22:00" },
 		{ title = "Low water", column1 = "0:45:00" }, { title = "The boundary stone", column1 = "1:09:00" },
 		{ title = "Credits", column1 = "2:00:00" },
-	}
+	} or {}
 	local queue = playback.queueRows(opts.upcoming, opts.art_of)
 	local queue_art = {}
 	local queue_list
@@ -222,6 +230,13 @@ function M.new(ctx, opts)
 	Kit.show(iup, requirements.widget, requirements.blocker ~= nil, bar.widget)
 	Kit.show(iup, overview, (sample.overview or "") ~= "", bar.widget)
 	Kit.show(iup, poster, opts.art ~= nil, bar.widget)
+	function api.refreshRuntime()
+		local state = opts.runtime and opts.runtime.state
+		if state == runtime_state then return end
+		runtime_state = state
+		requirements.set({ runtime_requirement() })
+		Kit.show(iup, requirements.widget, requirements.blocker ~= nil, bar.widget)
+	end
 
 	local in_film = false      -- a film is on the screen, so poster and big title have stepped aside
 	local card_room            -- the card's inside width, from the page's
@@ -443,7 +458,12 @@ function M.new(ctx, opts)
 		if not video then return nil, "this build of Lunar has no video surface" end
 		if not mpv then
 			local err
-			mpv, err = VideoHost.player(video, { on_event = on_event })
+			local library = opts.runtime and opts.runtime:tool("libmpv")
+			if opts.runtime and not library then return nil, opts.runtime:status().message or "Playback runtime is not ready" end
+			local options = { { "tls-verify", "yes" } }
+			local cafile = require("core.lib.https").bundled_cafile()
+			if cafile then options[#options + 1] = { "tls-ca-file", cafile } end
+			mpv, err = VideoHost.player(video, { on_event = on_event, options = options, library = library })
 			if not mpv then return nil, err end
 			mpv:observe("time-pos", "double")
 			mpv:observe("duration", "double")
@@ -469,7 +489,7 @@ function M.new(ctx, opts)
 		iup.Refresh(api.widget)
 		loaded = true
 		mpv:set("pause", "no")
-		mpv:set("http-header-fields", request.header or "")
+		mpv:set("http-header-fields", playback.headerFields(request.headers, request.header))
 		mpv:set("start", tostring(math.floor(request.start or 0)))
 		mpv:load(request.url)
 		playing, ended = true, false

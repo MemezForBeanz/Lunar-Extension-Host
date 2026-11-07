@@ -4,8 +4,8 @@
 --   lunar-cli --headless --dev --extensions extensions --require media-server \
 --     --listen 127.0.0.1:8421 --tokens-file tokens --state-dir state
 --
--- Set LUNAR_FFPROBE to an ffprobe executable to analyse files. Without one the catalog
--- still fills and streams, and /v1/status reports that analysis is off.
+-- Windows packages contain FFmpeg/ffprobe and the extractor. Lightweight packages prepare
+-- the pinned tools in an extension-owned cache and expose progress through /v1/status.
 
 local Catalog = require("libs.catalog")
 local Scanner = require("libs.scanner")
@@ -117,6 +117,8 @@ function M:_status()
 	local counts = self.catalog:counts()
 	counts.scanning = self.scan_run and self.scan_run.library.name or nil
 	counts.analysis = self.ffprobe and "on" or "off"
+	counts.runtime = self.runtime and self.runtime:status()
+	counts.metadata = self.metadata and self.metadata:status()
 	return { status = 200, json = counts }
 end
 
@@ -124,15 +126,9 @@ function M:register(ctx)
 	self.ctx = ctx
 	self.log = ctx:getLogger("media-server")
 	self.scan_queue, self.probes = {}, {}
-	self.ffprobe = os.getenv("LUNAR_FFPROBE")
-	if self.ffprobe == "" then self.ffprobe = nil end
-	-- ffmpeg lives beside ffprobe unless someone says otherwise.
-	self.ffmpeg = os.getenv("LUNAR_FFMPEG")
-	if self.ffmpeg == "" then self.ffmpeg = nil end
-	if (not self.ffmpeg or self.ffmpeg == "") and self.ffprobe then
-		local beside = self.ffprobe:gsub("ffprobe(%.?%w*)$", "ffmpeg%1")
-		if lfs.attributes(beside, "mode") == "file" then self.ffmpeg = beside else self.ffmpeg = nil end
-	end
+	self.runtime = require("libs.runtime").new(ctx, self)
+	self.runtime:start()
+	self.ffprobe, self.ffmpeg = self.runtime:tool("ffprobe"), self.runtime:tool("ffmpeg")
 	local data_dir = ctx:dataDir(self)
 	if data_dir then
 		self.art_dir = data_dir .. "/art"
@@ -144,10 +140,16 @@ function M:register(ctx)
 	if not migrated then error("media-server schema: " .. tostring(why), 0) end
 	self.catalog = Catalog.new(db)
 	self.catalog:recoverJobs()
+	self.metadata = require("libs.metadata").new({ catalog = self.catalog, now = os.time,
+		http = function(request, done) return ctx:http(request, done, self) end,
+		get_secret = function(name) return ctx:getSecret(self, name) end,
+		set_secret = function(name, value) return ctx:setSecret(self, name, value) end,
+	})
 	local extension = self
 	local mounted = true
 	self.sources = Sources.new({ catalog = self.catalog, now = os.time, log = self.log,
 		torrent_engine = os.getenv("LUNAR_TORRENT_ENGINE"),
+		extractor = function() return self.runtime:tool("extractor") end,
 		http = function(request, done) return ctx:http(request, done, extension) end,
 		spawn = function(argv) return ctx:spawn({ argv = argv }, extension) end,
 		get_secret = function(name) return ctx:getSecret(extension, name) end,
@@ -156,8 +158,9 @@ function M:register(ctx)
 	})
 	api.mount({
 		catalog = self.catalog,
-		frames_enabled = self.ffmpeg ~= nil and self.art_dir ~= nil,
+		frames_enabled = function() return extension.ffmpeg ~= nil and extension.art_dir ~= nil end,
 		sources = self.sources,
+		metadata = self.metadata,
 		now = os.time,
 		status = function() return extension:_status() end,
 		scan = function(library) extension:_queue_scan(library) end,
@@ -179,11 +182,18 @@ function M:register(ctx)
 		end,
 	})
 	if not self.ffprobe then
-		self.log:warn("LUNAR_FFPROBE is not set, so files will be cataloged without analysis")
+		self.log:info("media tools are not ready yet; preparation progress is available in runtime status")
 	end
 	ctx:onReady(function()
 		self.timer = ctx:addTimer({ time = TICK_MS, run = true, action = function()
 			if ctx:isStopping() then return end
+			self.runtime:tick()
+			if self.runtime.state == "ready" and not self.contained_tools then
+				self.ffprobe, self.ffmpeg = self.runtime:tool("ffprobe"), self.runtime:tool("ffmpeg")
+				self.contained_tools = true
+			end
+			self.sources.discovery:tick()
+			self.metadata:tick()
 			self:_tick_scans()
 			self:_tick_probes()
 			self:_tick_frames()
@@ -201,6 +211,8 @@ function M:register(ctx)
 end
 
 function M:shutdown()
+	if self.metadata then self.metadata:close() end
+	if self.runtime then self.runtime:close() end
 	for _, run in ipairs(self.probes or {}) do
 		run.process:kill()
 		run.process:close()

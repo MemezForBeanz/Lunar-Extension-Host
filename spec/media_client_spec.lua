@@ -15,6 +15,16 @@ local function fake_http(answers)
 end
 
 describe("media client", function()
+	it("adds online posters even when a generated backdrop exists, preserving local choices", function()
+		local model=Client.modelFrom({{name="Films",items={
+			{id=1,kind="movie",title="First",art="backdrop",poster_url="https://images.example/first.jpg"},
+			{id=2,kind="movie",title="Second",art="poster",poster_url="https://images.example/second.jpg"},
+		}}},{})
+		assert.is_true(model.films[1].art.poster)
+		assert.equal("https://images.example/first.jpg",model.films[1].art_urls.poster)
+		assert.is_true(model.films[2].art.poster)
+		assert.is_nil(model.films[2].art_urls.poster)
+	end)
 	it("splits films and shows and fills the sources", function()
 		local model = Client.modelFrom({
 			{ items = { { id = 1, kind = "movie", title = "Alien", year = 1979, added_at = 0 } } },

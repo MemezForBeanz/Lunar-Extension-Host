@@ -1,6 +1,6 @@
 --- Reads a file's tracks with ffprobe, a separate process, so a damaged file can't
--- take the server down. Lunar doesn't ship FFmpeg: the server finds one, or runs
--- without analysis and says so.
+-- take the server down. The extension's contained runtime supplies FFmpeg; while tools
+-- are being prepared the catalog remains usable and reports that analysis is off.
 -- @module libs.probe
 
 local cjson = require("cjson")

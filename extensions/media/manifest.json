@@ -2,12 +2,12 @@
   "schema_version": 2,
   "id": "media",
   "name": "Lunar Media",
-  "version": "0.1.0",
-  "description": "Browse, inspect and play your own media library from a Lunar Media Server.",
+  "version": "0.2.0",
+  "description": "Discover sources, browse rich movie and TV metadata, and play your Lunar library with contained playback tools.",
   "host_api": 4,
   "modes": ["gui"],
   "capabilities": ["tabs", "settings", "routes", "local_service"],
   "provides": {
-    "tabs": ["Media", "Now playing", "Sources", "Media server"]
+    "tabs": ["Media", "Now playing", "Sources", "Media server", "Metadata"]
   }
 }

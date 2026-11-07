@@ -473,6 +473,7 @@ function M.new(ctx, opts)
 	-- A title opens over the collection and goes back to it, so nothing is lost by looking.
 	local opened
 	local details = title_page.new(ctx, { cache = cache, art = wide_art, poster = art_of,
+		on_metadata = opts.on_metadata, on_metadata_changed = opts.on_metadata_changed,
 		on_back = function()
 			opened = nil
 			api.closeTitle()
@@ -940,7 +941,8 @@ function M.new(ctx, opts)
 	end
 
 	--- Show another library. Lists are refilled in place, because the grids stay for good.
-	function api.setModel(next_model)
+	function api.setModel(next_model, preserve)
+		local old_source, old_collection, old_title = source_id, collection, opened and opened.id
 		model = next_model
 		reliability.setModel(model)
 		refill(films, model.films)
@@ -962,10 +964,18 @@ function M.new(ctx, opts)
 		sources:select(1)
 		count_collections()
 		shelf_list:setProvider(#(model.collections or {}), collection_value)
-		go_source("home")
+		go_source(preserve and old_source ~= "collection" and old_source or "home")
+		if preserve and old_source == "collection" and old_collection then
+			for _, list in ipairs({ model.collections or {}, model.origins or {} }) do
+				for _, entry in ipairs(list) do if entry.id == old_collection.id then go_source("collection", entry) end end
+			end
+		end
 		fill_spotlight()
 		refill_plan()
 		choose(continuing[1] or recent[1] or shows[1])
+		if preserve and old_title then
+			for _, list in ipairs({ films, shows }) do for _, item in ipairs(list) do if item.id == old_title then api.open(item) end end end
+		end
 	end
 
 	local function set_chrome()
@@ -1022,6 +1032,7 @@ function M.new(ctx, opts)
 	go_source("home")
 	fill_spotlight()
 	refill_plan()
+	Kit.show(iup, sample_note, model.sample == true, sources.widget)
 	return api
 end
 

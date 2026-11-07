@@ -39,6 +39,12 @@ describe("http.prepare", function()
 end)
 
 describe("http.redirect_target", function()
+	it('keeps private provider requests on their original HTTPS origin',function()
+		assert.equal('https://provider.example/b',http.redirect_target('https://provider.example/a','/b',true))
+		assert.is_nil(http.redirect_target('https://provider.example/a','https://other.example/b',true))
+		assert.is_nil(http.redirect_target('https://provider.example/a','https://provider.example:8443/b',true))
+		assert.is_nil(http.redirect_target('https://provider.example/a','https://user@provider.example/b',true))
+	end)
 	it("resolves relative locations", function()
 		assert.are.equal("https://h/b/c", http.redirect_target("https://h/a/x", "/b/c"))
 		assert.are.equal("https://other/z", http.redirect_target("https://h/a", "https://other/z"))
@@ -129,6 +135,7 @@ describe("http.request against a local server", function()
 		["/ok"] = { 200, '{"hello":"world"}' },
 		["/missing"] = { 404, "nope" },
 		["/move"] = { 302, "", "Location: /ok\r\n" },
+		['/foreign'] = {302,'','Location: http://localhost:'..port..'/ok\r\n'},
 		["/loop"] = { 302, "", "Location: /loop\r\n" },
 		["/big"] = { 200, string.rep("x", 4096) },
 	}
@@ -183,6 +190,10 @@ describe("http.request against a local server", function()
 		local none, err = run({ url = base .. "/loop" })
 		assert.is_nil(none)
 		assert.truthy(err:find("too many redirects", 1, true))
+	end)
+	it('does not forward authentication to another redirect origin',function()
+		local res,err=run({url=base..'/foreign',headers={Authorization='Bearer test-only'}})
+		assert.is_nil(res);assert.is_truthy(err:find('outside the provider origin',1,true))
 	end)
 
 	it("sends a body and stops past max_bytes", function()
