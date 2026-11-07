@@ -4,6 +4,7 @@
 -- @module libs.probe
 
 local cjson = require("cjson")
+local nfo = require("libs.nfo")
 
 local M = {}
 
@@ -89,6 +90,7 @@ function M.parse(text)
 		duration_ms = duration and math.floor(duration * 1000) or nil,
 		bitrate = integer(data.format.bit_rate),
 		streams = streams,
+		facts = nfo.fromTags(data.format.tags),
 	}
 end
 

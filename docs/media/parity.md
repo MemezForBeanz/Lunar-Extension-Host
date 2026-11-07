@@ -73,6 +73,25 @@ sent no requests to any Plex service or server.
 | First run | Client setup | P0 | Connect to server; empty states |
 | Announcements, activity feed, profiles, reviews, friends | Social | Skip | Not a personal-server need |
 
+## Second pass
+
+Added after a second look at the installed client's code and strings, in Lunar's own words:
+
+| Feature | What the analysis showed | In Lunar |
+|---|---|---|
+| Spotlight | A paged hero with one dot per title, each named | Tinted spotlight on Home, with dots |
+| Jump bar | Shown only from 75 items and 5 letters, thinned to fit | Same thresholds, `libs.organize` |
+| Persistent player | A bottom bar on every page | The player dock, `ctx:addDock` |
+| Poster size | A density slider in the library toolbar | Size slider |
+| Advanced filters | Rule groups that save as smart collections | One rule form, `libs.organize` |
+| Resume on a show | Continue Watching picks the next episode | Play says which, such as Resume S3 E5 |
+| Colour from art | The server computes colours from a poster | `libs.tint`, on the desktop |
+| Local artwork | Posters and backgrounds read from beside media | `libs.art` |
+
+## New in Lunar
+
+Not based on Plex: unified sources and the provider database, Playback Forecast, and Fits Tonight.
+
 ## Left out on purpose
 
 Commercial ad-supported streaming: free films and channels, ads, rentals and purchases, third-party

@@ -75,6 +75,21 @@ function M.openDatabase(self, name, owner)
 	return db
 end
 
+--- The folder an extension keeps files in, beside its databases.
+function M.dataDir(self, owner)
+	local manifest = self._manifest_by_owner[owner]
+	if not manifest or not require("core.lib.ExtensionManifest").hasCapability(manifest, "database") then
+		return nil, "dataDir requires a registered owner with database capability"
+	end
+	local root, err = self._state_dir
+	if not root then root, err = M.defaultStateDir() end
+	if not root then return nil, err end
+	local dir = platform.path:join(root, manifest.id)
+	local ok, why = directory(dir)
+	if not ok then return nil, why end
+	return dir
+end
+
 function M.closeOwned(self, owner)
 	local rec = self._owners[owner]
 	local first_error

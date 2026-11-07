@@ -128,6 +128,175 @@ function Catalog:noteFile(library_id, rel_path, size, mtime, scan, parsed)
 	return self:_one("SELECT id FROM files WHERE library_id = ? AND rel_path = ?", library_id, rel_path).id
 end
 
+--- The work a file belongs to, and the top of its tree: art hangs off the film or the show.
+-- @treturn number|nil the id of the film or show
+function Catalog:topWorkOfFile(library_id, rel_path)
+	local row = self:_one([[SELECT w.id, w.parent_id FROM files f JOIN works w ON w.id = f.work_id
+		WHERE f.library_id = ? AND f.rel_path = ?]], library_id, rel_path)
+	while row and row.parent_id do
+		row = self:_one("SELECT id, parent_id FROM works WHERE id = ?", row.parent_id)
+	end
+	return row and row.id or nil
+end
+
+--- Remember a picture. One a person chose always replaces a generated frame.
+function Catalog:saveArt(work_id, kind, origin, path)
+	self:_rows([[INSERT INTO art (work_id, kind, origin, path) VALUES (?, ?, ?, ?)
+		ON CONFLICT (work_id, kind) DO UPDATE SET origin = excluded.origin, path = excluded.path
+		WHERE art.origin = 'frame' OR excluded.origin = 'library']], work_id, kind, origin, path)
+	if origin == "library" and kind == "backdrop" then self:_rows("DELETE FROM art_jobs WHERE work_id = ?", work_id) end
+end
+
+--- A picture to serve, with the library root or nil for a generated frame.
+function Catalog:artTarget(work_id, kind)
+	return self:_one([[SELECT a.origin, a.path, l.root FROM art a JOIN works w ON w.id = a.work_id
+		JOIN libraries l ON l.id = w.library_id WHERE a.work_id = ? AND a.kind = ?]], work_id, kind)
+end
+
+--- Ask for a frame from this file, unless the work has a backdrop or a job already.
+function Catalog:queueFrame(file_id)
+	self:_rows([[INSERT OR IGNORE INTO art_jobs (work_id, file_id)
+		SELECT top.id, ? FROM (WITH RECURSIVE up(id, parent_id) AS (
+			SELECT w.id, w.parent_id FROM files f JOIN works w ON w.id = f.work_id WHERE f.id = ?
+			UNION ALL SELECT w.id, w.parent_id FROM works w JOIN up ON w.id = up.parent_id)
+			SELECT id FROM up WHERE parent_id IS NULL) top
+		WHERE NOT EXISTS (SELECT 1 FROM art a WHERE a.work_id = top.id AND a.kind = 'backdrop')]], file_id, file_id)
+end
+
+--- Take the next frame job, or nil.
+function Catalog:claimFrame()
+	local job = self:_one([[SELECT j.work_id, j.file_id, f.rel_path, f.duration_ms, l.root FROM art_jobs j
+		JOIN files f ON f.id = j.file_id JOIN libraries l ON l.id = f.library_id
+		WHERE j.state = 'queued' ORDER BY j.work_id LIMIT 1]])
+	if job then self:_rows("UPDATE art_jobs SET state = 'running' WHERE work_id = ?", job.work_id) end
+	return job
+end
+
+--- A frame arrived.
+function Catalog:finishFrame(work_id, path)
+	self:saveArt(work_id, "backdrop", "frame", path)
+	self:_rows("DELETE FROM art_jobs WHERE work_id = ?", work_id)
+end
+
+--- A frame could not be taken. The work keeps its title tile, and the reason stays.
+function Catalog:failFrame(work_id, reason)
+	self:_rows("UPDATE art_jobs SET state = 'failed', error = ? WHERE work_id = ?", reason, work_id)
+end
+
+--- Record what a person wrote down about a work. A value already there is only replaced by
+-- one from an .nfo, which someone chose, never by a tag some encoder left in a file.
+-- @tparam number work_id
+-- @tparam table facts `overview`, `rating`, `content_rating`, `studio`, `genres`, `people`
+-- @tparam boolean chosen true for an .nfo
+function Catalog:saveFacts(work_id, facts, chosen)
+	if chosen then
+		self:_rows([[UPDATE works SET overview = COALESCE(?, overview), rating = COALESCE(?, rating),
+			content_rating = COALESCE(?, content_rating), studio = COALESCE(?, studio) WHERE id = ?]],
+			facts.overview, facts.rating, facts.content_rating, facts.studio, work_id)
+	else
+		self:_rows("UPDATE works SET overview = COALESCE(overview, ?) WHERE id = ?", facts.overview, work_id)
+	end
+	for _, genre in ipairs(facts.genres or {}) do
+		self:_rows("INSERT OR IGNORE INTO work_tags (work_id, kind, value) VALUES (?, 'genre', ?)", work_id, genre)
+	end
+	for _, person in ipairs(facts.people or {}) do
+		self:_rows("INSERT OR IGNORE INTO work_tags (work_id, kind, value) VALUES (?, 'person', ?)", work_id, person)
+	end
+end
+
+--- Every collection, oldest first, with its members when it has any.
+function Catalog:collections()
+	local rows = self:_rows("SELECT id, name, icon, rules FROM collections ORDER BY created_at, id")
+	for _, row in ipairs(rows) do
+		row.items = {}
+		for i, member in ipairs(self:_rows(
+			"SELECT work_id FROM collection_items WHERE collection_id = ? ORDER BY position, work_id", row.id)) do
+			row.items[i] = member.work_id
+		end
+	end
+	return rows
+end
+
+--- Save a collection. `rules` is a JSON string; a collection without one holds `items`.
+function Catalog:addCollection(name, icon, rules, items, now)
+	self:_rows("INSERT INTO collections (name, icon, rules, created_at) VALUES (?, ?, ?, ?)", name, icon, rules, now)
+	local id = self:_one("SELECT MAX(id) AS id FROM collections").id
+	for position, work_id in ipairs(items or {}) do
+		self:_rows("INSERT OR IGNORE INTO collection_items (collection_id, work_id, position) VALUES (?, ?, ?)",
+			id, work_id, position)
+	end
+	return id
+end
+
+function Catalog:deleteCollection(id)
+	self:_rows("DELETE FROM collections WHERE id = ?", id)
+end
+
+--- Provider definitions people have added.
+function Catalog:savedProviders()
+	return self:_rows("SELECT id, def FROM providers ORDER BY added_at, id")
+end
+
+function Catalog:saveProvider(id, def, now)
+	self:_rows([[INSERT INTO providers (id, def, added_at) VALUES (?, ?, ?)
+		ON CONFLICT (id) DO UPDATE SET def = excluded.def]], id, def, now)
+end
+
+--- Every source, with the library that holds its items.
+function Catalog:sources()
+	return self:_rows([[SELECT s.*, l.id AS library_id FROM sources s
+		LEFT JOIN libraries l ON l.source_id = s.id ORDER BY s.created_at, s.id]])
+end
+
+function Catalog:source(id)
+	return self:_one("SELECT * FROM sources WHERE id = ?", id)
+end
+
+function Catalog:addSource(provider_id, name, config, now)
+	self:_rows("INSERT INTO sources (provider_id, name, config, created_at) VALUES (?, ?, ?, ?)", provider_id, name, config, now)
+	return self:_one("SELECT * FROM sources WHERE id = (SELECT MAX(id) FROM sources)")
+end
+
+--- Remove a source, and with it the library it filled and everyone's progress on it.
+function Catalog:deleteSource(id)
+	self:_rows("DELETE FROM libraries WHERE source_id = ?", id)
+	self:_rows("DELETE FROM sources WHERE id = ?", id)
+end
+
+--- The library that holds a source's items. Its root can never be a real folder.
+function Catalog:sourceLibrary(source)
+	local library = self:_one("SELECT * FROM libraries WHERE source_id = ?", source.id)
+	if library then return library end
+	local root = "source:" .. source.id
+	self:_rows("INSERT INTO libraries (name, kind, root, source_id) VALUES (?, 'movie', ?, ?)", source.name, root, source.id)
+	return self:_one("SELECT * FROM libraries WHERE root = ?", root)
+end
+
+function Catalog:sourceSynced(id, status, why, items, now)
+	self:_rows("UPDATE sources SET status = ?, error = ?, items = ?, synced_at = ? WHERE id = ?", status, why, items, now, id)
+end
+
+--- The source a file came from.
+function Catalog:sourceOfFile(file_id)
+	return self:_one([[SELECT s.* FROM files f JOIN libraries l ON l.id = f.library_id
+		JOIN sources s ON s.id = l.source_id WHERE f.id = ?]], file_id)
+end
+
+--- Record one item from a source.
+-- @tparam number library_id
+-- @tparam table entry `key`, `title`, `year`, `url`, `resolve`, `auth`, `overview`, `duration_ms`,
+--   `poster_url`, `backdrop_url`
+-- @tparam number scan
+function Catalog:saveRemote(library_id, entry, scan)
+	self:noteFile(library_id, entry.key, 0, 0, scan, { kind = "movie", title = entry.title, year = entry.year })
+	local remote = require("cjson").encode({ url = entry.url, key = entry.key, resolve = entry.resolve, auth = entry.auth })
+	self:_rows("UPDATE files SET remote = ?, duration_ms = COALESCE(?, duration_ms) WHERE library_id = ? AND rel_path = ?",
+		remote, entry.duration_ms, library_id, entry.key)
+	self:_rows([[UPDATE works SET overview = COALESCE(?, overview), poster_url = ?, backdrop_url = ?
+		WHERE id = (SELECT work_id FROM files WHERE library_id = ? AND rel_path = ?)]],
+		entry.overview, entry.poster_url, entry.backdrop_url, library_id, entry.key)
+end
+
 --- Queue analysis, unless it is already queued.
 function Catalog:queueProbe(file_id)
 	self:_rows("INSERT OR IGNORE INTO jobs (file_id) VALUES (?)", file_id)
@@ -142,16 +311,40 @@ function Catalog:finishScan(library_id, scan, now)
 end
 
 local BROWSE = {
-	title = { [[SELECT id, kind, title, year, sort_key, added_at FROM works
+	title = { [[SELECT id, kind, title, year, sort_key, added_at,
+			(SELECT group_concat(kind) FROM art WHERE work_id = works.id) AS art,
+			(SELECT group_concat(value) FROM work_tags WHERE work_id = works.id AND kind = 'genre') AS genres,
+			(SELECT MAX(duration_ms) FROM files WHERE work_id = works.id) AS duration_ms,
+			(SELECT MAX(s.height) FROM files f JOIN streams s ON s.file_id = f.id WHERE f.work_id = works.id AND s.kind = 'video') AS height,
+			(SELECT s.codec FROM files f JOIN streams s ON s.file_id = f.id WHERE f.work_id = works.id AND s.kind = 'video' LIMIT 1) AS vcodec,
+			(SELECT MAX(s.hdr) FROM files f JOIN streams s ON s.file_id = f.id WHERE f.work_id = works.id AND s.kind = 'video') AS hdr,
+			(SELECT watched FROM user_progress WHERE user = ? AND work_id = works.id) AS watched,
+		(SELECT COUNT(*) FROM works s WHERE s.parent_id = works.id) AS seasons,
+		(SELECT COUNT(*) FROM works s JOIN works e ON e.parent_id = s.id WHERE s.parent_id = works.id) AS episodes,
+		(SELECT COUNT(*) FROM works s JOIN works e ON e.parent_id = s.id LEFT JOIN user_progress p
+			ON p.work_id = e.id AND p.user = ? WHERE s.parent_id = works.id AND COALESCE(p.watched, 0) = 0) AS unwatched,
+			overview, rating, library_id, poster_url, backdrop_url FROM works
 		WHERE library_id = ? AND kind IN ('movie', 'show') AND (sort_key, id) > (?, ?)
 		ORDER BY sort_key, id LIMIT ?]], "sort_key" },
-	added = { [[SELECT id, kind, title, year, sort_key, added_at FROM works
-		WHERE library_id = ? AND kind IN ('movie', 'show') AND (added_at, id) < (?, ?)
+	added = { [[SELECT id, kind, title, year, sort_key, added_at,
+			(SELECT group_concat(kind) FROM art WHERE work_id = works.id) AS art,
+			(SELECT group_concat(value) FROM work_tags WHERE work_id = works.id AND kind = 'genre') AS genres,
+			(SELECT MAX(duration_ms) FROM files WHERE work_id = works.id) AS duration_ms,
+			(SELECT MAX(s.height) FROM files f JOIN streams s ON s.file_id = f.id WHERE f.work_id = works.id AND s.kind = 'video') AS height,
+			(SELECT s.codec FROM files f JOIN streams s ON s.file_id = f.id WHERE f.work_id = works.id AND s.kind = 'video' LIMIT 1) AS vcodec,
+			(SELECT MAX(s.hdr) FROM files f JOIN streams s ON s.file_id = f.id WHERE f.work_id = works.id AND s.kind = 'video') AS hdr,
+			(SELECT watched FROM user_progress WHERE user = ? AND work_id = works.id) AS watched,
+			(SELECT COUNT(*) FROM works s WHERE s.parent_id = works.id) AS seasons,
+			(SELECT COUNT(*) FROM works s JOIN works e ON e.parent_id = s.id WHERE s.parent_id = works.id) AS episodes,
+			(SELECT COUNT(*) FROM works s JOIN works e ON e.parent_id = s.id LEFT JOIN user_progress p
+				ON p.work_id = e.id AND p.user = ? WHERE s.parent_id = works.id AND COALESCE(p.watched, 0) = 0) AS unwatched,
+			overview, rating, library_id, poster_url, backdrop_url FROM works
+			WHERE library_id = ? AND kind IN ('movie', 'show') AND (added_at, id) < (?, ?)
 		ORDER BY added_at DESC, id DESC LIMIT ?]], "added_at" },
 }
 
 --- One page of a library.
--- @tparam table opts `sort` (`title`, `added`), `limit`, `after_key`, `after_id`
+-- @tparam table opts `sort` (`title`, `added`), `limit`, `after_key`, `after_id`, `user`
 -- @treturn table `{ items, next }`; `next` is nil on the last page
 function Catalog:browse(library_id, opts)
 	local spec = BROWSE[opts.sort or "title"] or BROWSE.title
@@ -162,7 +355,8 @@ function Catalog:browse(library_id, opts)
 	else
 		key, id = key or 2 ^ 53, id or 2 ^ 53
 	end
-	local rows = self:_rows(spec[1], library_id, key, id, limit + 1)
+	local user = opts.user or ""
+	local rows = self:_rows(spec[1], user, user, library_id, key, id, limit + 1)
 	local next_page
 	if #rows > limit then
 		rows[#rows] = nil
@@ -185,22 +379,65 @@ end
 function Catalog:item(id, user)
 	local work = self:_one("SELECT * FROM works WHERE id = ?", id)
 	if not work then return nil end
-	work.files = self:_rows([[SELECT id, rel_path, size, container, duration_ms, bitrate, missing_at, probe_error
-		FROM files WHERE work_id = ? ORDER BY id]], id)
+	work.files = self:_rows([[SELECT id, rel_path, size, container, duration_ms, bitrate, missing_at, probe_error,
+		remote IS NOT NULL AS is_remote FROM files WHERE work_id = ? ORDER BY id]], id)
 	for _, file in ipairs(work.files) do
 		file.streams = self:_rows([[SELECT idx, kind, codec, language, title, channels, width, height, hdr,
 			is_default, is_forced FROM streams WHERE file_id = ? ORDER BY idx]], file.id)
 	end
 	work.children = self:_rows([[SELECT id, kind, title, season, episode FROM works
 		WHERE parent_id = ? ORDER BY season, episode, id LIMIT 1000]], id)
+	work.people, work.genres = {}, {}
+	for _, tag in ipairs(self:_rows("SELECT kind, value FROM work_tags WHERE work_id = ? ORDER BY value LIMIT 64", id)) do
+		local list = tag.kind == "genre" and work.genres or work.people
+		list[#list + 1] = tag.value
+	end
 	work.progress = self:_one(
 		"SELECT position_ms, watched, updated_at FROM user_progress WHERE user = ? AND work_id = ?", user, id)
 	return work
 end
 
+--- A show's seasons with their episodes and this user's progress. Bounded by the show's size,
+-- which a person chose, so a show is one query rather than a page.
+-- @tparam number show_id
+-- @tparam string user
+-- @treturn table seasons, in order
+function Catalog:episodes(show_id, user)
+	local rows = self:_rows([[SELECT s.id AS season_id, s.title AS season_title, s.season, e.id, e.title, e.episode,
+		(SELECT MAX(duration_ms) FROM files WHERE work_id = e.id) AS duration_ms, p.position_ms, p.watched
+		FROM works s JOIN works e ON e.parent_id = s.id
+		LEFT JOIN user_progress p ON p.work_id = e.id AND p.user = ?
+		WHERE s.parent_id = ? ORDER BY s.season, e.episode, e.id LIMIT 10000]], user, show_id)
+	local seasons, by_id = {}, {}
+	for _, row in ipairs(rows) do
+		local season = by_id[row.season_id]
+		if not season then
+			season = { season = row.season, title = row.season_title, episodes = {} }
+			by_id[row.season_id] = season
+			seasons[#seasons + 1] = season
+		end
+		season.episodes[#season.episodes + 1] = { id = row.id, title = row.title, episode = row.episode,
+			duration_ms = row.duration_ms, position_ms = row.position_ms, watched = row.watched }
+	end
+	return seasons
+end
+
+--- Mark a work watched or not, and everything under it: a show carries its episodes.
+function Catalog:setWatched(user, work_id, watched, now)
+	return self.db:transaction(function()
+		for _, row in ipairs(self:_rows([[WITH RECURSIVE tree(id) AS (SELECT ? UNION ALL
+			SELECT w.id FROM works w JOIN tree ON w.parent_id = tree.id) SELECT id FROM tree]], work_id)) do
+			self:_rows([[INSERT INTO user_progress (user, work_id, position_ms, watched, updated_at) VALUES (?, ?, 0, ?, ?)
+				ON CONFLICT (user, work_id) DO UPDATE SET position_ms = 0, watched = excluded.watched,
+				updated_at = excluded.updated_at]], user, row.id, watched and 1 or 0, now)
+		end
+		return true
+	end)
+end
+
 --- The file behind a streaming request, with the root it must stay inside.
 function Catalog:fileTarget(file_id)
-	return self:_one([[SELECT f.id, f.rel_path, f.container, f.missing_at, f.size, l.root
+	return self:_one([[SELECT f.id, f.rel_path, f.container, f.missing_at, f.size, f.remote, l.root
 		FROM files f JOIN libraries l ON l.id = f.library_id WHERE f.id = ?]], file_id)
 end
 
@@ -215,7 +452,8 @@ end
 
 --- What this user was in the middle of, newest first.
 function Catalog:continueWatching(user, limit)
-	return self:_rows([[SELECT w.id, w.kind, w.title, w.year, p.position_ms, p.updated_at
+	return self:_rows([[SELECT w.id, w.kind, w.title, w.year, p.position_ms, p.updated_at,
+		(SELECT MAX(duration_ms) FROM files WHERE work_id = w.id) AS duration_ms
 		FROM user_progress p JOIN works w ON w.id = p.work_id
 		WHERE p.user = ? AND p.watched = 0 AND p.position_ms > 0
 		ORDER BY p.updated_at DESC LIMIT ?]], user, math.min(tonumber(limit) or 20, M.PAGE_MAX))
@@ -233,6 +471,7 @@ end
 --- A crash leaves running jobs behind; put them back on start.
 function Catalog:recoverJobs()
 	self:_rows("UPDATE jobs SET state = 'queued' WHERE state = 'running'")
+	self:_rows("UPDATE art_jobs SET state = 'queued' WHERE state = 'running'")
 end
 
 --- Store a finished analysis and clear its job.
@@ -246,6 +485,11 @@ function Catalog:saveProbe(job, info)
 			s.channels, s.width, s.height, s.hdr and 1 or 0, s.is_default and 1 or 0, s.is_forced and 1 or 0)
 	end
 	self:_rows("DELETE FROM jobs WHERE id = ?", job.id)
+	self:queueFrame(job.file_id)
+	if info.facts then
+		local work = self:_one("SELECT work_id FROM files WHERE id = ?", job.file_id)
+		if work then self:saveFacts(work.work_id, info.facts, false) end
+	end
 end
 
 --- Record a failed analysis. It retries with backoff, then stops and shows its reason.
@@ -258,6 +502,35 @@ function Catalog:failProbe(job, reason, now)
 		self:_rows("UPDATE jobs SET state = 'queued', attempts = ?, error = ?, next_run_at = ? WHERE id = ?",
 			attempts, reason, now + 30 * attempts * attempts, job.id)
 	end
+end
+
+--- Read the facts the repair workbench describes. Never expose source credentials.
+function Catalog:repairData()
+	return {
+		offline = self:_rows([[SELECT l.id, l.name, COUNT(*) AS count FROM files f
+			JOIN libraries l ON l.id = f.library_id WHERE f.missing_at IS NOT NULL
+			GROUP BY l.id, l.name ORDER BY l.id]]),
+		analysis = self:_rows([[SELECT f.id, w.title, j.error FROM jobs j JOIN files f ON f.id = j.file_id
+			JOIN works w ON w.id = f.work_id WHERE j.state = 'failed' ORDER BY f.id]]),
+		frames = self:_rows([[SELECT w.id, w.title, j.error FROM art_jobs j JOIN works w ON w.id = j.work_id
+			WHERE j.state = 'failed' ORDER BY w.id]]),
+		sources = self:_rows("SELECT id, name, error FROM sources WHERE status = 'failed' ORDER BY id"),
+	}
+end
+
+function Catalog:retryAnalysis(id)
+	if not self:_one([[SELECT j.id FROM jobs j JOIN files f ON f.id = j.file_id
+		WHERE f.id = ? AND f.missing_at IS NULL AND j.state = 'failed']], id) then return false end
+	self:_rows("UPDATE jobs SET state = 'queued', attempts = 0, next_run_at = 0, error = NULL WHERE file_id = ?", id)
+	self:_rows("UPDATE files SET probe_error = NULL WHERE id = ?", id)
+	return true
+end
+
+function Catalog:retryFrame(id)
+	if not self:_one([[SELECT j.work_id FROM art_jobs j JOIN files f ON f.id = j.file_id
+		WHERE j.work_id = ? AND j.state = 'failed' AND f.missing_at IS NULL]], id) then return false end
+	self:_rows("UPDATE art_jobs SET state = 'queued', error = NULL WHERE work_id = ?", id)
+	return true
 end
 
 --- Counts for the status page.

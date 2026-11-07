@@ -79,9 +79,56 @@ static void push_arg_table(lua_State *L, int argc, char **argv)
     lua_setglobal(L, "arg");
 }
 
+/* `Lunar --service <command>`: the background service, with no window and no IUP. It lives
+ * in the windowed program because starting LunarCLI at sign-in would open a console. */
+static int run_service(int argc, char **argv)
+{
+    lua_State *L = luaL_newstate();
+    if (!L) {
+        return 1;
+    }
+    luaL_openlibs(L);
+    host_set_exe_dir_global(L);
+    host_set_exe_path_globals(L);
+    preload(L, "lfs",          luaopen_lfs);
+    preload(L, "cjson",        luaopen_cjson);
+    preload(L, "socket.core",  luaopen_socket_core);
+    preload(L, "mime.core",    luaopen_mime_core);
+    host_preload_modules(L, preload);
+    preload(L, "file_stream",  luaopen_file_stream);
+    preload(L, "logscan",      luaopen_logscan);
+    preload(L, "compositor",   luaopen_compositor);
+    preload(L, "ssl.core",     luaopen_ssl_core);
+    preload(L, "ssl.context",  luaopen_ssl_context);
+    preload(L, "ssl.x509",     luaopen_ssl_x509);
+    preload(L, "ssl.config",   luaopen_ssl_config);
+    preload_lua_modules(L);
+
+    int code = 1;
+    lua_getglobal(L, "require");
+    lua_pushstring(L, "core.lib.Service");
+    if (lua_pcall(L, 1, 1, 0) == LUA_OK) {
+        lua_getfield(L, -1, "main");
+        lua_newtable(L);
+        for (int i = 2; i < argc; i++) {
+            lua_pushstring(L, argv[i]);
+            lua_rawseti(L, -2, i - 1);
+        }
+        if (lua_pcall(L, 1, 1, 0) == LUA_OK && lua_isnumber(L, -1)) {
+            code = (int)lua_tointeger(L, -1);
+        }
+    }
+    lua_close(L);
+    return code;
+}
+
 /* IUP's Windows libiup.a provides WinMain which calls main(); POSIX enters here directly. */
 int main(int argc, char **argv)
 {
+    if (argc > 1 && argv[1] && strcmp(argv[1], "--service") == 0) {
+        return run_service(argc, argv);
+    }
+
     /* Make bundled custom fonts available before any UI is created */
     host_pre_iup_open();
     host_register_bundled_fonts();

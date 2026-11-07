@@ -5,7 +5,7 @@
 
 local M = {}
 
-M.VERSION = 1
+M.VERSION = 4
 
 local V1 = {
 	[[CREATE TABLE libraries (
@@ -53,11 +53,84 @@ local V1 = {
 	"CREATE INDEX jobs_ready ON jobs (state, next_run_at, id)",
 }
 
+-- Art a person keeps beside their files is found by the scanner. A frame is taken from the
+-- file for anything without one, and is only ever one row of `art_jobs` at a time.
+local V2 = {
+	[[CREATE TABLE art (
+		work_id INTEGER NOT NULL REFERENCES works(id) ON DELETE CASCADE,
+		kind TEXT NOT NULL CHECK (kind IN ('poster', 'backdrop')),
+		origin TEXT NOT NULL CHECK (origin IN ('library', 'frame')), path TEXT NOT NULL,
+		PRIMARY KEY (work_id, kind)
+	) WITHOUT ROWID]],
+	[[CREATE TABLE art_jobs (
+		work_id INTEGER PRIMARY KEY REFERENCES works(id) ON DELETE CASCADE,
+		file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+		state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN ('queued', 'running', 'failed')),
+		error TEXT
+	)]],
+}
+
+-- What people keep beside their files, or in them. Collections are stored as written: a smart
+-- one is a rule set the clients evaluate, so the server never has to guess at a new field.
+local V3 = {
+	"ALTER TABLE works ADD COLUMN overview TEXT",
+	"ALTER TABLE works ADD COLUMN rating REAL",
+	"ALTER TABLE works ADD COLUMN content_rating TEXT",
+	"ALTER TABLE works ADD COLUMN studio TEXT",
+	[[CREATE TABLE work_tags (
+		work_id INTEGER NOT NULL REFERENCES works(id) ON DELETE CASCADE,
+		kind TEXT NOT NULL CHECK (kind IN ('genre', 'person')), value TEXT NOT NULL,
+		PRIMARY KEY (work_id, kind, value)
+	) WITHOUT ROWID]],
+	"CREATE INDEX work_tags_value ON work_tags (kind, value, work_id)",
+	[[CREATE TABLE collections (
+		id INTEGER PRIMARY KEY, name TEXT NOT NULL, icon TEXT, rules TEXT, created_at INTEGER NOT NULL
+	)]],
+	[[CREATE TABLE collection_items (
+		collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+		work_id INTEGER NOT NULL REFERENCES works(id) ON DELETE CASCADE,
+		position INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (collection_id, work_id)
+	) WITHOUT ROWID]],
+}
+
+-- A source's items are ordinary works in a library of their own, whose files have an address
+-- instead of a path. Provider definitions people add are stored as the data they are.
+local V4 = {
+	"ALTER TABLE libraries ADD COLUMN source_id INTEGER",
+	"ALTER TABLE files ADD COLUMN remote TEXT",
+	"ALTER TABLE works ADD COLUMN poster_url TEXT",
+	"ALTER TABLE works ADD COLUMN backdrop_url TEXT",
+	[[CREATE TABLE providers (id TEXT PRIMARY KEY, def TEXT NOT NULL, added_at INTEGER NOT NULL) WITHOUT ROWID]],
+	[[CREATE TABLE sources (
+		id INTEGER PRIMARY KEY, provider_id TEXT NOT NULL, name TEXT NOT NULL, config TEXT NOT NULL,
+		enabled INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'new', error TEXT,
+		items INTEGER NOT NULL DEFAULT 0, synced_at INTEGER, created_at INTEGER NOT NULL
+	)]],
+}
+
 --- Bring a database up to `VERSION`.
 function M.migrate(db)
 	return db:migrate(M.VERSION, function(d, previous)
 		if previous < 1 then
 			for _, statement in ipairs(V1) do
+				local done, why = d:exec(statement)
+				if not done then return nil, why end
+			end
+		end
+		if previous < 2 then
+			for _, statement in ipairs(V2) do
+				local done, why = d:exec(statement)
+				if not done then return nil, why end
+			end
+		end
+		if previous < 3 then
+			for _, statement in ipairs(V3) do
+				local done, why = d:exec(statement)
+				if not done then return nil, why end
+			end
+		end
+		if previous < 4 then
+			for _, statement in ipairs(V4) do
 				local done, why = d:exec(statement)
 				if not done then return nil, why end
 			end

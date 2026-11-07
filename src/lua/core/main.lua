@@ -58,6 +58,16 @@ end
 local platform = require("core.platform")
 local subprocess = platform.is_windows and require("subprocess") or nil
 
+-- A second launch brings the running window back and stops here, before it builds anything,
+-- so the Lunar shortcut is instant. A capture or test harness always runs on its own.
+local BackgroundWindow = require("core.ui.BackgroundWindow")
+local HARNESS = rawget(_G, "arg") ~= nil or os.getenv("LUNAR_CAPTURE_CLIENT") ~= nil
+local APP_INSTANCE
+if not HARNESS then
+	APP_INSTANCE = BackgroundWindow.claim()
+	if APP_INSTANCE == false then return end
+end
+
 -- Native widget metrics (GTK menu bar and entries) before any window is built:
 -- their sizes feed IUP's layout. A no-op on Windows.
 platform.apply_native_style()
@@ -461,6 +471,9 @@ AppearanceSettings.register({
 	org_name = ORG_PROFILE and not ORG_PROFILE.profiles and ORG_PROFILE.name,
 })
 
+-- Background settings: keep running when closed, and the service (core.ui.BackgroundWindow).
+local background_panel = BackgroundWindow.registerSettings({ iup = iup, settings = settings_mgr, host = host })
+
 -- Startup sizes for the main window: the primary monitor's usable area, until
 -- the window is shown and can ask which monitor it is on (core.ui.MonitorFit).
 local ok_iupffi, IupFFI = pcall(require, "core.classes.IupFFI")
@@ -477,10 +490,15 @@ local tool_rail = ToolRail.new({
 	icon = function(name, size, role) return Kit.icon(iup, name, size, role or "neutral") end,
 	is_settings = function(page) return require("core.lib.handle").same(iup, page, settings_view:widget()) end,
 })
+-- Bands an extension keeps on screen across every tab, such as a player.
+local dock_slot = iup.vbox({ MARGIN = "0x0", GAP = "0", EXPAND = "HORIZONTAL" })
+host._dock_slot = dock_slot
 local terminal = require("core.ui.Terminal").new({ iup = iup, host = host, settings = settings_mgr,
 	extensions = ext_mgr, themes = theme_mgr, version = APP_VERSION })
 local workspace_body = iup.vbox({ pane_grid:widget(), terminal:widget(), MARGIN = "0x0", GAP = "0", EXPAND = "YES" })
-local workspace = iup.hbox({ tool_rail:widget(), require("core.ui.WorkspaceFrame").wrap(iup, workspace_body),
+local workspace = iup.hbox({ tool_rail:widget(),
+	iup.vbox({ require("core.ui.WorkspaceFrame").wrap(iup, workspace_body), dock_slot,
+		MARGIN = "0x0", GAP = "0", EXPAND = "YES" }),
 	MARGIN = "0x0", GAP = "0", EXPAND = "YES" })
 status_bar:onFocus(function()
 	pane_grid:toggleFocus()
@@ -548,6 +566,7 @@ local function recalc_shell_budget(client_h)
 		title = TitleBar.HEIGHT,
 		corners = 24,
 		status = status,
+		dock = measured_height(dock_slot) or 0,
 	}
 	local cap = ShellBudget.cap(client_h, bands)
 	shell_budget.bands, shell_budget.cap = bands, cap
@@ -1193,6 +1212,11 @@ local function sync_title_bar()
 	status_bar:setPaneState(pane_grid:isSplit(), pane_grid:isFocused())
 end
 host._after_scopes = sync_title_bar
+	-- The band's height is only known after a layout pass, and the page's ceiling depends on it.
+	host._dock_changed = function()
+		iup.Refresh(dlg)
+		if recalc_shell_budget() then iup.Refresh(dlg) end
+	end
 -- The groups' width depends on their font, which the theme sets.
 theme_mgr:onApply(function()
 	title_bar:themeChanged()
@@ -1213,6 +1237,7 @@ do
 		sync()
 	end
 	host._after_scopes = sync_title_bar
+	if rawget(_G, "LUNAR_DEV_SHELL") then _G.LUNAR_DEV_SHELL.tab_changed = function() host:_tabChanged() end end
 	if rawget(_G, "LUNAR_DEV_SHELL") then _G.LUNAR_DEV_SHELL.sync_title_bar = sync_title_bar end
 	toggle_settings = function()
 		if not is_settings(iup.GetAttribute(tabs, "VALUE_HANDLE")) then
@@ -1285,6 +1310,21 @@ title_bar:adoptFrame(dlg, theme_mgr)
 sync_title_bar()
 WindowChrome.follow(iup, dlg, theme_mgr)
 iup.Show(dlg)
+
+-- Closing the window hides it from here on, and later launches find this one.
+local background
+if not HARNESS then
+	background = BackgroundWindow.install({ iup = iup, dialog = dlg, settings = settings_mgr, host = host,
+		instance = APP_INSTANCE or nil, icon = APP_ICON_RESOURCE, packaged = not DEV_BUILD,
+		panel = background_panel })
+	add_host_command("quit", "Quit Lunar", background.quit, { keywords = "exit close stop", group = "Application" })
+end
+if rawget(_G, "LUNAR_DEV_SHELL") then
+	_G.LUNAR_DEV_SHELL.pages = _G.LUNAR_DEV_SHELL.pages or {}
+	_G.LUNAR_DEV_SHELL.pages["Settings"] = { states = { "appearance", "background" }, show = function(name)
+		if name == "background" then settings_view:_goTo(background_panel.section) end
+	end }
+end
 
 -- Build the dialog's compositor NOW, while nothing is happening. The scrim, the tab
 -- transition and the drag feedback all share it (it is cached per dialog), and the

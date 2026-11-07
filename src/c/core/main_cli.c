@@ -169,6 +169,34 @@ static int run_headless(lua_State *L, int argc, char **argv)
     return lua_isnumber(L, -1) ? (int)lua_tointeger(L, -1) : 0;
 }
 
+/* `lunar-cli service <command>`: see core.lib.Service. */
+static int run_service(lua_State *L, int argc, char **argv)
+{
+    set_exe_paths(L);
+    preload_lua_modules(L);
+    install_stop_handlers();
+    lua_pushcfunction(L, l_stop_requested);
+    lua_setglobal(L, "LUNAR_STOP_REQUESTED");
+
+    lua_getglobal(L, "require");
+    lua_pushstring(L, "core.lib.Service");
+    if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+        fprintf(stderr, "[LUA ERROR] %s\n", lua_tostring(L, -1));
+        return 1;
+    }
+    lua_getfield(L, -1, "main");
+    lua_newtable(L);
+    for (int i = 2; i < argc; i++) {
+        lua_pushstring(L, argv[i]);
+        lua_rawseti(L, -2, i - 1);
+    }
+    if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+        fprintf(stderr, "[LUA ERROR] %s\n", lua_tostring(L, -1));
+        return 1;
+    }
+    return lua_isnumber(L, -1) ? (int)lua_tointeger(L, -1) : 0;
+}
+
 static int run_script(lua_State *L, int argc, char **argv)
 {
     const char *script = argv[1];
@@ -234,9 +262,14 @@ int main(int argc, char **argv)
     preload(L, "ssl.x509",     luaopen_ssl_x509);
     preload(L, "ssl.config",   luaopen_ssl_config);
 
-    int status = strcmp(argv[1], "--headless") == 0
-        ? run_headless(L, argc, argv)
-        : run_script(L, argc, argv);
+    int status;
+    if (strcmp(argv[1], "--headless") == 0) {
+        status = run_headless(L, argc, argv);
+    } else if (strcmp(argv[1], "service") == 0) {
+        status = run_service(L, argc, argv);
+    } else {
+        status = run_script(L, argc, argv);
+    }
 
     lua_close(L);
     return status;
