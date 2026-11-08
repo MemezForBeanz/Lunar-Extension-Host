@@ -33,11 +33,14 @@ end
 function M._dispatchKey(self, c)
     local iup  = self.iup
     local list = self._shortcuts[c]
-    if not list then list = {} end
+    -- A handler can unregister itself (fullscreen Escape does). Dispatch a
+    -- snapshot so removing it does not skip or invalidate the next handler.
+    local pending = {}
+    for i, entry in ipairs(list or {}) do pending[i] = entry end
     local active_owner = self:_activeOwner()
     local consumed = false
-    for i = 1, #list do
-        local e = list[i]
+    for i = 1, #pending do
+        local e = pending[i]
         local rec = self._owners[e.owner]
         local owner_has_tabs = rec and #rec.tabs > 0
         local in_scope = (not owner_has_tabs) or (e.owner == active_owner)
@@ -61,6 +64,26 @@ function M.registerShortcut(self, key, fn, owner)
     list[#list + 1] = entry
     table.insert(self:_record(owner).shortcuts, entry)
     return entry
+end
+
+function M.unregisterShortcut(self, entry)
+    if not entry then return false end
+    local list = self._shortcuts[entry.key]
+    if not list then return false end
+    for i = #list, 1, -1 do
+        if list[i] == entry then
+            table.remove(list, i)
+            local record = self._owners[entry.owner]
+            if record then
+                for j = #record.shortcuts, 1, -1 do
+                    if record.shortcuts[j] == entry then table.remove(record.shortcuts, j) end
+                end
+            end
+            if #list == 0 then self._shortcuts[entry.key] = nil end
+            return true
+        end
+    end
+    return false
 end
 
 return M

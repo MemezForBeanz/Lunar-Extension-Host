@@ -52,7 +52,12 @@ function M.new(iup, opts)
 	opts = opts or {}
 	local raw = opts.raw or require("iupraw")
 	local widget = raw.flatseek()
-	local set = function(name, value) iup.SetAttribute(widget, name, tostring(value)) end
+	local set = function(name, value)
+		local text = tostring(value)
+		local current = iup.GetAttribute(widget, name)
+		if current == text or (type(value) == "number" and tonumber(current) == value) then return end
+		iup.SetAttribute(widget, name, text)
+	end
 	set("THEMEROLE", opts.role or "flatseek")
 	set("MAX", opts.max or 0)
 	set("VALUE", opts.value or 0)

@@ -136,6 +136,15 @@ function M.mount(svc)
 		if not saved then return bad(400, why) end
 		return { status = 201, json = saved }
 	end)
+	route("POST", "/v1/discover/:id/download", function(req)
+		local body = json_body(req)
+		if not body or type(body.key) ~= "string" or not id_of(body.library_id) then
+			return bad(400, "a discovery entry and destination library are required")
+		end
+		local saved, why = svc.sources:downloadDiscovery(req.params.id, body.key, body.library_id)
+		if not saved then return bad(400, why) end
+		return { status = 202, json = saved }
+	end)
 
 	route("POST", "/v1/providers", function(req)
 		local clean, why = svc.sources:addProvider(json_body(req))
@@ -145,6 +154,18 @@ function M.mount(svc)
 
 	route("GET", "/v1/sources", function()
 		return { status = 200, json = { sources = svc.sources:list() } }
+	end)
+	route("GET", "/v1/downloads", function()
+		return { status = 200, json = { downloads = svc.sources:downloadsList() } }
+	end)
+	route("POST", "/v1/downloads/:id/cancel", function(req)
+		if not svc.sources:cancelDownload(id_of(req.params.id) or 0) then return bad(409, "that download is no longer running") end
+		return { status = 202, json = { cancelled = true } }
+	end)
+	route("POST", "/v1/downloads/:id/retry", function(req)
+		local row, why = svc.sources:retryDownload(id_of(req.params.id) or 0)
+		if not row then return bad(409, why) end
+		return { status = 202, json = row }
 	end)
 
 	route("POST", "/v1/sources", function(req)

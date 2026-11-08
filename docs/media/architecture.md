@@ -73,6 +73,19 @@ progress and refreshes facts while preserving the current library/title view.
 
 A library can live elsewhere. See [Sources](sources.md).
 
+Website sources follow a stable source-owned contract: the provider id identifies the source,
+the canonical page URL identifies the site-owned record, and each result keeps its own artwork,
+description, attribution and ordered playable stream alternatives. An embed page remains distinct
+from a resolved stream, so a source can expose episodes and page provenance without pretending
+that an iframe is a playable file. This is adapted conceptually (no Mihon code copied) from
+Mihon's source API at commit `0c55527206d5b253c58a2428cfebeed10b249571`: `Source.kt` (stable
+source identity and update/page boundaries), `HttpSource.kt` (base/home URL, versioned identity,
+request headers and URL normalization), `ParsedHttpSource.kt` (separate catalogue, detail,
+chapter and page parsing), and `source/model/{SManga,SChapter,Page}.kt` (source-owned metadata,
+episode records and ordered playable alternatives). See
+https://github.com/mihonapp/mihon/tree/0c55527206d5b253c58a2428cfebeed10b249571/source-api.
+Lunar's download-to-owned-library lifecycle is separate from this parser contract.
+
 ## The desktop
 
 `media` connects to an address and token set in Settings under Lunar Media, or else to this

@@ -23,7 +23,7 @@ local SIMILAR = 12
 local FACT_LABEL = 96
 local FORECAST_DEVICE = 168
 local FORECAST_HEADLINE = 216
-local FACTS = { "Genres", "Cast", "Video", "Audio", "Rating", "Studio", "Content rating", "Original title", "Metadata" }
+local FACTS = { "Genres", "Cast", "Video", "Audio", "Rating", "Studio", "Content rating", "Original title", "Metadata", "Source" }
 
 local function runtime(minutes)
 	if not minutes or minutes < 1 then return "" end
@@ -274,7 +274,8 @@ function M.new(ctx, opts)
 		for _, name in ipairs(item.people or {}) do people[#people + 1] = name .. (roles[name] and (" (" .. roles[name] .. ")") or "") end
 		return { joined(item.genres), joined(people), item.codec or "", item.audio or "",
 			item.rating and string.format("%.1f", item.rating) or "", item.studio or "", item.content_rating or "",
-			facts.original_title ~= item.title and facts.original_title or "", facts.provider and facts.provider:upper() or "" }
+			facts.original_title ~= item.title and facts.original_title or "", facts.provider and facts.provider:upper() or "",
+			item.attribution or item.source_url or "" }
 	end
 
 	--- Take the width the page really has.

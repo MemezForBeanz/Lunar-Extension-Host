@@ -101,6 +101,7 @@ function M:_tick_scans()
 	if self.scan_run:step(SCAN_BUDGET_MS) then
 		self.log:info(string.format("scan finished: %s, %d files, %d to analyse",
 			self.scan_run.library.name, self.scan_run.seen, self.scan_run.added))
+		self.catalog:applyDownloadOrigins(self.scan_run.library.id)
 		self.scan_run = nil
 	end
 end
@@ -155,7 +156,9 @@ function M:register(ctx)
 		get_secret = function(name) return ctx:getSecret(extension, name) end,
 		set_secret = function(name, value) return ctx:setSecret(extension, name, value) end,
 		delete_secret = function(name) return ctx:deleteSecret(extension, name) end,
+		on_scan = function(library) extension:_queue_scan(library) end,
 	})
+	self.sources:resumeDownloads()
 	api.mount({
 		catalog = self.catalog,
 		frames_enabled = function() return extension.ffmpeg ~= nil and extension.art_dir ~= nil end,

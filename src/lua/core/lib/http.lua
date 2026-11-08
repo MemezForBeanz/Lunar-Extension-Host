@@ -98,6 +98,8 @@ function M.prepare(req)
 	if req.cafile ~= nil and type(req.cafile) ~= "string" then return nil, "cafile must be a path" end
 	out.cafile = req.cafile
 	out.max_bytes = tonumber(req.max_bytes) or M.DEFAULT_MAX_BYTES
+	if req.sink ~= nil and type(req.sink) ~= "function" then return nil, "sink must be a function" end
+	out.sink = req.sink
 	out.same_origin = req.same_origin == true
 	return out
 end
@@ -127,13 +129,18 @@ function M.redirect_target(from, location, same_origin)
 end
 
 -- An ltn12 sink that keeps the body and stops past `limit` bytes.
-local function limited_sink(chunks, limit)
+local function limited_sink(chunks, limit, downstream)
 	local size = 0
 	return function(chunk, err)
 		if chunk then
 			size = size + #chunk
 			if size > limit then return nil, "response is larger than " .. limit .. " bytes" end
-			chunks[#chunks + 1] = chunk
+			if downstream then
+				local ok, why = downstream(chunk)
+				if ok == nil or ok == false then return nil, why or "response sink failed" end
+			elseif chunks then
+				chunks[#chunks + 1] = chunk
+			end
 		end
 		return 1, err
 	end
@@ -227,9 +234,13 @@ local function exchange(p, url)
 	local chunks = {}
 	local reqt = {
 		url = url, method = p.method, headers = p.headers, redirect = false,
-		sink = limited_sink(chunks, p.max_bytes),
 		source = p.body and ltn12.source.string(p.body) or nil,
 	}
+	reqt.sink_factory = function(code)
+		local redirect = code == 301 or code == 302 or code == 303 or code == 307 or code == 308
+		if redirect then return limited_sink(nil, p.max_bytes) end
+		return limited_sink(chunks, p.max_bytes, p.sink)
+	end
 
 	local async = require("core.lib.async")
 	local ok, code, headers

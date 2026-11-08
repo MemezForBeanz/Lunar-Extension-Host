@@ -24,6 +24,16 @@ local function row_of(raw)
 	return out
 end
 
+-- Catalog responses describe provenance, never the private request credentials.
+local function public_remote(encoded)
+	if not encoded then return nil end
+	local ok, remote = pcall(require("cjson").decode, encoded)
+	if not ok or type(remote) ~= "table" then return nil end
+	return { source_id = remote.source_id, source_url = remote.source_url,
+		attribution = remote.attribution, stream_urls = remote.stream_urls or remote.alternatives,
+		site_metadata = remote.site_metadata }
+end
+
 --- Wrap an open, migrated database.
 function M.new(db, clock)
 	return setmetatable({ db = db, clock = clock or os.time, stmts = {} }, Catalog)
@@ -96,13 +106,38 @@ function Catalog:_work(library_id, parent_id, kind, identity, title, year, seaso
 	return self:_one("SELECT id FROM works WHERE library_id = ? AND identity = ?", library_id, identity).id
 end
 
+-- Missing years can join one unambiguous dated series; explicit conflicting
+-- years remain separate so remakes do not collapse into each other.
+function Catalog:_showWork(library_id, parsed)
+	local prefix = 's:' .. naming.sortKey(parsed.show) .. ':'
+	local wanted = prefix .. tostring(parsed.show_year or '')
+	local rows = self:_rows([[SELECT id, identity, year FROM works WHERE library_id = ? AND kind = 'show'
+		AND substr(identity, 1, ?) = ? ORDER BY id]], library_id, #prefix, prefix)
+	local unknown, dated, exact
+	local count = 0
+	for _, row in ipairs(rows) do
+		if row.identity == wanted then exact = row end
+		if row.identity == prefix then unknown = row
+		else count = count + 1; dated = row end
+	end
+	local chosen = exact
+	if not parsed.show_year and count == 1 and (not unknown or not unknown.year or unknown.year == dated.year) then
+		chosen = dated
+	elseif parsed.show_year and not exact and unknown and count == 0
+		and (not unknown.year or unknown.year == parsed.show_year) then chosen = unknown end
+	if chosen then
+		if parsed.show_year then self:_rows('UPDATE works SET year = COALESCE(year, ?) WHERE id = ?', parsed.show_year, chosen.id) end
+		return chosen.id, chosen.identity
+	end
+	return self:_work(library_id, nil, 'show', wanted, parsed.show, parsed.show_year), wanted
+end
+
 function Catalog:_work_for(library_id, parsed)
 	if parsed.kind == "movie" then
 		local identity = "m:" .. naming.sortKey(parsed.title) .. ":" .. tostring(parsed.year or "")
 		return self:_work(library_id, nil, "movie", identity, parsed.title, parsed.year)
 	end
-	local show_key = "s:" .. naming.sortKey(parsed.show) .. ":" .. tostring(parsed.show_year or "")
-	local show = self:_work(library_id, nil, "show", show_key, parsed.show, parsed.show_year)
+	local show, show_key = self:_showWork(library_id, parsed)
 	local season_key = show_key .. ":" .. parsed.season
 	local season_title = parsed.season == 0 and "Specials" or ("Season " .. parsed.season)
 	local season = self:_work(library_id, show, "season", season_key, season_title, nil, parsed.season)
@@ -111,21 +146,86 @@ function Catalog:_work_for(library_id, parsed)
 		parsed.season, parsed.episode)
 end
 
+-- Reclassification retains user state even when an old, fragmented hierarchy is
+-- replaced. Provider facts transfer only between equally named series; a bad
+-- match on a release-folder name must not poison the newly identified show.
+function Catalog:_carryWorkData(from, to, facts)
+	if from == to then return end
+	self:_rows([[INSERT INTO user_progress (user, work_id, position_ms, watched, updated_at)
+		SELECT user, ?, position_ms, watched, updated_at FROM user_progress WHERE work_id = ?
+		ON CONFLICT (user, work_id) DO UPDATE SET position_ms = excluded.position_ms,
+		watched = excluded.watched, updated_at = excluded.updated_at
+		WHERE excluded.updated_at > user_progress.updated_at]], to, from)
+	self:_rows([[INSERT OR IGNORE INTO collection_items (collection_id, work_id, position)
+		SELECT collection_id, ?, position FROM collection_items WHERE work_id = ?]], to, from)
+	self:_rows([[INSERT INTO art (work_id, kind, origin, path)
+		SELECT ?, kind, origin, path FROM art WHERE work_id = ?
+		ON CONFLICT (work_id, kind) DO UPDATE SET origin = excluded.origin, path = excluded.path
+		WHERE art.origin = 'frame' AND excluded.origin = 'library']], to, from)
+	self:_rows([[UPDATE works SET added_at = MIN(added_at, (SELECT added_at FROM works WHERE id = ?))
+		WHERE id = ?]], from, to)
+	if not facts then return end
+	for _, field in ipairs({'year', 'overview', 'rating', 'content_rating', 'studio', 'poster_url', 'backdrop_url'}) do
+		self:_rows('UPDATE works SET ' .. field .. ' = COALESCE(' .. field .. ', (SELECT ' .. field .. ' FROM works WHERE id = ?)) WHERE id = ?', from, to)
+	end
+	self:_rows([[INSERT OR IGNORE INTO work_tags (work_id, kind, value)
+		SELECT ?, kind, value FROM work_tags WHERE work_id = ?]], to, from)
+	self:_rows([[INSERT OR IGNORE INTO metadata_local_fields (work_id, field)
+		SELECT ?, field FROM metadata_local_fields WHERE work_id = ?]], to, from)
+	self:_rows([[INSERT OR IGNORE INTO work_metadata (work_id, provider, external_id, source_url, fetched_at, facts)
+		SELECT ?, provider, external_id, source_url, fetched_at, facts FROM work_metadata WHERE work_id = ?]], to, from)
+	self:_rows([[INSERT OR IGNORE INTO metadata_jobs (work_id, state, attempts, next_run_at, error, updated_at)
+		SELECT ?, CASE state WHEN 'running' THEN 'queued' ELSE state END, attempts, next_run_at, error, updated_at
+		FROM metadata_jobs WHERE work_id = ?]], to, from)
+end
+
+function Catalog:_regroupEpisode(file, parsed)
+	local old = self:_one('SELECT * FROM works WHERE id = ?', file.work_id)
+	if not old or old.kind ~= 'episode' then return end
+	local target = self:_work_for(file.library_id, parsed)
+	if old.id == target then return end
+	self:_carryWorkData(old.id, target, true)
+	self:_rows('UPDATE files SET work_id = ? WHERE id = ?', target, file.id)
+	local previous, next_work = old, self:_one('SELECT * FROM works WHERE id = ?', target)
+	while previous do
+		local parent = previous.parent_id and self:_one('SELECT * FROM works WHERE id = ?', previous.parent_id)
+		local next_parent = next_work.parent_id and self:_one('SELECT * FROM works WHERE id = ?', next_work.parent_id)
+		if parent and next_parent then
+			local same = parent.kind ~= 'show' or (naming.sortKey(parent.title) == naming.sortKey(next_parent.title)
+				and (not parent.year or not next_parent.year or parent.year == next_parent.year))
+			self:_carryWorkData(parent.id, next_parent.id, same)
+		end
+		self:_rows([[DELETE FROM works WHERE id = ? AND NOT EXISTS (SELECT 1 FROM files WHERE work_id = ?)
+			AND NOT EXISTS (SELECT 1 FROM works WHERE parent_id = ?)]], previous.id, previous.id, previous.id)
+		previous, next_work = parent, next_parent
+	end
+	self:queueFrame(file.id)
+end
+
 --- Record one file seen by a scan.
 -- @treturn number|nil the file id when it needs analysis
 function Catalog:noteFile(library_id, rel_path, size, mtime, scan, parsed)
 	local existing = self:_one(
-		"SELECT id, size, mtime, probed_stamp FROM files WHERE library_id = ? AND rel_path = ?", library_id, rel_path)
+		"SELECT id, library_id, work_id, size, mtime, probed_stamp FROM files WHERE library_id = ? AND rel_path = ?", library_id, rel_path)
 	if existing then
+		if parsed.kind == 'episode' then self:_regroupEpisode(existing, parsed) end
 		self:_rows("UPDATE files SET seen_scan = ?, missing_at = NULL, size = ?, mtime = ? WHERE id = ?",
 			scan, size, mtime, existing.id)
 		local stamp = size .. ":" .. mtime
 		return existing.probed_stamp ~= stamp and existing.id or nil
 	end
+
 	local work = self:_work_for(library_id, parsed)
 	self:_rows([[INSERT INTO files (library_id, work_id, rel_path, size, mtime, seen_scan)
 		VALUES (?, ?, ?, ?, ?, ?)]], library_id, work, rel_path, size, mtime, scan)
 	return self:_one("SELECT id FROM files WHERE library_id = ? AND rel_path = ?", library_id, rel_path).id
+end
+
+function Catalog:setFileOrigin(library_id, rel_path, source_id, source_url)
+	local url = type(source_url) == "table" and source_url.url or source_url
+	local provider_id = type(source_url) == "table" and source_url.provider_id or nil
+	self:_rows("UPDATE files SET origin_source_id = ?, origin_url = ?, origin_provider_id = ?, remote = NULL WHERE library_id = ? AND rel_path = ?",
+		source_id, url, provider_id, library_id, rel_path)
 end
 
 --- The work a file belongs to, and the top of its tree: art hangs off the film or the show.
@@ -180,8 +280,11 @@ end
 
 --- A frame arrived.
 function Catalog:finishFrame(work_id, path)
+	-- A rescan may have retired this grouping while FFmpeg was still running.
+	if not self:_one('SELECT id FROM works WHERE id = ?', work_id) then return false end
 	self:saveArt(work_id, "backdrop", "frame", path)
 	self:_rows("DELETE FROM art_jobs WHERE work_id = ?", work_id)
+	return true
 end
 
 --- A frame could not be taken. The work keeps its title tile, and the reason stays.
@@ -405,6 +508,74 @@ function Catalog:sourceOfFile(file_id)
 		JOIN sources s ON s.id = l.source_id WHERE f.id = ?]], file_id)
 end
 
+function Catalog:downloads()
+	return self:_rows("SELECT * FROM downloads ORDER BY created_at DESC, id DESC")
+end
+
+function Catalog:downloadCount(states)
+	local marks, values = {}, {}
+	for _, state in ipairs(states or {}) do marks[#marks + 1] = "?"; values[#values + 1] = state end
+	if #marks == 0 then return 0 end
+	local row = self:_one("SELECT COUNT(*) AS count FROM downloads WHERE state IN (" .. table.concat(marks, ",") .. ")", unpack(values))
+	return row.count
+end
+
+function Catalog:downloadPathInUse(library_id, rel_path, except_id)
+	local row = self:_one([[SELECT id FROM downloads
+		WHERE library_id = ? AND rel_path = ? AND id <> ? AND state IN ('queued','running','complete')]],
+		library_id, rel_path, except_id or 0)
+	return row ~= nil
+end
+
+function Catalog:download(id)
+	return self:_one("SELECT * FROM downloads WHERE id = ?", id)
+end
+
+function Catalog:addDownload(row)
+	self:_rows([[INSERT INTO downloads
+		(library_id, source_id, provider_id, source_url, transfer_url, rel_path, temp_path, title, request_headers, created_at, updated_at, resolve_url)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]], row.library_id, row.source_id, row.provider_id, row.source_url,
+		row.transfer_url, row.rel_path, row.temp_path, row.title, row.request_headers, row.now, row.now, row.resolve_url)
+	return self:_one("SELECT * FROM downloads WHERE id = (SELECT MAX(id) FROM downloads)")
+end
+
+function Catalog:updateDownload(id, fields)
+	local sets, values = {}, {}
+	for _, key in ipairs({ "state", "bytes", "total_bytes", "error", "updated_at", "rel_path", "temp_path", "transfer_url" }) do
+		if fields[key] ~= nil or (key == "error" and fields.clear_error) then
+			sets[#sets + 1] = key .. " = ?"
+			values[#values + 1] = fields[key] == nil and sqlite.NULL or fields[key]
+		end
+	end
+	if #sets == 0 then return end
+	values[#values + 1] = id
+	self:_rows("UPDATE downloads SET " .. table.concat(sets, ", ") .. " WHERE id = ?", unpack(values))
+end
+
+function Catalog:publicDownload(row)
+	if not row then return nil end
+	local out = {}
+	for _, key in ipairs({ "id", "library_id", "source_id", "provider_id", "rel_path", "title",
+		"state", "bytes", "total_bytes", "error", "created_at", "updated_at" }) do
+		out[key] = row[key]
+	end
+	return out
+end
+
+function Catalog:publicDownloads()
+	local out = {}
+	for _, row in ipairs(self:downloads()) do out[#out + 1] = self:publicDownload(row) end
+	return out
+end
+
+function Catalog:applyDownloadOrigins(library_id)
+	for _, row in ipairs(self:_rows([[SELECT rel_path, source_id, source_url, provider_id
+		FROM downloads WHERE library_id = ? AND state = 'complete']], library_id)) do
+		self:setFileOrigin(library_id, row.rel_path, row.source_id,
+			{ url = row.source_url, provider_id = row.provider_id })
+	end
+end
+
 --- Record one item from a source.
 -- @tparam number library_id
 -- @tparam table entry `key`, `title`, `year`, `url`, `resolve`, `auth`, `overview`, `duration_ms`,
@@ -416,7 +587,11 @@ function Catalog:saveRemote(library_id, entry, scan)
 		parsed = { kind = "episode", show = entry.show, show_year = entry.show_year, season = tonumber(entry.season) or 1, episode = tonumber(entry.episode) }
 	end
 	self:noteFile(library_id, entry.key, 0, 0, scan, parsed)
-	local remote = require("cjson").encode({ url = entry.url, key = entry.key, resolve = entry.resolve, auth = entry.auth })
+	local remote = require("cjson").encode({ url = entry.url, key = entry.key, resolve = entry.resolve, auth = entry.auth,
+		headers = entry.headers, alternatives = entry.alternatives or entry.stream_urls, stream_urls = entry.stream_urls,
+		source_id = entry.source_id, source_url = entry.source_url or entry.page_url, attribution = entry.attribution,
+		provider_id = entry.provider_id, site_metadata = {
+			overview = entry.overview, poster_url = entry.poster_url, backdrop_url = entry.backdrop_url } })
 	self:_rows("UPDATE files SET remote = ?, duration_ms = COALESCE(?, duration_ms) WHERE library_id = ? AND rel_path = ?",
 		remote, entry.duration_ms, library_id, entry.key)
 	self:_rows([[UPDATE works SET overview = COALESCE(?, overview), poster_url = ?, backdrop_url = ?
@@ -456,7 +631,11 @@ local BROWSE = {
 		(SELECT COUNT(*) FROM works s JOIN works e ON e.parent_id = s.id WHERE s.parent_id = works.id) AS episodes,
 		(SELECT COUNT(*) FROM works s JOIN works e ON e.parent_id = s.id LEFT JOIN user_progress p
 			ON p.work_id = e.id AND p.user = ? WHERE s.parent_id = works.id AND COALESCE(p.watched, 0) = 0) AS unwatched,
-			overview, rating, library_id, poster_url, backdrop_url FROM works
+			overview, rating, library_id, poster_url, backdrop_url,
+			(SELECT remote FROM files WHERE work_id = works.id AND remote IS NOT NULL
+             UNION ALL SELECT f.remote FROM works s JOIN works e ON e.parent_id = s.id
+             JOIN files f ON f.work_id = e.id WHERE s.parent_id = works.id AND f.remote IS NOT NULL
+             LIMIT 1) AS remote FROM works
 		WHERE library_id = ? AND kind IN ('movie', 'show') AND (sort_key, id) > (?, ?)
 		ORDER BY sort_key, id LIMIT ?]], "sort_key" },
 	added = { [[SELECT id, kind, title, year, sort_key, added_at,
@@ -471,7 +650,11 @@ local BROWSE = {
 			(SELECT COUNT(*) FROM works s JOIN works e ON e.parent_id = s.id WHERE s.parent_id = works.id) AS episodes,
 			(SELECT COUNT(*) FROM works s JOIN works e ON e.parent_id = s.id LEFT JOIN user_progress p
 				ON p.work_id = e.id AND p.user = ? WHERE s.parent_id = works.id AND COALESCE(p.watched, 0) = 0) AS unwatched,
-			overview, rating, library_id, poster_url, backdrop_url FROM works
+			overview, rating, library_id, poster_url, backdrop_url,
+			(SELECT remote FROM files WHERE work_id = works.id AND remote IS NOT NULL
+             UNION ALL SELECT f.remote FROM works s JOIN works e ON e.parent_id = s.id
+             JOIN files f ON f.work_id = e.id WHERE s.parent_id = works.id AND f.remote IS NOT NULL
+             LIMIT 1) AS remote FROM works
 			WHERE library_id = ? AND kind IN ('movie', 'show') AND (added_at, id) < (?, ?)
 		ORDER BY added_at DESC, id DESC LIMIT ?]], "added_at" },
 }
@@ -491,6 +674,7 @@ function Catalog:browse(library_id, opts)
 	local user = opts.user or ""
 	local rows = self:_rows(spec[1], user, user, library_id, key, id, limit + 1)
 	local next_page
+	for _, row in ipairs(rows) do row.remote = public_remote(row.remote) end
 	if #rows > limit then
 		rows[#rows] = nil
 		local last = rows[#rows]
@@ -512,9 +696,24 @@ end
 function Catalog:item(id, user)
 	local work = self:_one("SELECT * FROM works WHERE id = ?", id)
 	if not work then return nil end
+	local origin = self:_one([[SELECT remote FROM files WHERE work_id = ? AND remote IS NOT NULL
+		UNION ALL SELECT f.remote FROM works s JOIN works e ON e.parent_id = s.id
+		JOIN files f ON f.work_id = e.id WHERE s.parent_id = ? AND f.remote IS NOT NULL LIMIT 1]], id, id)
+	work.remote = origin and public_remote(origin.remote) or nil
 	work.files = self:_rows([[SELECT id, rel_path, size, container, duration_ms, bitrate, missing_at, probe_error,
-		remote IS NOT NULL AS is_remote FROM files WHERE work_id = ? ORDER BY id]], id)
+		remote, remote IS NOT NULL AS is_remote, origin_source_id, origin_url, origin_provider_id
+		FROM files WHERE work_id = ? ORDER BY id]], id)
 	for _, file in ipairs(work.files) do
+		if file.remote then
+			local remote = public_remote(file.remote)
+			if remote then
+				file.remote = remote
+				file.source_id, file.source_url = remote.source_id, remote.source_url
+				file.attribution, file.stream_urls = remote.attribution, remote.stream_urls or remote.alternatives
+			else
+				file.remote = nil
+			end
+		end
 		file.streams = self:_rows([[SELECT idx, kind, codec, language, title, channels, width, height, hdr,
 			is_default, is_forced FROM streams WHERE file_id = ? ORDER BY idx]], file.id)
 	end
@@ -613,6 +812,7 @@ end
 function Catalog:recoverJobs()
 	self:_rows("UPDATE jobs SET state = 'queued' WHERE state = 'running'")
 	self:_rows("UPDATE art_jobs SET state = 'queued' WHERE state = 'running'")
+	self:_rows("UPDATE downloads SET state = 'queued', error = NULL, updated_at = ? WHERE state = 'running'", self.clock())
 end
 
 --- Store a finished analysis and clear its job.

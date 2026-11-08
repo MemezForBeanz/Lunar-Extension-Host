@@ -61,7 +61,24 @@ function M.applyDetail(item, detail)
 	item.file_id = file and file.id or nil
 	item.offline = file ~= nil and file.missing_at ~= nil
 	local position = detail.progress and detail.progress.position_ms or 0
+	if type(detail.remote) == "table" then
+		item.source_id, item.source_url = detail.remote.source_id, detail.remote.source_url
+		item.attribution, item.stream_urls = detail.remote.attribution, detail.remote.stream_urls
+		item.site_metadata = detail.remote.site_metadata
+	end
 	if file then
+		local remote = file.remote
+		if type(remote) == "string" then
+			local ok, decoded = pcall(cjson.decode, remote)
+			remote = ok and decoded or nil
+		end
+		if type(remote) == "table" then
+			item.source_id = remote.source_id
+			item.source_url = remote.source_url
+			item.attribution = remote.attribution
+			item.site_metadata = remote.site_metadata
+			item.stream_urls = remote.stream_urls or remote.alternatives
+		end
 		local video, audio = stream_of(file, "video"), stream_of(file, "audio")
 		item.resolution = video and resolution_of(video.height) or nil
 		item.codec = video and M.codecName(video.codec) or nil
@@ -125,6 +142,16 @@ function M.modelFrom(libraries, status, continuing, collections, source_rows, at
 				art = artcache.kinds(raw.art), overview = text_or_nil(raw.overview), genres = list_of(raw.genres),
 				codec = M.codecName(text_or_nil(raw.vcodec)), resolution = resolution_of(number_or_nil(raw.height)),
 				dynamic = raw.hdr == 1 and "HDR" or (type(raw.height) == "number" and "SDR" or nil) }
+			local remote = raw.remote
+			if type(remote) == "string" then
+				local ok, decoded = pcall(cjson.decode, remote)
+				remote = ok and decoded or nil
+			end
+			if type(remote) == "table" then
+				item.source_id, item.source_url = remote.source_id, remote.source_url
+				item.attribution, item.stream_urls = remote.attribution, remote.stream_urls or remote.alternatives
+				item.site_metadata = remote.site_metadata
+			end
 			if raw.watched == 1 then item.progress = 1 end
 			if type(raw.duration_ms) == "number" then item.minutes = math.floor(raw.duration_ms / 60000) end
 			by_id[item.id] = item
@@ -361,6 +388,21 @@ function Client:discovery(id, done) self:_request("GET", "/v1/discover/" .. tost
 function Client:importDiscovery(id, key, done)
 	self:_request("POST", "/v1/discover/" .. tostring(id) .. "/import", { key = key }, done)
 end
+function Client:downloadDiscovery(id, key, library_id, done)
+	self:_request("POST", "/v1/discover/" .. tostring(id) .. "/download",
+		{ key = key, library_id = library_id }, done)
+end
+function Client:downloads(done)
+	self:_request("GET", "/v1/downloads", nil, function(answer, why)
+		done(answer and answer.downloads or {}, why)
+	end)
+end
+function Client:cancelDownload(id, done)
+	self:_request("POST", "/v1/downloads/" .. tostring(id) .. "/cancel", {}, done)
+end
+function Client:retryDownload(id, done)
+	self:_request("POST", "/v1/downloads/" .. tostring(id) .. "/retry", {}, done)
+end
 
 --- Add a source.
 function Client:addSource(body, done)
@@ -416,8 +458,9 @@ function Client:mark(id, watched)
 end
 
 --- Fetch a picture from a source's own address.
-function Client:artFrom(url, done)
-	self.http({ url = url, method = "GET", timeout = 30, max_bytes = 8 * 1024 * 1024 }, function(response)
+function Client:artFrom(url, done, referer)
+	self.http({ url = url, method = "GET", timeout = 30, max_bytes = 8 * 1024 * 1024,
+		headers = referer and { Referer = referer } or nil }, function(response)
 		done(response and response.ok and response.body or nil)
 	end)
 end

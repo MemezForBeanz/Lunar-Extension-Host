@@ -35,7 +35,7 @@ end
 local function poster_cache()
 	local ok, PosterCache = pcall(require, "core.ui.PosterCache")
 	if not ok then return nil end
-	return (PosterCache.new({ max_mb = 128 }))
+	return (PosterCache.new({ max_mb = 64, max_queued = 64 }))
 end
 
 function M:_notify(title, body, kind)
@@ -69,6 +69,7 @@ function M:connect(preserve)
 	self.client = Client.new(function(request, done) return ctx:http(request, done, self) end, address, token)
 	self.art_cache = self:_art_cache(address)
 	self.art_urls = {}
+	self.art_origins = {}
 	self.client:load(function(model, why)
 		if version ~= self.connection_version then return end
 		self.loading_catalog = false
@@ -81,6 +82,7 @@ function M:connect(preserve)
 		for _, film in ipairs(list) do
 			self.art_urls[film.id .. "poster"] = film.art_urls and film.art_urls.poster
 			self.art_urls[film.id .. "backdrop"] = film.art_urls and film.art_urls.backdrop
+			self.art_origins[film.id] = film.source_url
 		end
 		end
 		self.library.setModel(model, preserve)
@@ -88,7 +90,7 @@ function M:connect(preserve)
 		self.catalog_revision = catalog_revision(model.server)
 		self.server.setModel(model)
 		self.now_playing.endDemo()
-		self.sources_page.setData(model.origins)
+		self.sources_page.setData(model.origins, nil, model.libraries)
 		self.client:providers(function(list) self.sources_page.setData(nil, list) end)
 	end)
 end
@@ -106,7 +108,7 @@ function M:_art_cache(address)
 			if url then return self.client:artFrom(url, function(bytes)
 				if bytes then return done(bytes) end
 				self.client:art(id, kind, done)
-			end) end
+			end, self.art_origins and self.art_origins[id]) end
 			self.client:art(id, kind, done)
 		end,
 		exists = function(path) return lfs.attributes(path, "mode") == "file" end,
@@ -143,7 +145,7 @@ function M:_reload()
 		if not model then return end
 		self.library.setModel(model)
 		self.server.setModel(model)
-		self.sources_page.setData(model.origins)
+		self.sources_page.setData(model.origins, nil, model.libraries)
 	end)
 end
 
@@ -425,7 +427,7 @@ function M:register(ctx)
 				if answer then self:connect() end
 			end)
 		end })
-	self.sources_page = sources_page.new(ctx, { sources = model.origins, providers = sample.PROVIDERS,
+	self.sources_page = sources_page.new(ctx, { sources = model.origins, libraries = model.libraries, providers = sample.PROVIDERS,
 		on_discover = function(body, done)
 			if not self.client then return done(nil, "Connect a server first.") end
 			self.client:discover(body, done)
@@ -440,6 +442,22 @@ function M:register(ctx)
 				done(answer, why)
 				if answer then self:connect() end
 			end)
+		end,
+		on_download = function(id, key, library_id, done)
+			if not self.client then return done(nil, "Connect a server first.") end
+			self.client:downloadDiscovery(id, key, library_id, function(answer, why)
+				done(answer, why)
+				if answer then self:_reload() end
+			end)
+		end,
+		on_cancel_download = function(id, done)
+			if self.client then self.client:cancelDownload(id, done) else done(nil, "Connect a server first.") end
+		end,
+		on_retry_download = function(id, done)
+			if self.client then self.client:retryDownload(id, done) else done(nil, "Connect a server first.") end
+		end,
+		on_downloads = function(done)
+			if self.client then self.client:downloads(done) else done({}) end
 		end,
 		on_add = function(provider, config, name, accepted) self:_add_source(provider, config, name, accepted) end,
 		on_sync = function(source)

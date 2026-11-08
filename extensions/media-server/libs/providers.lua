@@ -31,6 +31,9 @@ M.BUILTIN = {
 	{ id = "archive-prelinger", name = "Internet Archive: Prelinger Archives", kind = "archive",
 		summary = "Advertising, educational and home films from the Prelinger collection.",
 		config = { collection = "prelinger" }, fields = {} },
+	{ id = "archive-classic-tv", name = "Internet Archive: Classic TV", kind = "archive",
+		summary = "Classic television episodes labelled public domain by their Archive item metadata; verify each item.",
+		config = { collection = "classic_tv" }, fields = {} },
 	{ id = "m3u", name = "M3U playlist", kind = "m3u", summary = "A playlist of streams at an address you give it.",
 		fields = { { id = "url", label = "Playlist address", cue = "https://example.org/list.m3u" } } },
 	{ id = "feed", name = "Video feed", kind = "feed", summary = "A podcast or RSS feed with video enclosures.",
@@ -255,8 +258,11 @@ function M.request(provider, config)
 	if kind == "archive" then
 		local collection = tostring((provider.config or {}).collection or config.collection or "")
 		if not collection:match("^[%w_-]+$") then return nil, "this provider has no collection" end
+		local rights = collection == "classic_tv"
+			and "+AND+licenseurl%3A%22http%3A%2F%2Fcreativecommons.org%2Flicenses%2Fpublicdomain%2F%22" or ""
 		return { url = "https://archive.org/advancedsearch.php?q=collection%3A" .. collection
-			.. "+AND+mediatype%3Amovies+AND+NOT+collection%3Amoviesandfilms_adult+AND+NOT+subject%3A%28adult+OR+porn+OR+erotic%29"
+			.. "+AND+mediatype%3Amovies" .. rights
+			.. "+AND+NOT+collection%3Amoviesandfilms_adult+AND+NOT+subject%3A%28adult+OR+porn+OR+erotic%29"
 			.. "&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=year&fl%5B%5D=date"
 			.. "&fl%5B%5D=description&sort%5B%5D=downloads+desc&rows=200&output=json" }
 	end
@@ -281,7 +287,8 @@ function M.parse(provider, config, text)
 		local result = web.parse(text, base, provider)
 		if #result.items == 0 then
 			result.items[1] = { key = base, title = result.title ~= "" and result.title or base,
-				url = base, resolve = "webpage", overview = result.overview, poster_url = result.poster_url }
+				url = base, resolve = "webpage", overview = result.overview, poster_url = result.poster_url,
+				source_id = result.source_id or provider.id, source_url = result.source_url, attribution = result.attribution }
 		end
 		return result.items
 	end

@@ -154,13 +154,14 @@ end
 -- already in memory.
 -- @treturn function `drain()`, returning how many posters arrived
 function M.posters(grid, cache, source)
-	local waiting = {}
 	local hub = hubs[cache]
 	if not hub then
-		hub = {}
+		-- The cache must not own discarded grids and the models captured by their callbacks.
+		hub = setmetatable({}, { __mode = "k" })
 		hubs[cache] = hub
 	end
-	hub[#hub + 1] = { grid = grid, waiting = waiting }
+	local subscriber = { grid = grid, waiting = {} }
+	hub[subscriber] = true
 	grid.bits = function(pos, w, h)
 		local path, id = source(pos)
 		if not path then return nil end
@@ -169,14 +170,16 @@ function M.posters(grid, cache, source)
 		local key = (id or path) .. "@" .. w .. "x" .. h
 		local pixels, stride = cache:get(key)
 		if pixels then return pixels, stride end
-		waiting[key] = pos
+		subscriber.waiting[key] = pos
 		if bytes then cache:requestBytes(key, bytes, w, h) else cache:request(key, path, w, h) end
 		return nil
 	end
 	return function()
+		-- Either a live grid or its drain callback keeps the subscription alive.
+		hub[subscriber] = true
 		local finished = cache:drain()
 		for _, key in ipairs(finished) do
-			for _, watcher in ipairs(hub) do
+			for watcher in pairs(hub) do
 				local pos = watcher.waiting[key]
 				if pos then
 					watcher.waiting[key] = nil

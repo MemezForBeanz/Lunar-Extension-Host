@@ -5,7 +5,7 @@
 
 local M = {}
 
-M.VERSION = 5
+M.VERSION = 10
 
 local V1 = {
 	[[CREATE TABLE libraries (
@@ -139,7 +139,39 @@ local V5 = {
 		SELECT work_id, CASE kind WHEN 'genre' THEN 'genres' ELSE 'people' END FROM work_tags]],
 }
 
+local V6 = {
+	"ALTER TABLE files ADD COLUMN origin_source_id INTEGER",
+	"ALTER TABLE files ADD COLUMN origin_url TEXT",
+	[[CREATE TABLE downloads (
+		id INTEGER PRIMARY KEY, library_id INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+		source_id INTEGER REFERENCES sources(id) ON DELETE SET NULL, source_url TEXT NOT NULL,
+		rel_path TEXT NOT NULL, temp_path TEXT NOT NULL, title TEXT NOT NULL,
+		state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN ('queued','running','complete','failed','cancelled')),
+		bytes INTEGER NOT NULL DEFAULT 0, total_bytes INTEGER, error TEXT,
+		created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+	)]],
+	"CREATE INDEX downloads_state ON downloads (state, updated_at, id)",
+}
+
+local V7 = {
+	"ALTER TABLE files ADD COLUMN origin_provider_id TEXT",
+	"ALTER TABLE downloads ADD COLUMN provider_id TEXT",
+}
+
+local V8 = {
+	"ALTER TABLE downloads ADD COLUMN request_headers TEXT",
+}
+
+local V9 = {
+	"ALTER TABLE downloads ADD COLUMN transfer_url TEXT",
+	"UPDATE downloads SET transfer_url = source_url WHERE transfer_url IS NULL",
+}
+
 --- Bring a database up to `VERSION`.
+local V10 = {
+	"ALTER TABLE downloads ADD COLUMN resolve_url TEXT",
+}
+
 function M.migrate(db)
 	return db:migrate(M.VERSION, function(d, previous)
 		if previous < 1 then
@@ -168,6 +200,36 @@ function M.migrate(db)
 		end
 		if previous < 5 then
 			for _, statement in ipairs(V5) do
+				local done, why = d:exec(statement)
+				if not done then return nil, why end
+			end
+		end
+		if previous < 6 then
+			for _, statement in ipairs(V6) do
+				local done, why = d:exec(statement)
+				if not done then return nil, why end
+			end
+		end
+		if previous < 7 then
+			for _, statement in ipairs(V7) do
+				local done, why = d:exec(statement)
+				if not done then return nil, why end
+			end
+		end
+		if previous < 8 then
+			for _, statement in ipairs(V8) do
+				local done, why = d:exec(statement)
+				if not done then return nil, why end
+			end
+		end
+		if previous < 9 then
+			for _, statement in ipairs(V9) do
+				local done, why = d:exec(statement)
+				if not done then return nil, why end
+			end
+		end
+		if previous < 10 then
+			for _, statement in ipairs(V10) do
 				local done, why = d:exec(statement)
 				if not done then return nil, why end
 			end

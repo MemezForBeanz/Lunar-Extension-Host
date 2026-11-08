@@ -353,7 +353,7 @@ function HostAPI:async() return Network.async(self) end
 -- when there is no response at all. The callback is dropped if the owner unloads
 -- first, or after `handle:cancel()`.
 --
--- @tparam table request `{ url, method, headers, body | json, timeout, verify, cafile, max_bytes }`
+-- @tparam table request `{ url, method, headers, body | json, timeout, verify, cafile, max_bytes, sink }`
 -- @tparam function callback `callback(res, err)`
 -- @tparam[opt] table owner owning extension
 -- @treturn table a handle with `cancel()`
@@ -1617,5 +1617,6 @@ function HostAPI:_dispatchKey(c) return Keys._dispatchKey(self, c) end
 -- @treturn table|nil the shortcut record, or `nil` when `key` or `fn` is missing
 -- @usage ctx:registerShortcut(iup.K_cR, function() rescan() end, M)
 function HostAPI:registerShortcut(key, fn, owner) return Keys.registerShortcut(self, key, fn, owner) end
+function HostAPI:unregisterShortcut(entry) return Keys.unregisterShortcut(self, entry) end
 
 return HostAPI

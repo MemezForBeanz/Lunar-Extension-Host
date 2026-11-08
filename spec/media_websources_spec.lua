@@ -5,6 +5,29 @@ local function provider(id)
  for _, p in ipairs(Web.SITES) do if p.id == id then return p end end
 end
 describe('website source adapters', function()
+ it('associates a sibling poster by its exact source title without using the site logo', function()
+  local result=Web.parse([[<img src="/logo.png" alt="9anime"><img src="/cover.jpg" alt="Example">
+   <div><a href="/anime/example/">Example</a></div>]],'https://9anime.or.at/',provider('9anime'))
+  assert.equal('https://9anime.or.at/cover.jpg',result.items[1].poster_url)
+ end)
+ it('merges a later poster link into an earlier title-only result', function()
+  local result=Web.parse([[<a href="/anime/example/">Example</a>
+   <a href="/anime/example/"><img data-src="/poster.jpg" alt="Example"></a>]],
+   'https://9anime.or.at/',provider('9anime'))
+  assert.equal(1,#result.items)
+  assert.equal('Example',result.items[1].title)
+  assert.equal('https://9anime.or.at/poster.jpg',result.items[1].poster_url)
+ end)
+ it('keeps homepage branding out of unrelated cards and recognizes WCO series', function()
+  local result=Web.parse([[<meta property="og:image" content="/logo.jpg"><meta property="og:description" content="Homepage promotion">
+   <a href="/anime/example/">Example</a><a href="/anime/other/"><img src="/other.jpg" alt="Other"></a>]],
+   'https://www.wco.tv/',provider('wco'))
+  assert.is_true(result.items[1].is_series)
+  assert.equal('https://www.wco.tv/anime/example/',result.items[1].source_url)
+  assert.is_nil(result.items[1].poster_url)
+  assert.is_nil(result.items[1].overview)
+  assert.equal('https://www.wco.tv/other.jpg',result.items[2].poster_url)
+ end)
  it('keeps fixed adapters on their own origin and rejects empty URLs', function()
   assert.is_nil(Web.request(provider('9anime'), '', 1, 'https://elsewhere.example/a'))
   assert.is_nil(Web.absolute('https://example.org/a', ''))
@@ -17,6 +40,52 @@ describe('website source adapters', function()
   assert.equal(1, #result.items)
   assert.equal('https://9anime.or.at/cover.jpg', result.items[1].poster_url)
   assert.is_true(result.items[1].is_series)
+ end)
+ it('reads native metadata, canonical provenance, JSON-LD images, and lazy card images', function()
+  local html=[[<link rel="canonical" href="/anime/space/">
+   <meta property="og:description" content="A long space journey.">
+   <script type="application/ld+json">{"@context":"https://schema.org","@type":"TVSeries","name":"Space","image":{"url":"/poster.webp"},"publisher":{"name":"WCO"},"description":"A long space journey."}</script>
+   <a href="/anime/space/"><img data-srcset="/small.jpg 320w, /large.jpg 1280w" alt="Space"></a>]]
+  local result=Web.parse(html,'https://www.wco.tv/',provider('wco'))
+  assert.equal('Space',result.items[1].title)
+  assert.equal('wco',result.items[1].source_id)
+  assert.equal('https://www.wco.tv/small.jpg',result.items[1].poster_url)
+  assert.equal('A long space journey.',result.items[1].overview)
+  assert.equal('https://www.wco.tv/anime/space/',result.items[1].source_url)
+  assert.equal('WCO',result.items[1].attribution)
+ end)
+ it('keeps each card image ahead of homepage facts and finds canonical after stylesheets', function()
+  local html=[[<link rel="stylesheet" href="/site.css"><link rel="canonical" href="/catalog/space">
+   <script type="application/ld+json">{"@type":"TVSeries","name":"Space","image":["/homepage.jpg","/fallback.jpg"]}</script>
+   <a href="/anime/space/"><img src="/placeholder.jpg" data-srcset="/card-small.jpg 320w, /card-large.jpg 1280w" alt="Space"></a>]]
+  local result=Web.parse(html,'https://www.wco.tv/',provider('wco'))
+  assert.equal('https://www.wco.tv/card-small.jpg',result.items[1].poster_url)
+  assert.equal('https://www.wco.tv/catalog/space',result.source_url)
+ end)
+ it('does not turn an og video embed page into a direct playable URL', function()
+  local result=Web.parse([[<meta property="og:title" content="Space"><meta property="og:video" content="/embed/player">
+   <a href="/watch/space">Watch</a>]],'https://video.example/',provider('video-page'))
+  assert.equal('webpage',result.items[1].resolve)
+  assert.is_nil(result.items[1].stream_urls)
+ end)
+ it('marks only genuinely direct media URLs as playable', function()
+  local direct=Web.parse([[<a href="/watch/space.mp4?token=1">Watch</a>]],
+   'https://www.wco.tv/',provider('wco'),'',true)
+  assert.equal('direct',direct.items[1].resolve)
+  assert.equal('https://www.wco.tv/watch/space.mp4?token=1',direct.items[1].url)
+  local page=Web.parse([[<a href="/watch/space"><img data-lazy-src="/poster.jpg"></a>]],
+   'https://www.wco.tv/',provider('wco'),'',true)
+  assert.equal('webpage',page.items[1].resolve)
+  assert.equal('https://www.wco.tv/poster.jpg',page.items[1].poster_url)
+ end)
+ it('resolves a generic page JSON-LD content URL without treating its embed page as media', function()
+  local result=Web.parse([[<title>Space</title><video><source src="/media/space.m3u8"><source src="/media/space.mp4"></video><script type="application/ld+json">{"@type":"VideoObject","name":"Space","contentUrl":"/media/space.m3u8"}</script>]],
+   'https://video.example/watch',provider('video-page'))
+  assert.equal('direct',result.items[1].resolve)
+  assert.equal('https://video.example/media/space.m3u8',result.items[1].url)
+  assert.same({'https://video.example/media/space.m3u8','https://video.example/media/space.mp4'},result.items[1].stream_urls)
+  assert.equal('video-page',result.items[1].source_id)
+  assert.equal('https://video.example/watch',result.items[1].source_url)
  end)
  it('requests the public episode API without executing page scripts', function()
   local result = Web.parse([[<meta property='og:title' content='Watch Space - 9anime'><section class='block_area-episodes' data-series='12'></section>]],
@@ -40,6 +109,13 @@ describe('website source adapters', function()
   assert.equal(1, #result.items)
   assert.equal(31, result.items[1].episode)
   assert.equal('Space', result.items[1].show)
+ end)
+ it('keeps unnumbered detail pages as pages instead of inventing episodes', function()
+  local result=Web.parse([[<a href="/watch/space-special">Special</a>]],
+   'https://www.wco.tv/anime/space/',provider('wco'),'',true,{title='Space'})
+  assert.equal('page',result.items[1].kind)
+  assert.is_true(result.items[1].is_page)
+  assert.is_nil(result.items[1].episode)
  end)
  it('resolves the ordinary public player request and encoded embed URL', function()
   assert.equal('https://9anime.or.at/ajax/episode/servers?id=959', Web.embed([[<iframe src=''></iframe><script>var tsEp={episodeId:959};</script>]], 'https://9anime.or.at/space-episode-54/'))

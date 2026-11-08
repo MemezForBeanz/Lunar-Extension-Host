@@ -11,6 +11,7 @@ local CellGrid = require("core.ui.CellGrid")
 local SeekBar = require("core.ui.SeekBar")
 local AnimatedIcon = require("core.ui.AnimatedIcon")
 local VideoHost = require("core.ui.VideoHost")
+local Fullscreen = require("core.ui.Fullscreen")
 local ThemeReactor = require("core.ui.ThemeReactor")
 local tint = require("libs.tint")
 local playback = require("libs.playback")
@@ -149,11 +150,18 @@ function M.new(ctx, opts)
 	iup.SetAttribute(mute_button, "RASTERSIZE", "32x32")
 	tools[#tools + 1] = mute_button
 
+	local fullscreen = Fullscreen.new({
+		iup = iup, dialog = ctx.dialog, tabs = ctx.tabs, context = ctx, owner = opts.owner,
+	})
+
 	local time = iup.flatlabel({ TITLE = clock(position) .. " / " .. clock(duration), THEMEROLE = "reading" })
 	local left_side = iup.hbox({ time, iup.fill({}), ALIGNMENT = "ACENTER", RASTERSIZE = SIDE_WIDTH .. "x" })
 	local right_side = iup.hbox({ iup.fill({}),
 		mute_button, volume_bar.widget,
-		tool("settings--adjust", "Audio and subtitles"), tool("fit-to-screen", "Fullscreen (F)"),
+		tool("settings--adjust", "Audio and subtitles"), tool("fit-to-screen", "Fullscreen", function()
+			local ok, why = fullscreen.toggle()
+			if not ok and ctx.setStatus then ctx:setStatus("Could not change fullscreen: " .. tostring(why)) end
+		end),
 		GAP = L.gap(2), ALIGNMENT = "ACENTER", RASTERSIZE = SIDE_WIDTH .. "x" })
 	local transport = iup.vbox({
 		bar.widget,
@@ -278,11 +286,13 @@ function M.new(ctx, opts)
 	local light = tint.isLight(ThemeReactor.palette().bg)
 	local base
 	local colour = tint.ofTitle(sample.title, light)
+	local scheme = tint.scheme(colour, light)
 	local painted = { card, eyebrow, title, meta, overview, time, art.widget, bar.widget, volume_bar.widget }
 
 	local function recolour()
 		if base then colour = tint.surface(base[1], base[2], base[3], light)
 		else colour = tint.ofTitle(now.title, light) end
+		scheme = tint.scheme(colour, light)
 	end
 
 	-- A theme change paints over all of this, so it is put back on the next tick.
@@ -292,7 +302,6 @@ function M.new(ctx, opts)
 			light = page_light
 			recolour()
 		end
-		local scheme = tint.scheme(colour, light)
 		local wanted = scheme.surface
 		if iup.GetAttribute(card, "BGCOLOR") == wanted and iup.GetAttribute(title, "BGCOLOR") == wanted then return end
 		for _, widget in ipairs(painted) do iup.SetAttribute(widget, "BGCOLOR", wanted) end
@@ -370,7 +379,8 @@ function M.new(ctx, opts)
 			if not ended then stalled_since = os.time() end
 			changed()
 			bar:setValue(seconds)
-			iup.SetAttribute(time, "TITLE", clock(seconds) .. " / " .. clock(length))
+			local label = clock(seconds) .. " / " .. clock(length)
+			if iup.GetAttribute(time, "TITLE") ~= label then iup.SetAttribute(time, "TITLE", label) end
 			if on_position and math.abs(seconds - saved_at) >= SAVE_EVERY then
 				saved_at = seconds
 				on_position(seconds, length)
@@ -426,6 +436,12 @@ function M.new(ctx, opts)
 
 	function api.pause()
 		if playing then toggle_playing() end
+	end
+
+	function api.toggleFullscreen()
+		local ok, why = fullscreen.toggle()
+		if not ok and ctx.setStatus then ctx:setStatus("Could not change fullscreen: " .. tostring(why)) end
+		return ok, why
 	end
 
 	function api.resumeClock()
@@ -513,6 +529,7 @@ function M.new(ctx, opts)
 	end
 
 	function api.close()
+		fullscreen.close()
 		glyph:stop()
 		if mpv then
 			mpv:destroy()

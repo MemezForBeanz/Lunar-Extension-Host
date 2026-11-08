@@ -87,6 +87,7 @@ function M.new(ctx, opts)
 	local light = tint.isLight(ThemeReactor.palette().bg)
 	local base                     -- the art's own colour, kept so a theme change can tint it again
 	local colour = light and tint.LIGHT_FALLBACK or tint.FALLBACK
+	local scheme = tint.scheme(colour, light)
 	local composed = { key = nil, buffer = nil }
 
 	-- A title page shows the poster whole and sharp; only the wide art on Home dissolves.
@@ -137,6 +138,7 @@ function M.new(ctx, opts)
 	local function recolour()
 		if base then colour = tint.surface(base[1], base[2], base[3], light)
 		else colour = tint.ofTitle(current and current.title, light) end
+		scheme = tint.scheme(colour, light)
 	end
 
 	-- A theme change paints over these, so they are put back on the next tick.
@@ -148,7 +150,6 @@ function M.new(ctx, opts)
 			composed.key = nil
 			art:refreshCell(1)
 		end
-		local scheme = tint.scheme(colour, light)
 		local wanted = scheme.surface
 		if iup.GetAttribute(api.widget, "BGCOLOR") == wanted and iup.GetAttribute(title, "BGCOLOR") == wanted then return end
 		iup.SetAttribute(api.widget, "BGCOLOR", wanted)

@@ -157,7 +157,7 @@ local ORG_PROFILES = ORG_PROFILE and (ORG_PROFILE.profiles or { ORG_PROFILE }) o
 
 -- The same in every org: an org shows up as its tool group, not a rename.
 local APP_TITLE = "Lunar Extension Host"
-local APP_VERSION = "1.6.1"
+local APP_VERSION = "1.6.2"
 -- Application install directory: the folder containing the executable, provided by
 -- the C host as the LUNAR_EXE_DIR global. Stable regardless of the process working
 -- directory, so bundled resources like plugins/ resolve reliably (see exe_dir_or_fail).

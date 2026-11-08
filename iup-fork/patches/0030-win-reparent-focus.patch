@@ -1,0 +1,17 @@
+diff --git a/src/win/iupwin_focus.c b/src/win/iupwin_focus.c
+index 80dc946..e6092da 100644
+--- a/src/win/iupwin_focus.c
++++ b/src/win/iupwin_focus.c
+@@ -61,6 +61,12 @@ void iupdrvSetFocus(Ihandle *ih)
+ void iupwinWmSetFocus(Ihandle *ih)
+ {
+   Ihandle* dialog = IupGetDialog(ih);
++  /* IupReparent removes a page from its old tree before ChildRemoved runs.
++     Hiding the old tab can synchronously deliver WM_SETFOCUS to one of that
++     page's still-mapped children. It has no dialog until the move completes;
++     neither the dialog attribute nor application focus callbacks are valid yet. */
++  if (!dialog)
++    return;
+   if (ih != dialog)
+     iupAttribSet(dialog, "_IUPWIN_LASTFOCUS", (char*)ih);  /* used by IupMenu and here. */
+   else

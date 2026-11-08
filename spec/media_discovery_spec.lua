@@ -250,6 +250,29 @@ describe("saved discovery results and expiring stream cache", function()
 		time = time + Sources.RESYNC_S + 1; manager:tick()
 		assert.equal(2, #catalog:browse(first.library_id, { limit = 20 }).items)
 	end)
+	it("preserves website provenance and ordered stream alternatives in the catalog", function()
+		local provider = { id = "video-page", name = "Video webpage" }
+		manager.discovery.entry = function()
+			return { key = "https://video.example/title", title = "Native title", url = "https://cdn.example/main.mp4",
+				resolve = "direct", source_id = "video-page", source_url = "https://video.example/title",
+				attribution = "Example site", overview = "Native description", poster_url = "https://video.example/poster.jpg",
+				headers = { Authorization = "private-token" }, auth = "private-key",
+				stream_urls = { "https://cdn.example/main.mp4", "https://cdn.example/backup.m3u8" } }, provider
+		end
+		local saved = assert(manager:importDiscovery("job", "native"))
+		local item = assert(catalog:item(catalog:browse(saved.library_id, { limit = 20 }).items[1].id, "owner"))
+		assert.equal("Native description", item.overview)
+		assert.equal("https://video.example/poster.jpg", item.poster_url)
+		assert.equal("video-page", item.files[1].source_id)
+		assert.equal("Example site", item.files[1].attribution)
+		assert.is_nil(item.files[1].remote.headers)
+		assert.is_nil(item.files[1].remote.auth)
+		assert.equal("Native description", item.files[1].remote.site_metadata.overview)
+		local browsed = catalog:browse(saved.library_id, { limit = 20 }).items[1]
+		assert.is_nil(browsed.remote.headers)
+		assert.is_nil(browsed.remote.auth)
+		assert.same({ "https://cdn.example/main.mp4", "https://cdn.example/backup.m3u8" }, item.files[1].stream_urls)
+	end)
 	it("deduplicates pending resolves and refreshes expired signed URLs", function()
 		manager.discovery.resolve = function(_, url, done) resolutions[#resolutions + 1] = { url = url, done = done } end
 		local target = { id = 9, remote = cjson.encode({ url = "https://video.example/page", resolve = "webpage" }) }
@@ -261,6 +284,17 @@ describe("saved discovery results and expiring stream cache", function()
 		assert.is_nil(manager:open(target)); assert.equal(2, #resolutions)
 		resolutions[2].done({ url = "https://cdn.example/a.mp4?sig=two", expires_at = time + 120 })
 		assert.equal("https://cdn.example/a.mp4?sig=two", manager:open(target).url)
+	end)
+	 it("carries an episode's site provenance onto the show's browse and detail responses", function()
+		local source = catalog:addSource("video-page", "Site", "{}", time)
+		local library = catalog:sourceLibrary(source)
+		catalog:saveRemote(library.id, { key = "episode", title = "Pilot", kind = "episode", show = "Example Show",
+			season = 1, episode = 1, url = "https://cdn.example/pilot.mp4", source_id = "video-page",
+			source_url = "https://video.example/show", overview = "Website description", attribution = "Example site" }, 0)
+		local show = catalog:browse(library.id, { limit = 20 }).items[1]
+		assert.equals("show", show.kind)
+		assert.equals("Example site", show.remote.attribution)
+		assert.equals("https://video.example/show", catalog:item(show.id, "owner").remote.source_url)
 	end)
 	it("subscribes to a series, groups its episodes, and keeps progress across resyncs", function()
 		local provider = { id = "9anime", name = "9anime", kind = "website" }

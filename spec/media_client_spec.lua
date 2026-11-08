@@ -15,6 +15,16 @@ local function fake_http(answers)
 end
 
 describe("media client", function()
+	it("fetches site artwork with its referer and without the Lunar server token", function()
+		local request, image
+		local client = Client.new(function(req, done)
+			request = req; done({ ok = true, body = "image bytes" })
+		end, "https://server.example", "server-secret")
+		client:artFrom("https://images.example/poster.jpg", function(bytes) image = bytes end, "https://site.example/show")
+		assert.equals("https://site.example/show", request.headers.Referer)
+		assert.is_nil(request.headers.Authorization)
+		assert.equals("image bytes", image)
+	end)
 	it("adds online posters even when a generated backdrop exists, preserving local choices", function()
 		local model=Client.modelFrom({{name="Films",items={
 			{id=1,kind="movie",title="First",art="backdrop",poster_url="https://images.example/first.jpg"},
@@ -61,6 +71,18 @@ describe("media client", function()
 		assert.equal(2, item.size_gb)
 		assert.equal(10, item.minutes)
 		assert.equal(0.1, item.progress)
+	end)
+	it("maps remote provenance and ordered stream alternatives into title details", function()
+		local item = Client.applyDetail({}, {
+			files = { { id = 4, remote = require("cjson").encode({
+				source_id = "video-page", source_url = "https://video.example/title",
+				attribution = "Example site", stream_urls = { "https://cdn.example/a.mp4", "https://cdn.example/b.m3u8" },
+			}) } },
+		})
+		assert.equal("video-page", item.source_id)
+		assert.equal("https://video.example/title", item.source_url)
+		assert.equal("Example site", item.attribution)
+		assert.same({ "https://cdn.example/a.mp4", "https://cdn.example/b.m3u8" }, item.stream_urls)
 	end)
 
 	it("tells an offline file and a finished one apart", function()

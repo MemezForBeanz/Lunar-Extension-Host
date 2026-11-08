@@ -54,16 +54,15 @@ end
 
 local function episode_numbers(name)
 	local lower = name:lower()
-	local season, first, rest = lower:match("s(%d%d?%d?)[%s._-]*e(%d%d?%d?%d?)(.*)")
+	local start, _, season, first, rest = lower:find("s(%d%d?%d?)[%s._-]*e(%d%d?%d?%d?)(.*)")
 	if season then
 		local last = tonumber(first)
 		local more = rest:match("^%-?e(%d+)") or rest:match("^%-(%d%d?%d?)[%s._]")
 		if more and tonumber(more) >= last then last = tonumber(more) end
-		return tonumber(season), tonumber(first), last
+		return tonumber(season), tonumber(first), last, start
 	end
-	season, first = lower:match("[%s._%-%(](%d%d?)x(%d%d%d?)[%s._%-%)]")
-	if not season then season, first = lower:match("^(%d%d?)x(%d%d%d?)[%s._%-]") end
-	if season then return tonumber(season), tonumber(first), tonumber(first) end
+	start, _, season, first = lower:find("%f[%d](%d%d?)x(%d%d%d?)%f[^%d]")
+	if season then return tonumber(season), tonumber(first), tonumber(first), start end
 end
 
 local function folder_season(folder)
@@ -71,6 +70,30 @@ local function folder_season(folder)
 	if lower == "specials" then return 0 end
 	return tonumber(lower:match("^season[%s._-]*(%d+)$") or lower:match("^s(%d+)$"))
 end
+
+-- Release directories are containers, not series identities. Keep a year before
+-- the season marker (a remake identifier), never a season's release year after it.
+local function series_folder(folder)
+	local text = clean(folder)
+	local lower = text:lower()
+	local season = folder_season(text)
+	if season then return nil, nil, season end
+	local marker = lower:find('%f[%a]season%s*%d') or lower:find('%f[%a]seasons%s*%d')
+		or lower:find('%f[%a]s%d%d') or lower:find('s%d%d$')
+	local _, _, _, episode_start = episode_numbers(text)
+	marker = marker or episode_start
+	if marker then text = text:sub(1, marker - 1) end
+	text = text:gsub('%s*%-%s*[Tt]he%s+[Cc]omplete%s*$', '')
+		:gsub('%s+[Tt]he%s+[Cc]omplete%s+[Ss]eries%s*$', '')
+		:gsub('%s+[Cc]omplete%s+[Ss]eries%s*$', '')
+		:gsub('%s+[Cc]omplete%s*$', ''):gsub('%s+[Ss]eason%s*$', '')
+	text = clean(text):gsub('[%s,%-]+$', '')
+	if text == '' then return nil end
+	return title_year(text)
+end
+
+local CONTAINERS = { tv = true, ['tv shows'] = true, shows = true, television = true,
+	anime = true, cartoons = true, episodes = true, extras = true }
 
 --- A normalised key for sorting: lower case, leading articles ignored, numbers ordered by value.
 function M.sortKey(title)
@@ -90,23 +113,40 @@ end
 
 local function episode(parts)
 	local file = parts[#parts]
-	local season, first, last = episode_numbers(stem(file))
+	local season, first, last, marker = episode_numbers(stem(file))
 	local folder = #parts > 1 and parts[#parts - 1] or nil
-	local in_season = folder and folder_season(folder)
+	local in_season = folder and (folder_season(folder) or tonumber(folder:lower():match('season[%s._-]*(%d+)')))
 	if not season and in_season then
-		first = tonumber(stem(file):match("^(%d+)") or stem(file):lower():match("^e(%d+)"))
+		first = tonumber(stem(file):match("^(%d+)") or stem(file):lower():match("^e(%d+)")
+			or stem(file):lower():match('^episode[%s._-]*(%d+)'))
 		season, last = in_season, first
 	end
 	if not (season and first) then return nil end
-	local show
-	if in_season and #parts > 2 then
-		show = parts[#parts - 2]
-	elseif folder and not in_season then
-		show = folder
-	else
-		show = stem(file):match("^(.-)[%s._-]*[sS]%d") or stem(file)
+	local title, year
+	local candidates = {}
+	-- Collect series candidates independently of season/release/episode folders.
+	for i = 1, #parts - 1 do
+		local candidate, candidate_year = series_folder(parts[i])
+		if candidate and not CONTAINERS[candidate:lower()] then
+			candidates[#candidates + 1] = {title = candidate, year = candidate_year}
+			if not title then title, year = candidate, candidate_year end
+		end
 	end
-	local title, year = title_year(show)
+	local prefix = marker and clean(stem(file):sub(1, marker - 1)):gsub('[%s%-]+$', '')
+	local file_title, file_year
+	if prefix and prefix ~= '' then file_title, file_year = series_folder(prefix) end
+	-- Prefer a folder corroborated by the episode filename. A franchise folder
+	-- can contain several distinct series (for example Yellowstone/1923).
+	if file_title then
+		local function comparable(text) return text:lower():gsub('[%p%s]', '') end
+		local matched
+		for _, candidate in ipairs(candidates) do
+			if comparable(candidate.title) == comparable(file_title) then matched = candidate; break end
+		end
+		if matched then title, year = matched.title, matched.year
+		else title, year = file_title, file_year end
+	end
+	if not title or title == '' then return nil end
 	return { kind = "episode", show = title, show_year = year, season = season,
 		episode = first, last_episode = last }
 end

@@ -1,5 +1,42 @@
 # Lunar Extension Host release notes
 
+## 1.6.2
+
+- **Playback fixes:** the fullscreen button now enters the real window fullscreen
+  mode, and Escape restores the previous view. Playback keeps its native video
+  window through fullscreen and pane moves. Fixed a Windows focus-event crash
+  when splitting or moving the playing tab.
+- **Show and season grouping:** rescans reconcile episode folders and release-pack
+  names into shows with seasons inside. Remake years and distinct series remain
+  separate. Existing file identities, analysis, collections and watch progress
+  are retained when an episode moves into its corrected show.
+- **Website artwork and descriptions:** improved supported website adapters,
+  including WCO, 9anime and KissAnime, to read native page metadata, lazy images,
+  JSON-LD and posters outside title links. Homepage branding is no longer used as
+  a show's metadata. Source URLs, attribution and ordered stream alternatives
+  survive catalog imports; original site metadata stays separate from enrichment.
+- **Download to an owned library:** choose an episode and an existing local library
+  on the connected server in Sources. Supported direct files, resolved website
+  episodes and Internet Archive results can be copied into that library. Persisted
+  jobs show progress and support cancellation, retry and restart recovery. Partial
+  files stay outside the catalog until completion; the normal scanner records the
+  completed file and its provenance. HLS manifest downloads are not supported.
+- **Classic TV source:** added Internet Archive: Classic TV, filtered to items
+  labelled public domain by their Archive metadata. Availability and rights
+  labels depend on the individual item. Website playback and downloads still
+  depend on the selected video host and available file formats.
+- **Memory and rendering:** fixed shared poster caches retaining discarded grids
+  and library models. Reduced poster and compressed playback cache budgets and
+  skipped unchanged playback controls, icons, tints and service-status updates.
+- **Transfer reliability:** streamed redirects discard redirect bodies, downloads
+  preserve required request headers, and cancellation, filename collisions and
+  failed responses are handled without finalizing partial files. Public catalog
+  and download responses exclude private request credentials.
+- **Validation:** added native fullscreen, pane-move and download checks, including
+  an owned loopback page/iframe/redirect fixture that verifies exact copied bytes
+  and provenance after scanning. Existing catalogs migrate automatically to the
+  schema needed for persisted downloads.
+
 ## 1.6.1
 
 - **Extension installation:** Windows and Linux setup now offer compatible extensions

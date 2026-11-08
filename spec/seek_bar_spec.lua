@@ -35,6 +35,25 @@ describe("SeekBar", function()
 		assert.equals("3.000", attrs.MARKS)
 	end)
 
+	it("skips unchanged native writes but restores a value changed by dragging", function()
+		local writes = 0
+		iup.SetAttribute = function(_, k, v) attrs[k] = v; writes = writes + 1 end
+		local bar = SeekBar.new(iup, { raw = raw, max = 5400, value = 60 })
+		bar:setMarks({ { at = 90 } })
+		local initial = writes
+		attrs.VALUE = "60.000000"
+		for _ = 1, 100 do
+			bar:setValue(60)
+			bar:setMax(5400)
+			bar:setMarks({ { at = 90 } })
+		end
+		assert.equals(initial, writes)
+		attrs.VALUE = "80.000000"
+		bar:setValue(60)
+		assert.equals(initial + 1, writes)
+		assert.equals(60, bar:value())
+	end)
+
 	it("hands a seek its value alone, and a hover its position too", function()
 		local seen, hovered = {}, {}
 		SeekBar.new(iup, { raw = raw,

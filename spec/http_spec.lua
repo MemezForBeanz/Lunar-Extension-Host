@@ -1,5 +1,6 @@
 local http = require("core.lib.http")
 local cjson = require("cjson")
+local platform = require("core.platform")
 
 describe("http.prepare", function()
 	it("defaults to GET with checked TLS and a timeout", function()
@@ -135,6 +136,8 @@ describe("http.request against a local server", function()
 		["/ok"] = { 200, '{"hello":"world"}' },
 		["/missing"] = { 404, "nope" },
 		["/move"] = { 302, "", "Location: /ok\r\n" },
+		["/redirect-body"] = { 302, "<html>redirect</html>", "Location: /payload\r\n" },
+		["/payload"] = { 200, "owned-media-fixture", "Content-Type: video/mp4\r\n" },
 		['/foreign'] = {302,'','Location: http://localhost:'..port..'/ok\r\n'},
 		["/loop"] = { 302, "", "Location: /loop\r\n" },
 		["/big"] = { 200, string.rep("x", 4096) },
@@ -190,6 +193,21 @@ describe("http.request against a local server", function()
 		local none, err = run({ url = base .. "/loop" })
 		assert.is_nil(none)
 		assert.truthy(err:find("too many redirects", 1, true))
+	end)
+	it("does not send redirect bodies to a streaming sink", function()
+		local path = platform.path:join(platform.temp_dir(), "lunar_http_sink_" .. tostring(os.time()) .. ".tmp")
+		os.remove(path)
+		local file = assert(io.open(path, "wb"))
+		local res = assert(run({ url = base .. "/redirect-body", sink = function(chunk)
+			assert(file:write(chunk))
+			return true
+		end }))
+		assert.equal(200, res.status)
+		assert.is_true(file:close())
+		local read = assert(io.open(path, "rb"))
+		assert.equal("owned-media-fixture", read:read("*a"))
+		read:close()
+		os.remove(path)
 	end)
 	it('does not forward authentication to another redirect origin',function()
 		local res,err=run({url=base..'/foreign',headers={Authorization='Bearer test-only'}})

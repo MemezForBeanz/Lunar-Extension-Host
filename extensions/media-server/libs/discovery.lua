@@ -10,7 +10,7 @@ function M.new(opts)
 end
 local function escape(s) return (s:gsub('[^%w%-._~]',function(c)return string.format('%%%02X',c:byte())end)) end
 function D:_finish(job,result,error)
- if self.closed then return end
+ if self.closed or job.cancelled then return end
  job.result,job.error,job.state=result,error,error and 'failed' or 'ready'
  job.finished=self.now()
  if result and job.cache_key then self.cache[job.cache_key]={at=self.now(),result=result} end
@@ -78,6 +78,16 @@ function D:resolve(address,done)
  self.queue[#self.queue+1]=job
  return job.id
 end
+function D:cancel(id)
+ local job=self.jobs[tostring(id)]
+ if not job then return false end
+ job.cancelled=true;job.done=nil;self.jobs[tostring(id)]=nil
+ if self.extracting and self.extracting.job==job then
+  self.extracting.process:kill();self.extracting.process:close();self.extracting=nil
+ end
+ self:_prune()
+ return true
+end
 function D:_extract(job)
  local executable=self.extractor and self.extractor()
  if not executable then return self:_resolved(job,nil,'Video extractor is being prepared, or is unavailable. Check server runtime status.') end
@@ -133,7 +143,7 @@ function D:tick()
  local request=job.request;request.timeout=20;request.max_bytes=M.MAX_BYTES
  self.http(request,function(response,why)
   self.active=self.active-1
-  if self.closed then return end
+  if self.closed or job.cancelled then return end
   if not response or not response.ok then
    local problem=response and ('Website returned HTTP '..tostring(response.status)..'.') or tostring(why or 'No response.')
    if job.resolve then self:_resolved(job,nil,problem) else self:_finish(job,nil,problem) end

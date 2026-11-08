@@ -107,4 +107,31 @@ describe("CellGrid", function()
 		bound.bits(1, 10, 15)
 		assert.same({ "film9@10x15", "jpeg", 10, 15 }, cache.bytes[1])
 	end)
+
+	it('does not retain a discarded grid while its poster cache stays alive', function()
+		local cache = { get = function() end, request = function() end, drain = function() return {} end }
+		local weak = setmetatable({}, {__mode = 'v'})
+		do
+			local grid = {refreshCell = function() end}
+			CellGrid.posters(grid, cache, function() return 'poster.jpg' end)
+			weak[1] = grid
+		end
+		collectgarbage('collect'); collectgarbage('collect')
+		assert.is_nil(weak[1])
+		assert.equal(0, #cache:drain())
+	end)
+
+	it('keeps a live subscriber working after another subscriber is collected', function()
+		local cache = {finished = {}, get = function() end, request = function() end}
+		function cache:drain() local result = self.finished; self.finished = {}; return result end
+		do local discarded = {}; CellGrid.posters(discarded, cache, function() return 'gone.jpg' end) end
+		local seen
+		local grid = {refreshCell = function(_, pos) seen = pos end}
+		local drain = CellGrid.posters(grid, cache, function() return 'live.jpg' end)
+		grid.bits(7, 10, 15)
+		collectgarbage('collect'); collectgarbage('collect')
+		cache.finished = {'live.jpg@10x15'}
+		drain()
+		assert.equal(7, seen)
+	end)
 end)

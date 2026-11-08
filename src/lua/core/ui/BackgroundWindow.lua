@@ -243,8 +243,11 @@ function M.registerSettings(opts)
 		if not ok then opts.host:notify({ title = "Could not change the service", body = tostring(why), kind = "error" }) end
 	end })
 
+	local displayed_running
 	function panel.refresh()
 		local running = Service.running()
+		if running == displayed_running then return end
+		displayed_running = running
 		Kit.setStatus(iup, status, running and "ok" or "idle", running and "Running" or "Stopped")
 		if not running then Kit.bindIcon(iup, status, "stop--outline", { size = Kit.ICON_STATUS, role = "neutral" }) end
 		iup.SetAttribute(action, "TITLE", running and "Stop" or "Start")

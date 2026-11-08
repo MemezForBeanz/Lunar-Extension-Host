@@ -25,6 +25,23 @@ iup.MainLoop = function()
  ext.server.setModel(model)
  assert(ext.metadata_client and ext.metadata_page, 'Standalone metadata was not constructed')
  for _, index in ipairs({1,3,4,5,2}) do shell.host:focusTab(ext,index);iup.Refresh(shell.host.tabs);iup.LoopStep() end
+ local prior_fullscreen = iup.GetAttribute(shell.host.dialog, 'FULLSCREEN')
+ assert(ext.now_playing.toggleFullscreen())
+ iup.Flush()
+ assert(iup.GetAttribute(shell.host.dialog, 'FULLSCREEN') == 'YES', 'Fullscreen control did not change the dialog')
+ shell.host:_dispatchKey(iup.K_ESC)
+ iup.Flush()
+ assert((iup.GetAttribute(shell.host.dialog, 'FULLSCREEN') == 'YES') == (prior_fullscreen == 'YES'), 'Escape did not restore the dialog')
+ local downloads = ext._modules:require('ui.discover').new(shell.host, {
+  libraries={{id=7,name='Owned test library'}},
+  on_downloads=function(done) done({
+   {id=1,title='Owned episode',state='running',bytes=25,total_bytes=100},
+   {id=2,title='Retry fixture',state='failed',error='Fixture error'},
+  }) end,
+ })
+ downloads.setProviders({{id='video-page',kind='website',name='Owned fixture'}})
+ local download_dialog=iup.dialog({downloads.widget,rastersize='1000x720',title='Isolated download controls'})
+ iup.Show(download_dialog);downloads.tick();iup.Refresh(download_dialog);iup.LoopStep();iup.Destroy(download_dialog)
  assert(#errors==0, table.concat(errors, '\n'))
  print('Media UI constructed, mapped and refreshed: library, title/match, discovery, server and player')
  ext:shutdown()

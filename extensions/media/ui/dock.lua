@@ -30,6 +30,10 @@ function M.new(ctx, opts)
 	local player = opts.player
 	local api = {}
 	local away, shown = false, nil
+	local painted_pause, painted_mute
+	local function set_changed(widget, name, value)
+		if iup.GetAttribute(widget, name) ~= value then iup.SetAttribute(widget, name, value) end
+	end
 
 	local art = CellGrid.new(iup, { count = 1, cell_width = ART_WIDTH, aspect = "2:3", show_text = false,
 		gutter = 0, padding = 0, value = function() return nil end, role = "flatgrid_plain" })
@@ -108,16 +112,22 @@ function M.new(ctx, opts)
 	function api.refresh()
 		local state = place()
 		if not state or not shown then return end
-		iup.SetAttribute(title, "TITLE", state.title or "")
-		iup.SetAttribute(status, "TITLE", playback.status(state))
-		iup.SetAttribute(elapsed, "TITLE", playback.clock(state.position))
-		iup.SetAttribute(left_time, "TITLE", playback.left(state))
+		set_changed(title, "TITLE", state.title or "")
+		set_changed(status, "TITLE", playback.status(state))
+		set_changed(elapsed, "TITLE", playback.clock(state.position))
+		set_changed(left_time, "TITLE", playback.left(state))
 		bar:setMax(math.max(state.length or 0, 1))
 		bar:setMarks(state.marks or {})
 		bar:setValue(state.position or 0)
 		volume:setValue(state.muted and 0 or (state.volume or 100))
-		Kit.bindIcon(iup, toggle, state.paused and "play--filled--alt" or "pause--filled", { size = ICON, role = "on_accent" })
-		Kit.bindIcon(iup, mute, state.muted and "volume--mute" or "volume--up", { size = ICON })
+		if painted_pause ~= state.paused then
+			painted_pause = state.paused
+			Kit.bindIcon(iup, toggle, state.paused and "play--filled--alt" or "pause--filled", { size = ICON, role = "on_accent" })
+		end
+		if painted_mute ~= state.muted then
+			painted_mute = state.muted
+			Kit.bindIcon(iup, mute, state.muted and "volume--mute" or "volume--up", { size = ICON })
+		end
 	end
 
 	--- Step aside, or come back.

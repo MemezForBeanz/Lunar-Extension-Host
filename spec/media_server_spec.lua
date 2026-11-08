@@ -82,6 +82,34 @@ describe("naming", function()
 		assert.is_nil(naming.parse("Show/behind the scenes.mkv", "show"))
 	end)
 
+	it('uses the series root across season packs and per-episode directories', function()
+		for _, path in ipairs({
+			'Yellowstone/Yellowstone Season 5 Mp4 1080p/Yellowstone S05E01.mp4',
+			'Yellowstone/Yellowstone (2018) Season 4 S04/Yellowstone.S04E01.mkv',
+		}) do assert.equal('Yellowstone', naming.parse(path, 'show').show) end
+		local south = naming.parse('South Park/South Park Season 9/S09E14.Bloody Mary/South Park.S09E14.avi', 'show')
+		assert.equal('South Park', south.show); assert.equal(9, south.season); assert.equal(14, south.episode)
+		assert.equal('Gravity Falls', naming.parse('Gravity Falls/GFS02/Gravity.Falls.S02E01.mkv', 'show').show)
+	end)
+
+	it('strips season release suffixes and reads numbered files in season packs', function()
+		assert.equal('Friends', naming.parse('Friends S10 UNCUT RERiP/Friends.S10E01.avi', 'show').show)
+		assert.equal('Home Movies', naming.parse('Home Movies - The Complete Season 4/Home.Movies.S04E01.mkv', 'show').show)
+		local numbered = naming.parse('Show Season 2 Complete/Episode 07.mkv', 'show')
+		assert.equal('Show', numbered.show); assert.equal(2, numbered.season); assert.equal(7, numbered.episode)
+		assert.equal('Its Always Sunny in Philadelphia', naming.parse('Its Always Sunny in Philadelphia Season/Season 01/S01E01.avi', 'show').show)
+	end)
+
+	it('keeps remake years distinct and ignores season air years inside a series root', function()
+		assert.equal(2005, naming.parse('Doctor Who (2005)/Doctor Who Season 3 (2007)/Doctor.Who.S03E01.mkv', 'show').show_year)
+		assert.equal(1963, naming.parse('Doctor Who (1963)/Season 1/Doctor.Who.S01E01.mkv', 'show').show_year)
+		assert.equal('IT Welcome to Derry', naming.parse('IT/IT.Welcome.to.Derry.S01E01.mkv', 'show').show)
+		assert.equal('The Last of Us', naming.parse('The Last of Us 2/The.Last.of.Us.S02E01.mkv', 'show').show)
+		assert.equal('Firefly', naming.parse('TV Shows/Firefly/Season 1/Firefly.1x02.mkv', 'show').show)
+		local spinoff = naming.parse('Yellowstone/1923 (2022) Season 1/1923 (2022) - S01E01.mkv', 'show')
+		assert.equal('1923', spinoff.show); assert.equal(2022, spinoff.show_year)
+	end)
+
 	it("sorts by value and ignores articles", function()
 		assert.equal(naming.sortKey("Matrix"), naming.sortKey("The Matrix"))
 		assert.is_true(naming.sortKey("Part 2") < naming.sortKey("Part 10"))
@@ -234,6 +262,87 @@ describe("catalog and scanner", function()
 		assert.equal(2, catalog:counts().analysing)
 		scan(catalog:library(library.id))
 		assert.equal(2, catalog:counts().items)
+	end)
+
+	it('regroups an existing fragmented show on rescan without losing files or user state', function()
+		local lib = catalog:addLibrary('TV', 'show', '/tv')
+		local paths = {'Yellowstone/Yellowstone Season 1 Mp4/Yellowstone.S01E01.mp4',
+			'Yellowstone/Yellowstone (2018) Season 2/Yellowstone.S02E01.mkv'}
+		local ids = {}
+		for i, path in ipairs(paths) do
+			ids[i] = catalog:noteFile(lib.id, path, 100, 5, 1, {kind='episode', show=i==1 and 'Yellowstone Season 1 Mp4' or 'Yellowstone',
+				show_year=i==2 and 2018 or nil, season=i, episode=1})
+		end
+		local old_episode = catalog:_one('SELECT work_id FROM files WHERE id = ?', ids[1]).work_id
+		catalog:saveProgress('alice', old_episode, 2500, 10000, 3000)
+		local old_second = catalog:_one('SELECT work_id FROM files WHERE id = ?', ids[2]).work_id
+		catalog:setWatched('bob', old_second, true, 3100)
+		local old_shows = {catalog:topWorkOfFile(lib.id, paths[1]), catalog:topWorkOfFile(lib.id, paths[2])}
+		catalog:saveArt(old_shows[1], 'poster', 'library', 'Yellowstone/poster.jpg')
+		catalog:addCollection('Favorites', nil, nil, old_shows, 1000)
+		assert(catalog:saveMetadata(old_shows[2], {provider='test',external_id='y',source_url='https://example.org/y',
+			overview='A description',year=2018,genres={'Drama'},people={'Actor'}}, 3200, 9000))
+		catalog:_rows("UPDATE files SET probed_stamp = '100:5', container = 'matroska' WHERE library_id = ?", lib.id)
+		catalog:_rows("INSERT INTO streams (file_id, idx, kind, codec) VALUES (?, 0, 'video', 'h264')", ids[1])
+		assert(catalog:batch(function()
+			for _, path in ipairs(paths) do catalog:noteFile(lib.id, path, 100, 5, 2, naming.parse(path, 'show')) end
+			return true
+		end))
+		local shows = catalog:browse(lib.id, {}).items
+		assert.equal(1, #shows); assert.equal('Yellowstone', shows[1].title); assert.equal(2, shows[1].seasons)
+		local show = catalog:item(shows[1].id, 'alice')
+		assert.equal('A description', show.overview); assert.equal('test', show.metadata.provider)
+		assert.same({'Drama'}, show.genres); assert.equal(2018, show.year)
+		assert.equal('library', catalog:_one('SELECT origin FROM art WHERE work_id = ?', show.id).origin)
+		local seasons = catalog:episodes(show.id, 'alice')
+		assert.equal(1, seasons[1].season); assert.equal(2, seasons[2].season)
+		assert.equal(2500, seasons[1].episodes[1].position_ms)
+		assert.equal(1, catalog:episodes(show.id, 'bob')[2].episodes[1].watched)
+		assert.equal('h264', catalog:_one('SELECT codec FROM streams WHERE file_id = ?', ids[1]).codec)
+		assert.equal('matroska', catalog:_one('SELECT container FROM files WHERE id = ?', ids[1]).container)
+		assert.same({show.id}, catalog:collections()[1].items)
+		assert.is_false(catalog:finishFrame(old_shows[1], '/cache/old-group-frame.jpg'))
+		for _, path in ipairs(paths) do assert.is_nil(catalog:noteFile(lib.id, path, 100, 5, 3, naming.parse(path, 'show'))) end
+		assert.equal(show.id, catalog:browse(lib.id, {}).items[1].id)
+		assert.equal(2, catalog:counts().files)
+	end)
+
+	it('combines duplicate episode copies and keeps the most recent progress for each user', function()
+		local lib = catalog:addLibrary('TV', 'show', '/tv')
+		local paths = {'Show/Show Season 1/Show.S01E01.mkv', 'Show/S01E01/Show.S01E01.mp4'}
+		for i, path in ipairs(paths) do
+			local file = catalog:noteFile(lib.id, path, 100, 5, 1, {kind='episode',show='Legacy '..i,season=1,episode=1})
+			local work = catalog:_one('SELECT work_id FROM files WHERE id = ?', file).work_id
+			catalog:saveProgress('alice', work, i*1000, 10000, i*1000)
+		end
+		for _, path in ipairs(paths) do catalog:noteFile(lib.id, path, 100, 5, 2, naming.parse(path, 'show')) end
+		local show = catalog:browse(lib.id, {}).items[1]
+		local seasons = catalog:episodes(show.id, 'alice')
+		assert.equal(1, #catalog:browse(lib.id, {}).items)
+		assert.equal(1, #seasons[1].episodes)
+		local episode = catalog:item(seasons[1].episodes[1].id, 'alice')
+		assert.equal(2, #episode.files); assert.equal(2000, episode.progress.position_ms)
+	end)
+
+	it('joins an undated season pack to a single dated series in either discovery order', function()
+		for _, reverse in ipairs({false, true}) do
+			local lib = catalog:addLibrary('TV', 'show', reverse and '/tv-b' or '/tv-a')
+			local paths = {'True Detective/Season 1/True.Detective.S01E01.mkv',
+				'True Detective (2014) Season 4/True Detective (2014) - S04E01.mkv'}
+			if reverse then paths[1], paths[2] = paths[2], paths[1] end
+			for _, path in ipairs(paths) do catalog:noteFile(lib.id, path, 100, 5, 1, naming.parse(path, 'show')) end
+			local shows = catalog:browse(lib.id, {}).items
+			assert.equal(1, #shows); assert.equal(2, shows[1].seasons); assert.equal(2014, shows[1].year)
+		end
+	end)
+
+	it('keeps explicitly dated remakes separate and leaves an ambiguous undated show separate', function()
+		local lib = catalog:addLibrary('TV', 'show', '/tv')
+		for _, path in ipairs({'Doctor Who (1963)/Season 1/Doctor.Who.S01E01.mkv',
+			'Doctor Who (2005)/Season 1/Doctor.Who.S01E01.mkv', 'Doctor Who/Season 1/Doctor.Who.S01E01.mkv'}) do
+			catalog:noteFile(lib.id, path, 100, 5, 1, naming.parse(path, 'show'))
+		end
+		assert.equal(3, #catalog:browse(lib.id, {}).items)
 	end)
 
 	it("marks missing files instead of deleting them, and restores them", function()

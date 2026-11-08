@@ -2,7 +2,7 @@
   "schema_version": 2,
   "id": "media",
   "name": "Lunar Media",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Discover sources, browse rich movie and TV metadata, and play your Lunar library with contained playback tools.",
   "host_api": 4,
   "modes": ["gui"],

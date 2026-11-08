@@ -154,7 +154,7 @@ function M.new(ctx, opts)
 	api.tick = discovery.tick
 
 	--- Show what the server says.
-	function api.setData(next_sources, next_providers)
+	function api.setData(next_sources, next_providers, next_libraries)
 		local selected_source = chosen_source and chosen_source.id
 		local selected_provider = chosen_provider and chosen_provider.id
 		sources = next_sources or sources
@@ -163,6 +163,7 @@ function M.new(ctx, opts)
 			providers = {}
 			for _, provider in ipairs(next_providers) do if provider.kind ~= "website" then providers[#providers + 1] = provider end end
 		end
+		if next_libraries then discovery.setLibraries(next_libraries) end
 		source_list:setProvider(#sources, source_value)
 		provider_list:setProvider(#providers, provider_value)
 		-- Sync and Remove act on a row, so there is always a row chosen.

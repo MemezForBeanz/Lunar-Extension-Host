@@ -54,6 +54,9 @@ M.DEFAULT_OPTIONS = {
 	{ "idle", "yes" },
 	{ "vo", "gpu" },
 	{ "hwdec", "auto-safe" },
+	-- Bound compressed read-ahead without changing decoding or video quality.
+	{ "demuxer-max-bytes", "64MiB" },
+	{ "demuxer-max-back-bytes", "8MiB" },
 }
 
 local FORMATS = { string = 1, flag = 3, int64 = 4, double = 5 }
