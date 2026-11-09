@@ -15,8 +15,13 @@ local IGNORE, CLOSE = -1, -3
 
 local function data(st) return st.data end
 local function border_width(e) return int(attr(e, "BORDERWIDTH"), 1) end
-local function arrow_size(e) return int(attr(e, "ARROWSIZE"), 24) end
-local function arrow_padding(e) return int(attr(e, "ARROWPADDING"), 4) end
+-- iDropButtonGetDefaultArrowSize: 24 on a high-DPI screen, else 16; padding 5
+local function arrow_size(e)
+	local v = own(e, "ARROWSIZE")
+	if v then return int(v, 16) end
+	return require("core.imgui.Fonts").dpi > 120 and 24 or 16
+end
+local function arrow_padding(e) return int(own(e, "ARROWPADDING"), 5) end
 
 local function drop_child(e)
 	return Element.getHandle(e, "DROPCHILD") or Element.getHandle(e, "DROPCHILD_HANDLE")
@@ -302,6 +307,11 @@ Classes.define({
 		BGCOLOR = function(e, st) return st.attrs.BGCOLOR or F.nativeParentBg(e) end,
 	},
 	destroy = function(e, st) close_drop(e, st) end,
+	-- iDropButtonCreateMethod: initial values, not defaults, so they can be set to NULL
+	create = function(e, st)
+		if st.attrs.HLCOLOR == nil then st.attrs.HLCOLOR = "200 225 245" end
+		if st.attrs.PSCOLOR == nil then st.attrs.PSCOLOR = "150 200 235" end
+	end,
 })
 
 return {}

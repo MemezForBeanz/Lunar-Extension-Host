@@ -138,8 +138,21 @@ local function container_expand(st)
 	return BOTH
 end
 
+-- iup_canvas.c starts every canvas at IUP_EXPAND_BOTH; the flat button, label, list,
+-- toggle and dropbutton reset it to NONE in their Create, the fork's canvas classes do not.
+local CANVAS_EXPANDS = { canvas = true, flatrows = true, flatgrid = true, flatseek = true,
+	flatsegmented = true, videohost = true, flattree = true, flatval = true }
+
 local function control_expand(el, st)
 	local v = st.attrs.EXPAND
+	if v == nil and CANVAS_EXPANDS[st.classname] then return BOTH end
+	if v == nil and st.classname == "flatseparator" then
+		-- iFlatSeparatorSetOrientationAttrib: free expansion along the line
+		return ((st.attrs.ORIENTATION or ""):upper() == "HORIZONTAL") and WFREE or HFREE
+	end
+	if v == nil and st.classname == "label" and st.attrs.SEPARATOR then
+		return (st.attrs.SEPARATOR:upper() == "HORIZONTAL") and WFREE or HFREE
+	end
 	if v == nil then
 		local d = st.class.expandDefault
 		if type(d) == "function" then d = d(el, st) end

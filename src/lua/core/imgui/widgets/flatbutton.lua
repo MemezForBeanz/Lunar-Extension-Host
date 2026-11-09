@@ -291,6 +291,11 @@ Classes.define({
 	natural = natural,
 	draw = draw,
 	event = event,
+	-- iFlatButtonCreateMethod: initial values, not defaults, so they can be set to NULL
+	create = function(e, st)
+		if st.attrs.HLCOLOR == nil then st.attrs.HLCOLOR = "200 225 245" end
+		if st.attrs.PSCOLOR == nil then st.attrs.PSCOLOR = "150 200 235" end
+	end,
 	set = {
 		VALUE = function(e, st, v)
 			local d = data(st)

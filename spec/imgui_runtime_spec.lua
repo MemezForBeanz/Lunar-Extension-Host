@@ -211,7 +211,7 @@ describe("imgui runtime", function()
 
 	it("fires enter and leave on hover changes", function()
 		local log = {}
-		local c = iup.canvas({ RASTERSIZE = "50x50",
+		local c = iup.canvas({ RASTERSIZE = "50x50", EXPAND = "NO",
 			enterwindow_cb = function() log[#log + 1] = "enter" end,
 			leavewindow_cb = function() log[#log + 1] = "leave" end })
 		iup.Show(dialog_with(iup.vbox({ c })))
@@ -406,5 +406,31 @@ describe("imgui draw context", function()
 		assert.equal(Color.pack(255, 0, 16, 32), Color.parse("#ff001020"))
 		assert.equal(Color.pack(1, 2, 3, 4), Color.parse("1 2 3 4"))
 		assert.is_nil(Color.parse(""))
+	end)
+end)
+
+describe("imgui fonts", function()
+	it("finds a font an extension registers by its family and full names", function()
+		local _, R, B = host()
+		local Fonts = require("core.imgui.Fonts")
+		B.font_name_tables["C:/pack/HPE Graphik-Medium.otf"] = { [1] = "HPE Graphik Medium", [2] = "Regular", [4] = "HPE Graphik Medium" }
+		B.font_name_tables["C:/pack/Plex-Bold.otf"] = { [1] = "IBM Plex Sans", [2] = "Bold", [4] = "IBM Plex Sans Bold" }
+		Fonts.register("C:/pack/HPE Graphik-Medium.otf")
+		Fonts.register("C:/pack/Plex-Bold.otf")
+		local f = Fonts.get("HPE Graphik Medium, 10")
+		assert.equal("C:/pack/HPE Graphik-Medium.otf", B.fonts[f.id])
+		local b = Fonts.get("IBM Plex Sans, Bold 9")
+		assert.equal("C:/pack/Plex-Bold.otf", B.fonts[b.id])
+	end)
+
+	it("converts points with the screen DPI and honours negative pixel sizes", function()
+		host()
+		local Fonts = require("core.imgui.Fonts")
+		Fonts.dpi = 96
+		assert.equal(12, Fonts.get("Segoe UI, 9").px)
+		assert.equal(14, Fonts.get("Segoe UI, -14").px)
+		local p = Fonts.parse("Segoe UI, Bold Italic Underline 11")
+		assert.is_true(p.bold and p.italic and p.underline)
+		assert.equal(11, p.size)
 	end)
 end)

@@ -127,6 +127,10 @@ function M.new(opts)
 		return (face or "default") .. (bold and "-bold" or "") .. (italic and "-italic" or "") .. ".ttf"
 	end
 
+	--- Name tables of fake font files: B.font_name_tables[path] = { [1]=family, [2]=sub, [4]=full }
+	B.font_name_tables = {}
+	function B.font_names(path) return B.font_name_tables[path] end
+
 	function B.texture(rgba, w, h)
 		local id = B.next_tex
 		B.next_tex = id + 1

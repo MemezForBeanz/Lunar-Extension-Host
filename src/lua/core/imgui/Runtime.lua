@@ -1425,6 +1425,17 @@ function M.init(backend)
 	M._overlay_capture = nil
 	M.preRoute, M.postPaint = {}, {}
 	preload_natives()
+	-- A font an extension registers (ctx:registerFont) must reach the ImGui atlas too;
+	-- AddFontResourceEx alone only tells GDI about it.
+	local okp, platform = pcall(require, "core.platform")
+	if okp and platform and platform.register_font and not platform._imgui_fonts then
+		local raw = platform.register_font
+		platform.register_font = function(path, ...)
+			pcall(Fonts.register, path)
+			return raw(path, ...)
+		end
+		platform._imgui_fonts = true
+	end
 	-- While Windows runs its modal size/move loop, the backend calls back here so the
 	-- window repaints live (and timers keep running) instead of stretching a stale frame.
 	if B.set_paint_callback then

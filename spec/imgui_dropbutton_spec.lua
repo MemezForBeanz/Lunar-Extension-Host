@@ -12,17 +12,17 @@ describe("imgui dropbutton", function()
 		iup = require("core.imgui.iup")
 	end)
 
-	it("measures title + padding + the 24px arrow area + border", function()
+	it("measures title + padding + the 16px arrow area + border", function()
 		local b = iup.dropbutton({ TITLE = "abcd" })
 		local w, h = require("core.imgui.Layout").natural(b)
-		-- text 20x13, PADDING 3x3, focus room 4, arrow 24, border 2
-		assert.same({ 20 + 6 + 4 + 24 + 2, 13 + 6 + 4 + 2 }, { w, h })
+		-- text 20x13, PADDING 3x3, focus room 4, arrow 16 (not high DPI), border 2
+		assert.same({ 20 + 6 + 4 + 16 + 2, 13 + 6 + 4 + 2 }, { w, h })
 	end)
 
 	it("uses VISIBLECOLUMNS for the text width", function()
 		local b = iup.dropbutton({ TITLE = "x", VISIBLECOLUMNS = "20" })
 		local w = require("core.imgui.Layout").natural(b)
-		assert.equal(100 + 6 + 24 + 2, w) -- 20 * 50/10 + padding + arrow + border
+		assert.equal(100 + 6 + 16 + 2, w) -- 20 * 50/10 + padding + arrow + border
 	end)
 
 	it("draws its title and the arrow", function()

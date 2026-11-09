@@ -890,6 +890,52 @@ int l_font_load(lua_State *L) {
     return 1;
 }
 
+
+/* The names a font file calls itself (OpenType `name` table): family (1), subfamily (2),
+ * full name (4), typographic family (16) and subfamily (17). Lua maps a font a process
+ * registers (ctx:registerFont) to the face names IUP font strings use. */
+int l_font_names(lua_State *L) {
+    std::vector<unsigned char> d;
+    if (!read_file(wide(luaL_checkstring(L, 1)), d) || d.size() < 12) { lua_pushnil(L); return 1; }
+    size_t base = 0;
+    if (be32(&d[0]) == 0x74746366 && d.size() >= 16) base = be32(&d[12]);
+    if (base + 12 > d.size()) { lua_pushnil(L); return 1; }
+    uint16_t n = be16(&d[base + 4]);
+    const unsigned char *name = nullptr; size_t name_len = 0;
+    for (uint16_t i = 0; i < n; i++) {
+        size_t rec = base + 12 + (size_t)i * 16;
+        if (rec + 16 > d.size()) break;
+        if (be32(&d[rec]) == 0x6E616D65) {
+            uint32_t off = be32(&d[rec + 8]), len = be32(&d[rec + 12]);
+            if ((size_t)off + len <= d.size()) { name = &d[off]; name_len = len; }
+        }
+    }
+    if (!name || name_len < 6) { lua_pushnil(L); return 1; }
+    uint16_t count = be16(name + 2), storage = be16(name + 4);
+    lua_newtable(L);
+    for (uint16_t i = 0; i < count; i++) {
+        size_t r = 6 + (size_t)i * 12;
+        if (r + 12 > name_len) break;
+        uint16_t platform = be16(name + r), id = be16(name + r + 6), len = be16(name + r + 8), off = be16(name + r + 10);
+        if (!(id == 1 || id == 2 || id == 4 || id == 16 || id == 17)) continue;
+        size_t at = (size_t)storage + off;
+        if (at + len > name_len) continue;
+        std::string value;
+        if (platform == 3 || platform == 0) {
+            std::wstring w;
+            for (size_t k = 0; k + 1 < len; k += 2) w += (wchar_t)((name[at + k] << 8) | name[at + k + 1]);
+            value = utf8(w.c_str());
+        } else if (platform == 1) {
+            value.assign((const char*)name + at, len);
+        } else continue;
+        lua_rawgeti(L, -1, id);
+        bool have = !lua_isnil(L, -1);
+        lua_pop(L, 1);
+        if (!have || platform == 3) { lua_pushstring(L, value.c_str()); lua_rawseti(L, -2, id); }
+    }
+    return 1;
+}
+
 int l_font_find(lua_State *L) {
     std::string p = find_font(luaL_checkstring(L, 1), lua_toboolean(L, 2) != 0, lua_toboolean(L, 3) != 0);
     if (p.empty()) lua_pushnil(L); else lua_pushstring(L, p.c_str());
@@ -1174,7 +1220,7 @@ const luaL_Reg api[] = {
     {"rect", l_rect}, {"rect_filled", l_rect_filled}, {"rect_gradient", l_rect_gradient},
     {"line", l_line}, {"circle", l_circle}, {"poly", l_poly},
     {"text", l_text}, {"text_size", l_text_size}, {"font_metrics", l_font_metrics},
-    {"font_load", l_font_load}, {"font_find", l_font_find},
+    {"font_load", l_font_load}, {"font_find", l_font_find}, {"font_names", l_font_names},
     {"texture", l_texture}, {"texture_free", l_texture_free}, {"image", l_image},
     {"clip_push", l_clip_push}, {"clip_pop", l_clip_pop}, {"layer", l_layer},
     {"cursor", l_cursor}, {"clipboard_get", l_clipboard_get}, {"clipboard_set", l_clipboard_set},

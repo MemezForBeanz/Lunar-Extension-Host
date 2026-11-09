@@ -60,13 +60,53 @@ function M.parse(s)
 	return out
 end
 
+-- Fonts a process registered itself (ctx:registerFont -> platform.register_font):
+-- lower-cased face name -> { regular=, bold=, italic=, bolditalic= } file paths.
+local registered = {}
+
+local function style_key(bold, italic)
+	if bold and italic then return "bolditalic" elseif bold then return "bold" elseif italic then return "italic" end
+	return "regular"
+end
+
+--- Make a font file's faces findable by the names it carries (family, full name).
+function M.register(path)
+	local B = M.backend
+	local names = B and B.font_names and B.font_names(path)
+	if not names then return false end
+	local family = names[16] or names[1]
+	local sub = (names[17] or names[2] or "Regular"):lower()
+	local bold = sub:find("bold") ~= nil
+	local italic = sub:find("italic") ~= nil or sub:find("oblique") ~= nil
+	local function add(face, key)
+		if not face then return end
+		face = face:lower()
+		registered[face] = registered[face] or {}
+		registered[face][key] = registered[face][key] or path
+	end
+	add(family, style_key(bold, italic))
+	-- "HPE Graphik Medium": the full name works as a face of its own, regular style
+	add(names[4], "regular")
+	if names[1] and names[1] ~= family then add(names[1], style_key(bold, italic)) end
+	face_ids = {}
+	by_string = {}
+	return true
+end
+
+local function registered_path(face, bold, italic)
+	local r = face and registered[face:lower()]
+	if not r then return nil end
+	return r[style_key(bold, italic)] or (bold and italic and (r.bold or r.italic)) or r.regular
+end
+
 local function face_id(face, bold, italic)
 	local B = M.backend
 	if not B then return 0 end
 	local key = (face or "") .. "|" .. (bold and "b" or "") .. "|" .. (italic and "i" or "")
 	local id = face_ids[key]
 	if id ~= nil then return id or 0 end
-	local path = face and B.font_find and B.font_find(face, bold, italic)
+	local path = registered_path(face, bold, italic)
+		or (face and B.font_find and B.font_find(face, bold, italic))
 	if not path and (bold or italic) and face then
 		-- No styled file: fall back to the regular face (and remember it is synthetic).
 		path = B.font_find and B.font_find(face, false, false)
