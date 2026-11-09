@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
-project(Lunar C)
+project(Lunar C CXX)
 set(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
+set(LUNAR_UI "IMGUI" CACHE STRING "GUI backend (IMGUI or IUP)" FORCE)
+set_property(CACHE LUNAR_UI PROPERTY STRINGS IMGUI IUP)
 
 # Export compile_commands.json for VS Code IntelliSense
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -269,6 +272,7 @@ add_custom_command(
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/ui
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/lib
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/lsp
+            --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/imgui
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/platform.lua
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/platform
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/headless.lua
@@ -358,6 +362,41 @@ add_custom_target(embed_images DEPENDS ${EMBEDDED_IMAGES_H})
 # rewrites the archive when a source actually changed.
 # ---------------------------------------------------------------------------
 if(WIN32)
+if(LUNAR_UI STREQUAL "IMGUI")
+add_executable(Lunar WIN32
+    src/c/core/main_imgui.c
+    src/c/platform/win32/host.c
+    src/c/libs/subprocess_wrap.c
+    src/c/platform/win32/process.c
+    src/c/libs/logscan.c
+    src/c/libs/compositor/blend.c
+    src/c/libs/compositor/compositor_lua.c
+    src/c/libs/compositor/backend_none.c
+    src/c/libs/media_native.c
+    src/c/libs/nanosvg_impl.c
+    src/c/libs/svgicon_sizes.c
+    src/c/libs/imagecodec.c
+    src/cpp/lunarimgui.cpp
+    vendor/imgui/imgui.cpp
+    vendor/imgui/imgui_draw.cpp
+    vendor/imgui/imgui_tables.cpp
+    vendor/imgui/imgui_widgets.cpp
+    vendor/imgui/backends/imgui_impl_win32.cpp
+    vendor/imgui/backends/imgui_impl_opengl3.cpp
+)
+add_dependencies(Lunar embed_lua)
+add_dependencies(Lunar embed_images)
+set_target_properties(Lunar PROPERTIES ENABLE_EXPORTS TRUE)
+target_include_directories(Lunar PRIVATE
+    ${LUA_SRC} ${NANOSVG_DIR} ${VENDOR} ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/vendor/imgui)
+target_link_libraries(Lunar PRIVATE
+    lua_static lfs_static cjson_static luasec_static luasocket_static
+    openssl_ssl openssl_crypto opengl32 gdi32 dwmapi imm32 comdlg32
+    ole32 oleaut32 shell32 uuid user32 ws2_32 crypt32)
+target_link_options(Lunar PRIVATE -static -static-libgcc -static-libstdc++
+    $<$<CONFIG:Release>:-s> -Wl,--export-all-symbols)
+else()
 set(IUP_FORK_LIB ${CMAKE_SOURCE_DIR}/vendor/iup-src/build/libiup.a)
 add_custom_target(iup_fork ALL
     COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File ${CMAKE_SOURCE_DIR}/scripts/build-iup-fork.ps1
@@ -497,6 +536,7 @@ else()
     )
 endif()
 
+endif()
 elseif(NOT LUNAR_HEADLESS)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)

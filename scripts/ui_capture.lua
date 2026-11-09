@@ -46,7 +46,33 @@ local user32, gdi32, dwmapi = ffi.load("user32"), ffi.load("gdi32"), ffi.load("d
 -- from_screen copies what is really on screen, title bar and menu included: a popup,
 -- and an edit control's cue banner, only paint for WM_PAINT, which PrintWindow does not
 -- send. Set LUNAR_CAPTURE_CLIENT=1 for the old client-only shot of a covered window.
-local function save_bmp(hwnd, path, from_screen)
+-- On the ImGui host there is no HWND per dialog and the GL surface does not answer
+-- PrintWindow: the backend reads its own back buffer instead (the whole window, or one
+-- dialog's panel), which also means the shot never touches the screen.
+local IMGUI = rawget(iup, "_IMGUI") == true
+local function window_of(dlg)
+	if IMGUI then return dlg end
+	local IupFFI = require("core.classes.IupFFI")
+	return ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(dlg), "HWND"))
+end
+
+local save_bmp_native
+local function save_bmp(target, path, from_screen)
+	if not IMGUI then return save_bmp_native(target, path, from_screen) end
+	local Runtime = require("core.imgui.Runtime")
+	local B = Runtime.backend()
+	local st = require("core.imgui.Element").state(target)
+	-- The backend reads the back buffer at the end of the next frame, which also shows
+	-- the state after the step that asked for the shot.
+	if target == Runtime.mainDialog() or not st then B.screenshot(path)
+	else
+		local top = st.data.chrome and st.data.chrome.top or 0
+		B.screenshot(path, st.data.ox or 0, (st.data.oy or 0) - top, st.w, st.h + top)
+	end
+	Runtime.frame()
+end
+
+function save_bmp_native(hwnd, path, from_screen)
 	local rc = ffi.new("CAP_RECT")
 	if from_screen then
 		-- The visible frame: GetWindowRect also counts the invisible resize border.
@@ -246,13 +272,13 @@ iup.MainLoop = function()
 		scene = scene + 1
 		local IupFFI = require("core.classes.IupFFI")
 		local function snap(name)
-			save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(dlg), "HWND")),
+			save_bmp(window_of(dlg),
 				string.format("%s/%s-%s.bmp", out_dir, prefix, name), whole_window)
 		end
 		-- One window's own pixels, whatever is over it: a shared desktop can cover the
 		-- status bar, and a screen grab would then show the taskbar instead.
 		local function snap_window(window, name)
-			save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(window), "HWND")),
+			save_bmp(window_of(window),
 				string.format("%s/%s-%s.bmp", out_dir, prefix, name), false)
 		end
 		if scene == 1 then
@@ -377,9 +403,16 @@ iup.MainLoop = function()
 			local width, height = (os.getenv("LUNAR_CAPTURE_SIZE") or ""):match("^(%d+)x(%d+)$")
 			if width then
 				local IupFFI = require("core.classes.IupFFI")
-				local hwnd = ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(dlg), "HWND"))
-				user32.ShowWindow(hwnd, 9) -- SW_RESTORE
-				user32.MoveWindow(hwnd, 0, 0, tonumber(width), tonumber(height), 1)
+				if IMGUI then
+					local B = require("core.imgui.Runtime").backend()
+					B.window("restore")
+					B.window("pos", 0, 0)
+					B.window("size", tonumber(width), tonumber(height))
+				else
+					local hwnd = window_of(dlg)
+					user32.ShowWindow(hwnd, 9) -- SW_RESTORE
+					user32.MoveWindow(hwnd, 0, 0, tonumber(width), tonumber(height), 1)
+				end
 			end
 			fill_lists(dlg)
 			for _, p in ipairs(pages) do
@@ -405,7 +438,7 @@ iup.MainLoop = function()
 			local slug = page.title:lower():gsub("[^%w]+", "-")
 			local IupFFI = require("core.classes.IupFFI")
 			local function shoot(suffix)
-				save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(dlg), "HWND")), string.format("%s/%s-%02d-%s%s.bmp",
+				save_bmp(window_of(dlg), string.format("%s/%s-%02d-%s%s.bmp",
 					out_dir, prefix, index / 2, slug, suffix), whole_window)
 			end
 			local fixture = fixtures.for_tab(rawget(_G, "LUNAR_DEV_SHELL") or {}, page.title)

@@ -1383,13 +1383,22 @@ M.CURSORS = {
 -- Setup -----------------------------------------------------------------------------------
 local function preload_natives()
 	local function pre(name, mod)
-		package.preload[name] = package.preload[name] or function() return require(mod) end
+		-- These replace C modules that only make sense over IUP, so they win over any
+		-- C preload the executable registered under the same name.
+		package.loaded[name] = nil
+		package.preload[name] = function() return require(mod) end
 	end
 	pre("iupraw", "core.imgui.native.iupraw")
 	pre("sci", "core.imgui.native.sci")
 	pre("themeapply", "core.imgui.native.themeapply")
 	pre("winframe", "core.imgui.native.winframe")
 	pre("winredraw", "core.imgui.native.winredraw")
+	pre("svgicon", "core.imgui.native.svgicon")
+	pre("pngimage", "core.imgui.native.pngimage")
+	pre("appimages", "core.imgui.native.appimages")
+	-- The layered-window compositor becomes draw-call replay (see native/compositor.lua).
+	package.loaded.compositor = nil
+	package.preload.compositor = function() return require("core.imgui.native.compositor") end
 end
 
 --- Start the runtime over a backend. Safe to call again (tests do, with a fresh Null).
@@ -1413,6 +1422,15 @@ function M.init(backend)
 	M._overlay_capture = nil
 	M.preRoute, M.postPaint = {}, {}
 	preload_natives()
+	-- While Windows runs its modal size/move loop, the backend calls back here so the
+	-- window repaints live (and timers keep running) instead of stretching a stale frame.
+	if B.set_paint_callback then
+		B.set_paint_callback(function()
+			if closed then return end
+			local ok, err = xpcall(M.step, debug.traceback, false)
+			if not ok then warn(err) end
+		end)
+	end
 	return M
 end
 
