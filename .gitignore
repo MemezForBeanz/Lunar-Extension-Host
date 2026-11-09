@@ -19,6 +19,7 @@ vendor/*
 !vendor/nanosvg/
 !vendor/stb/
 !vendor/certs/
+!vendor/imgui/
 
 # Generated sources
 src/lua_bundle.h

@@ -1,0 +1,1 @@
+Dear ImGui v1.92.9 (ocornut/imgui tag v1.92.9): core sources plus the Win32 and OpenGL3 backends and misc/cpp/imgui_stdlib. Unmodified.
