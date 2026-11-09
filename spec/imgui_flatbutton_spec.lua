@@ -37,7 +37,7 @@ describe("imgui flatbutton", function()
 		local s, c = Element.state(b), Classes.get("flatbutton")
 		s.w, s.h = 40, 20
 		c.event(b, s, { type = "key", key = iup.K_SP }, rt)
-		assert.are.equal("YES", b.VALUE)
+		assert.are.equal("ON", b.VALUE) -- iFlatButtonGetValueAttrib returns ON/OFF
 		assert.are.equal(1, changed)
 	end)
 end)

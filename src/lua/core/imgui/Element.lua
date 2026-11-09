@@ -36,7 +36,8 @@ local function upper(name) return string.upper(name) end
 --- Attributes IUP registers as not inherited on every class. Everything else that is
 -- not internal (`_IUP...`) is inherited, as IUP does with unregistered names.
 -- GAP/MARGIN are here because Lunar's patch 0005 made them local.
-M.NOINHERIT = {
+M.NOINHERIT = { -- fallback only: core.imgui.attrs (IUP's registrations) decides first
+
 	TITLE = true, VALUE = true, RASTERSIZE = true, SIZE = true, USERSIZE = true,
 	EXPAND = true, NAME = true, MARGIN = true, GAP = true, CMARGIN = true, CGAP = true,
 	NMARGIN = true, NCMARGIN = true, NGAP = true, NCGAP = true,
@@ -237,15 +238,41 @@ M.commonSet.THEME = theme_setter
 M.commonSet.NTHEME = theme_setter
 M.NOINHERIT.NTHEME = true
 
---- Is `name` inherited by children of this element's class?
+-- IUP's own registrations (scripts/gen_imgui_attrs.py): defaults and inheritance per class.
+local REG = require("core.imgui.attrs")
+local REG_BASE = REG.base
+M.REG = REG
+
+local function registration(class, name)
+	local r = REG[class.iupname or class.name]
+	local e = r and r[name]
+	if e then return e end
+	return REG_BASE[name]
+end
+M.registration = registration
+
+--- Is `name` inherited by children of this element's class? Internal names never are;
+-- registered ones follow IUP's IUPAF_NO_INHERIT; unregistered ones always are.
 local function inherits(class, name)
 	if M.isInternal(name) then return false end
 	if class.noinherit and class.noinherit[name] then return false end
-	local v = M.NOINHERIT[name]
-	if v == true then return false end
+	local r = registration(class, name)
+	if r then return not r[2] end
+	if M.NOINHERIT[name] == true and not REG_BASE[name] then return false end
 	return true
 end
 M.inherits = inherits
+
+--- IUP's registered default for the class, with a global-colour name resolved.
+local function registered_default(class, name)
+	local r = registration(class, name)
+	local d = r and r[1]
+	if not d then return nil end
+	if d:match("^%u+COLOR$") then return M.globals[d] end
+	if d == "DEFAULTFONT" then return M.globals.DEFAULTFONT end
+	return d
+end
+M.registeredDefault = registered_default
 
 --- Read an attribute: class getter, own value, inherited value, class default.
 function M.getAttribute(el, name)
@@ -264,13 +291,15 @@ function M.getAttribute(el, name)
 		while p do
 			local ps = STATE[p]
 			local pv = ps.attrs[name]
-			if pv ~= nil and inherits(ps.class, name) then return pv end
+			if pv ~= nil then return pv end -- iAttribGetInheritRec reads every ancestor's own value
 			p = ps.parent
 		end
 	end
 	local d = class.defaults and class.defaults[name]
 	if type(d) == "function" then d = d(el, st) end
 	if d ~= nil then return tostr(d) end
+	d = registered_default(class, name)
+	if d ~= nil then return d end
 	if inherits(class, name) then return M.globalDefault(name) end
 	return nil
 end

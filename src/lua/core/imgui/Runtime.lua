@@ -1226,12 +1226,15 @@ local function tooltip(d)
 	local tip = Element.getAttribute(hovered, "TIP")
 	if not tip or tip == "" then return end
 	if Element.getAttribute(hovered, "TIPVISIBLE") == "NO" then return end
-	local delay = (tonumber(Element.getAttribute(hovered, "TIPDELAY")) or (M.TIP_DELAY * 1000)) / 1000
+	-- The system's initial delay, then the tip stays up for TIPDELAY ms (IUP's autopop time).
 	local now = M.now()
-	if now - hover_since < delay then
+	local shown_for = now - hover_since - M.TIP_DELAY
+	if shown_for < 0 then
 		animating = true -- keep frames coming until the tip is due
 		return
 	end
+	local autopop = (tonumber(Element.getAttribute(hovered, "TIPDELAY")) or 5000) / 1000
+	if shown_for > autopop then return end
 	tip_shown = true
 	local font = Fonts.get(Element.getAttribute(hovered, "TIPFONT") or globals.TIPFONT)
 	local bg = Element.getAttribute(hovered, "TIPBGCOLOR") or globals.TIPBGCOLOR or "255 255 255"

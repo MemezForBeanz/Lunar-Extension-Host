@@ -125,6 +125,8 @@ local function metrics(el)
 	local ps = pages(el)
 	local t = typeOf(el)
 	local px, py = pair(attr(el, "TABSPADDING"), 6, 4)
+	-- patch 0004: a strip with SHOWTABS=NO has no title band at all
+	if not yes(attr(el, "SHOWTABS")) then return 0, 0, px, py end
 	local bw, bh, total = 0, 0, 0
 	for i, child in ipairs(ps) do
 		if visibleAt(el, i - 1) and attr(child, "FLOATING") ~= "YES" then

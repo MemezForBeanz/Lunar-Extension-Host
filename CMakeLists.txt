@@ -396,6 +396,20 @@ target_link_libraries(Lunar PRIVATE
     ole32 oleaut32 shell32 uuid user32 ws2_32 crypt32)
 target_link_options(Lunar PRIVATE -static -static-libgcc -static-libstdc++
     $<$<CONFIG:Release>:-s> -Wl,--export-all-symbols)
+# The icon and version resource, as the IUP build has them.
+target_sources(Lunar PRIVATE assets/Lunar.rc)
+configure_file(${CMAKE_SOURCE_DIR}/assets/lunar_version.h.in ${CMAKE_BINARY_DIR}/generated/lunar_version.h @ONLY)
+set_source_files_properties(assets/Lunar.rc PROPERTIES
+    INCLUDE_DIRECTORIES ${CMAKE_BINARY_DIR}/generated
+    OBJECT_DEPENDS "${CMAKE_BINARY_DIR}/generated/lunar_version.h;${CMAKE_SOURCE_DIR}/assets/lunar.ico")
+option(LUNAR_DEV_BUILD
+    "Development build: prefer the repo's plugins/ folder and keep the default Lua module paths."
+    ON)
+if(LUNAR_DEV_BUILD)
+    target_compile_definitions(Lunar PRIVATE
+        LUNAR_DEV_BUILD=1
+        LUNAR_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+endif()
 else()
 set(IUP_FORK_LIB ${CMAKE_SOURCE_DIR}/vendor/iup-src/build/libiup.a)
 add_custom_target(iup_fork ALL
