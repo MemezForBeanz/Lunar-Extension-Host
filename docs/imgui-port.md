@@ -353,3 +353,28 @@ widgets, queues mouse and keyboard input, runs frames and asserts on the draw ca
 | `src/lua/core/imgui/widgets/*.lua` | one module per control family |
 | `src/lua/core/imgui/native/*.lua` | Lua stand-ins for the IUP-bound C modules (sci, iupraw, compositor, winframe, svgicon...) |
 | `src/lua/core/imgui/backend/Null.lua` | the headless backend for tests |
+
+## Fidelity: how it was checked, and what still differs
+
+`scripts/ui_capture.lua` walks every page on both builds (IUP from `main`, ImGui from this
+branch) on a private desktop at 1400x900 with the HPE org packs. Layout, colours, rounded
+cards, toggles, dropbuttons, tab strips, lists, row markers, split panes, the build log and
+the status bar line up page for page; text widths match GDI to the pixel because the
+backend sizes and places glyphs with each face's own `head`/`hhea`/`OS/2` metrics.
+
+Known differences, in order of visibility:
+
+- **Glyph rasterization.** ImGui's stb_truetype rasterizer draws softer, slightly thinner
+  strokes than GDI's hinted ClearType. Metrics and positions are the same; weight is
+  not. The fix is a custom `ImFontLoader` that rasterizes glyphs with GDI
+  (`GetGlyphOutline`, hinted, grayscale) into the atlas; ImGui 1.92's loader interface
+  supports it.
+- **Secondary dialogs** (the activity panel, the command palette, message boxes) are
+  drawn inside the main window as panels rather than as separate OS windows. They
+  cannot leave the main window's bounds.
+- **Video host**: `core.imgui.widgets.raw` reserves the rect and exposes the window's
+  HWND; the media player's native child window has to be positioned over it by
+  `media_native` (no backend support for child HWNDs yet).
+- **Tray icon** (`TRAY*` on the dialog) is not implemented in the backend yet.
+- **Compositor scaling**: snapshots replay with offset and alpha; a sprite's scale is
+  approximated by its recorded size.

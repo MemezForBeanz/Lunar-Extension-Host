@@ -432,7 +432,7 @@ int load_face(const std::string &path) {
     Face face;
     read_metrics(bytes, face);
     ImFontConfig cfg; cfg.PixelSnapH = true; cfg.OversampleH = 1; cfg.OversampleV = 1;
-    cfg.RasterizerMultiply = 1.2f;   /* closer to the weight GDI ClearType gave IUP text */
+    cfg.RasterizerMultiply = 1.4f;   /* closer to the weight GDI ClearType gave IUP text */
     ImFont *font = ImGui::GetIO().Fonts->AddFontFromFileTTF(path.c_str(), 16.0f, &cfg);
     if (!font) return -1;
     merge_fallbacks(16.0f);
