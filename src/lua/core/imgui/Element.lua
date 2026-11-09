@@ -265,6 +265,11 @@ M.inherits = inherits
 
 --- IUP's registered default for the class, with a global-colour name resolved.
 local function registered_default(class, name)
+	-- iup_classbase.c registers CANFOCUS "YES" for interactive classes and "NO" for the rest
+	if name == "CANFOCUS" and REG_BASE.CANFOCUS then
+		local own_reg = REG[class.iupname or class.name]
+		if not (own_reg and own_reg.CANFOCUS) then return class.focusable and "YES" or "NO" end
+	end
 	local r = registration(class, name)
 	local d = r and r[1]
 	if not d then return nil end

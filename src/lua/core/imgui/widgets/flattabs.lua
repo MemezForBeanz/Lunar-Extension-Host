@@ -277,15 +277,30 @@ local function draw(el, st, dc)
 			local x, y, w, h = tabRect(el, st, i - 1, offset)
 			local selected = child == current_child
 			local hovered = st.data.hover == i - 1
-			local color = indexed(el, "TABFORECOLOR", i - 1, child) or (selected and attr(el, "FGCOLOR") or attr(el, "TABSFORECOLOR"))
-			local fill = indexed(el, "TABBACKCOLOR", i - 1, child)
-			if selected then fill = attr(el, "TABSSELCOLOR") or bg
-			elseif hovered then fill = indexed(el, "TABHIGHCOLOR", i - 1, child) or attr(el, "TABSHIGHCOLOR") or attr(el, "HLCOLOR") end
+			-- iFlatTabsRedraw_CB: the current tab in BGCOLOR/FORECOLOR (TABSSELCOLOR on side
+			-- strips only); the others in TABBACKCOLORn/TABSFORECOLOR, HIGHCOLOR on hover.
+			local color, fill
+			if selected then
+				fill = (t == "LEFT" and Element.own(el, "TABSSELCOLOR")) or attr(el, "BGCOLOR")
+				color = attr(el, "FORECOLOR")
+			else
+				fill = indexed(el, "TABBACKCOLOR", i - 1, child)
+				color = Element.own(el, "TABFORECOLOR" .. (i - 1)) or attr(el, "TABSFORECOLOR")
+				if hovered then
+					color = attr(el, "HIGHCOLOR") or attr(el, "FORECOLOR")
+					fill = Element.own(el, "TABHIGHCOLOR" .. (i - 1)) or attr(el, "TABSHIGHCOLOR") or fill
+				end
+			end
 			if fill then
 				local radius = integer(attr(el, "CORNERRADIUS"), 0)
-				local corners = t == "TOP" and { tl = true, tr = true } or nil
-				dc:fill(x, y, w, h, fill, { radius = radius, corners = corners })
-				if t == "TOP" and radius > 0 then dc:fill(x, y + radius, w, h - radius, fill) end
+				if t == "LEFT" then
+					dc:fill(x + 6, y + 1, math.max(0, w - 12), math.max(0, h - 3), fill, { radius = radius })
+				elseif t == "TOP" and radius > 0 and h > 2 * radius then
+					dc:fill(x, y, w, h, fill, { radius = radius })
+					dc:fill(x, y + radius, w, h - radius, fill)
+				else
+					dc:fill(x, y, w, h, fill)
+				end
 			end
 			drawTabContent(el, st, dc, i - 1, x, y, w, h, color or attr(el, "FGCOLOR"))
 			if selected and attr(el, "TABSACTIVELINE") then

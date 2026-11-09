@@ -49,7 +49,7 @@ M.MODULES = {
 	flatbutton = "flatbutton", flatlabel = "flatlabel", flatframe = "flatframe",
 	flattoggle = "flattoggle", flatseparator = "flatseparator",
 	label = "basic", button = "basic", toggle = "basic", link = "basic",
-	progressbar = "basic", canvas = "canvas", dropbutton = "basic",
+	progressbar = "basic", canvas = "canvas", dropbutton = "dropbutton",
 	flattabs = "flattabs", tabs = "flattabs",
 	flatlist = "flatlist", list = "list",
 	flatscrollbox = "scrollbox", scrollbox = "scrollbox",
