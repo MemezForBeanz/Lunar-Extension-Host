@@ -186,6 +186,8 @@ function M.setAttribute(el, name, value)
 	else
 		value = tostr(value)
 	end
+	local common = M.commonSet[name]
+	if common and common(el, st, value, handle) == false then return end
 	local setter = class.set and class.set[name]
 	if setter then
 		local keep = setter(el, st, value, handle)
@@ -203,6 +205,37 @@ function M.setAttribute(el, name, value)
 	end
 	M.hooks.invalidate(el, LAYOUT_ATTRS[name] and "layout" or "paint", name)
 end
+
+--- Setters every class shares (IUP's base class). Returning false keeps the value out of
+-- the store; anything else stores it as usual.
+M.commonSet = {}
+
+-- THEME / NTHEME: copy a theme user's attributes onto the element, then apply its
+-- "IUP<CLASS>" sub-theme (iupAttribSetTheme). NTHEME does not inherit.
+local function apply_theme(el, theme, depth)
+	local ts = STATE[theme]
+	if not ts or depth > 8 then return end
+	local st = STATE[el]
+	for name, v in pairs(ts.attrs) do
+		if not M.isInternal(name) and not name:match("^IUP%u") then
+			local h = ts.handles[name]
+			M.setAttribute(el, name, h or v)
+		end
+	end
+	local sub = ts.attrs["IUP" .. string.upper(st.class.iupname or st.classname)]
+	if sub then
+		local sh = ts.handles["IUP" .. string.upper(st.class.iupname or st.classname)] or named[sub]
+		if sh then apply_theme(el, sh, depth + 1) end
+	end
+end
+
+local function theme_setter(el, st, value, handle)
+	local theme = handle or (value and named[value])
+	if theme then apply_theme(el, theme, 0) end
+end
+M.commonSet.THEME = theme_setter
+M.commonSet.NTHEME = theme_setter
+M.NOINHERIT.NTHEME = true
 
 --- Is `name` inherited by children of this element's class?
 local function inherits(class, name)

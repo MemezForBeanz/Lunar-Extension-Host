@@ -198,7 +198,9 @@ dc:record() / dc:stop() -> list / dc:replay(list, dx, dy, alpha)   snapshots for
 ev.type    "press" | "release" | "move" | "wheel" | "key" | "char" | "enter" | "leave"
            | "focus" | "blur" | "dblclick"
 ev.x, ev.y     dialog client coordinates      ev.lx, ev.ly   relative to the element
-ev.button      1 | 2 | 3                      ev.status      iup status string
+ev.button      1 left | 2 middle | 3 right    ev.status      iup status string
+ev.iupbutton   iup.BUTTON1..3 (49..51), what BUTTON_CB receives
+ev.double      true on a double-click press (the status string carries 'D' too)
 ev.dx, ev.dy   wheel steps                    ev.key         IUP key code (+ modifier bits)
 ev.char        a UTF-8 character              ev.mods        { shift, ctrl, alt, sys }
 ```
@@ -222,7 +224,7 @@ open{ title, x, y, w, h, maximized, borderless } -> ok, err
 close()  alive() -> bool  now() -> seconds  wait(timeout_s)
 frame_begin() -> input        frame_end()
   input = { w, h, scale, mx, my, inside, down = { b1, b2, b3 },
-            pressed = { [1]=n,... }, released = {...}, double = {...},
+            pressed = { [1]=n,... }, released = {...}, double = {...},   -- 1 left, 2 middle, 3 right
             wheel_x, wheel_y, keys = { { code, down, shift, ctrl, alt, sys }, ... },
             chars = { "a", ... }, mods = { shift, ctrl, alt, sys },
             focused, resized, close_requested, files = { ... } }

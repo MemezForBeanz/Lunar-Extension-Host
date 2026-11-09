@@ -68,3 +68,4 @@ luacov.*.out
 *.user
 .DS_Store
 Thumbs.db
+imgui.ini

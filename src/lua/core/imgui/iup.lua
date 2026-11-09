@@ -71,16 +71,9 @@ function iup.isSysXkey(c) return bit.band(c, SYS) ~= 0 end
 function iup.isXkey(c) return c >= 128 end
 function iup.isprint(c) return c > 31 and c < 127 end
 
-for name, code in pairs(K) do
-	iup["K_" .. name] = code
-	-- IUP defines the modifier variants on the upper-case letter for letters.
-	local base = code
-	if #name == 1 and name:match("%l") then base = code - 32 end
-	iup["K_s" .. name] = bit.bor(code, SHIFT)
-	iup["K_c" .. name] = bit.bor(base, CTRL)
-	iup["K_m" .. name] = bit.bor(base, ALT)
-	iup["K_y" .. name] = bit.bor(base, SYS)
-end
+for name, code in pairs(K) do iup["K_" .. name] = code end
+-- The full set, modifier variants included, exactly as iupkey.h defines them.
+for name, code in pairs(require("core.imgui.keys")) do iup[name] = code end
 
 -- Mouse status strings (iupdef.h iup_isshift & co): 10 characters,
 -- [1]=S shift [2]=C ctrl [3]=1 [4]=2 [5]=3 [6]=D double [7]=A alt [8]=Y sys [9]=4 [10]=5.
