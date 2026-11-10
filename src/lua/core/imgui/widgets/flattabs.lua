@@ -390,7 +390,8 @@ local function setValuePos(el, st, value)
 end
 local function classGetValue(el)
 	local child = current(el)
-	return child and (own(child, "NAME") or attr(child, "NAME")) or nil
+	-- iFlatTabsGetValueAttrib: IupGetName of the child, an automatic one when it has none
+	return child and Element.autoName(child) or nil
 end
 local function classGetValuePos(el)
 	local p = currentPos(el)

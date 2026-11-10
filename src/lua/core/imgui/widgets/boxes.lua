@@ -293,7 +293,7 @@ Classes.define({
 			local c = zbox_current(el, st)
 			local cs = c and STATE[c]
 			if not cs then return nil end
-			return cs.attrs.NAME or cs.handlename
+			return cs.handlename or Element.autoName(c)
 		end,
 		VALUEPOS = function(el, st)
 			local c = zbox_current(el, st)

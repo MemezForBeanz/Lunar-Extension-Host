@@ -1,4 +1,4 @@
-/*** The native backend of the ImGui host: one Win32 window, OpenGL 3, Dear ImGui's
+/*** The native backend of the ImGui host: one Win32 window, Direct3D 11 (WARP by default), Dear ImGui's
  * draw lists, fonts and textures, exposed to Lua as `lunarimgui`.
  *
  * Lunar paints everything itself (core.imgui.Runtime walks the widget tree and calls
@@ -35,7 +35,8 @@
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <dwmapi.h>
-#include <GL/gl.h>
+#include <d3d11.h>
+#include <dxgi.h>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -53,12 +54,40 @@ extern "C" {
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "backends/imgui_impl_win32.h"
-#include "backends/imgui_impl_opengl3.h"
+#include "backends/imgui_impl_dx11.h"
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
 #ifndef WM_DPICHANGED
 #define WM_DPICHANGED 0x02E0
 #endif
+
+/* The frame and its input, read by Lua through LuaJIT's FFI (core.imgui.backend.Native
+ * declares the same layout). Input arrives as an ordered list of events, each with the
+ * pointer position and modifiers it happened with, so a press and release that land in
+ * one frame (a touchpad tap, a quick click) are routed exactly as they happened. */
+extern "C" {
+typedef struct LunarUiEvent {
+    int32_t type;     /* 1 move, 2 press, 3 release, 4 wheel, 5 key down, 6 key up, 7 char, 8 leave, 9 file */
+    int32_t button;   /* 1 left, 2 middle, 3 right; a double click is a press with button + 8 */
+    int32_t mods;     /* 1 shift, 2 ctrl, 4 alt, 8 sys, 16/32/64 buttons 1/2/3 held */
+    int32_t code;     /* key: the backend key code; char/file: index into chars/files */
+    float x, y;       /* client px */
+    float dx, dy;     /* wheel notches */
+} LunarUiEvent;
+
+typedef struct LunarUiFrame {
+    int32_t w, h;
+    float scale;
+    int32_t focused, resized, minimized, close_requested, inside;
+    float mx, my;
+    int32_t nevents;
+    const LunarUiEvent *events;
+    int32_t nchars;
+    const char *const *chars;
+    int32_t nfiles;
+    const char *const *files;
+} LunarUiFrame;
+}
 
 namespace {
 
@@ -75,7 +104,13 @@ struct Rect { int x = 0, y = 0, w = 0, h = 0; bool contains(int px, int py) cons
 struct Shot { bool pending = false; std::string path; int x = 0, y = 0, w = 0, h = 0; bool ok = false; };
 
 struct State {
-    HWND hwnd = nullptr; HDC dc = nullptr; HGLRC gl = nullptr;
+    HWND hwnd = nullptr;
+    /* Direct3D 11. WARP (Windows' software rasterizer) by default: the GPU driver a
+     * hardware device loads costs tens of MB of working set, which a desktop tool's
+     * flat 2D UI does not need. LUNAR_RENDERER=hardware picks the GPU. */
+    ID3D11Device *device = nullptr; ID3D11DeviceContext *ctx = nullptr;
+    IDXGISwapChain *swap = nullptr; ID3D11RenderTargetView *rtv = nullptr;
+    int sc_w = 0, sc_h = 0; bool warp = true;
     bool alive = false, close = false, resized = false;
     bool custom_frame = false, fullscreen = false, tracking = false, nc_tracking = false;
     bool inside = false, in_sizemove = false, in_callback = false, frame_open = false, ready = false;
@@ -86,7 +121,7 @@ struct State {
     std::vector<KeyEvent> keys; std::vector<std::string> chars; std::vector<std::string> files;
     int pressed[3] = {}, released[3] = {}, dbl[3] = {}; bool down[3] = {};
     float wheel_x = 0, wheel_y = 0; int mx = -1, my = -1;
-    std::unordered_map<int, GLuint> textures; int next_texture = 1;
+    std::unordered_map<int, ID3D11ShaderResourceView*> textures; int next_texture = 1;
     std::vector<Face> faces;
     std::unordered_map<std::string, int> face_by_path;
     std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
@@ -96,10 +131,35 @@ struct State {
     int last_w = 0, last_h = 0;
     Shot shot;
     std::vector<ImDrawList*> lists; int layer = 0;
+    std::vector<LunarUiEvent> events, frame_events;
+    std::vector<std::string> frame_chars, frame_files;
+    std::vector<const char*> frame_char_ptrs, frame_file_ptrs;
+    LunarUiFrame frame = {};
 } g;
 
 ImU32 color(lua_Number n) { return (ImU32)(unsigned long long)n; }
 bool key_held(int vk) { return (GetKeyState(vk) & 0x8000) != 0; }
+
+int event_mods() {
+    int m = 0;
+    if (key_held(VK_SHIFT)) m |= 1;
+    if (key_held(VK_CONTROL)) m |= 2;
+    if (key_held(VK_MENU)) m |= 4;
+    if (key_held(VK_LWIN) || key_held(VK_RWIN)) m |= 8;
+    if (g.down[0]) m |= 16;
+    if (g.down[1]) m |= 32;
+    if (g.down[2]) m |= 64;
+    return m;
+}
+
+void push_event(int type, int button = 0, int code = 0, float dx = 0, float dy = 0) {
+    LunarUiEvent e = {};
+    e.type = type; e.button = button; e.code = code; e.mods = event_mods();
+    e.x = (float)g.mx; e.y = (float)g.my; e.dx = dx; e.dy = dy;
+    /* consecutive moves collapse into one: only the last position matters */
+    if (type == 1 && !g.events.empty() && g.events.back().type == 1) { g.events.back() = e; return; }
+    g.events.push_back(e);
+}
 
 std::wstring wide(const char *s) {
     if (!s) return L"";
@@ -172,6 +232,7 @@ void add_key(WPARAM vk, bool down) {
     if (!code) return;
     g.keys.push_back({code, down, key_held(VK_SHIFT), key_held(VK_CONTROL), key_held(VK_MENU),
         key_held(VK_LWIN) || key_held(VK_RWIN)});
+    push_event(down ? 5 : 6, 0, code);
 }
 
 void call_paint() {
@@ -222,7 +283,7 @@ LRESULT hit_test(HWND h, LPARAM l) {
 bool is_button_hit(WPARAM ht) { return ht == HTCLOSE || ht == HTMAXBUTTON || ht == HTMINBUTTON; }
 
 LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
-    if (g.gl && ImGui::GetCurrentContext() && ImGui::GetIO().BackendPlatformUserData) ImGui_ImplWin32_WndProcHandler(h, m, w, l);
+    if (g.device && ImGui::GetCurrentContext() && ImGui::GetIO().BackendPlatformUserData) ImGui_ImplWin32_WndProcHandler(h, m, w, l);
     switch (m) {
     case WM_NCCALCSIZE:
         if (w && g.custom_frame && !g.fullscreen) {
@@ -244,26 +305,27 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_NCMOUSEMOVE:
         if (g.custom_frame && is_button_hit(w)) {
             mouse_to_client(h, l, true);
+            push_event(1);
             if (!g.nc_tracking) {
                 TRACKMOUSEEVENT t = {sizeof(t), TME_LEAVE | TME_NONCLIENT, h, 0};
                 TrackMouseEvent(&t); g.nc_tracking = true;
             }
             return 0;
         }
-        if (g.custom_frame && !g.tracking) { g.inside = false; g.mx = g.my = -1; }
+        if (g.custom_frame && !g.tracking && g.inside) { g.inside = false; g.mx = g.my = -1; push_event(8); }
         break;
     case WM_NCMOUSELEAVE:
         g.nc_tracking = false;
-        if (!g.tracking) { g.inside = false; g.mx = g.my = -1; }
+        if (!g.tracking && g.inside) { g.inside = false; g.mx = g.my = -1; push_event(8); }
         break;
     case WM_NCLBUTTONDOWN: case WM_NCLBUTTONDBLCLK:
         if (g.custom_frame && is_button_hit(w)) {
-            mouse_to_client(h, l, true); g.pressed[0]++; g.down[0] = true; return 0;
+            mouse_to_client(h, l, true); g.pressed[0]++; g.down[0] = true; push_event(2, 1); return 0;
         }
         break;
     case WM_NCLBUTTONUP:
         if (g.custom_frame && is_button_hit(w)) {
-            mouse_to_client(h, l, true); g.released[0]++; g.down[0] = false; return 0;
+            mouse_to_client(h, l, true); g.released[0]++; g.down[0] = false; push_event(3, 1); return 0;
         }
         break;
     case WM_ERASEBKGND: return 1;
@@ -305,6 +367,7 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
         } else {
             wchar_t one[1] = {c}; g.chars.push_back(utf8(one, 1));
         }
+        push_event(7, 0, (int)g.chars.size() - 1);
         return 0;
     }
     case WM_LBUTTONDOWN: case WM_MBUTTONDOWN: case WM_RBUTTONDOWN:
@@ -312,7 +375,9 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
         int b = button_index(m);
         mouse_to_client(h, l, false);
         g.pressed[b]++; g.down[b] = true;
-        if (m == WM_LBUTTONDBLCLK || m == WM_MBUTTONDBLCLK || m == WM_RBUTTONDBLCLK) g.dbl[b]++;
+        bool dbl = m == WM_LBUTTONDBLCLK || m == WM_MBUTTONDBLCLK || m == WM_RBUTTONDBLCLK;
+        if (dbl) g.dbl[b]++;
+        push_event(2, b + 1 + (dbl ? 8 : 0));
         SetCapture(h);
         return 0;
     }
@@ -320,21 +385,33 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
         int b = button_index(m);
         mouse_to_client(h, l, false);
         g.released[b]++; g.down[b] = false;
+        push_event(3, b + 1);
         if (!g.down[0] && !g.down[1] && !g.down[2]) ReleaseCapture();
         return 0;
     }
     case WM_CAPTURECHANGED:
-        for (int i = 0; i < 3; i++) if (g.down[i]) { g.down[i] = false; g.released[i]++; }
+        for (int i = 0; i < 3; i++) if (g.down[i]) { g.down[i] = false; g.released[i]++; push_event(3, i + 1); }
         break;
-    case WM_MOUSEWHEEL: g.wheel_y += (float)GET_WHEEL_DELTA_WPARAM(w) / WHEEL_DELTA; return 0;
-    case WM_MOUSEHWHEEL: g.wheel_x += (float)GET_WHEEL_DELTA_WPARAM(w) / WHEEL_DELTA; return 0;
+    case WM_MOUSEWHEEL: {
+        float d = (float)GET_WHEEL_DELTA_WPARAM(w) / WHEEL_DELTA;
+        g.wheel_y += d;
+        push_event(4, 0, 0, 0, d);
+        return 0;
+    }
+    case WM_MOUSEHWHEEL: {
+        float d = (float)GET_WHEEL_DELTA_WPARAM(w) / WHEEL_DELTA;
+        g.wheel_x += d;
+        push_event(4, 0, 0, d, 0);
+        return 0;
+    }
     case WM_MOUSEMOVE:
         mouse_to_client(h, l, false);
+        push_event(1);
         if (!g.tracking) { TRACKMOUSEEVENT t = {sizeof(t), TME_LEAVE, h, 0}; TrackMouseEvent(&t); g.tracking = true; }
         return 0;
     case WM_MOUSELEAVE:
         g.tracking = false;
-        if (!g.down[0] && !g.down[1] && !g.down[2]) { g.inside = false; g.mx = g.my = -1; }
+        if (!g.down[0] && !g.down[1] && !g.down[2]) { g.inside = false; g.mx = g.my = -1; push_event(8); }
         return 0;
     case WM_DROPFILES: {
         HDROP drop = (HDROP)w;
@@ -342,6 +419,7 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
         for (UINT i = 0; i < n; i++) {
             wchar_t path[MAX_PATH * 4]; DragQueryFileW(drop, i, path, MAX_PATH * 4);
             g.files.push_back(utf8(path));
+            push_event(9, 0, (int)g.files.size() - 1);
         }
         DragFinish(drop);
         return 0;
@@ -536,20 +614,66 @@ void ensure_imgui() {
     }
 }
 
+void release_target() { if (g.rtv) { g.rtv->Release(); g.rtv = nullptr; } }
+
+bool create_target() {
+    ID3D11Texture2D *back = nullptr;
+    if (FAILED(g.swap->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&back)) || !back) return false;
+    HRESULT hr = g.device->CreateRenderTargetView(back, nullptr, &g.rtv);
+    D3D11_TEXTURE2D_DESC d; back->GetDesc(&d); g.sc_w = (int)d.Width; g.sc_h = (int)d.Height;
+    back->Release();
+    return SUCCEEDED(hr);
+}
+
+bool create_device(D3D_DRIVER_TYPE driver) {
+    DXGI_SWAP_CHAIN_DESC sd = {};
+    sd.BufferCount = 2;
+    sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    sd.OutputWindow = g.hwnd;
+    sd.SampleDesc.Count = 1;
+    sd.Windowed = TRUE;
+    sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    const D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_1, D3D_FEATURE_LEVEL_10_0 };
+    D3D_FEATURE_LEVEL got;
+    HRESULT hr = D3D11CreateDeviceAndSwapChain(nullptr, driver, nullptr, 0, levels, 3, D3D11_SDK_VERSION,
+        &sd, &g.swap, &g.device, &got, &g.ctx);
+    if (FAILED(hr)) {   /* before Windows 10: the blit model */
+        sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD; sd.BufferCount = 1;
+        hr = D3D11CreateDeviceAndSwapChain(nullptr, driver, nullptr, 0, levels, 3, D3D11_SDK_VERSION,
+            &sd, &g.swap, &g.device, &got, &g.ctx);
+    }
+    if (FAILED(hr)) return false;
+    /* Alt+Enter is the app's to handle, not DXGI's */
+    IDXGIFactory *factory = nullptr;
+    if (SUCCEEDED(g.swap->GetParent(__uuidof(IDXGIFactory), (void**)&factory)) && factory) {
+        factory->MakeWindowAssociation(g.hwnd, DXGI_MWA_NO_ALT_ENTER); factory->Release();
+    }
+    g.warp = driver == D3D_DRIVER_TYPE_WARP;
+    return create_target();
+}
+
 void ensure_context() {
-    if (g.gl) return;
-    PIXELFORMATDESCRIPTOR pfd = {};
-    pfd.nSize = sizeof(pfd); pfd.nVersion = 1;
-    pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
-    pfd.iPixelType = PFD_TYPE_RGBA; pfd.cColorBits = 32; pfd.cAlphaBits = 8; pfd.iLayerType = PFD_MAIN_PLANE;
-    int pf = ChoosePixelFormat(g.dc, &pfd); SetPixelFormat(g.dc, pf, &pfd);
-    g.gl = wglCreateContext(g.dc); wglMakeCurrent(g.dc, g.gl);
-    typedef BOOL (WINAPI *SwapFn)(int);
-    SwapFn swap = (SwapFn)(void*)wglGetProcAddress("wglSwapIntervalEXT");
-    if (swap) swap(1);
+    if (g.device) return;
+    char want[32] = "";
+    GetEnvironmentVariableA("LUNAR_RENDERER", want, sizeof(want));
+    bool hardware = !_stricmp(want, "hardware") || !_stricmp(want, "gpu");
+    if (!create_device(hardware ? D3D_DRIVER_TYPE_HARDWARE : D3D_DRIVER_TYPE_WARP))
+        create_device(hardware ? D3D_DRIVER_TYPE_WARP : D3D_DRIVER_TYPE_HARDWARE);
     ensure_imgui();
     ImGui_ImplWin32_Init(g.hwnd);
-    ImGui_ImplOpenGL3_Init("#version 130");
+    if (g.device) ImGui_ImplDX11_Init(g.device, g.ctx);
+}
+
+/* The swap chain follows the client size before each present. */
+void fit_target() {
+    RECT r; GetClientRect(g.hwnd, &r);
+    int w = std::max(1, (int)r.right), h = std::max(1, (int)r.bottom);
+    if (w == g.sc_w && h == g.sc_h && g.rtv) return;
+    release_target();
+    g.ctx->OMSetRenderTargets(0, nullptr, nullptr);
+    g.swap->ResizeBuffers(0, (UINT)w, (UINT)h, DXGI_FORMAT_UNKNOWN, 0);
+    create_target();
 }
 
 void client_to_window(int &w, int &h, DWORD style, DWORD ex) {
@@ -609,9 +733,22 @@ void write_shot() {
     int w = s.w > 0 ? std::min(s.w, W - x) : W, h = s.h > 0 ? std::min(s.h, H - y) : H;
     if (w <= 0 || h <= 0) return;
     std::vector<unsigned char> px((size_t)w * h * 4);
-    glReadBuffer(GL_BACK);
-    glPixelStorei(GL_PACK_ALIGNMENT, 1);
-    glReadPixels(x, H - y - h, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    /* the back buffer through a CPU-readable copy, rows bottom-up as the BMP wants them */
+    ID3D11Texture2D *back = nullptr;
+    if (FAILED(g.swap->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&back)) || !back) return;
+    D3D11_TEXTURE2D_DESC d; back->GetDesc(&d);
+    d.Usage = D3D11_USAGE_STAGING; d.BindFlags = 0; d.CPUAccessFlags = D3D11_CPU_ACCESS_READ; d.MiscFlags = 0;
+    ID3D11Texture2D *copy = nullptr;
+    if (FAILED(g.device->CreateTexture2D(&d, nullptr, &copy)) || !copy) { back->Release(); return; }
+    g.ctx->CopyResource(copy, back);
+    D3D11_MAPPED_SUBRESOURCE map;
+    if (FAILED(g.ctx->Map(copy, 0, D3D11_MAP_READ, 0, &map))) { copy->Release(); back->Release(); return; }
+    for (int row = 0; row < h; row++) {
+        const unsigned char *src = (const unsigned char*)map.pData + (size_t)(y + row) * map.RowPitch + (size_t)x * 4;
+        memcpy(&px[(size_t)(h - 1 - row) * w * 4], src, (size_t)w * 4);
+    }
+    g.ctx->Unmap(copy, 0);
+    copy->Release(); back->Release();
     FILE *f = _wfopen(wide(s.path.c_str()).c_str(), L"wb");
     if (!f) return;
     uint32_t data = (uint32_t)px.size(), file = 54 + data;
@@ -637,6 +774,159 @@ ImDrawList *scratch_list() {
 }
 /* Calls between frames land on a scratch list that is never rendered. */
 ImDrawList *draw() { return g.frame_open && !g.lists.empty() ? g.lists[(size_t)g.layer] : scratch_list(); }
+
+/* -- Measuring with GDI ------------------------------------------------------------
+ * IUP's Windows driver sizes every piece of text with GDI (iupwin_font.c): the font is
+ * CreateFont(-MulDiv(pt, dpi, 72), 0, 0, 0, bold ? FW_BOLD : FW_NORMAL, italic, ...,
+ * face), a line is GetTextExtentPoint32 wide, lines are tmHeight apart, and a SIZE unit
+ * comes from tmAveCharWidth and tmHeight. Natural sizes, wrap points and ellipses are
+ * worked out from those numbers, so this host measures with GDI too and lays out to the
+ * pixel the way IUP did; ImGui only draws. */
+struct GdiSize { HFONT font = nullptr; TEXTMETRICW tm = {}; };
+struct GdiFont { std::wstring face; bool bold = false, italic = false; std::unordered_map<int, GdiSize> sizes; };
+std::vector<GdiFont> gdi_fonts;
+HDC gdi_dc = nullptr;
+
+GdiSize *gdi_size(int id, float px) {
+    if (id < 0 || id >= (int)gdi_fonts.size()) return nullptr;
+    int height = (int)std::lround(px);
+    if (height <= 0) return nullptr;
+    GdiFont &f = gdi_fonts[(size_t)id];
+    auto it = f.sizes.find(height);
+    if (it != f.sizes.end()) return &it->second;
+    if (!gdi_dc) gdi_dc = CreateCompatibleDC(nullptr);
+    GdiSize gs;
+    gs.font = CreateFontW(-height, 0, 0, 0, f.bold ? FW_BOLD : FW_NORMAL, f.italic, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, FF_DONTCARE | DEFAULT_PITCH, f.face.c_str());
+    if (!gs.font) return nullptr;
+    HGDIOBJ old = SelectObject(gdi_dc, gs.font);
+    GetTextMetricsW(gdi_dc, &gs.tm);
+    SelectObject(gdi_dc, old);
+    return &(f.sizes[height] = gs);
+}
+
+/* winFontGetTextSize: the widest line, and tmHeight per line (a last empty line after a
+ * final newline does not count). With wrap > 0, DrawText's word breaking at that width. */
+bool gdi_text_size(int id, float px, const char *s, size_t len, float wrap, float *out) {
+    GdiSize *gs = gdi_size(id, px);
+    if (!gs) return false;
+    HGDIOBJ old = SelectObject(gdi_dc, gs->font);
+    std::wstring w;
+    if (len) {
+        int n = MultiByteToWideChar(CP_UTF8, 0, s, (int)len, nullptr, 0);
+        w.resize((size_t)n);
+        MultiByteToWideChar(CP_UTF8, 0, s, (int)len, &w[0], n);
+    }
+    if (wrap > 0 && !w.empty()) {
+        RECT rc = {0, 0, (LONG)wrap, 0};
+        DrawTextW(gdi_dc, w.c_str(), (int)w.size(), &rc, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX | DT_EXPANDTABS);
+        out[0] = (float)(rc.right - rc.left); out[1] = (float)(rc.bottom - rc.top);
+        SelectObject(gdi_dc, old);
+        return true;
+    }
+    LONG max_w = 0; int lines = 1;
+    size_t start = 0;
+    for (size_t i = 0; i <= w.size(); i++) {
+        if (i == w.size() || w[i] == L'\n') {
+            size_t end = i;
+            if (end > start && w[end - 1] == L'\r') end--;
+            if (end > start) {
+                SIZE sz = {0, 0};
+                GetTextExtentPoint32W(gdi_dc, w.c_str() + start, (int)(end - start), &sz);
+                if (sz.cx > max_w) max_w = sz.cx;
+            }
+            if (i < w.size() && i + 1 < w.size()) lines++;
+            start = i + 1;
+        }
+    }
+    SelectObject(gdi_dc, old);
+    out[0] = (float)max_w;
+    out[1] = (float)(gs->tm.tmHeight * lines);
+    return true;
+}
+
+/* Where GDI puts each character of a line (GetTextExtentExPoint's cumulative extents),
+ * so glyphs are drawn exactly where the measurements say they are: a run of text that
+ * Lua placed by measuring continues without a gap, and an ellipsis lands where IUP's
+ * did. Cached per font, size and string. */
+struct GdiLine { std::vector<uint32_t> cps; std::vector<float> xs; };
+std::unordered_map<std::string, GdiLine> gdi_lines;
+
+const GdiLine *gdi_line(int id, float px, const char *s, size_t len) {
+    GdiSize *gs = gdi_size(id, px);
+    if (!gs) return nullptr;
+    std::string key;
+    key.reserve(len + 16);
+    key.append((const char*)&id, sizeof(id));
+    int height = (int)std::lround(px);
+    key.append((const char*)&height, sizeof(height));
+    key.append(s, len);
+    auto hit = gdi_lines.find(key);
+    if (hit != gdi_lines.end()) return &hit->second;
+    if (gdi_lines.size() > 16384) gdi_lines.clear();
+    GdiLine line;
+    std::wstring w;
+    std::vector<int> start16;
+    const char *p = s, *end = s + len;
+    while (p < end) {
+        unsigned int c = 0;
+        int n = ImTextCharFromUtf8(&c, p, end);
+        if (n <= 0) { n = 1; c = 0xFFFD; }
+        p += n;
+        line.cps.push_back(c);
+        start16.push_back((int)w.size());
+        if (c >= 0x10000) { c -= 0x10000; w += (wchar_t)(0xD800 + (c >> 10)); w += (wchar_t)(0xDC00 + (c & 0x3FF)); }
+        else w += (wchar_t)c;
+    }
+    std::vector<int> dx(w.size() + 1, 0);
+    if (!w.empty()) {
+        HGDIOBJ old = SelectObject(gdi_dc, gs->font);
+        SIZE sz;
+        GetTextExtentExPointW(gdi_dc, w.c_str(), (int)w.size(), 0, nullptr, dx.data(), &sz);
+        SelectObject(gdi_dc, old);
+    }
+    for (size_t k = 0; k < line.cps.size(); k++) line.xs.push_back(start16[k] == 0 ? 0.0f : (float)dx[(size_t)start16[k] - 1]);
+    return &(gdi_lines[key] = line);
+}
+
+/* One line of text with ImGui's glyphs at GDI's positions (ImFont::RenderText's quad and
+ * fine-clip code, with the pen moved by GDI instead of by the glyph's own advance). */
+bool draw_text_gdi(ImDrawList *dl, int face, int gid, float px, float x, float y, ImU32 col,
+                   const char *s, size_t len, const ImVec4 &fine) {
+    if ((col & IM_COL32_A_MASK) == 0 || !len) return true;
+    const GdiLine *line = gdi_line(gid, px, s, len);
+    if (!line) return false;
+    Face &f = face_of(face);
+    float size = imgui_size(f, px);
+    ImFontBaked *baked = f.font->GetFontBaked(size);
+    if (!baked) return false;
+    float scale = size / baked->Size;
+    x = std::round(x); y = std::round(y + baseline_shift(f, px));
+    ImVec4 clip = dl->_CmdHeader.ClipRect;
+    clip.x = std::max(clip.x, fine.x); clip.y = std::max(clip.y, fine.y);
+    clip.z = std::min(clip.z, fine.z); clip.w = std::min(clip.w, fine.w);
+    if (clip.x >= clip.z || clip.y >= clip.w) return true;
+    const ImU32 col_untinted = col | ~IM_COL32_A_MASK;
+    for (size_t k = 0; k < line->cps.size(); k++) {
+        unsigned int c = line->cps[k];
+        if (c == '\n' || c == '\r' || c == '\t') continue;
+        const ImFontGlyph *glyph = baked->FindGlyph((ImWchar)c);
+        if (!glyph || !glyph->Visible) continue;
+        float pen = x + line->xs[k];
+        float x1 = pen + glyph->X0 * scale, x2 = pen + glyph->X1 * scale;
+        float y1 = y + glyph->Y0 * scale, y2 = y + glyph->Y1 * scale;
+        if (x1 > clip.z || x2 < clip.x || y1 > clip.w || y2 < clip.y) continue;
+        float u1 = glyph->U0, v1 = glyph->V0, u2 = glyph->U1, v2 = glyph->V1;
+        if (x1 < clip.x) { u1 = u1 + (1.0f - (x2 - clip.x) / (x2 - x1)) * (u2 - u1); x1 = clip.x; }
+        if (y1 < clip.y) { v1 = v1 + (1.0f - (y2 - clip.y) / (y2 - y1)) * (v2 - v1); y1 = clip.y; }
+        if (x2 > clip.z) { u2 = u1 + ((clip.z - x1) / (x2 - x1)) * (u2 - u1); x2 = clip.z; }
+        if (y2 > clip.w) { v2 = v1 + ((clip.w - y1) / (y2 - y1)) * (v2 - v1); y2 = clip.w; }
+        if (y1 >= y2 || x1 >= x2) continue;
+        dl->PrimReserve(6, 4);
+        dl->PrimRectUV(ImVec2(x1, y1), ImVec2(x2, y2), ImVec2(u1, v1), ImVec2(u2, v2), glyph->Colored ? col_untinted : col);
+    }
+    return true;
+}
 
 /* -- Lua --------------------------------------------------------------------- */
 
@@ -672,7 +962,6 @@ int l_open(lua_State *L) {
     DragAcceptFiles(g.hwnd, TRUE);
     BOOL dark = TRUE; DwmSetWindowAttribute(g.hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &dark, sizeof(dark));
     if (g.custom_frame) SetWindowPos(g.hwnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
-    g.dc = GetDC(g.hwnd);
     g.alive = true;
     ensure_context();
     if (!hidden) ShowWindow(g.hwnd, maximized ? SW_SHOWMAXIMIZED : SW_SHOW);
@@ -683,11 +972,14 @@ int l_open(lua_State *L) {
 
 int l_close(lua_State *L) {
     if (g.paint_ref != LUA_NOREF) { luaL_unref(L, LUA_REGISTRYINDEX, g.paint_ref); g.paint_ref = LUA_NOREF; }
-    for (auto &t : g.textures) glDeleteTextures(1, &t.second);
+    for (auto &t : g.textures) if (t.second) t.second->Release();
     g.textures.clear();
-    if (g.gl && ImGui::GetCurrentContext()) { ImGui_ImplOpenGL3_Shutdown(); ImGui_ImplWin32_Shutdown(); }
-    if (g.gl) { wglMakeCurrent(nullptr, nullptr); wglDeleteContext(g.gl); g.gl = nullptr; }
-    if (g.hwnd) { ReleaseDC(g.hwnd, g.dc); DestroyWindow(g.hwnd); g.hwnd = nullptr; }
+    if (g.device && ImGui::GetCurrentContext()) { ImGui_ImplDX11_Shutdown(); ImGui_ImplWin32_Shutdown(); }
+    release_target();
+    if (g.swap) { g.swap->Release(); g.swap = nullptr; }
+    if (g.ctx) { g.ctx->Release(); g.ctx = nullptr; }
+    if (g.device) { g.device->Release(); g.device = nullptr; }
+    if (g.hwnd) { DestroyWindow(g.hwnd); g.hwnd = nullptr; }
     g.alive = false; g.ready = false;
     return 0;
 }
@@ -724,7 +1016,7 @@ void push_counts(lua_State *L, int t, const char *k, const int *v) {
 }
 
 int l_frame_begin(lua_State *L) {
-    if (!g.hwnd || !g.gl) return luaL_error(L, "frame_begin before open");
+    if (!g.hwnd || !g.device) return luaL_error(L, "frame_begin before open");
     if (!g.in_callback) {
         MSG m;
         while (PeekMessageW(&m, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&m); DispatchMessageW(&m); }
@@ -734,7 +1026,7 @@ int l_frame_begin(lua_State *L) {
     bool minimized = IsIconic(g.hwnd) || w <= 0 || h <= 0;
     if (minimized) { w = g.last_w; h = g.last_h; } else { g.last_w = w; g.last_h = h; }
     ImGuiIO &io = ImGui::GetIO();
-    ImGui_ImplOpenGL3_NewFrame(); ImGui_ImplWin32_NewFrame();
+    ImGui_ImplDX11_NewFrame(); ImGui_ImplWin32_NewFrame();
     io.DisplaySize = ImVec2((float)std::max(w, 1), (float)std::max(h, 1));
     ImGui::NewFrame();
     g.lists.clear();
@@ -743,47 +1035,28 @@ int l_frame_begin(lua_State *L) {
     g.layer = 0;
     g.frame_open = true;
 
-    lua_createtable(L, 0, 24);
-    int t = lua_gettop(L);
-    set_num(L, t, "w", w); set_num(L, t, "h", h);
-    set_num(L, t, "scale", (double)window_dpi(g.hwnd) / 96.0);
-    set_num(L, t, "mx", g.mx); set_num(L, t, "my", g.my);
-    set_bool(L, t, "inside", g.inside && g.mx >= 0);
-    lua_createtable(L, 3, 0);
-    for (int i = 0; i < 3; i++) { lua_pushboolean(L, g.down[i]); lua_rawseti(L, -2, i + 1); }
-    lua_setfield(L, t, "down");
-    push_counts(L, t, "pressed", g.pressed);
-    push_counts(L, t, "released", g.released);
-    push_counts(L, t, "double", g.dbl);
-    set_num(L, t, "wheel_x", g.wheel_x); set_num(L, t, "wheel_y", g.wheel_y);
-    lua_createtable(L, (int)g.keys.size(), 0);
-    for (size_t i = 0; i < g.keys.size(); i++) {
-        const KeyEvent &k = g.keys[i];
-        lua_createtable(L, 0, 6); int kt = lua_gettop(L);
-        lua_pushinteger(L, k.code); lua_setfield(L, kt, "code");
-        set_bool(L, kt, "down", k.down); set_bool(L, kt, "shift", k.shift); set_bool(L, kt, "ctrl", k.ctrl);
-        set_bool(L, kt, "alt", k.alt); set_bool(L, kt, "sys", k.sys);
-        lua_rawseti(L, -2, (int)i + 1);
-    }
-    lua_setfield(L, t, "keys");
-    lua_createtable(L, (int)g.chars.size(), 0);
-    for (size_t i = 0; i < g.chars.size(); i++) { lua_pushlstring(L, g.chars[i].data(), g.chars[i].size()); lua_rawseti(L, -2, (int)i + 1); }
-    lua_setfield(L, t, "chars");
-    lua_createtable(L, (int)g.files.size(), 0);
-    for (size_t i = 0; i < g.files.size(); i++) { lua_pushstring(L, g.files[i].c_str()); lua_rawseti(L, -2, (int)i + 1); }
-    lua_setfield(L, t, "files");
-    lua_createtable(L, 0, 4); int mt = lua_gettop(L);
-    set_bool(L, mt, "shift", key_held(VK_SHIFT)); set_bool(L, mt, "ctrl", key_held(VK_CONTROL));
-    set_bool(L, mt, "alt", key_held(VK_MENU)); set_bool(L, mt, "sys", key_held(VK_LWIN) || key_held(VK_RWIN));
-    lua_setfield(L, t, "mods");
-    set_bool(L, t, "focused", GetForegroundWindow() == g.hwnd);
-    set_bool(L, t, "resized", g.resized);
-    set_bool(L, t, "minimized", minimized);
-    set_bool(L, t, "close_requested", g.close);
+    /* This frame's input moves to the frame_* buffers, which stay valid until the next
+     * frame_begin while Lua reads them through the FFI. */
+    g.frame_events.swap(g.events); g.events.clear();
+    g.frame_chars.swap(g.chars); g.chars.clear();
+    g.frame_files.swap(g.files); g.files.clear();
+    g.frame_char_ptrs.clear(); for (auto &c : g.frame_chars) g.frame_char_ptrs.push_back(c.c_str());
+    g.frame_file_ptrs.clear(); for (auto &f : g.frame_files) g.frame_file_ptrs.push_back(f.c_str());
+    LunarUiFrame &f = g.frame;
+    f.w = w; f.h = h;
+    f.scale = (float)window_dpi(g.hwnd) / 96.0f;
+    f.focused = GetForegroundWindow() == g.hwnd;
+    f.resized = g.resized; f.minimized = minimized; f.close_requested = g.close;
+    f.inside = g.inside && g.mx >= 0;
+    f.mx = (float)g.mx; f.my = (float)g.my;
+    f.nevents = (int32_t)g.frame_events.size(); f.events = g.frame_events.data();
+    f.nchars = (int32_t)g.frame_char_ptrs.size(); f.chars = g.frame_char_ptrs.data();
+    f.nfiles = (int32_t)g.frame_file_ptrs.size(); f.files = g.frame_file_ptrs.data();
 
-    g.keys.clear(); g.chars.clear(); g.files.clear();
+    g.keys.clear();
     g.wheel_x = g.wheel_y = 0; g.resized = false; g.close = false;
     for (int i = 0; i < 3; i++) g.pressed[i] = g.released[i] = g.dbl[i] = 0;
+    lua_pushlightuserdata(L, &g.frame);
     return 1;
 }
 
@@ -791,20 +1064,23 @@ int l_frame_end(lua_State *) {
     if (!g.frame_open) return 0;
     g.frame_open = false;
     ImGui::Render();
-    RECT r; GetClientRect(g.hwnd, &r);
-    glViewport(0, 0, r.right, r.bottom);
-    glClearColor(0, 0, 0, 1);
-    glClear(GL_COLOR_BUFFER_BIT);
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    fit_target();
+    const float black[4] = {0, 0, 0, 1};
+    g.ctx->OMSetRenderTargets(1, &g.rtv, nullptr);
+    g.ctx->ClearRenderTargetView(g.rtv, black);
+    ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
     if (g.shot.pending) write_shot();
-    SwapBuffers(g.dc);
+    /* LUNAR_VSYNC=0 presents at once (frame timing in scripts/imgui_perf.lua) */
+    static int vsync = -1;
+    if (vsync < 0) { char v[8] = ""; GetEnvironmentVariableA("LUNAR_VSYNC", v, sizeof(v)); vsync = v[0] == '0' ? 0 : 1; }
+    g.swap->Present((UINT)vsync, 0);
     return 0;
 }
 
 int l_rect(lua_State *L) {
     draw()->AddRect(ImVec2((float)luaL_checknumber(L, 1), (float)luaL_checknumber(L, 2)),
         ImVec2((float)luaL_checknumber(L, 3), (float)luaL_checknumber(L, 4)), color(luaL_checknumber(L, 5)),
-        (float)luaL_optnumber(L, 6, 0), (ImDrawFlags)luaL_optinteger(L, 8, 0), (float)luaL_optnumber(L, 7, 1));
+        (float)luaL_optnumber(L, 6, 0), (float)luaL_optnumber(L, 7, 1), (ImDrawFlags)luaL_optinteger(L, 8, 0));
     return 0;
 }
 int l_rect_filled(lua_State *L) {
@@ -844,7 +1120,7 @@ int l_poly(lua_State *L) {
     if (p.size() < 2) return 0;
     ImU32 c = color(luaL_checknumber(L, 2));
     if (lua_toboolean(L, 3)) draw()->AddConvexPolyFilled(p.data(), (int)p.size(), c);
-    else draw()->AddPolyline(p.data(), (int)p.size(), c, ImDrawFlags_Closed, (float)luaL_optnumber(L, 4, 1));
+    else draw()->AddPolyline(p.data(), (int)p.size(), c, (float)luaL_optnumber(L, 4, 1), ImDrawFlags_Closed);
     return 0;
 }
 
@@ -946,13 +1222,17 @@ int l_texture(lua_State *L) {
     size_t n; const unsigned char *p = (const unsigned char*)luaL_checklstring(L, 1, &n);
     int w = (int)luaL_checkinteger(L, 2), h = (int)luaL_checkinteger(L, 3);
     if (w <= 0 || h <= 0 || n < (size_t)w * h * 4) { lua_pushnil(L); return 1; }
-    GLuint tex; glGenTextures(1, &tex); glBindTexture(GL_TEXTURE_2D, tex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, 0x812F /* CLAMP_TO_EDGE */);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, 0x812F);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, p);
+    D3D11_TEXTURE2D_DESC d = {};
+    d.Width = (UINT)w; d.Height = (UINT)h; d.MipLevels = 1; d.ArraySize = 1;
+    d.Format = DXGI_FORMAT_R8G8B8A8_UNORM; d.SampleDesc.Count = 1;
+    d.Usage = D3D11_USAGE_DEFAULT; d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    D3D11_SUBRESOURCE_DATA init = {}; init.pSysMem = p; init.SysMemPitch = (UINT)w * 4;
+    ID3D11Texture2D *texture = nullptr;
+    ID3D11ShaderResourceView *tex = nullptr;
+    if (!g.device || FAILED(g.device->CreateTexture2D(&d, &init, &texture)) || !texture) { lua_pushnil(L); return 1; }
+    HRESULT hr = g.device->CreateShaderResourceView(texture, nullptr, &tex);
+    texture->Release();
+    if (FAILED(hr) || !tex) { lua_pushnil(L); return 1; }
     int id = g.next_texture++;
     g.textures[id] = tex;
     lua_pushinteger(L, id);
@@ -961,7 +1241,7 @@ int l_texture(lua_State *L) {
 
 int l_texture_free(lua_State *L) {
     auto it = g.textures.find((int)luaL_checkinteger(L, 1));
-    if (it != g.textures.end()) { glDeleteTextures(1, &it->second); g.textures.erase(it); }
+    if (it != g.textures.end()) { if (it->second) it->second->Release(); g.textures.erase(it); }
     return 0;
 }
 
@@ -1213,6 +1493,128 @@ int l_message_box(lua_State *L) {
     return 1;
 }
 
+} // namespace
+
+/* -- FFI --------------------------------------------------------------------------
+ * The per-primitive calls, for LuaJIT's FFI (core.imgui.backend.Native declares them).
+ * Scalars only: LuaJIT compiles calls with scalar arguments into its traces, and would
+ * fall back to the interpreter for ImVec2 passed by value, which is why the hot path
+ * does not call cimgui's ImDrawList_* directly. None of these pumps messages, so none
+ * can re-enter Lua (which a function called through the FFI must never do). */
+#define LUNAR_FFI extern "C" __declspec(dllexport)
+
+LUNAR_FFI ImDrawList *lunar_ui_draw_list(int layer) {
+    if (!g.frame_open || g.lists.empty()) return scratch_list();
+    return g.lists[(size_t)((layer == 1 && g.lists.size() > 1) ? 1 : 0)];
+}
+LUNAR_FFI void lunar_ui_rect(ImDrawList *dl, float x1, float y1, float x2, float y2, uint32_t col, float rounding, float thick, int flags) {
+    dl->AddRect(ImVec2(x1, y1), ImVec2(x2, y2), col, rounding, thick, (ImDrawFlags)flags);
+}
+LUNAR_FFI void lunar_ui_rect_filled(ImDrawList *dl, float x1, float y1, float x2, float y2, uint32_t col, float rounding, int flags) {
+    dl->AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y2), col, rounding, (ImDrawFlags)flags);
+}
+LUNAR_FFI void lunar_ui_rect_gradient(ImDrawList *dl, float x1, float y1, float x2, float y2, uint32_t a, uint32_t b, uint32_t c, uint32_t d) {
+    dl->AddRectFilledMultiColor(ImVec2(x1, y1), ImVec2(x2, y2), a, b, c, d);
+}
+LUNAR_FFI void lunar_ui_line(ImDrawList *dl, float x1, float y1, float x2, float y2, uint32_t col, float thick) {
+    dl->AddLine(ImVec2(x1, y1), ImVec2(x2, y2), col, thick);
+}
+LUNAR_FFI void lunar_ui_circle(ImDrawList *dl, float cx, float cy, float r, uint32_t col, float thick, int segments) {
+    if (thick <= 0) dl->AddCircleFilled(ImVec2(cx, cy), r, col, segments);
+    else dl->AddCircle(ImVec2(cx, cy), r, col, segments, thick);
+}
+LUNAR_FFI void lunar_ui_poly(ImDrawList *dl, const float *xy, int n, uint32_t col, int filled, float thick) {
+    if (n < 2) return;
+    const ImVec2 *p = (const ImVec2*)xy;   /* ImVec2 is two packed floats */
+    if (filled) dl->AddConvexPolyFilled(p, n, col);
+    else dl->AddPolyline(p, n, col, thick, ImDrawFlags_Closed);
+}
+LUNAR_FFI void lunar_ui_text(ImDrawList *dl, int face, float px, float x, float y, uint32_t col, const char *s, size_t len,
+                             float wrap, float cx1, float cy1, float cx2, float cy2, int gid) {
+    Face &f = face_of(face);
+    ImVec4 clip(cx1, cy1, cx2, cy2);
+    /* one line at GDI's character positions when the font has a GDI twin */
+    if (gid >= 0 && wrap <= 0 && draw_text_gdi(dl, face, gid, px, x, y, col, s, len, clip)) return;
+    y += baseline_shift(f, px);
+    dl->AddText(f.font, imgui_size(f, px), ImVec2(std::round(x), std::round(y)), col, s, s + len, wrap, &clip);
+}
+/* out[0] width, out[1] height with lines tmHeight apart, as GDI lays them out */
+LUNAR_FFI void lunar_ui_text_size(int face, float px, const char *s, size_t len, float wrap, float *out) {
+    Face &f = face_of(face);
+    ImVec2 v = f.font->CalcTextSizeA(imgui_size(f, px), FLT_MAX, wrap, s, s + len);
+    int lines = 1; for (size_t i = 0; i < len; i++) if (s[i] == '\n') lines++;
+    float line = f.metrics ? std::round(px * f.win_asc / f.upm) + std::round(px * f.win_desc / f.upm) : v.y / lines;
+    out[0] = v.x;
+    out[1] = line * (v.y / std::max(1.0f, imgui_size(f, px)));
+}
+LUNAR_FFI int lunar_ui_image(ImDrawList *dl, int tex, float x1, float y1, float x2, float y2,
+                             float u1, float v1, float u2, float v2, uint32_t col) {
+    auto it = g.textures.find(tex);
+    if (it == g.textures.end()) return 0;
+    dl->AddImage(ImTextureRef((ImTextureID)(intptr_t)it->second), ImVec2(x1, y1), ImVec2(x2, y2), ImVec2(u1, v1), ImVec2(u2, v2), col);
+    return 1;
+}
+LUNAR_FFI void lunar_ui_clip_push(ImDrawList *dl, float x1, float y1, float x2, float y2) {
+    dl->PushClipRect(ImVec2(x1, y1), ImVec2(x2, y2), true);
+}
+LUNAR_FFI void lunar_ui_clip_pop(ImDrawList *dl) { if (dl->_ClipRectStack.Size > 1) dl->PopClipRect(); }
+/* GDI's size of a string (see gdi_text_size); returns 0 when the font cannot be made. */
+LUNAR_FFI int lunar_ui_gdi_text_size(int id, float px, const char *s, size_t len, float wrap, float *out) {
+    return gdi_text_size(id, px, s, len, wrap, out) ? 1 : 0;
+}
+/* The ImFont behind a face, for extensions that draw with cimgui directly. */
+LUNAR_FFI ImFont *lunar_ui_face_font(int face) { return face_of(face).font; }
+/* Struct sizes, so the Lua side can refuse a cdef that does not match this build. */
+LUNAR_FFI int lunar_ui_sizeof(int which) {
+    switch (which) {
+    case 0: return (int)sizeof(LunarUiEvent);
+    case 1: return (int)sizeof(LunarUiFrame);
+    case 2: return (int)sizeof(ImGuiIO);
+    case 3: return (int)sizeof(ImDrawList);
+    case 4: return (int)sizeof(ImFont);
+    case 5: return (int)sizeof(ImGuiStyle);
+    }
+    return -1;
+}
+
+namespace {
+
+int l_gdi_font(lua_State *L) {
+    std::wstring face = wide(luaL_checkstring(L, 1));
+    bool bold = lua_toboolean(L, 2) != 0, italic = lua_toboolean(L, 3) != 0;
+    for (size_t i = 0; i < gdi_fonts.size(); i++)
+        if (gdi_fonts[i].face == face && gdi_fonts[i].bold == bold && gdi_fonts[i].italic == italic) {
+            lua_pushinteger(L, (lua_Integer)i); return 1;
+        }
+    GdiFont f; f.face = face; f.bold = bold; f.italic = italic;
+    gdi_fonts.push_back(f);
+    lua_pushinteger(L, (lua_Integer)gdi_fonts.size() - 1);
+    return 1;
+}
+
+/* tmAscent, tmDescent, tmHeight, tmAveCharWidth: what IUP's charsize and baselines use */
+int l_gdi_metrics(lua_State *L) {
+    GdiSize *gs = gdi_size((int)luaL_checkinteger(L, 1), (float)luaL_checknumber(L, 2));
+    if (!gs) return 0;
+    lua_pushnumber(L, gs->tm.tmAscent); lua_pushnumber(L, gs->tm.tmDescent);
+    lua_pushnumber(L, gs->tm.tmHeight); lua_pushnumber(L, gs->tm.tmAveCharWidth);
+    return 4;
+}
+
+int l_gdi_text_size(lua_State *L) {
+    size_t len; const char *s = luaL_checklstring(L, 3, &len);
+    float out[2];
+    if (!gdi_text_size((int)luaL_checkinteger(L, 1), (float)luaL_checknumber(L, 2), s, len, (float)luaL_optnumber(L, 4, 0), out)) return 0;
+    lua_pushnumber(L, out[0]); lua_pushnumber(L, out[1]);
+    return 2;
+}
+
+/* A font file this process uses (ctx:registerFont): GDI must know it to measure it. */
+int l_font_private(lua_State *L) {
+    lua_pushboolean(L, AddFontResourceExW(wide(luaL_checkstring(L, 1)).c_str(), FR_PRIVATE, nullptr) > 0);
+    return 1;
+}
+
 const luaL_Reg api[] = {
     {"open", l_open}, {"close", l_close}, {"alive", l_alive}, {"now", l_now}, {"wait", l_wait},
     {"set_paint_callback", l_set_paint_callback},
@@ -1226,6 +1628,8 @@ const luaL_Reg api[] = {
     {"cursor", l_cursor}, {"clipboard_get", l_clipboard_get}, {"clipboard_set", l_clipboard_set},
     {"cursor_pos", l_cursor_pos}, {"window", l_window}, {"screenshot", l_screenshot},
     {"file_dialog", l_file_dialog}, {"message_box", l_message_box},
+    {"gdi_font", l_gdi_font}, {"gdi_metrics", l_gdi_metrics}, {"gdi_text_size", l_gdi_text_size},
+    {"font_private", l_font_private},
     {nullptr, nullptr}};
 
 } // namespace

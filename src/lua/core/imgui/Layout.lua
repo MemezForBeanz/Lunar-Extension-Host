@@ -264,7 +264,7 @@ local function compute(el)
 			if cs then
 				local f, ignore = floating(cs)
 				if not ignore then compute(c) end
-				if not f and not (class.childrenExpand) then children_expand = bor(children_expand, cs.expand or 0) end
+				if not f and not cs.internal and not (class.childrenExpand) then children_expand = bor(children_expand, cs.expand or 0) end
 			end
 		end
 		st.expand = own
@@ -314,7 +314,7 @@ function M.placeChildren(el, st)
 	-- Default: every child gets the whole rect (zbox-like), floating ones their natural size.
 	for _, c in ipairs(st.children) do
 		local cs = STATE[c]
-		if cs then
+		if cs and not cs.internal then
 			local f = floating(cs)
 			if f then M.placeFloating(c, cs, st) else L.place(c, st.x, st.y, st.w, st.h) end
 		end
@@ -357,7 +357,7 @@ function M.minContent(el, horizontal)
 	local natural_kids, min_kids = 0, 0
 	for _, c in ipairs(st.children) do
 		local cs = STATE[c]
-		if cs and not floating(cs) and not cs.class.internal then
+		if cs and not floating(cs) and not cs.internal then
 			local cn = horizontal and (cs.nat_w or 0) or (cs.nat_h or 0)
 			local cm = M.minContent(c, horizontal)
 			if along then

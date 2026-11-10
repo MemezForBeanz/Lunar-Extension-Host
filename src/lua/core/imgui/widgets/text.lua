@@ -95,8 +95,8 @@ local function replace(e, st, from, to, insert, rt)
 	elseif filter:find("NUMBER", 1, true) then insert = insert:gsub("[^%d%.%-]", "") end
 	local mask = attr(e, "MASK")
 	if mask and mask ~= "" and insert ~= "" and not insert:match("^" .. tostring(mask) .. "$") then return false end
-	local nc = tonumber(attr(e, "NC"))
-	if nc and #text - (to - from) + #insert > nc then insert = insert:sub(1, math.max(0, nc - (#text - (to - from)))) end
+	local nc = tonumber(attr(e, "NC")) -- 0: no limit (IUP's default)
+	if nc and nc > 0 and #text - (to - from) + #insert > nc then insert = insert:sub(1, math.max(0, nc - (#text - (to - from)))) end
 	local proposed = text:sub(1, from) .. insert .. text:sub(to + 1)
 	proposed = action(e, text, proposed, from, to)
 	if proposed == nil then return false end
@@ -119,19 +119,34 @@ local function set_value(e, st, value)
 	st.data.caret, st.data.anchor = #st.data.text, #st.data.text
 	return false
 end
+-- iTextComputeNaturalSizeMethod: one line is tmHeight tall and VISIBLECOLUMNS/10 of
+-- "WWWWWWWWWW" wide, whatever the text holds; BORDER adds the Windows driver's 3 px each
+-- side, SPIN a square button, and a multiline's scrollbars their system size.
 local function text_natural(e, st, L)
 	local font = L.font(e)
-	local cw, ch = font:charsize()
-	local cols = tonumber(attr(e, "VISIBLECOLUMNS")) or 10
-	local lines = tonumber(attr(e, "VISIBLELINES")) or (yes(attr(e, "MULTILINE")) and 1 or 1)
-	local hp, vp = pair(attr(e, "PADDING"))
-	local bw = yes(attr(e, "BORDER")) and (tonumber(attr(e, "BORDERWIDTH")) or 1) * 2 or 0
-	return cols * cw + hp * 2 + bw, lines * ch + vp * 2 + bw
+	local _, natural_h = font:charsize()
+	local natural_w = font:measure("WWWWWWWWWW")
+	natural_w = math.floor((tonumber(attr(e, "VISIBLECOLUMNS")) or 5) * natural_w / 10)
+	local multiline = st.classname == "multiline" or yes(attr(e, "MULTILINE"))
+	if multiline then natural_h = (tonumber(attr(e, "VISIBLELINES")) or 1) * natural_h end
+	if yes(attr(e, "BORDER")) then natural_w, natural_h = natural_w + 6, natural_h + 6 end
+	if yes(attr(e, "SPIN")) then natural_w = natural_w + natural_h end
+	-- winTextSetPaddingAttrib keeps only the horizontal part (EM_SETMARGINS); vert_padding is 0.
+	local hp = pair(attr(e, "PADDING"))
+	natural_w = natural_w + 2 * hp
+	if multiline then
+		local sb = (attr(e, "SCROLLBAR") or "YES"):upper()
+		local size = math.floor(17 * (require("core.imgui.Fonts").dpi or 96) / 96 + 0.5)
+		if sb == "YES" or sb == "HORIZONTAL" then natural_h = natural_h + size end
+		if sb == "YES" or sb == "VERTICAL" then natural_w = natural_w + size end
+	end
+	return natural_w, natural_h
 end
 local function draw(e, st, dc, rt)
 	local font = Fonts.forElement(e)
 	local cw, ch = font:charsize()
-	local pad_x, pad_y = pair(attr(e, "PADDING"))
+	local pad_x = pair(attr(e, "PADDING"))
+	local pad_y = 0 -- the Windows edit control has no vertical padding (see text_natural)
 	local bw = yes(attr(e, "BORDER")) and (tonumber(attr(e, "BORDERWIDTH")) or 1) or 0
 	local bg = attr(e, "BGCOLOR")
 	if bg then dc:fill(st.x, st.y, st.w, st.h, bg, { radius = tonumber(attr(e, "CORNERRADIUS")) or 0 }) end
@@ -228,7 +243,8 @@ local function event(e, st, ev, rt)
 end
 local common = {
 	children = 0, focusable = true, natural = text_natural, draw = draw, event = event,
-	defaults = { BORDER = "YES", BORDERWIDTH = "1", CANFOCUS = "YES", PADDING = "2x1", VISIBLECOLUMNS = "10", VISIBLELINES = "1", FGCOLOR = "0 0 0", BGCOLOR = "255 255 255", CURSOR = "IBEAM" },
+	-- IUP registers BORDER, PADDING ("0x0"), VISIBLECOLUMNS ("5"), VISIBLELINES and the TXT colours (attrs.lua)
+	defaults = { CURSOR = "IBEAM" },
 	set = {
 		VALUE = set_value,
 		APPEND = function(e, st, v) replace(e, st, #st.data.text, #st.data.text, v); return false end,

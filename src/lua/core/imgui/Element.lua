@@ -326,6 +326,19 @@ function M.own(el, name)
 	return st and st.attrs[name]
 end
 
+--- The element's name, giving it IUP's automatic one ("_IUP_NAME(...)", registered so
+-- IupGetHandle finds it) when it has none: what IupGetName returns for a child a
+-- VALUE attribute reports.
+function M.autoName(el)
+	local st = STATE[el]
+	if not st then return nil end
+	if st.handlename then return st.handlename end
+	local name = string.format("_IUP_NAME(%016x)", st.id)
+	named[name] = el
+	st.handlename = name
+	return name
+end
+
 function M.getHandle(el, name)
 	local st = STATE[el]
 	if not st then return nil end
@@ -378,14 +391,45 @@ function M.append(parent, child, ref_index)
 	return parent
 end
 
+--- iChildTreeInsert: before ref_child (the first child when nil), except that an internal
+-- first child (a split's sash, a flat control's scrollbar) stays first.
 function M.insert(parent, ref_child, child)
 	local ps = STATE[parent]
 	if not ps then return nil end
+	local list = ps.children
+	if #list == 0 then return M.append(parent, child) end
+	ref_child = ref_child or list[1]
+	local first = STATE[list[1]]
+	if ref_child == list[1] and first and first.internal then return M.append(parent, child, 2) end
 	local idx = 1
-	if ref_child then
-		for i, c in ipairs(ps.children) do if c == ref_child then idx = i; break end end
-	end
+	for i, c in ipairs(list) do if c == ref_child then idx = i; break end end
 	return M.append(parent, child, idx)
+end
+
+--- Add a child the class owns (IUP_INTERNAL): it counts in GetChild/GetChildCount like
+-- IUP's, box layout skips it, and its owner sizes and places it. `first` puts it in
+-- front (iChildTreeInsertFirst), otherwise it goes last (iupChildTreeAppend).
+function M.appendInternal(parent, child, first)
+	local ps, cs = STATE[parent], STATE[child]
+	if not ps or not cs then return nil end
+	if cs.parent then M.detach(child) end
+	if first then table.insert(ps.children, 1, child) else ps.children[#ps.children + 1] = child end
+	cs.parent = parent
+	cs.internal = true
+	M.hooks.invalidate(parent, "layout", "CHILD")
+	return child
+end
+
+--- The children that are not internal, in order.
+function M.userChildren(el)
+	local st = STATE[el]
+	if not st then return {} end
+	local list = {}
+	for _, c in ipairs(st.children) do
+		local cs = STATE[c]
+		if cs and not cs.internal then list[#list + 1] = c end
+	end
+	return list
 end
 
 function M.detach(child)

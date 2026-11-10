@@ -1,1 +1,3 @@
-Dear ImGui v1.92.9 (ocornut/imgui tag v1.92.9): core sources plus the Win32 and OpenGL3 backends and misc/cpp/imgui_stdlib. Unmodified.
+Dear ImGui v1.92.9 docking branch (ocornut/imgui b334d19b667958ed970000073644d911fae17e57, the
+commit cimgui cd61f1ae generates against): core sources plus the Win32 and OpenGL3 backends and
+misc/cpp/imgui_stdlib. Unmodified.

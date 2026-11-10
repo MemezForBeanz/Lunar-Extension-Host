@@ -181,7 +181,10 @@ end
 
 -- The width of a tab's title in the strip's own font, from IUP's driver: only the strip
 -- would know, and it doesn't say. Close enough on a build without the export.
-local function text_width(strip, text)
+local function text_width(iup, strip, text)
+	-- The ImGui host measures with the element's own font, as the driver would.
+	local measure = rawget(iup, "_textWidth")
+	if measure then return measure(strip, text) end
 	local width
 	pcall(function()
 		local ffi = require("ffi")
@@ -200,7 +203,7 @@ function TitleBar:_measureTabs(pages, hidden)
 	for i = 1, #pages do
 		if not hidden[i] then
 			local title = iup.GetAttributeId(self._root, "TABTITLE", i - 1) or ""
-			total = total + text_width(self._groups, title) + 2 * pad + TAB_SLACK
+			total = total + text_width(iup, self._groups, title) + 2 * pad + TAB_SLACK
 			local image = iup.GetAttributeId(self._root, "TABIMAGE", i - 1)
 			if image then
 				local handle = iup.GetHandle(image)

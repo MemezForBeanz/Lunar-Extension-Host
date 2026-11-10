@@ -22,4 +22,23 @@ describe("ImGui scintilla compatibility", function()
 		sci.send(c, 2190, 6); sci.send(c, 2192, 7); sci.sends(c, 2194, 0, "x")
 		assert.equal("local x = 1", iup.GetAttribute(c, "VALUE"))
 	end)
+	it("draws each styled run once, so the runs of a line add up to the line", function()
+		local Null = require("core.imgui.backend.Null")
+		local R = require("core.imgui.Runtime")
+		local B = Null.new()
+		R.init(B)
+		local line = '"@odata.context": "/redfish/v1/$metadata", "Id": "1", "naïve" = 42'
+		local c = iup.scintilla({ VALUE = line, RASTERSIZE = "900x200" })
+		sci.sends(c, 4006, 0, "lua")
+		iup.Show(iup.dialog({ iup.vbox({ c }), RASTERSIZE = "1000x300" }))
+		R.frame()
+		local drawn = {}
+		for _, call in ipairs(B.lastFrame()) do
+			if call[1] == "text" then drawn[#drawn + 1] = call[7] end
+		end
+		local joined = table.concat(drawn)
+		assert.is_truthy(joined:find(line, 1, true), "runs: " .. table.concat(drawn, "|"))
+		-- nothing else is drawn but the line (and a line number when a margin shows)
+		assert.is_true(#joined <= #line + 1, "runs: " .. table.concat(drawn, "|"))
+	end)
 end)

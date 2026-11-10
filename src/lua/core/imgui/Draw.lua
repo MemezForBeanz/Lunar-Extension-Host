@@ -164,9 +164,21 @@ local function split_lines(text)
 	return lines
 end
 
+-- One line's width. With GDI available it is GDI's (GetTextExtentPoint32 with the font IUP
+-- would have made), so natural sizes, wrap points and ellipses fall where IUP put them.
+-- Widths are cached per font: a page repaints the same labels every frame.
+local MEASURE_CACHE_LIMIT = 4096
 local function measure(font, s)
 	if s == "" then return 0 end
-	local w = Fonts.backend.text_size(font.id, font.px, s, 0)
+	local cache = font._widths
+	if not cache then cache = {}; font._widths, font._nwidths = cache, 0 end
+	local w = cache[s]
+	if w then return w end
+	local B = Fonts.backend
+	if font.gid and B.gdi_text_size then w = B.gdi_text_size(font.gid, font.px, s, 0) end
+	if not w then w = B.text_size(font.id, font.px, s, 0) end
+	if font._nwidths >= MEASURE_CACHE_LIMIT then cache = {}; font._widths, font._nwidths = cache, 0 end
+	cache[s], font._nwidths = w, font._nwidths + 1
 	return w
 end
 
@@ -281,7 +293,7 @@ function DC:text(str, x, y, w, h, color, font, opts)
 			elseif w and align == "right" then lx = x + w - lw end
 			local ly = ty + (i - 1) * lh
 			self:_emit("text", font.id, font.px, lx + self.ox, ly + self.oy, c, line, 0,
-				self.cx1, self.cy1, self.cx2, self.cy2)
+				self.cx1, self.cy1, self.cx2, self.cy2, font.gid or -1)
 			if font.underline or font.strikeout then
 				local asc = font:ascent() or lh * 0.8
 				if font.underline then

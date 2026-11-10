@@ -1,0 +1,5 @@
+cimgui (github.com/cimgui/cimgui cd61f1ae57a27b00c79af6ab0c12caf76fae212d, "pull imgui docking
+1.92.9 and generate"): the generated C API of vendor/imgui, compiled into Lunar.exe so LuaJIT's FFI
+can call Dear ImGui directly (src/lua/core/imgui/cimgui.lua holds the matching cdef).
+Only change: cimgui.cpp includes "imgui.h"/"imgui_internal.h" from the include path instead of
+"./imgui/...".

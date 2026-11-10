@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(Lunar C CXX)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
-set(LUNAR_UI "IMGUI" CACHE STRING "GUI backend (IMGUI or IUP)" FORCE)
+set(LUNAR_UI "IMGUI" CACHE STRING "GUI backend (IMGUI or IUP)")
 set_property(CACHE LUNAR_UI PROPERTY STRINGS IMGUI IUP)
 
 # Export compile_commands.json for VS Code IntelliSense
@@ -382,17 +382,23 @@ add_executable(Lunar WIN32
     vendor/imgui/imgui_tables.cpp
     vendor/imgui/imgui_widgets.cpp
     vendor/imgui/backends/imgui_impl_win32.cpp
-    vendor/imgui/backends/imgui_impl_opengl3.cpp
+    vendor/imgui/backends/imgui_impl_dx11.cpp
+    vendor/imgui/imgui_demo.cpp
+    vendor/cimgui/cimgui.cpp
 )
+# cimgui: Dear ImGui's C API, exported from the exe for LuaJIT's FFI (core.imgui.cimgui).
+# The demo window is compiled out; imgui_demo.cpp then only supplies empty stubs.
+# IMGUI_DISABLE_OBSOLETE_FUNCTIONS: cimgui.h is generated with it, and struct layouts must match.
+target_compile_definitions(Lunar PRIVATE IMGUI_DISABLE_DEMO_WINDOWS IMGUI_DISABLE_OBSOLETE_FUNCTIONS=1)
 add_dependencies(Lunar embed_lua)
 add_dependencies(Lunar embed_images)
 set_target_properties(Lunar PROPERTIES ENABLE_EXPORTS TRUE)
 target_include_directories(Lunar PRIVATE
     ${LUA_SRC} ${NANOSVG_DIR} ${VENDOR} ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/vendor/imgui)
+    ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/vendor/imgui ${CMAKE_SOURCE_DIR}/vendor/cimgui)
 target_link_libraries(Lunar PRIVATE
     lua_static lfs_static cjson_static luasec_static luasocket_static
-    openssl_ssl openssl_crypto opengl32 gdi32 dwmapi imm32 comdlg32
+    openssl_ssl openssl_crypto d3d11 dxgi d3dcompiler gdi32 dwmapi imm32 comdlg32
     ole32 oleaut32 shell32 uuid user32 ws2_32 crypt32)
 target_link_options(Lunar PRIVATE -static -static-libgcc -static-libstdc++
     $<$<CONFIG:Release>:-s> -Wl,--export-all-symbols)

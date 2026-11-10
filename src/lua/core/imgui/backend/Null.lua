@@ -74,7 +74,28 @@ function M.new(opts)
 			mods = { shift = mods.shift or false, ctrl = mods.ctrl or false, alt = mods.alt or false, sys = mods.sys or false },
 			focused = true, resized = q.w ~= nil, close_requested = q.close_requested or false,
 			files = q.files or {},
+			-- Ordered events, as the native backend reports them: { type = "move"|"press"|
+			-- "release"|"wheel"|"leave"|"keydown"|"char", x, y, button, double, dx, dy, code,
+			-- char, mods = { shift, ctrl, alt, sys, b1, b2, b3 } }.
+			events = q.events and B._events(q.events) or nil,
 		}
+	end
+
+	-- Fill in what a queued event leaves out: the last pointer position and plain mods.
+	function B._events(list)
+		local out = {}
+		for i, e in ipairs(list) do
+			local ev = {}
+			for k, v in pairs(e) do ev[k] = v end
+			ev.x = ev.x or B.mx
+			ev.y = ev.y or B.my
+			ev.dx, ev.dy = ev.dx or 0, ev.dy or 0
+			ev.mods = ev.mods or { shift = false, ctrl = false, alt = false, sys = false,
+				b1 = ev.type == "press" and ev.button == 1, b2 = false, b3 = false }
+			if ev.type ~= "leave" and ev.type ~= "keydown" and ev.type ~= "char" then B.mx, B.my = ev.x, ev.y end
+			out[i] = ev
+		end
+		return out
 	end
 
 	function B.frame_end() B.last = B.frame_calls end

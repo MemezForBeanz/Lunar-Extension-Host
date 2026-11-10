@@ -83,8 +83,26 @@ local function natural(e, st, L)
 	local lines = tonumber(attr(e, "VISIBLELINES")) or 4
 	return cols * cw + (tonumber(attr(e, "MARGINWIDTH0")) or 0) + 8, lines * ch + 4
 end
+-- The font of a style: its own face/size/bold, else STYLE_DEFAULT's (32), else FONT.
+local function style_font(e, st, style)
+	local d = st.data
+	d.fonts = d.fonts or {}
+	local f = d.fonts[style]
+	if f then return f end
+	local base = Fonts.forElement(e)
+	local function pick(t) return t and (t[style] ~= nil and t[style] or t[32]) end
+	local face = pick(d.style_face) or base.face
+	local size = pick(d.style_size) or base.pt
+	local bold = pick(d.style_bold)
+	if bold == nil then bold = base.bold end
+	f = Fonts.get(face .. ", " .. (bold and "Bold " or "") .. tostring(size))
+	d.fonts[style] = f
+	return f
+end
+M._style_font = style_font
+
 local function draw(e, st, dc, rt)
-	local f = Fonts.forElement(e); local cw, ch = f:charsize()
+	local f = style_font(e, st, 32); local cw, ch = f:charsize()
 	local bg, fg = attr(e, "BGCOLOR") or "255 255 255", attr(e, "FGCOLOR") or "0 0 0"
 	dc:fill(st.x, st.y, st.w, st.h, bg)
 	dc:clip_push(st.x, st.y, st.w, st.h)
@@ -103,9 +121,11 @@ local function draw(e, st, dc, rt)
 		local line = lines[i]
 		local at = 1
 		while at <= #line do
-			local c, q = line:sub(at, at + 3), at + 1
+			-- the first character of the run (one byte, or a whole UTF-8 sequence)
+			local q = at + 1
 			local n = line:byte(at)
-			if n and n >= 128 then while line:byte(q) and line:byte(q) >= 128 and line:byte(q) < 192 do q = q + 1 end; c = line:sub(at, q - 1) end
+			if n and n >= 192 then while line:byte(q) and line:byte(q) >= 128 and line:byte(q) < 192 do q = q + 1 end end
+			local c = line:sub(at, q - 1)
 			local style = style_at(st, p + at - 1)
 			local run = c
 			local nextat = q
@@ -116,8 +136,9 @@ local function draw(e, st, dc, rt)
 				run = run .. line:sub(nextat, nq - 1); nextat = nq
 			end
 			local sc = st.data.style[style] or fg
-			dc:text(run, x, y, math.max(cw, st.w - (x - st.x)), ch, sc, f, { clip = true })
-			x = x + f:measure(run); at = nextat
+			local sf = style_font(e, st, style)
+			dc:text(run, x, y, math.max(cw, st.w - (x - st.x)), ch, sc, sf, { clip = true })
+			x = x + sf:measure(run); at = nextat
 		end
 	end
 	local a, b = math.min(st.data.anchor, st.data.caret), math.max(st.data.anchor, st.data.caret)

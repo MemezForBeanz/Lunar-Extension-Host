@@ -75,10 +75,22 @@ function M.send(el, msg, w, l)
 	elseif msg == 2033 then d.style_ranges = d.style_ranges or {}; d.style_ranges[#d.style_ranges + 1] = { d.styling_pos, d.styling_pos + w, l }; d.styling_pos = d.styling_pos + w; return 0
 	elseif msg == 2051 then d.style[w] = Scintilla._bgr_to_rgb(l); return 0
 	elseif msg == 2052 then d.style_bg = d.style_bg or {}; d.style_bg[w] = Scintilla._bgr_to_rgb(l); return 0
-	elseif msg == 2053 then return 0
-	elseif msg == 2055 then return 0
-	elseif msg == 2056 then return 0
-	elseif msg == 2050 then return 0
+	-- Style fonts (SCI_STYLESETBOLD/SIZE/FONT); STYLE_DEFAULT is 32, and STYLECLEARALL
+	-- copies it to every style, as Scintilla does.
+	elseif msg == 2053 then d.style_bold = d.style_bold or {}; d.style_bold[w] = (l or 0) ~= 0; d.fonts = nil; return 0
+	elseif msg == 2055 then d.style_size = d.style_size or {}; d.style_size[w] = tonumber(l); d.fonts = nil; return 0
+	elseif msg == 2056 then d.style_face = d.style_face or {}; d.style_face[w] = tostring(l or ""); d.fonts = nil; return 0
+	elseif msg == 2050 then
+		for _, key in ipairs({ "style_bold", "style_size", "style_face" }) do
+			local t = d[key]
+			if t and t[32] ~= nil then
+				local keep = t[32]
+				for k in pairs(t) do t[k] = nil end
+				t[32] = keep
+			end
+		end
+		d.fonts = nil
+		return 0
 	elseif msg == 2242 then d.margin_width[w] = l; return 0
 	elseif msg == 2240 then d.margin_type = d.margin_type or {}; d.margin_type[w] = l; return 0
 	elseif msg == 2275 then return d.scroll_width or 0

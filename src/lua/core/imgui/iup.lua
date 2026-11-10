@@ -204,6 +204,29 @@ end
 
 function iup.GetHandle(name) return Element.named[name] end
 
+--- Names of the named dialogs (iuplua returns the table and its length).
+function iup.GetAllDialogs(max_n)
+	local names = {}
+	for name, h in pairs(Element.named) do
+		if (max_n or -1) > 0 and #names >= max_n then break end
+		local st = Element.state(h)
+		if st and st.classname == "dialog" then names[#names + 1] = name end
+	end
+	table.sort(names)
+	return names, #names
+end
+
+--- Names of every named element (iuplua returns the table and its length).
+function iup.GetAllNames(max_n)
+	local names = {}
+	for name in pairs(Element.named) do
+		if (max_n or -1) > 0 and #names >= max_n then break end
+		names[#names + 1] = name
+	end
+	table.sort(names)
+	return names, #names
+end
+
 function iup.GetName(h)
 	local st = Element.state(h)
 	return st and st.handlename or nil
@@ -380,6 +403,13 @@ Element.Meta.__index = function(el, key)
 end
 
 --- Is this value a handle of this host?
+--- iupdrvFontGetStringWidth: the width of one line of text in the element's font.
+function iup._textWidth(h, text)
+	if not Element.is(h) then return #tostring(text or "") * 8 end
+	local w = require("core.imgui.Fonts").forElement(h):measure(tostring(text or ""))
+	return math.floor((w or 0) + 0.5)
+end
+
 function iup.ihandle(v) return Element.is(v) end
 iup.isihandle = iup.ihandle
 

@@ -209,6 +209,11 @@ Element.commonGet = {
 		if st.mapped and (st.w > 0 or st.h > 0) then return string.format("%dx%d", st.w, st.h) end
 	end,
 	CURRENTSIZE = function(el, st) return string.format("%dx%d", st.w, st.h) end,
+	-- A dialog's client area (the whole window for one drawn inside the main window).
+	CLIENTSIZE = function(el, st)
+		if st.classname ~= "dialog" then return nil end
+		return string.format("%dx%d", st.w, st.h)
+	end,
 	NATURALSIZE = function(el, st) return string.format("%dx%d", st.nat_w, st.nat_h) end,
 	POSITION = function(el, st)
 		local p = st.parent and STATE[st.parent]
@@ -355,14 +360,33 @@ local function focusable(el)
 end
 M.focusable = focusable
 
+local GENERIC_MOUSE = { press = "BUTTON_CB", release = "BUTTON_CB", move = "MOTION_CB", wheel = "WHEEL_CB" }
+
 local function deliver(el, ev)
 	local st = STATE[el]
 	if not st then return false end
 	local ev_fn = st.class.event
-	if not ev_fn then return false end
 	ev.lx, ev.ly = (ev.x or 0) - st.x, (ev.y or 0) - st.y
 	-- IUP passes buttons to BUTTON_CB as the characters '1' '2' '3'.
 	if ev.button and not ev.iupbutton then ev.iupbutton = 48 + ev.button end
+	-- Every IUP control with a window reports BUTTON_CB, MOTION_CB and WHEEL_CB (a label,
+	-- a text, a list...). A class that does not handle one itself gets it here; IGNORE
+	-- stops the control's own handling, as it does in IUP's drivers.
+	local generic = GENERIC_MOUSE[ev.type]
+	if generic and Element.hasCallback(el, generic) and not (st.class.callbacks and st.class.callbacks[generic]) then
+		local r
+		if generic == "BUTTON_CB" then
+			r = Element.call(el, generic, ev.iupbutton, ev.type == "press" and 1 or 0, ev.lx, ev.ly, ev.status)
+		elseif generic == "MOTION_CB" then
+			r = Element.call(el, generic, ev.lx, ev.ly, ev.status)
+		else
+			r = Element.call(el, generic, ev.dy or 0, ev.lx, ev.ly, ev.status)
+		end
+		if r == CLOSE then M.exitLoop() end
+		if r == IGNORE then return true end
+		if not ev_fn then return true end
+	end
+	if not ev_fn then return false end
 	local ok, consumed = xpcall(ev_fn, debug.traceback, el, st, ev, M)
 	if not ok then warn(tostring(consumed)); return false end
 	if ev.result == CLOSE then M.exitLoop() end
@@ -1169,7 +1193,68 @@ local function route(input)
 	end
 end
 
-local function route_keys(input)
+-- The native backend reports input as ordered events (input.events), each with the
+-- pointer position, buttons and modifiers it happened with. They are routed one at a
+-- time, so a press and a release in the same frame (a tap, a fast click), a click
+-- followed by the pointer leaving, or a key typed between two clicks all reach the
+-- widgets in order and at the right place. Each event is presented to `route` as a
+-- one-event input of the old shape.
+local MINI = {
+	pressed = { 0, 0, 0 }, released = { 0, 0, 0 }, double = { 0, 0, 0 }, down = { false, false, false },
+	wheel_x = 0, wheel_y = 0, keys = {}, chars = {}, files = {},
+}
+local route_keys
+local function route_events(input)
+	local evs = input.events
+	if not evs then
+		route(input)
+		route_keys(input)
+		return
+	end
+	local mini = MINI
+	mini.w, mini.h, mini.scale, mini.focused = input.w, input.h, input.scale, input.focused
+	mini.mx, mini.my, mini.inside = last_mouse[1], last_mouse[2], input.inside
+	local routed_mouse = false
+	for i = 1, #evs do
+		local ev = evs[i]
+		local t = ev.type
+		local p, r, d, down = mini.pressed, mini.released, mini.double, mini.down
+		p[1], p[2], p[3], r[1], r[2], r[3], d[1], d[2], d[3] = 0, 0, 0, 0, 0, 0, 0, 0, 0
+		mini.wheel_x, mini.wheel_y = 0, 0
+		local m = ev.mods
+		mini.mods = m
+		down[1], down[2], down[3] = m.b1, m.b2, m.b3
+		frame_input = mini
+		if t == "keydown" then
+			local code = iup_key({ code = ev.code, shift = m.shift, ctrl = m.ctrl, alt = m.alt, sys = m.sys })
+			if code then key_event(code) end
+		elseif t == "char" then
+			if ev.char then char_event(ev.char) end
+		elseif t ~= "keyup" and t ~= "file" then
+			if t == "leave" then
+				mini.inside, mini.mx, mini.my = false, -1, -1
+			else
+				mini.inside, mini.mx, mini.my = ev.x >= 0, ev.x, ev.y
+			end
+			if t == "press" then
+				p[ev.button] = 1
+				if ev.double then d[ev.button] = 1 end
+			elseif t == "release" then
+				r[ev.button] = 1
+			elseif t == "wheel" then
+				mini.wheel_x, mini.wheel_y = ev.dx, ev.dy
+			end
+			route(mini)
+			routed_mouse = true
+		end
+	end
+	frame_input = input
+	-- No pointer event: still route once, so what is under a still pointer is re-checked
+	-- (content scrolled or laid out under it).
+	if not routed_mouse then route(input) end
+end
+
+function route_keys(input)
 	for _, k in ipairs(input.keys or {}) do
 		if k.down ~= false then
 			local code = iup_key(k)
@@ -1204,19 +1289,24 @@ local function paint(el, d)
 end
 M.paint = paint
 
+-- winDialogResize: a new client size reaches RESIZE_CB first, so the callback can set
+-- sizes the layout then honours; IGNORE keeps the old layout.
 local function layout_dialog(d, w, h)
 	local st = STATE[d]
 	if not Layout then Layout = require("core.imgui.Layout") end
-	if st.data.layout_dirty or st.data.lw ~= w or st.data.lh ~= h then
+	if st.data.lw ~= w or st.data.lh ~= h then
+		st.data.lw, st.data.lh = w, h
+		local r = Element.call(d, "RESIZE_CB", w, h)
+		check_close(r)
+		if r == IGNORE then return end
+		st.data.layout_dirty = true
+	end
+	if st.data.layout_dirty then
 		in_layout = true
 		local ok, err = xpcall(Layout.run, debug.traceback, d, w, h)
 		in_layout = false
 		if not ok then warn(err) end
 		st.data.layout_dirty = false
-		if (st.data.lw ~= w or st.data.lh ~= h) and st.data.lw then
-			check_close(Element.call(d, "RESIZE_CB", w, h))
-		end
-		st.data.lw, st.data.lh = w, h
 	end
 end
 
@@ -1306,9 +1396,8 @@ function M.frame()
 		end
 	end
 
-	local ok, err = xpcall(route, debug.traceback, input)
-	if not ok then warn(err) end
-	ok, err = xpcall(route_keys, debug.traceback, input)
+	local ok, err = xpcall(route_events, debug.traceback, input)
+	frame_input = input
 	if not ok then warn(err) end
 
 	-- Main dialog follows the window.
@@ -1399,6 +1488,8 @@ local function preload_natives()
 	pre("svgicon", "core.imgui.native.svgicon")
 	pre("pngimage", "core.imgui.native.pngimage")
 	pre("appimages", "core.imgui.native.appimages")
+	-- Direct IUP C calls through the FFI become calls on the element (see native/iupffi.lua).
+	pre("core.classes.IupFFI", "core.imgui.native.iupffi")
 	-- The layered-window compositor becomes draw-call replay (see native/compositor.lua).
 	package.loaded.compositor = nil
 	package.preload.compositor = function() return require("core.imgui.native.compositor") end

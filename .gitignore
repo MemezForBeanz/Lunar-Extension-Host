@@ -20,6 +20,7 @@ vendor/*
 !vendor/stb/
 !vendor/certs/
 !vendor/imgui/
+!vendor/cimgui/
 
 # Generated sources
 src/lua_bundle.h

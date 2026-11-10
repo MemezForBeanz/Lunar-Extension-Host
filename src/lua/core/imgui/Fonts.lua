@@ -33,30 +33,85 @@ function M.reset()
 	count = 0
 end
 
---- Parse a font string into its parts.
--- @treturn table { face, size (points, or negative pixels), bold, italic, underline, strikeout }
+-- iFontFindStyleName's table: a trailing word that starts one of these names is a style
+-- word, and it leaves the face name even when it sits before the comma ("HPE Graphik
+-- Medium, 10" is the face "HPE Graphik"; IUP then asks GDI for that name).
+local STYLE_NAMES = {
+	{ "Normal" }, { "Oblique", "italic" }, { "Italic", "italic" }, { "Small-Caps" }, { "Ultra-Light" },
+	{ "Light" }, { "Medium" }, { "Semi-Bold", "bold" }, { "Bold", "bold" }, { "Ultra-Bold", "bold" },
+	{ "Heavy" }, { "Ultra-Condensed" }, { "Extra-Condensed" }, { "Condensed" }, { "Semi-Condensed" },
+	{ "Semi-Expanded" }, { "Expanded" }, { "Extra-Expanded" }, { "Ultra-Expanded" },
+	{ "Underline", "underline" }, { "Strikeout", "strikeout" },
+}
+local function style_word(word)
+	for _, e in ipairs(STYLE_NAMES) do
+		-- strncmp(name, word, len) == 0: the word is a prefix of the name
+		if #word <= #e[1] and e[1]:sub(1, #word) == word then return true, e[2] end
+	end
+	return false
+end
+
+-- atoi: leading blanks, a sign, digits; 0 when there are none.
+local function atoi(word)
+	local n = word:match("^%s*([+-]?%d+)")
+	return n and tonumber(n) or 0
+end
+
+--- Parse a font string the way IUP does (iupGetFontInfo: iupFontParseWin, then
+-- iupFontParsePango; the X form is not used on Windows).
+-- @treturn table { face, size (points, or negative pixels; nil when absent), bold, italic, underline, strikeout }
 function M.parse(s)
 	s = tostring(s or "")
-	local face, rest = s:match("^%s*([^,]*),%s*(.*)$")
-	if not face then
-		-- "Face::size" (old Windows form) or just a face/size
-		local f2, sz = s:match("^%s*(.-)::%s*(-?%d+)%s*$")
-		if f2 then face, rest = f2, sz else face, rest = s, "" end
-	end
-	local out = { face = face ~= "" and face or nil, bold = false, italic = false,
-		underline = false, strikeout = false, size = nil }
-	for word in rest:gmatch("%S+") do
-		local n = tonumber(word)
-		if n then out.size = n
-		else
-			local w = word:lower()
-			if w == "bold" then out.bold = true
-			elseif w == "italic" then out.italic = true
-			elseif w == "underline" then out.underline = true
-			elseif w == "strikeout" then out.strikeout = true
+	local out = { face = nil, bold = false, italic = false, underline = false, strikeout = false, size = nil }
+	-- "Typeface:STYLE,STYLE:size" (iupFontParseWin)
+	if s:sub(1, 1) ~= "-" and s:find(":", 1, true) then
+		local face, styles, size = s:match("^([^:]*):([^:]*):(.*)$")
+		if face then
+			for word in styles:gmatch("[^,]+") do
+				if word == "BOLD" then out.bold = true
+				elseif word == "ITALIC" then out.italic = true
+				elseif word == "UNDERLINE" then out.underline = true
+				elseif word == "STRIKEOUT" then out.strikeout = true end
 			end
+			local n = tonumber(size)
+			if n and n ~= 0 and math.floor(n) == n then
+				out.face = face ~= "" and face or nil
+				out.size = n
+				return out
+			end
+			out.bold, out.italic, out.underline, out.strikeout = false, false, false, false
 		end
 	end
+	-- iupFontParsePango: words are separated by spaces and commas, read from the end.
+	if s:sub(1, 1) == "-" then return out end
+	-- The family as written, before IUP strips style words from it: the file to draw with
+	-- is looked up by this first ("HPE Graphik Medium" names a real face).
+	local written = s:match("^%s*([^,]-)%s*,")
+	if written and written ~= "" then out.written = written end
+	local last = #s
+	local function word_before(stop)
+		while stop > 0 and (s:sub(stop, stop) == " " or s:sub(stop, stop) == ",") do stop = stop - 1 end
+		local start = stop
+		while start > 0 and s:sub(start, start) ~= " " and s:sub(start, start) ~= "," do start = start - 1 end
+		return start + 1, stop
+	end
+	local a, b = word_before(last)
+	if b >= a then
+		local size = atoi(s:sub(a, b))
+		if size ~= 0 then out.size = size; last = a - 1 end
+	end
+	a, b = word_before(last)
+	while b >= a do
+		local ok, style = style_word(s:sub(a, b))
+		if not ok then break end
+		if style then out[style] = true end
+		last = a - 1
+		a, b = word_before(last)
+	end
+	while last > 0 and (s:sub(last, last) == " " or s:sub(last, last) == ",") do last = last - 1 end
+	local first = 1
+	while first <= last and (s:sub(first, first) == " " or s:sub(first, first) == ",") do first = first + 1 end
+	if first <= last then out.face = s:sub(first, last) end
 	return out
 end
 
@@ -74,6 +129,8 @@ function M.register(path)
 	local B = M.backend
 	local names = B and B.font_names and B.font_names(path)
 	if not names then return false end
+	-- GDI measures text the way IUP did (see Font:measure), so it has to know the file.
+	if B.font_private then B.font_private(path) end
 	local family = names[16] or names[1]
 	local sub = (names[17] or names[2] or "Regular"):lower()
 	local bold = sub:find("bold") ~= nil
@@ -129,12 +186,21 @@ function M.get(s)
 	end
 	if not p.face then p.face = M.parse(Element.globals.DEFAULTFONT or M.fallback).face end
 	local px
-	if p.size < 0 then px = -p.size else px = p.size * M.dpi / 72 end
+	-- iupWIN_PT2PIXEL: MulDiv(size, dpi, 72), a whole number of pixels, as GDI's lfHeight.
+	if p.size < 0 then px = -p.size else px = math.floor(p.size * M.dpi / 72 + 0.5) end
 	f = setmetatable({
 		str = s, face = p.face, bold = p.bold, italic = p.italic,
 		underline = p.underline, strikeout = p.strikeout, pt = p.size, px = px,
 	}, Font)
-	f.id = face_id(p.face, p.bold, p.italic)
+	if p.written and p.written ~= p.face and (registered_path(p.written, p.bold, p.italic)
+		or (M.backend and M.backend.font_find and M.backend.font_find(p.written, p.bold, p.italic))) then
+		f.id = face_id(p.written, p.bold, p.italic)
+	else
+		f.id = face_id(p.face, p.bold, p.italic)
+	end
+	-- The GDI font IUP would have created for this string (measuring only).
+	local B = M.backend
+	if B and B.gdi_font and p.face then f.gid = B.gdi_font(p.face, p.bold, p.italic) end
 	count = count + 1
 	if count > 2048 then M.reset() end
 	by_string[s] = f
@@ -154,6 +220,10 @@ function Font:measure(text, wrap)
 		local _, h = self:charsize()
 		return 0, h
 	end
+	if self.gid and B.gdi_text_size then
+		local w, h = B.gdi_text_size(self.gid, self.px, text, wrap or 0)
+		if w then return w, h end
+	end
 	local w, h = B.text_size(self.id, self.px, text, wrap or 0)
 	return math.ceil(w), math.ceil(h)
 end
@@ -162,7 +232,9 @@ end
 function Font:charsize()
 	if self._cw then return self._cw, self._ch end
 	local B = M.backend
-	local ascent, descent, line_h, avg = B.font_metrics(self.id, self.px)
+	local ascent, descent, line_h, avg
+	if self.gid and B.gdi_metrics then ascent, descent, line_h, avg = B.gdi_metrics(self.gid, self.px) end
+	if not ascent then ascent, descent, line_h, avg = B.font_metrics(self.id, self.px) end
 	self._ascent, self._descent = ascent, descent
 	self._cw = math.max(1, math.floor(avg + 0.5))
 	self._ch = math.max(1, math.ceil(line_h))

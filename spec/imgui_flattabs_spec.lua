@@ -34,7 +34,11 @@ describe("imgui flattabs", function()
 		local tabs = iup.flattabs{ a, b, TABTITLE0 = "One", TABTITLE1 = "Two", TABSPADDING = "8x4" }
 		local c, s = layout(tabs)
 		assert.are.equal("2", iup.GetAttribute(tabs, "COUNT"))
-		assert.are.equal("a", iup.GetAttribute(tabs, "VALUE"))
+		-- VALUE is IupGetName of the child (an automatic name when it has none), not NAME
+		assert.are.equal(a, iup.GetHandle(iup.GetAttribute(tabs, "VALUE")))
+		assert.matches("^_IUP_NAME%(", iup.GetAttribute(tabs, "VALUE"))
+		iup.SetHandle("tab_a", a)
+		assert.are.equal("tab_a", iup.GetAttribute(tabs, "VALUE"))
 		assert.are.equal("0", iup.GetAttribute(tabs, "VALUEPOS"))
 		assert.are.equal(a, iup.GetAttributeHandle(tabs, "VALUE_HANDLE"))
 		assert.is_true(Element.state(a).y > s.y)
