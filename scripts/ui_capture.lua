@@ -11,6 +11,26 @@
 local iup = require("iup")
 local ffi = require("ffi")
 
+-- This checkout's Lua, whichever build runs the script (as scripts/ui_probe.lua).
+do
+	local here = debug.getinfo(1, "S").source:gsub("^@", ""):gsub("\\", "/")
+	local root = here:match("^(.*)/scripts/[^/]+$")
+	if root and root ~= "" then
+		LUNAR_SOURCE_DIR = root
+		local mine = root .. "/src/lua/?.lua;" .. root .. "/src/lua/?/init.lua"
+		table.insert(package.loaders, 2, function(name)
+			local file = package.searchpath(name, mine)
+			if not file then return nil end
+			return assert(loadfile(file))
+		end)
+		for name in pairs(package.preload) do
+			local f = io.open(root .. "/src/lua/" .. name:gsub("%.", "/") .. ".lua", "r")
+			if f then f:close(); package.preload[name] = nil end
+		end
+	end
+end
+
+
 -- Nobody is there to dismiss a dialog, and one would stop the run with nothing to show for it.
 iup.Message = function(title, text)
 	io.stderr:write("ui_capture: ", tostring(title), ": ", tostring(text), string.char(10))
