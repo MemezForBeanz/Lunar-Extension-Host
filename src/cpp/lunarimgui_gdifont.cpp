@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -60,23 +61,22 @@ std::wstring font_name(const unsigned char *data, size_t size) {
     if (!table(data, size, 0x6E616D65, &name, &name_size) || name_size < 6) return L"Segoe UI";
     uint16_t count = be16(name + 2), string_offset = be16(name + 4);
     std::wstring result;
+    int best = -1;
     for (uint16_t i = 0; i < count; ++i) {
         size_t off = 6 + (size_t)i * 12;
         if (off + 12 > name_size) break;
-        uint16_t platform = be16(name + off), encoding = be16(name + off + 2);
+        uint16_t platform = be16(name + off), encoding = be16(name + off + 2), lang = be16(name + off + 4);
         uint16_t id = be16(name + off + 6), len = be16(name + off + 8), str = be16(name + off + 10);
         if ((id != 16 && id != 1) || (platform != 3 && platform != 0) || string_offset + str + len > name_size) continue;
         std::wstring candidate;
         const unsigned char *p = name + string_offset + str;
-        if (platform == 3 || encoding == 1) {
-            for (uint16_t j = 0; j + 1 < len; j += 2) candidate.push_back((wchar_t)((p[j] << 8) | p[j + 1]));
-        } else {
-            for (uint16_t j = 0; j < len; ++j) candidate.push_back((wchar_t)p[j]);
-        }
-        if (!candidate.empty()) {
-            if (id == 16) return candidate;
-            if (result.empty()) result = candidate;
-        }
+        /* Windows (3) and Unicode (0) records are UTF-16BE */
+        for (uint16_t j = 0; j + 1 < len; j += 2) candidate.push_back((wchar_t)((p[j] << 8) | p[j + 1]));
+        (void)encoding;
+        if (candidate.empty() || candidate[0] == 0) continue;
+        /* CreateFont matches the legacy family (name 1) in US English first */
+        int score = (id == 1 ? 4 : 0) + (platform == 3 ? 2 : 0) + (lang == 0x409 || platform == 0 ? 1 : 0);
+        if (score > best) { best = score; result = candidate; }
     }
     return result.empty() ? L"Segoe UI" : result;
 }
@@ -111,10 +111,26 @@ HFONT make_font(const FontSource *src, float size) {
     int height = std::max(1, (int)std::lround(size * src->upm / std::max(1.0f, src->hhea_span)));
     if (!g_dc) g_dc = CreateCompatibleDC(nullptr);
     return CreateFontW(-height, 0, 0, 0, src->weight, src->italic, FALSE, FALSE, DEFAULT_CHARSET,
-        OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, FF_DONTCARE | DEFAULT_PITCH, src->family.c_str());
+        OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, FF_DONTCARE | DEFAULT_PITCH, src->family.c_str());
 }
 
-bool loader_src_init(ImFontAtlas *, ImFontConfig *src) { return source_from(src) != nullptr; }
+void debug_log(const char *what, const ImFontConfig *src, const FontSource *font) {
+    static int on = -1;
+    if (on < 0) { char v[4] = ""; on = GetEnvironmentVariableA("LUNAR_GLYPHS_DEBUG", v, sizeof v) > 0; }
+    if (!on) return;
+    char path[MAX_PATH]; GetTempPathA(MAX_PATH, path); strcat_s(path, "lunar_glyphs.log");
+    FILE *f = nullptr; fopen_s(&f, path, "a");
+    if (!f) return;
+    auto it = g_data.find(src->FontData);
+    fprintf(f, "%s data=%p known=%d path=%s family=%ls\n", what, src->FontData, it != g_data.end(),
+        it != g_data.end() ? it->second.path.c_str() : "-", font ? font->family.c_str() : L"-");
+    fclose(f);
+}
+bool loader_src_init(ImFontAtlas *, ImFontConfig *src) {
+    FontSource *font = source_from(src);
+    debug_log("src_init", src, font);
+    return font != nullptr;
+}
 void loader_src_destroy(ImFontAtlas *, ImFontConfig *src) {
     delete (FontSource *)src->FontLoaderData;
     src->FontLoaderData = nullptr;
@@ -151,35 +167,41 @@ bool loader_glyph(ImFontAtlas *atlas, ImFontConfig *src, ImFontBaked *baked, voi
     }
     float advance = (float)(abc.abcA + abc.abcB + abc.abcC);
     if (out_advance) { *out_advance = advance; SelectObject(g_dc, old); DeleteObject(hf); return true; }
-    /* GGO_GRAY8_BITMAP is hinted by the selected HFONT and matches IUP's
-     * grayscale coverage more closely than stb's outline rasterizer. */
+    /* IUP's Windows driver draws text with GDI's default quality, ClearType on a normal
+     * desktop. Draw the glyph the same way, light on black in a DIB, and keep the mean of
+     * its three subpixel coverages: the weight and hinting of IUP's text, as grayscale. */
     MAT2 mat = {}; mat.eM11.value = 1; mat.eM22.value = 1;
-    GLYPHMETRICS gm = {}; DWORD bytes = GetGlyphOutlineW(g_dc, c, GGO_GRAY8_BITMAP, &gm, 0, nullptr, &mat);
-    if (bytes == GDI_ERROR) {
+    GLYPHMETRICS gm = {};
+    if (GetGlyphOutlineW(g_dc, c, GGO_METRICS, &gm, 0, nullptr, &mat) == GDI_ERROR || gm.gmBlackBoxX == 0 || gm.gmBlackBoxY == 0
+        || c == L' ' || c == 0xA0) {
         out->Codepoint = codepoint; out->AdvanceX = advance; out->Visible = false;
         SelectObject(g_dc, old); DeleteObject(hf); return true;
     }
-    int w = (int)gm.gmBlackBoxX, h = (int)gm.gmBlackBoxY;
-    if (bytes == 0 || w <= 0 || h <= 0) {
-        out->Codepoint = codepoint; out->AdvanceX = advance; out->Visible = false;
-        SelectObject(g_dc, old); DeleteObject(hf); return true;
-    }
-    std::vector<unsigned char> raw(bytes);
-    if (GetGlyphOutlineW(g_dc, c, GGO_GRAY8_BITMAP, &gm, bytes, raw.data(), &mat) == GDI_ERROR) {
-        SelectObject(g_dc, old); DeleteObject(hf); return false;
-    }
+    const int pad = 2;
+    int w = (int)gm.gmBlackBoxX + 2 * pad, h = (int)gm.gmBlackBoxY + 2 * pad;
+    BITMAPINFO bi = {}; bi.bmiHeader.biSize = sizeof(bi.bmiHeader);
+    bi.bmiHeader.biWidth = w; bi.bmiHeader.biHeight = -h; bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32; bi.bmiHeader.biCompression = BI_RGB;
+    void *bits = nullptr;
+    HBITMAP dib = CreateDIBSection(g_dc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!dib || !bits) { if (dib) DeleteObject(dib); SelectObject(g_dc, old); DeleteObject(hf); return false; }
+    HGDIOBJ old_bmp = SelectObject(g_dc, dib);
+    memset(bits, 0, (size_t)w * h * 4);
+    SetBkMode(g_dc, TRANSPARENT); SetTextColor(g_dc, RGB(255, 255, 255));
+    SetTextAlign(g_dc, TA_BASELINE | TA_LEFT);
+    /* the pixel (pad, pad) is the top left of the glyph's black box */
+    TextOutW(g_dc, pad - gm.gmptGlyphOrigin.x, pad + gm.gmptGlyphOrigin.y, &c, 1);
+    GdiFlush();
+    std::vector<unsigned char> pixels((size_t)w * h);
+    const unsigned char *src_px = (const unsigned char *)bits;
+    for (int i = 0; i < w * h; ++i)
+        pixels[(size_t)i] = (unsigned char)((src_px[i * 4] + src_px[i * 4 + 1] + src_px[i * 4 + 2] + 1) / 3);
+    SelectObject(g_dc, old_bmp); DeleteObject(dib);
     ImFontAtlasRectId id = ImFontAtlasPackAddRect(atlas, w, h);
     if (id == ImFontAtlasRectId_Invalid) { SelectObject(g_dc, old); DeleteObject(hf); return false; }
     ImTextureRect *rect = ImFontAtlasPackGetRect(atlas, id);
-    int pitch = (w + 3) & ~3;
-    if ((size_t)pitch * h > raw.size()) {
-        SelectObject(g_dc, old); DeleteObject(hf); return false;
-    }
-    std::vector<unsigned char> pixels((size_t)w * h);
-    for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x)
-        pixels[(size_t)y * w + x] = (unsigned char)std::min(255, raw[(size_t)y * pitch + x] * 4);
     out->Codepoint = codepoint; out->AdvanceX = advance;
-    out->X0 = (float)gm.gmptGlyphOrigin.x; out->Y0 = baked->Ascent - (float)gm.gmptGlyphOrigin.y;
+    out->X0 = (float)(gm.gmptGlyphOrigin.x - pad); out->Y0 = baked->Ascent - (float)(gm.gmptGlyphOrigin.y + pad);
     out->X1 = out->X0 + w; out->Y1 = out->Y0 + h; out->Visible = true; out->PackId = id;
     ImFontAtlasBakedSetFontGlyphBitmap(atlas, baked, src, out, rect, pixels.data(), ImTextureFormat_Alpha8, w);
     SelectObject(g_dc, old); DeleteObject(hf); return true;
