@@ -23,8 +23,10 @@ tree that ImGui draws every frame.**
            |
  core.imgui.Draw (dc)              a draw context: rects, gradients, text, images, clip
            |
- backend: Native (lunarimgui C++)  Win32 + OpenGL3 + ImGui, ImDrawList, fonts, textures
+ backend: Native                   Lua over lunarimgui (C++): Win32 window, Direct3D 11 (WARP),
+                                   ImGui draw lists through LuaJIT FFI, GDI text metrics, textures
           Null (Lua)               the same calls recorded in memory, for the busted suite
+ core.imgui.cimgui                 the whole Dear ImGui C API (cimgui) through FFI, for extensions
 ```
 
 ## Why a virtual tree and not ImGui widgets
@@ -219,21 +221,51 @@ rt.clipboard_get() rt.clipboard_set(s)
 
 ### Backend (core.imgui.backend.Native over the `lunarimgui` C module)
 
+Two layers. Calls that pump Win32 messages (`open`, `frame_begin`, `window`, dialogs)
+stay on the Lua C API, because the window procedure calls back into Lua while the
+window is being sized and a function called through LuaJIT's FFI must never re-enter
+Lua. Everything a frame does per primitive is an FFI call to an exported C function with
+scalar arguments (`lunar_ui_rect_filled`, `lunar_ui_text`, ...), which LuaJIT compiles
+into its traces; the frame's input is read straight from a C struct (`LunarUiFrame`).
+`lunar_ui_sizeof` lets the Lua side refuse declarations that do not match the exe.
+
+Input is an ordered list of events, each with the pointer position, buttons and
+modifiers it happened with. `Runtime` routes them one at a time, so a press and release
+in the same frame (a touchpad tap, a quick click), a click followed by the pointer
+leaving, or keys typed between clicks reach the widgets in order and at the right place.
+
+Rendering is Direct3D 11 on WARP, the software rasterizer that ships with Windows: the
+flat UI costs about 4 ms of CPU per full-window frame and no GPU driver is loaded (the
+OpenGL driver alone was ~40 MB of private memory). `LUNAR_RENDERER=hardware` uses the
+GPU instead, and `LUNAR_VSYNC=0` presents without waiting (frame timing).
+
+Text is measured the way IUP's Windows driver measures it: a GDI font made with
+`CreateFont(-MulDiv(pt, dpi, 72), ..., bold ? FW_BOLD : FW_NORMAL, ...)` from the face
+`iupGetFontInfo` parses (so "HPE Graphik Medium, 10" asks GDI for "HPE Graphik", as IUP
+did), `GetTextExtentPoint32` per line and `tmHeight` per line. Glyphs come from ImGui's
+atlas but are placed at GDI's character positions (`GetTextExtentExPoint`), so drawn text
+lands where the measurements put it.
+
 ```
 open{ title, x, y, w, h, maximized, borderless } -> ok, err
-close()  alive() -> bool  now() -> seconds  wait(timeout_s)
+close()  alive() -> bool  now() -> seconds  wait(timeout_s) -> woke
 frame_begin() -> input        frame_end()
   input = { w, h, scale, mx, my, inside, down = { b1, b2, b3 },
             pressed = { [1]=n,... }, released = {...}, double = {...},   -- 1 left, 2 middle, 3 right
             wheel_x, wheel_y, keys = { { code, down, shift, ctrl, alt, sys }, ... },
             chars = { "a", ... }, mods = { shift, ctrl, alt, sys },
-            focused, resized, close_requested, files = { ... } }
+            focused, resized, close_requested, files = { ... },
+            events = { { type = "move"|"press"|"release"|"wheel"|"leave"|"keydown"|"keyup"|"char"|"file",
+                         x, y, button, double, dx, dy, code, char, file,
+                         mods = { shift, ctrl, alt, sys, b1, b2, b3 } }, ... } }
+gdi_font(face, bold, italic) -> gid   gdi_metrics(gid, px) -> ascent, descent, height, avg_w
+gdi_text_size(gid, px, str, wrap_w) -> w, h   font_private(path)
 rect(x1,y1,x2,y2,col,rounding,thickness,corner_flags)
 rect_filled(x1,y1,x2,y2,col,rounding,corner_flags)
 rect_gradient(x1,y1,x2,y2,col_tl,col_tr,col_br,col_bl)
 line(x1,y1,x2,y2,col,thickness)  circle(cx,cy,r,col,thickness_or_0,segments)
 poly(points,col,filled,thickness)
-text(font,size_px,x,y,col,str,wrap_w,cx1,cy1,cx2,cy2)
+text(font,size_px,x,y,col,str,wrap_w,cx1,cy1,cx2,cy2,gid)
 text_size(font,size_px,str,wrap_w) -> w,h   font_metrics(font,size_px) -> ascent,descent,line_h,avg_w
 font_load(path) -> id      font_find(face, bold, italic) -> path|nil
 texture(rgba, w, h) -> id  texture_free(id)  image(tex,x1,y1,x2,y2,u1,v1,u2,v2,tint)
@@ -341,7 +373,10 @@ widgets, queues mouse and keyboard input, runs frames and asserts on the draw ca
 
 | Path | What |
 |---|---|
-| `src/cpp/lunarimgui.cpp` | Win32 window, custom frame, OpenGL3, ImGui draw lists, fonts with GDI metrics, textures, dialogs, screenshots |
+| `src/cpp/lunarimgui.cpp` | Win32 window, custom frame, Direct3D 11, input events, FFI exports, GDI text metrics, textures, dialogs, screenshots |
+| `src/lua/core/imgui/backend/Native.lua` | the FFI declarations and the per-frame input table |
+| `src/lua/core/imgui/cimgui.lua`, `cimgui_cdef.lua` | Dear ImGui's C API for LuaJIT (cdef generated by `scripts/gen_cimgui_cdef.py`) |
+| `vendor/imgui`, `vendor/cimgui` | Dear ImGui 1.92.9 (docking) and the cimgui generated for it |
 | `src/c/core/main_imgui.c` | the entry point: service mode, preloads, boot of the emulator |
 | `src/lua/core/imgui/Element.lua` | the retained tree and IUP's attribute rules |
 | `src/lua/core/imgui/attrs.lua` | IUP's attribute registrations (generated by `scripts/gen_imgui_attrs.py`) |
@@ -359,8 +394,30 @@ widgets, queues mouse and keyboard input, runs frames and asserts on the draw ca
 `scripts/ui_capture.lua` walks every page on both builds (IUP from `main`, ImGui from this
 branch) on a private desktop at 1400x900 with the HPE org packs. Layout, colours, rounded
 cards, toggles, dropbuttons, tab strips, lists, row markers, split panes, the build log and
-the status bar line up page for page; text widths match GDI to the pixel because the
-backend sizes and places glyphs with each face's own `head`/`hhea`/`OS/2` metrics.
+the status bar line up page for page; text widths match IUP to the pixel because both
+measure with GDI.
+
+`scripts/ui_probe.lua` goes further, on both builds: on every page it records each
+element's rectangle and clicks every control that has a click callback through real
+window messages, recording which callbacks fire (`scripts/ui_probe_diff.lua` compares the
+two runs). With `LUNAR_PROBE_LIVE=1` it runs the real callbacks and reports Lua errors
+and the dialogs and popups each click opens.
+
+## Performance
+
+| | IUP | ImGui host |
+|---|---|---|
+| working set after start | 60 MB | 85 MB |
+| private memory | 41 MB | 57 MB |
+| CPU while idle (10 s) | 0 ms | ~80 ms |
+| full-window frame (WARP / GPU) | n/a | ~4 ms / ~0.6 ms |
+| paint of 1,200 elements (Lua) | n/a | ~0.7 ms |
+
+`scripts/imgui_perf.lua` (frame, paint and layout times per page, and a LuaJIT profile),
+`scripts/ui_memory.lua` (memory, idle CPU and the largest modules, on either build) and
+`scripts/imgui_idle.lua` (what drives frames while nobody touches the window) measure it.
+The host draws a frame only when input arrives, a timer or callback changes something,
+or an animation runs.
 
 Known differences, in order of visibility:
 
@@ -369,6 +426,9 @@ Known differences, in order of visibility:
   not. The fix is a custom `ImFontLoader` that rasterizes glyphs with GDI
   (`GetGlyphOutline`, hinted, grayscale) into the atlas; ImGui 1.92's loader interface
   supports it.
+- **The code editor** is an emulation of the Scintilla messages CodeView sends, not
+  Scintilla itself: editing, styles and style fonts work, but its geometry messages
+  (`POINTXFROMPOSITION` and friends) are approximations.
 - **Secondary dialogs** (the activity panel, the command palette, message boxes) are
   drawn inside the main window as panels rather than as separate OS windows. They
   cannot leave the main window's bounds.

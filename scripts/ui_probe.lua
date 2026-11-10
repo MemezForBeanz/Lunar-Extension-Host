@@ -124,6 +124,37 @@ local function walk(h, path, list)
 end
 
 -- Replace every click callback in the tree with a recorder; keep the originals to restore.
+-- LUNAR_PROBE_LIVE=1: run each click's real callbacks and report what goes wrong (a Lua
+-- error, a dialog or popup it opens), then close what it opened. Anything that would
+-- block the run (message boxes, native file dialogs, opening a browser) is answered
+-- with "cancel".
+local LIVE = os.getenv("LUNAR_PROBE_LIVE") == "1"
+local errors = {}
+if LIVE then
+	iup.Alarm = function() return 2 end
+	iup.GetText = function() return nil end
+	iup.GetParam = function() return false end
+	iup.ListDialog = function() return -1 end
+	pcall(function()
+		local desktop = require("core.lib.desktop")
+		for _, k in ipairs({ "open", "openUrl", "reveal", "openFolder" }) do
+			if desktop[k] then desktop[k] = function() return true end end
+		end
+	end)
+	if IMGUI then
+		local B = require("core.imgui.Runtime").backend
+		local real_init = require("core.imgui.Runtime").init
+		require("core.imgui.Runtime").init = function(backend, ...)
+			if backend then
+				backend.file_dialog = function() return nil end
+				backend.message_box = function() return 2 end
+			end
+			return real_init(backend, ...)
+		end
+		local _ = B
+	end
+end
+
 local fired = {}
 local saved = {}
 local function stub(list)
@@ -135,7 +166,14 @@ local function stub(list)
 				saved[#saved + 1] = { e.h, lname, f }
 				e.h[lname] = function(...)
 					fired[#fired + 1] = e.path .. ":" .. name
-					if name == "BUTTON_CB" or name == "FLAT_BUTTON_CB" then return iup.DEFAULT end
+					if LIVE then
+						local results = { pcall(f, ...) }
+						if not results[1] then
+							errors[#errors + 1] = name .. ": " .. (tostring(results[2]):gsub("[\r\n\t]+", " | "))
+							return iup.DEFAULT
+						end
+						return unpack(results, 2)
+					end
 					return iup.DEFAULT
 				end
 				e.cb = e.cb or {}
@@ -225,6 +263,12 @@ iup.MainLoop = function()
 				dlg = main_dialog()
 				if not dlg then return end
 				hwnd = main_hwnd(dlg)
+				if LIVE and IMGUI then
+					-- native modal dialogs would block the run on a desktop nobody sees
+					local B = require("core.imgui.Runtime").backend()
+					B.file_dialog = function() return nil end
+					B.message_box = function() return 2 end
+				end
 				if IMGUI then
 					local B = require("core.imgui.Runtime").backend()
 					B.window("restore"); B.window("pos", 0, 0); B.window("size", 1400, 900)
@@ -282,14 +326,32 @@ iup.MainLoop = function()
 					phase = "next"
 					return
 				end
-				fired = {}
+				fired, errors = {}, {}
+				if LIVE and IMGUI then
+					local R = require("core.imgui.Runtime")
+					q.dialogs, q.overlays = #R.dialogs(), #R.overlays()
+				end
 				click(hwnd, q.x, q.y)
 				phase = "collect"
+				ticks = 0
 				return
 			end
 			if phase == "collect" then
 				local q = queue[qi]
+				if LIVE and ticks < 4 then return end -- a callback's own timers and frames
 				emit("C", q.e.path, table.concat(fired, ","))
+				for _, e in ipairs(errors) do emit("X", q.e.path, e) end
+				if LIVE and IMGUI then
+					local R = require("core.imgui.Runtime")
+					local ds, os_ = R.dialogs(), R.overlays()
+					if #ds > q.dialogs or #os_ > q.overlays then
+						local titles = {}
+						for i = q.dialogs + 1, #ds do titles[#titles + 1] = tostring(iup.GetAttribute(ds[i], "TITLE")) end
+						emit("N", q.e.path, string.format("dialogs +%d overlays +%d %s", #ds - q.dialogs, #os_ - q.overlays, table.concat(titles, "; ")))
+					end
+					for i = #os_, q.overlays + 1, -1 do pcall(function() os_[i]:close() end) end
+					for i = #ds, q.dialogs + 1, -1 do pcall(iup.Hide, ds[i]) end
+				end
 				qi = qi + 1
 				-- The click may have changed a tab or a toggle: show the page again.
 				show(pages[page_i])
