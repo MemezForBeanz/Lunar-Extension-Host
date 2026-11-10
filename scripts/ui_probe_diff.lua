@@ -13,13 +13,20 @@ local function load(path)
 		local f = {}
 		for field in (line .. "\t"):gmatch("([^\t]*)\t") do f[#f + 1] = field end
 		if f[1] == "P" then
-			page = { E = {}, C = {}, order = {} }
+			page = { E = {}, C = {}, A = {}, order = {} }
 			pages[f[2]] = page
 			order[#order + 1] = f[2]
 		elseif f[1] == "E" and page then
 			page.E[f[2]] = { class = f[3], x = tonumber(f[4]), y = tonumber(f[5]), w = tonumber(f[6]), h = tonumber(f[7]),
 				vis = f[8] == "1", label = f[9], cb = f[10] }
 			page.order[#page.order + 1] = f[2]
+		elseif f[1] == "A" and page then
+			local set = {}
+			for kv in (f[3] or ""):gmatch("[^;]+") do
+				local k, v = kv:match("^([^=]+)=(.*)$")
+				if k then set[k] = v end
+			end
+			page.A[f[2]] = set
 		elseif f[1] == "C" and page then
 			page.C[f[2]] = f[3] or ""
 		elseif f[1] == "W" then
@@ -53,7 +60,15 @@ local function norm_fired(s)
 	return table.concat(list, " ")
 end
 
-local totals = { rect = 0, click = 0, missing = 0 }
+local totals = { rect = 0, click = 0, missing = 0, attr = 0 }
+-- Colours compare as numbers, so "0 0 0" and "0 0 0 255" agree.
+local function same_value(a, b)
+	if a == b then return true end
+	local na = {} for n in tostring(a):gmatch("%d+") do na[#na + 1] = n end
+	local nb = {} for n in tostring(b):gmatch("%d+") do nb[#nb + 1] = n end
+	if #na >= 3 and #nb >= 3 and na[1] == nb[1] and na[2] == nb[2] and na[3] == nb[3] then return true end
+	return false
+end
 for _, title in ipairs(order) do
 	local pa, pb = A[title], B[title]
 	print("== " .. title)
@@ -70,6 +85,25 @@ for _, title in ipairs(order) do
 					or math.abs(ea.w - eb.w) > tol or math.abs(ea.h - eb.h) > tol then
 					print(string.format("  rect    %s %s A=%s B=%s %s", short(path), ea.class, rect(ea), rect(eb), ea.label))
 					totals.rect = totals.rect + 1
+				end
+			end
+		end
+		for _, path in ipairs(pa.order) do
+			local aa, ab = pa.A[path], pb.A[path]
+			if aa and ab and pa.E[path].vis then
+				local diffs = {}
+				local keys = {}
+				for k in pairs(aa) do keys[k] = true end
+				for k in pairs(ab) do keys[k] = true end
+				local sorted = {}
+				for k in pairs(keys) do sorted[#sorted + 1] = k end
+				table.sort(sorted)
+				for _, k in ipairs(sorted) do
+					if not same_value(aa[k], ab[k]) then diffs[#diffs + 1] = string.format("%s A=%s B=%s", k, tostring(aa[k]), tostring(ab[k])) end
+				end
+				if #diffs > 0 then
+					print(string.format("  attr    %s %s: %s", short(path), pa.E[path].class, table.concat(diffs, " | ")))
+					totals.attr = totals.attr + 1
 				end
 			end
 		end
@@ -99,7 +133,7 @@ for _, title in ipairs(order) do
 		end
 	end
 end
-print(string.format("\n%d rect differences, %d click differences, %d elements in one build only", totals.rect, totals.click, totals.missing))
+print(string.format("\n%d rect differences, %d click differences, %d elements in one build only, %d attribute differences", totals.rect, totals.click, totals.missing, totals.attr))
 local function warns(name, list)
 	local count = {}
 	for _, w in ipairs(list) do count[w] = (count[w] or 0) + 1 end

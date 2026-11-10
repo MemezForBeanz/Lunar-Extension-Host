@@ -32,7 +32,7 @@ do
 		for name in pairs(package.preload) do
 			local file = root .. "/src/lua/" .. name:gsub("%.", "/") .. ".lua"
 			local f = io.open(file, "r")
-			if f then f:close(); package.preload[name] = nil end
+			if f then f:close(); local path = root .. "/src/lua/" .. name:gsub("%.", "/") .. ".lua"; package.preload[name] = function(...) return assert(loadfile(path))(...) end end -- kept, so preload-driven discovery (themes) still sees it
 		end
 	end
 end
@@ -69,6 +69,12 @@ end
 local CLICK_CBS = { "ACTION", "FLAT_ACTION", "BUTTON_CB", "FLAT_BUTTON_CB", "VALUECHANGED_CB",
 	"TABCHANGE_CB", "TABCHANGEPOS_CB", "DROPSHOW_CB", "CLICK_CB", "DBLCLICK_CB", "TABCLOSE_CB",
 	"FLAT_SELECTION_CB", "SELECTION_CB", "MOUSECLICK_CB", "EXTRABUTTON_CB" }
+
+local STYLE_ATTRS = { "BGCOLOR", "FGCOLOR", "HLCOLOR", "PSCOLOR", "TEXTHLCOLOR", "TEXTPSCOLOR",
+	"BORDERCOLOR", "BORDERWIDTH", "CORNERRADIUS", "ITEMRADIUS", "GRADIENTCOLOR", "FONT", "PADDING",
+	"MARGIN", "GAP", "SHOWLINES", "TABSACTIVELINE", "TABSSELCOLOR", "TABSBACKCOLOR", "TABSFORECOLOR",
+	"TABSHIGHCOLOR", "TABSPADDING", "TABSLINECOLOR", "FORECOLOR", "SB_CORNERRADIUS", "SCROLLBARSIZE",
+	"ITEMMARKERCOLOR", "FOCUSFEEDBACK", "TABTYPE", "SHOWTABS" }
 
 local function class(h) return iup.GetClassName(h) end
 
@@ -309,6 +315,13 @@ iup.MainLoop = function()
 					local vis = visible(e.h)
 					emit("E", e.path, class(e.h), x or "", y or "", w or "", h or "", vis and "1" or "0", label(e.h),
 						e.cb and table.concat(e.cb, ",") or "")
+					-- Style attributes as each build resolves them, for ui_probe_diff's attribute report.
+					local av = {}
+					for _, k in ipairs(STYLE_ATTRS) do
+						local ok, v = pcall(iup.GetAttribute, e.h, k)
+						if ok and v ~= nil then av[#av + 1] = k .. "=" .. tostring(v) end
+					end
+					emit("A", e.path, table.concat(av, ";"))
 					-- A disabled control takes no real clicks (a posted one would still reach its window).
 					local active = iup.GetAttribute(e.h, "ACTIVE") ~= "NO"
 					if vis and active and e.cb and x and w > 2 and h > 2 and x + w / 2 > 0 and y + h / 2 > 0 and x + w / 2 < 1400 and y + h / 2 < 900 then

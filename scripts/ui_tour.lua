@@ -35,7 +35,7 @@ do
 		end)
 		for name in pairs(package.preload) do
 			local f = io.open(root .. "/src/lua/" .. name:gsub("%.", "/") .. ".lua", "r")
-			if f then f:close(); package.preload[name] = nil end
+			if f then f:close(); local path = root .. "/src/lua/" .. name:gsub("%.", "/") .. ".lua"; package.preload[name] = function(...) return assert(loadfile(path))(...) end end -- kept, so preload-driven discovery (themes) still sees it
 		end
 	end
 end
