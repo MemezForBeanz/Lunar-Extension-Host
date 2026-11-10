@@ -721,18 +721,26 @@ function M.show(d, x, y)
 	end
 	st.data.shown = true
 	raise(d)
-	if first_show then
-		local start = Element.getHandle(d, "STARTFOCUS")
-		if start then M.setFocus(start)
-		else
-			local order = focus_order(d, {})
-			if order[1] then M.setFocus(order[1]) end
-		end
-		check_close(Element.call(d, "SHOW_CB", 0))
-	else
-		check_close(Element.call(d, "SHOW_CB", 1))
-	end
 	need_frame = true
+	-- iDialogAfterShow (iup_dialog.c): process the pending messages first (IupFlush, so
+	-- due timers run here, before SHOW_CB), then SHOW_CB, then the start focus unless
+	-- SHOW_CB moved the focus itself.
+	local noflush = Element.getAttribute(d, "NOFLUSH") == "YES"
+	if not noflush then M.flush() end
+	local old_focus = focused
+	local has_show_cb = Element.hasCallback(d, "SHOW_CB")
+	if check_close(Element.call(d, "SHOW_CB", first_show and 0 or 1)) == CLOSE then return 0 end
+	if first_show then
+		if has_show_cb and not noflush then M.flush() end
+		if old_focus == focused then
+			local start = Element.getHandle(d, "STARTFOCUS")
+			if start then M.setFocus(start)
+			else
+				local order = focus_order(d, {})
+				if order[1] then M.setFocus(order[1]) end
+			end
+		end
+	end
 	return 0
 end
 
@@ -759,6 +767,8 @@ function M.hide(d)
 		if o.owner and dialog_of(o.owner) == d then o:close() end
 	end
 	if d == main_dialog and B.window then B.window("hide") end
+	-- iDialogAfterHide: flush, then SHOW_CB
+	if Element.getAttribute(d, "NOFLUSH") ~= "YES" then M.flush() end
 	check_close(Element.call(d, "SHOW_CB", 4))
 	-- IUP leaves MainLoop when the last visible dialog is hidden.
 	if #dialogs == 0 and loop_level > 0 then M.exitLoop() end
@@ -808,7 +818,13 @@ function M.layoutNow(el)
 	if st.data.lw == w and st.data.lh == h then st.data.layout_dirty = false end
 end
 
+--- IupFlush: run what is pending (due timers, then a frame for input and paint). Called
+-- from inside a paint or a layout, as an ACTION callback might, it only runs the timers.
 function M.flush()
+	if in_paint or in_layout then
+		if not closed then run_timers(M.now()) end
+		return
+	end
 	M.step(false)
 end
 
