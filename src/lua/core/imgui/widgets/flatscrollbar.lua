@@ -4,6 +4,7 @@
 local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
 local iup = require("core.imgui.iup")
+local FlatDraw = require("core.imgui.widgets.flatdraw")
 
 local M = {}
 local function attr(e, n) return Element.getAttribute(e, n) end
@@ -73,10 +74,20 @@ local function scrollbar_draw(sb, st, dc)
 	local press = attr(e, "SB_PRESSCOLOR") or attr(e, "PRESSCOLOR") or fg
 	local state = ss.data.pressed and press or ss.data.highlight and hl or fg
 	local radius = num(attr(e, "SB_CORNERRADIUS"), 0)
+	local grad = attr(e, "SB_GRADIENTCOLOR")
+	local direction = tostring(attr(e, "SB_GRADIENTDIRECTION") or "VERTICAL"):upper()
+	local function draw_thumb()
+		if vertical then
+			FlatDraw.gradientBox(dc, 0, 0, st.x + 2, st.x + st.w - 3, st.y + offset, st.y + offset + thumb - 1,
+				radius, state, grad, direction ~= "HORIZONTAL", bg, true)
+		else
+			FlatDraw.gradientBox(dc, 0, 0, st.x + offset, st.x + offset + thumb - 1, st.y + 2, st.y + st.h - 3,
+				radius, state, grad, direction ~= "HORIZONTAL", bg, true)
+		end
+	end
 	if bg and not yes(attr(e, "SHOWTRANSPARENT")) then dc:fill(st.x, st.y, st.w, st.h, bg, { radius = radius }) end
 	if yes(attr(e, "SHOWTRANSPARENT")) then
-		if vertical then dc:fill(st.x + 2, st.y + offset, math.max(2, st.w - 4), thumb, state, { radius = radius })
-		else dc:fill(st.x + offset, st.y + 2, thumb, math.max(2, st.h - 4), state, { radius = radius }) end
+		draw_thumb()
 	else
 		if yes(attr(e, "SHOWARROWS")) then
 			if vertical then
@@ -87,8 +98,7 @@ local function scrollbar_draw(sb, st, dc)
 				draw_arrow(dc, st.x + track - size, st.y, size, false, true, fg, bg)
 			end
 		end
-		if vertical then dc:fill(st.x + 2, st.y + offset, math.max(2, st.w - 4), thumb, state, { radius = radius })
-		else dc:fill(st.x + offset, st.y + 2, thumb, math.max(2, st.h - 4), state, { radius = radius }) end
+			draw_thumb()
 	end
 end
 
@@ -174,6 +184,7 @@ function M.sync(e)
 	local s, bars = Element.state(e), Element.state(e).data.scrollbars
 	if not bars then return end
 	local size = num(attr(e, "SCROLLBARSIZE"), 12)
+	local inset = num(attr(e, "SB_INSET"), 0)
 	local floating = yes(attr(e, "SHOWFLOATING"))
 	local vert, horiz = bars[1], bars[2]
 	local vs, hs = Element.state(vert), Element.state(horiz)
@@ -186,8 +197,14 @@ function M.sync(e)
 	Element.setAttribute(vert, "VISIBLE", needv and (floating and "NO" or "YES") or "NO")
 	Element.setAttribute(horiz, "VISIBLE", needh and (floating and "NO" or "YES") or "NO")
 	if floating then return end
-	if needv then vs.x, vs.y, vs.w, vs.h = s.x + s.w - size, s.y, size, s.h - (needh and size or 0) end
-	if needh then hs.x, hs.y, hs.w, hs.h = s.x, s.y + s.h - size, s.w - (needv and size or 0), size end
+	if needv then
+		vs.x, vs.y, vs.w, vs.h = s.x + s.w - size - (inset > 0 and 2 or 0), s.y + inset,
+			size, math.max(0, s.h - 2 * inset - (needh and size or 0))
+	end
+	if needh then
+		hs.x, hs.y, hs.w, hs.h = s.x + inset, s.y + s.h - size - (inset > 0 and 2 or 0),
+			math.max(0, s.w - 2 * inset - (needv and size or 0)), size
+	end
 end
 
 function M.set_pos(e, x, y) set_pos(e, x, y, nil) end

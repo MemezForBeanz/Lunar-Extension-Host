@@ -98,4 +98,25 @@ describe("imgui flat scrollbar modes", function()
 		R.redraw(); R.frame(); R.frame()
 		assert.equal("NO", iup.GetAttribute(iup.GetChild(rows, 0), "VISIBLE"))
 	end)
+
+	it("insets scrollbar children and paints the configured gradient thumb", function()
+		local child = iup.canvas{ RASTERSIZE = "80x400" }
+		local box = iup.flatscrollbox{ child, RASTERSIZE = "100x100", SB_INSET = "2",
+			SB_GRADIENTCOLOR = "3 4 5", SB_CORNERRADIUS = "4" }
+		local st = layout(box, 100, 100)
+		local sb = iup.GetChild(box, 0)
+		local ss = Element.state(sb)
+		assert.are.equal(86, ss.x)
+		assert.are.equal(2, ss.y)
+		assert.are.equal(96, ss.h)
+		local backend = Null.new()
+		local dc = Draw.new(backend); dc:begin(120, 120)
+		Classes.get("flatscrollbar").draw(sb, ss, dc, {})
+		backend:frame_end()
+		local thumb
+		for _, cmd in ipairs(backend:lastFrame()) do
+			if cmd[1] == "rect_filled" and cmd[2] >= ss.x + 2 then thumb = cmd; break end
+		end
+		assert.is_truthy(thumb)
+	end)
 end)

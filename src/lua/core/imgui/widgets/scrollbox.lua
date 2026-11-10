@@ -88,7 +88,8 @@ local function scroll_place(e, st, L)
 	local cw = math.max(nw, vpw - ((vv and nw > vpw) and sb or 0))
 	local ch = math.max(nh, vph - ((hv and nh > vph) and sb or 0))
 	if yes(attr(e, "FITCONTENT")) then
-		cw, ch = math.min(cw, vpw), math.min(ch, vph)
+		cw = math.min(cw, L.minContent and L.minContent(c, true) or cw)
+		ch = math.min(ch, L.minContent and L.minContent(c, false) or ch)
 	end
 	st.data.xmax, st.data.ymax = hv and cw or 0, vv and ch or 0
 	st.data.dx, st.data.dy = vpw, vph

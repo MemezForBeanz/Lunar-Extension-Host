@@ -44,4 +44,27 @@ describe("imgui flatlist", function()
 		assert.are.equal("3", iup.GetAttribute(list, "VALUE"))
 		assert.is_true((st.data.posy or 0) > 0)
 	end)
+
+	it("matches the fork marker width, highlight overlay, and focus feedback", function()
+		local list = iup.flatlist{"a"}
+		iup.SetAttributes(list, "ITEMMARKERCOLOR=1 2 3,HLCOLOR=4 5 6,HLCOLORALPHA=128,FOCUSFEEDBACK=YES")
+		local st = Element.state(list); st.x, st.y, st.w, st.h = 0, 0, 80, 20
+		local cls = Classes.get("flatlist")
+		cls.place(list, st, { font = require("core.imgui.Fonts").forElement, charsize = function() return 5, 10 end })
+		iup.SetAttribute(list, "VALUE", "1")
+		cls.event(list, st, { type = "focus" }, { redraw = function() end })
+		local backend = Null.new()
+		local dc = require("core.imgui.Draw").new(backend); dc:begin(100, 40)
+		cls.draw(list, st, dc, {})
+		backend:frame_end()
+		local marker, overlay, focus
+		for _, cmd in ipairs(backend:lastFrame()) do
+			if cmd[1] == "rect_filled" and cmd[2] == 5 and cmd[3] == 5 then marker = cmd end
+			if cmd[1] == "rect_filled" and cmd[2] == 0 and cmd[3] == 0 then overlay = cmd end
+			if cmd[1] == "rect" and cmd[2] == 0 and cmd[3] == 0 then focus = cmd end
+		end
+		assert.are.equal(3, marker[4] - marker[2])
+		assert.is_truthy(overlay)
+		assert.is_truthy(focus)
+	end)
 end)

@@ -2,6 +2,7 @@ local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
 local Fonts = require("core.imgui.Fonts")
 local Draw = require("core.imgui.Draw")
+local Color = require("core.imgui.Color")
 local iup = require("core.imgui.iup")
 local FlatScrollbar = require("core.imgui.widgets.flatscrollbar")
 
@@ -133,15 +134,28 @@ local function draw(e, st, dc, rt)
 			fg = attr(e, "TEXTPSCOLOR") or fg
 			local r = num(attr(e, "ITEMRADIUS"))
 			dc:fill(st.x + (r > 0 and 4 or 0), y + 1, st.w - (r > 0 and 8 or 0), rh - 2, ibg, { radius = r })
-			if attr(e, "ITEMMARKERCOLOR") then dc:fill(st.x + 5, y + 5, 2, math.max(1, rh - 10), attr(e, "ITEMMARKERCOLOR")) end
+			if attr(e, "ITEMMARKERCOLOR") then
+				dc:fill(st.x + 5, y + 5, 3, math.max(1, rh - 10), attr(e, "ITEMMARKERCOLOR"))
+			end
 		else dc:fill(st.x, y, st.w, rh, ibg) end
 		local tx = st.x + num(select(1, pair(attr(e, "PADDING"))), 2)
 		dc:text(own(e, tostring(i)) or "", tx, y, st.w - tx + st.x, rh, fg, f, { align = attr(e, "TEXTALIGNMENT") or "ALEFT", valign = "ACENTER", ellipsis = true, clip = true })
-		if selected(st, i) and st.data.focus == i and yes(attr(e, "FOCUSFEEDBACK")) then dc:rect(st.x, y, st.w, rh, attr(e, "HLCOLOR"), { thickness = 1 }) end
+		if selected(st, i) and st.data.has_focus and st.data.focus == i and yes(attr(e, "FOCUSFEEDBACK")) then
+			dc:rect(st.x, y, st.w, rh, attr(e, "HLCOLOR"), { thickness = 1 })
+		end
+		if selected(st, i) or (st.data.dragover_pos == i) then
+			local alpha = num(attr(e, "HLCOLORALPHA"), 0)
+			if alpha ~= 0 then
+				local highlight = Color.alpha(Color.parse(attr(e, "HLCOLOR")), alpha / 255)
+				if highlight then dc:fill(st.x, y, st.w, rh, highlight) end
+			end
+		end
 	end
 end
 local function event(e, st, ev, rt)
 	local _, rh = line_metrics(e)
+	if ev.type == "focus" then st.data.has_focus = true; rt.redraw(e); return true end
+	if ev.type == "blur" then st.data.has_focus = false; rt.redraw(e); return true end
 	if ev.type == "wheel" then
 		return FlatScrollbar.on_wheel(e, ev.dy or 0)
 	elseif ev.type == "press" and ev.button == 1 then
