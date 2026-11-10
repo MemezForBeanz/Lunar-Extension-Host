@@ -60,6 +60,8 @@ local function event(e, st, ev, rt)
 end
 Classes.define{
 	name = "flatseparator", children = 0, natural = natural, event = event,
+	-- iFlatSeparatorSetOrientationAttrib: free expansion along the line
+	expandDefault = function(e) return horiz(e) and "HORIZONTALFREE" or "VERTICALFREE" end,
 	defaults = { ORIENTATION = "VERTICAL", STYLE = "SUNKENLINE", BARSIZE = "5", COLOR = "160 160 160", CANFOCUS = "NO" },
 	callbacks = { FLAT_BUTTON_CB = true, FLAT_MOTION_CB = true },
 	get = {

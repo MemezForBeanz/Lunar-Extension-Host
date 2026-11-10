@@ -593,6 +593,7 @@ end
 
 Classes.define{
 	name = "flatgrid", children = 0, focusable = true,
+	expandDefault = "YES", -- a canvas (iCanvasCreateMethod: IUP_EXPAND_BOTH); grid_create keeps it
 	visibleChildren = FlatScrollbar.visible_children,
 	-- iupFlatGridNewClass registrations
 	defaults = {

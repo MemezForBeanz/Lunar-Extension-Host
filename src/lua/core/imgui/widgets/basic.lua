@@ -175,7 +175,15 @@ local function drop_event(e, st, ev, rt)
 	return basic_event(e, st, ev, rt, function(el) return drop_activate(el, st, rt) end)
 end
 
-Classes.define{name="label", children=0, defaults={ACTIVE="YES"}, natural=label_natural, draw=label_draw}
+-- iLabelSetSeparatorAttrib: a separator expands freely along its line
+local function label_expand(e)
+	local sep = tostring(attr(e, "SEPARATOR") or ""):upper()
+	if sep == "HORIZONTAL" then return "HORIZONTALFREE" end
+	if sep == "VERTICAL" then return "VERTICALFREE" end
+	return nil
+end
+Classes.define{name="label", children=0, defaults={ACTIVE="YES"}, natural=label_natural, draw=label_draw,
+	expandDefault=label_expand}
 Classes.define{name="button", children=0, defaults={PADDING="4x2", CANFOCUS="YES", ACTIVE="YES"}, natural=natural_text, draw=button_draw, event=function(e,s,ev,rt) return basic_event(e,s,ev,rt,button_activate) end, focusable=true, callbacks={ACTION=true, BUTTON_CB=true}}
 Classes.define{name="toggle", children=0, defaults={VALUE="OFF", CANFOCUS="YES", ACTIVE="YES"}, natural=natural_text, draw=button_draw, event=function(e,s,ev,rt) return basic_event(e,s,ev,rt,toggle_activate) end, focusable=true, callbacks={ACTION=true, VALUECHANGED_CB=true}, set={VALUE=function(e,s,v) s.value=tostring(v or "OFF"):upper() end}, get={VALUE=function(e,s) return s.value end}}
 Classes.define{name="link", children=0, defaults={CANFOCUS="YES", ACTIVE="YES"}, natural=natural_text, draw=function(e,s,dc) draw_text_image(e,s,dc,attr(e,"FGCOLOR"),s.x,s.y,s.w,s.h) end, event=function(e,s,ev,rt) return basic_event(e,s,ev,rt,function(el) local url=attr(el,"URL"); local ok,d=pcall(require,"core.lib.desktop"); if ok and d and d.open then d.open(url) end; return Element.call(el,"ACTION",url) end) end, focusable=true, callbacks={ACTION=true}}

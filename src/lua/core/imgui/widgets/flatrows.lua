@@ -393,6 +393,7 @@ end
 
 Classes.define{
 	name = "flatrows", children = 0, focusable = true,
+	expandDefault = "YES", -- a canvas (iCanvasCreateMethod: IUP_EXPAND_BOTH); rows_create keeps it
 	visibleChildren = FlatScrollbar.visible_children,
 	defaults = {
 		BORDER = "NO", COUNT = "0", VALUE = "0", ROWHEIGHT = "32", ITEMRADIUS = "6", FOCUSFEEDBACK = "YES",

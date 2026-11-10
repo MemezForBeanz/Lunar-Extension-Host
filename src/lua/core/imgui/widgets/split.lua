@@ -462,6 +462,8 @@ end
 
 Classes.define({
 	name = "split", children = -1, focusable = false, type = "void", -- IUP_TYPEVOID
+	-- iupLayoutMinContent: a VERTICAL split stacks its children across
+	stacksAlong = function(e, s, horizontal) return (D(s).orientation == ISPLIT_VERT) == (horizontal and true or false) end,
 	create = create, childAdded = child_added,
 	natural = natural, place = place,
 	set = {

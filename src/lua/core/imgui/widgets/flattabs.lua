@@ -528,6 +528,7 @@ end
 
 local def = {
 	name = "flattabs", children = -1, clip = true, focusable = true, xyToPos = xyToPos,
+	clipsContent = true, -- iupLayoutMinContent: a page compresses away entirely
 	defaults = {
 		SHOWTABS = "YES", TABTYPE = "TOP", SHOWLINES = "YES", TABSLINECOLOR = "160 160 160",
 		TABSIMAGEPOSITION = "LEFT", TABSIMAGESPACING = "2", TABSALIGNMENT = "ACENTER:ACENTER",

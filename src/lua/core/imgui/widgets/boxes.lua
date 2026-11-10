@@ -249,6 +249,7 @@ end
 
 Classes.define({
 	name = "hbox", children = -1, type = "void",
+	stacksAlong = function(el, st, horizontal) return horizontal end, -- iupLayoutMinContent
 	natural = box_natural(false), place = box_place(false),
 	set = box_size_setters(false),
 	get = {
@@ -259,6 +260,7 @@ Classes.define({
 
 Classes.define({
 	name = "vbox", children = -1, type = "void",
+	stacksAlong = function(el, st, horizontal) return not horizontal end, -- iupLayoutMinContent
 	natural = box_natural(true), place = box_place(true),
 	set = box_size_setters(true),
 	get = {
