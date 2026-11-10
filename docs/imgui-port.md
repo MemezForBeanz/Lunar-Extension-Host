@@ -393,6 +393,9 @@ widgets, queues mouse and keyboard input, runs frames and asserts on the draw ca
 | `src/lua/core/imgui/Draw.lua`, `Color.lua`, `Fonts.lua` | the draw context and `iup.Draw*` |
 | `src/lua/core/imgui/widgets/flatdraw.lua` | IUP's flat drawing (iup_draw.c + the fork's GDI+ paths) |
 | `src/lua/core/imgui/widgets/*.lua` | one module per control family |
+| `src/lua/core/imgui/widgets/flatgrid.lua`, `flatrows.lua`, `flatseek.lua`, `flatsegmented.lua`, `rawutil.lua` | the fork's media controls, ported from their C files |
+| `src/lua/core/imgui/widgets/videohost.lua` | the video host's native child window |
+| `src/cpp/lunarimgui_gdifont.cpp` | the GDI glyph loader |
 | `src/lua/core/imgui/native/*.lua` | Lua stand-ins for the IUP-bound C modules (sci, iupraw, compositor, winframe, svgicon...) |
 | `src/lua/core/imgui/backend/Null.lua` | the headless backend for tests |
 
@@ -426,22 +429,56 @@ and the dialogs and popups each click opens.
 The host draws a frame only when input arrives, a timer or callback changes something,
 or an animation runs.
 
+### Pixel diffs against the IUP build
+
+Both builds capture every page on a private desktop with the same Lua (the capture and probe
+scripts load the checkout they live in, whichever exe runs them) and the same org packs. A
+page is compared pixel by pixel, counting channel differences above 24 (antialiasing noise
+below that):
+
+| pages | before this branch's widget and glyph work | now |
+|---|---|---|
+| HPE tool pages (Build Queue, iLO, Log Parser, Scan Chain, Black Duck, Settings) | 0.7-1.6 % | 0.5-1.0 % |
+| the same pages with data loaded | 3.5-7.1 % | 2.2-4.3 % |
+| Lunar Media library pages (LUNAR_MEDIA_DEMO=1) | 13-16 % (no posters drew) | 2.7-5 % |
+| Lunar Media now playing | 9.9 % | 1.1 % |
+
+`ui_probe.lua` also records each control's resolved style attributes (`A` lines), and
+`ui_probe_diff.lua` lists the ones that differ between the builds, which is how defaults such
+as the flat scrollbar's size (IUP registers 15) were found.
+
+### What changed in this pass
+
+- **The fork's media controls** (`flatgrid`, `flatrows`, `flatseek`, `flatsegmented`, patches
+  0020 and 0022) are line-by-line ports, one module per C file; `native/iupraw.lua` ports
+  `iupraw_wrap.c`, so provider callbacks reach them under the C callback names. Provider
+  pixels (`iupdrvDrawBits`, premultiplied BGRA behind a pointer) upload through
+  `lunar_ui_texture_bits` and draw rounded; `Draw.bitsTexture` keys textures by address,
+  geometry and a pixel sample, because the media cache reuses freed buffers.
+- **Glyphs come from GDI** (`src/cpp/lunarimgui_gdifont.cpp`, an ImGui 1.92 `ImFontLoader`):
+  each glyph is drawn with ClearType into a DIB on the same face and size IUP asks GDI for,
+  and kept as grayscale coverage. `LUNAR_GLYPHS=stb` goes back to stb_truetype.
+- **Tray icon**: `TRAY`, `TRAYTIP`, `TRAYTIPBALLOON*` and `TRAYCLICK_CB(but, pressed, dclick)`
+  on the main dialog, through `Shell_NotifyIcon`.
+- **Video host**: `iup.videohost` owns a disabled native child window (`WINDOWID`, from map)
+  that follows the element's rect and hides at frame end when no visible videohost placed it
+  (a hidden tab or zbox page), so libmpv draws into it as on the IUP build.
+- **Patch audit**: `docs/imgui-patch-audit.md` maps every hunk of the fork's patches to its
+  Lua port; `docs/imgui-scintilla.md` lists the Scintilla surface Lunar uses.
+
 Known differences, in order of visibility:
 
-- **Glyph rasterization.** ImGui's stb_truetype rasterizer draws softer, slightly thinner
-  strokes than GDI's hinted ClearType. Metrics and positions are the same; weight is
-  not. The fix is a custom `ImFontLoader` that rasterizes glyphs with GDI
-  (`GetGlyphOutline`, hinted, grayscale) into the atlas; ImGui 1.92's loader interface
-  supports it.
-- **The code editor** is an emulation of the Scintilla messages CodeView sends, not
-  Scintilla itself: editing, styles and style fonts work, but its geometry messages
-  (`POINTXFROMPOSITION` and friends) are approximations.
 - **Secondary dialogs** (the activity panel, the command palette, message boxes) are
   drawn inside the main window as panels rather than as separate OS windows. They
-  cannot leave the main window's bounds.
-- **Video host**: `core.imgui.widgets.raw` reserves the rect and exposes the window's
-  HWND; the media player's native child window has to be positioned over it by
-  `media_native` (no backend support for child HWNDs yet).
-- **Tray icon** (`TRAY*` on the dialog) is not implemented in the backend yet.
+  cannot leave the main window's bounds, and IUP's popup frame (8 px above the panel's
+  content in a capture) is not drawn.
+- **Text weight in IUP's popups**: IUP's secondary windows draw text heavier than its main
+  window; the ImGui panels use the main window's weight.
+- **Native edit margins**: text in a native `iup.text`/`multiline` starts about 3 px further
+  right on IUP (the Win32 EDIT control's font-derived margin).
+- **The code editor** is an emulation of the Scintilla messages CodeView sends, not
+  Scintilla itself (see `docs/imgui-scintilla.md`).
+- **Video overlays**: ImGui popups (menus, tooltips) cannot draw over the native video child
+  window, as an IUP popup window could.
 - **Compositor scaling**: snapshots replay with offset and alpha; a sprite's scale is
   approximated by its recorded size.
