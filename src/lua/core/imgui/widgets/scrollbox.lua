@@ -13,11 +13,6 @@ local function pair(v)
 end
 local function user_child(e) return FlatScrollbar.user_child(e) end
 
-local function bar_size(e)
-	if yes(attr(e, "SHOWFLOATING")) then return 0 end
-	return math.max(0, num(attr(e, "SCROLLBARSIZE"), 15))
-end
-
 local function set_pos(e, st, x, y)
 	local dx, dy = st.data.dx or 0, st.data.dy or 0
 	st.data.posx = clamp(num(x), 0, math.max(0, (st.data.xmax or 0) - dx))

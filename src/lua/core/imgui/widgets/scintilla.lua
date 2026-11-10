@@ -18,8 +18,6 @@ local function line_end(s, line)
 	local p = line_start(s, line); local n = s:find("\n", p + 1, true)
 	return n and n - 1 or #s
 end
-local function clamp(st, p) return math.max(0, math.min(#st.data.text, math.floor(p or 0))) end
-local function color(v) return v or "0 0 0" end
 local function bgr_to_rgb(v)
 	v = tonumber(v) or 0
 	return string.format("%d %d %d", v % 256, math.floor(v / 256) % 256, math.floor(v / 65536) % 256)

@@ -261,7 +261,6 @@ function M.textSize(el, text, font)
 	return Draw.measureText(font, text)
 end
 
-local ALIGN = { ALEFT = "left", ACENTER = "center", ARIGHT = "right" }
 
 --- iupFlatGetHorizontalAlignment / iupFlatGetVerticalAlignment ("ACENTER" by default)
 function M.halign(v)

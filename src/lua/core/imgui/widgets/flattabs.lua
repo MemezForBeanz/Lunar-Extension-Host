@@ -9,7 +9,6 @@ local iup = require("core.imgui.iup")
 
 local M = {}
 local CLOSE_SIZE, CLOSE_GAP, CLOSE_BORDER = 13, 12, 8
-local EXTRA_BASE = -6
 
 local function attr(el, name) return Element.getAttribute(el, name) end
 local function own(el, name) return Element.own(el, name) end

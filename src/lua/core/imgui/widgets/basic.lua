@@ -138,43 +138,6 @@ local function progress_draw(e, st, dc, rt)
 	if attr(e, "BORDERCOLOR") then dc:rect(st.x, st.y, st.w, st.h, attr(e, "BORDERCOLOR"), { radius = radius, thickness = 1 }) end
 end
 
-local function drop_child(e)
-	return Element.getHandle(e, "DROPCHILD") or Element.getHandle(e, "DROPCHILD_HANDLE")
-end
-local function drop(e, st, rt, open)
-	local child = drop_child(e)
-	if not child then return end
-	if st.drop_overlay then st.drop_overlay:close(); st.drop_overlay = nil end
-	if not open then return end
-	local cs = Element.state(child)
-	local x, y = st.x, st.y + st.h
-	st.drop_overlay = rt.overlay{
-		owner = e, x = x, y = y, w = cs.w > 0 and cs.w or st.w, h = cs.h > 0 and cs.h or 100,
-		draw = function(dc) local c = cs.class; if c.draw then c.draw(child, cs, dc, rt) end end,
-		event = function(ev) if cs.class.event then return cs.class.event(child, cs, ev, rt) end end,
-		closed = function() st.dropped = false; st.drop_overlay = nil; Element.call(e, "DROPSHOW_CB", 0) end,
-	}
-end
-local function drop_activate(e, st, rt)
-	st.dropped = not st.dropped
-	Element.call(e, "DROPDOWN_CB", st.dropped and 1 or 0)
-	drop(e, st, rt, st.dropped)
-	return Element.call(e, "FLAT_ACTION")
-end
-local function drop_draw(e, st, dc)
-	local fg = background(e, st, dc, st.pressed and st.highlighted)
-	draw_text_image(e, st, dc, fg, st.x, st.y, st.w - 18, st.h)
-	local x = st.x + st.w - 14
-	local y = st.y + math.floor(st.h / 2)
-	dc:poly({ x - 4, y - 2, x + 4, y - 2, x, y + 3 }, attr(e, "ARROWCOLOR") or fg, { filled = true })
-end
-local function drop_event(e, st, ev, rt)
-	if ev.type == "press" and ev.button == 1 and yes(attr(e, "DROPONARROW")) and ev.lx >= st.w - 18 then
-		st.pressed = true; rt.capture(e); drop_activate(e, st, rt); return true
-	end
-	return basic_event(e, st, ev, rt, function(el) return drop_activate(el, st, rt) end)
-end
-
 -- iLabelSetSeparatorAttrib: a separator expands freely along its line
 local function label_expand(e)
 	local sep = tostring(attr(e, "SEPARATOR") or ""):upper()
