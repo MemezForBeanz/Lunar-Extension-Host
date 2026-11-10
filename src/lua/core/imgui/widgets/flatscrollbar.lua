@@ -15,7 +15,7 @@ local function owner(e) return Element.state(e).data.scroll_owner end
 
 local function axis(owner_el, vertical)
 	local s = Element.state(owner_el)
-	local size = num(attr(owner_el, "SCROLLBARSIZE"), 12)
+	local size = num(attr(owner_el, "SCROLLBARSIZE"), 15)
 	local maxv = num(attr(owner_el, vertical and "YMAX" or "XMAX"))
 	local view = num(attr(owner_el, vertical and "DY" or "DX"))
 	local pos = num(attr(owner_el, vertical and "POSY" or "POSX"))
@@ -183,7 +183,7 @@ end
 function M.sync(e)
 	local s, bars = Element.state(e), Element.state(e).data.scrollbars
 	if not bars then return end
-	local size = num(attr(e, "SCROLLBARSIZE"), 12)
+	local size = num(attr(e, "SCROLLBARSIZE"), 15)
 	local inset = num(attr(e, "SB_INSET"), 0)
 	local floating = yes(attr(e, "SHOWFLOATING"))
 	local vert, horiz = bars[1], bars[2]

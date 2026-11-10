@@ -16,7 +16,7 @@ local function user_child(e) return FlatScrollbar.user_child(e) end
 
 local function bar_size(e)
 	if yes(attr(e, "SHOWFLOATING")) then return 0 end
-	return math.max(0, num(attr(e, "SCROLLBARSIZE"), 12))
+	return math.max(0, num(attr(e, "SCROLLBARSIZE"), 15))
 end
 
 local function scroll_state(e, st, L)
@@ -127,7 +127,7 @@ end
 
 local function scroll_defaults()
 	return {
-		SCROLLBARSIZE = "12", SB_INSET = "NO", FLATSCROLLBAR = "YES", SHOWARROWS = "NO",
+		SCROLLBARSIZE = "15", SB_INSET = "0", FLATSCROLLBAR = "YES", SHOWARROWS = "YES", -- iupFlatScrollBarRegister
 		SHOWFLOATING = "NO", SHOWTRANSPARENCY = "NO", FITCONTENT = "NO", CANFOCUS = "NO",
 		SCROLLBAR = "VERTICAL", BGCOLOR = function() return Element.globals.DLGBGCOLOR end,
 	}

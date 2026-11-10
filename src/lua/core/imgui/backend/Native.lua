@@ -208,6 +208,24 @@ end
 function B.image(tex, x1, y1, x2, y2, u1, v1, u2, v2, col)
 	C.lunar_ui_image(dl, tex, x1, y1, x2, y2, u1 or 0, v1 or 0, u2 or 1, v2 or 1, col or 0xFFFFFFFF)
 end
+-- Provider pixels (iupdrvDrawBits): 32-bit BGRA behind a pointer, premultiplied, with a stride.
+if pcall(ffi.cdef, [[
+int lunar_ui_texture_bits(const void *bgra, int w, int h, int stride, int premultiplied);
+void lunar_ui_texture_free(int id);
+int lunar_ui_image_rounded(ImDrawList *dl, int tex, float x1, float y1, float x2, float y2, uint32_t col, float rounding);
+]]) and pcall(function() return C.lunar_ui_texture_bits end) then
+	function B.texture_bits(ptr, w, h, stride, premultiplied)
+		local id = C.lunar_ui_texture_bits(ptr, w, h, stride or w * 4, premultiplied == false and 0 or 1)
+		return id ~= 0 and id or nil
+	end
+	local texture_free = B.texture_free
+	function B.texture_free(id)
+		if texture_free then texture_free(id) else C.lunar_ui_texture_free(id) end
+	end
+	function B.image_rounded(tex, x1, y1, x2, y2, col, rounding)
+		C.lunar_ui_image_rounded(dl, tex, x1, y1, x2, y2, col or 0xFFFFFFFF, rounding or 0)
+	end
+end
 function B.clip_push(x1, y1, x2, y2) C.lunar_ui_clip_push(dl, x1, y1, x2, y2) end
 function B.clip_pop() C.lunar_ui_clip_pop(dl) end
 

@@ -188,7 +188,7 @@ end
 local def = {
 	name = "flatlist", children = 0, clip = true, visibleChildren = FlatScrollbar.visible_children, natural = natural, place = place, draw = draw, event = event, focusable = true,
 	create = function(e) FlatScrollbar.create(e) end,
-	defaults = { FGCOLOR = function() return Element.globals.DLGFGCOLOR end, BGCOLOR = function() return Element.globals.DLGBGCOLOR end, HLCOLOR = "TXTHLCOLOR", FOCUSFEEDBACK = "YES", PADDING = "2x2", VISIBLELINES = "5", FLATSCROLLBAR = "NO", SCROLLBARSIZE = "12", ITEMRADIUS = "0", HLCOLORALPHA = "128" },
+	defaults = { FGCOLOR = function() return Element.globals.DLGFGCOLOR end, BGCOLOR = function() return Element.globals.DLGBGCOLOR end, HLCOLOR = "TXTHLCOLOR", FOCUSFEEDBACK = "YES", PADDING = "2x2", VISIBLELINES = "5", FLATSCROLLBAR = "NO", SCROLLBARSIZE = "15", ITEMRADIUS = "0", HLCOLORALPHA = "128" },
 	get = { COUNT = function(e) return count(e) end, VALUE = function(e, s) return value_string(e, s) end,
 		POSY = function(e, s) return s.data.posy or 0 end, YMAX = function(e, s) return s.data.ymax or 0 end,
 		DY = function(e, s) return s.data.dy or 0 end, XMAX = function(e, s) return s.data.xmax or 0 end, DX = function(e, s) return s.data.dx or 0 end },

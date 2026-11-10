@@ -1556,6 +1556,55 @@ LUNAR_FFI int lunar_ui_image(ImDrawList *dl, int tex, float x1, float y1, float 
     dl->AddImage(ImTextureRef((ImTextureID)(intptr_t)it->second), ImVec2(x1, y1), ImVec2(x2, y2), ImVec2(u1, v1), ImVec2(u2, v2), col);
     return 1;
 }
+/* ---- pixels from a provider (iupdrvDrawBits) ------------------------------------------
+   The fork's flat grid and rows draw 32-bit BGRA pixels that stay with the Lua provider,
+   top row first, `stride` bytes per row, alpha premultiplied. The renderer blends straight
+   alpha, so the upload converts. Returns a texture id for lunar_ui_image, or 0. */
+LUNAR_FFI int lunar_ui_texture_bits(const unsigned char *bgra, int w, int h, int stride, int premultiplied) {
+    if (!bgra || w <= 0 || h <= 0 || !g.device) return 0;
+    if (stride < w * 4) stride = w * 4;
+    std::vector<unsigned char> rgba((size_t)w * h * 4);
+    for (int y = 0; y < h; y++) {
+        const unsigned char *s = bgra + (size_t)y * stride;
+        unsigned char *d = rgba.data() + (size_t)y * w * 4;
+        for (int x = 0; x < w; x++, s += 4, d += 4) {
+            unsigned a = s[3];
+            if (premultiplied && a && a < 255) {
+                d[0] = (unsigned char)std::min(255u, (s[2] * 255u + a / 2) / a);
+                d[1] = (unsigned char)std::min(255u, (s[1] * 255u + a / 2) / a);
+                d[2] = (unsigned char)std::min(255u, (s[0] * 255u + a / 2) / a);
+            } else { d[0] = s[2]; d[1] = s[1]; d[2] = s[0]; }
+            d[3] = (unsigned char)a;
+        }
+    }
+    D3D11_TEXTURE2D_DESC d = {};
+    d.Width = (UINT)w; d.Height = (UINT)h; d.MipLevels = 1; d.ArraySize = 1;
+    d.Format = DXGI_FORMAT_R8G8B8A8_UNORM; d.SampleDesc.Count = 1;
+    d.Usage = D3D11_USAGE_DEFAULT; d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    D3D11_SUBRESOURCE_DATA init = {}; init.pSysMem = rgba.data(); init.SysMemPitch = (UINT)w * 4;
+    ID3D11Texture2D *texture = nullptr;
+    ID3D11ShaderResourceView *tex = nullptr;
+    if (FAILED(g.device->CreateTexture2D(&d, &init, &texture)) || !texture) return 0;
+    HRESULT hr = g.device->CreateShaderResourceView(texture, nullptr, &tex);
+    texture->Release();
+    if (FAILED(hr) || !tex) return 0;
+    int id = g.next_texture++;
+    g.textures[id] = tex;
+    return id;
+}
+LUNAR_FFI void lunar_ui_texture_free(int id) {
+    auto it = g.textures.find(id);
+    if (it != g.textures.end()) { if (it->second) it->second->Release(); g.textures.erase(it); }
+}
+/* An image with rounded corners: what the grid's corner tiles (grid_draw_corners) paint. */
+LUNAR_FFI int lunar_ui_image_rounded(ImDrawList *dl, int tex, float x1, float y1, float x2, float y2,
+                                     uint32_t col, float rounding) {
+    auto it = g.textures.find(tex);
+    if (it == g.textures.end()) return 0;
+    dl->AddImageRounded(ImTextureRef((ImTextureID)(intptr_t)it->second), ImVec2(x1, y1), ImVec2(x2, y2),
+        ImVec2(0, 0), ImVec2(1, 1), col, rounding);
+    return 1;
+}
 LUNAR_FFI void lunar_ui_clip_push(ImDrawList *dl, float x1, float y1, float x2, float y2) {
     dl->PushClipRect(ImVec2(x1, y1), ImVec2(x2, y2), true);
 }

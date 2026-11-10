@@ -41,7 +41,7 @@ describe("ImGui raw widgets", function()
 		local ks = Element.state(seek); ks.x, ks.y, ks.w, ks.h = 0, 0, 100, 24
 		require("core.imgui.Classes").get("flatseek").event(seek, ks, { type = "press", button = 1, lx = 50, ly = 10 }, rt)
 		require("core.imgui.Classes").get("flatseek").event(seek, ks, { type = "release", button = 1, lx = 50, ly = 10 }, rt)
-		assert.equals(50, math.floor(seeked + .5))
+		assert.equals(51, math.floor(seeked + .5)) -- seek_value_at: 100 * (50 - 7) / (92 - 7)
 	end)
 
 	it("exposes video host geometry and backend window handle", function()

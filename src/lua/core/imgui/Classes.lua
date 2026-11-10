@@ -57,7 +57,7 @@ M.MODULES = {
 	menu = "menu", item = "menu", submenu = "menu", separator = "menu",
 	text = "text", multiline = "text",
 	scintilla = "scintilla",
-	flatrows = "raw", flatsegmented = "raw", flatgrid = "raw", flatseek = "raw",
+	flatrows = "flatrows", flatsegmented = "flatsegmented", flatgrid = "flatgrid", flatseek = "flatseek",
 	videohost = "raw",
 	dialog = "dialog", timer = "dialog", image = "image", imagergba = "image",
 	imagergb = "image", filedlg = "dialog", messagedlg = "dialog", clipboard = "dialog",

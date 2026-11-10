@@ -111,6 +111,7 @@ function M.new(opts)
 	function B.poly(...) record("poly", ...) end
 	function B.text(...) record("text", ...) end
 	function B.image(...) record("image", ...) end
+	function B.image_rounded(...) record("image_rounded", ...) end
 	function B.clip_push(...) record("clip_push", ...) end
 	function B.clip_pop(...) record("clip_pop", ...) end
 	function B.layer(...) record("layer", ...) end
@@ -159,6 +160,13 @@ function M.new(opts)
 		return id
 	end
 	function B.texture_free(id) B.textures[id] = nil end
+	function B.texture_bits(ptr, w, h, stride, premultiplied)
+		if not ptr or not w or not h or w <= 0 or h <= 0 then return nil end
+		local id = B.next_tex
+		B.next_tex = id + 1
+		B.textures[id] = { w = w, h = h, bits = ptr, stride = stride or w * 4, premultiplied = premultiplied ~= false }
+		return id
+	end
 
 	function B.cursor(name) B.cursor_name = name end
 	function B.clipboard_get() return B.clipboard end

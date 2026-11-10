@@ -358,6 +358,74 @@ function DC:image(img, x, y, w, h, opts)
 	self:_emit("image", tex, x, y, x + w, y + h, 0, 0, 1, 1, tint)
 end
 
+-- Provider pixels (iupdrvDrawBits) ------------------------------------------------------
+--
+-- The fork's grid and rows ask a Lua provider for 32-bit premultiplied BGRA pixels, top row
+-- first, and draw them at their own size. The provider keeps the memory, and its cache may
+-- free a buffer and hand the same address to another image later, so a texture is keyed by
+-- the address, the geometry and a sample of the pixels themselves.
+
+local bits_cache = setmetatable({}, { __mode = "k" })   -- backend -> { map, order }
+local BITS_KEEP = 384
+
+local okffi, ffi = pcall(require, "ffi")
+local function fingerprint(ptr, w, h, stride)
+	if type(ptr) == "string" then return ptr end
+	if not okffi then return tostring(ptr) end
+	local p = ffi.cast("const uint32_t*", ptr)
+	local words = stride / 4
+	local parts = { tostring(ffi.cast("uintptr_t", p)) }
+	-- nine samples on a 3x3 lattice: enough to notice a different poster at the same address
+	for sy = 0, 2 do
+		local y = math.floor((h - 1) * sy / 2)
+		for sx = 0, 2 do
+			local x = math.floor((w - 1) * sx / 2)
+			parts[#parts + 1] = tostring(p[y * words + x])
+		end
+	end
+	return table.concat(parts, ":")
+end
+
+--- The texture for a provider's pixels, uploading them the first time they are seen.
+function M.bitsTexture(B, ptr, w, h, stride)
+	if not (B and B.texture_bits and ptr and w and h and w > 0 and h > 0) then return nil end
+	stride = stride and stride > 0 and stride or w * 4
+	local cache = bits_cache[B]
+	if not cache then cache = { map = {}, order = {} }; bits_cache[B] = cache end
+	local key = fingerprint(ptr, w, h, stride) .. "@" .. w .. "x" .. h .. "/" .. stride
+	local tex = cache.map[key]
+	if tex then return tex end
+	tex = B.texture_bits(ptr, w, h, stride, true)
+	if not tex then return nil end
+	cache.map[key] = tex
+	local order = cache.order
+	order[#order + 1] = key
+	if #order > BITS_KEEP then
+		local old = table.remove(order, 1)
+		local id = cache.map[old]
+		cache.map[old] = nil
+		if id and B.texture_free then B.texture_free(id) end
+	end
+	return tex
+end
+
+--- iupdrvDrawBits: provider pixels at x, y at their own size. `opts.radius` rounds the
+-- corners as the grid's corner tiles do.
+function DC:bits(ptr, w, h, stride, x, y, opts)
+	local tex = M.bitsTexture(self.B, ptr, w, h, stride)
+	if not tex then return false end
+	local tint = 0xFFFFFFFF
+	if self.alpha < 1 then tint = Color.alpha(tint, self.alpha) end
+	x, y = x + self.ox, y + self.oy
+	local radius = opts and opts.radius or 0
+	if radius > 0 and self.B.image_rounded then
+		self:_emit("image_rounded", tex, x, y, x + w, y + h, tint, radius)
+	else
+		self:_emit("image", tex, x, y, x + w, y + h, 0, 0, 1, 1, tint)
+	end
+	return true
+end
+
 -- State stacks -------------------------------------------------------------------------
 
 function DC:clip_push(x, y, w, h)

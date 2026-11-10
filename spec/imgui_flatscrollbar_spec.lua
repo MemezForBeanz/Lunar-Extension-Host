@@ -106,7 +106,7 @@ describe("imgui flat scrollbar modes", function()
 		local st = layout(box, 100, 100)
 		local sb = iup.GetChild(box, 0)
 		local ss = Element.state(sb)
-		assert.are.equal(86, ss.x)
+		assert.are.equal(83, ss.x) -- iupFlatScrollBarSetChildrenPosition: width - SCROLLBARSIZE (15) - 2
 		assert.are.equal(2, ss.y)
 		assert.are.equal(96, ss.h)
 		local backend = Null.new()

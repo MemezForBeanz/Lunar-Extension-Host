@@ -139,9 +139,11 @@ local function container_expand(st)
 end
 
 -- iup_canvas.c starts every canvas at IUP_EXPAND_BOTH; the flat button, label, list,
--- toggle and dropbutton reset it to NONE in their Create, the fork's canvas classes do not.
-local CANVAS_EXPANDS = { canvas = true, flatrows = true, flatgrid = true, flatseek = true,
-	flatsegmented = true, videohost = true, flattree = true, flatval = true }
+-- toggle and dropbutton reset it to NONE in their Create. Of the fork's canvas classes,
+-- flatseek (HORIZONTAL) and flatsegmented (NO) set their own in Create too: their classes
+-- say so with `expandDefault`.
+local CANVAS_EXPANDS = { canvas = true, flatrows = true, flatgrid = true,
+	videohost = true, flattree = true, flatval = true }
 
 local function control_expand(el, st)
 	local v = st.attrs.EXPAND
