@@ -63,7 +63,7 @@ if TRACE then
 	local function who(ih)
 		local ok, t = pcall(iup.GetAttribute, ih, "TITLE")
 		local ok2, r = pcall(iup.GetAttribute, ih, "THEMEROLE")
-		local ok3, id = pcall(iup.GetAttribute, ih, "THEMEMGR_ID")
+		local ok3, id = pcall(iup.GetAttribute, ih, "_IUPLUNAR_THEMEMGR_ID")
 		return tostring(iup.GetClassName(ih)) .. " title=" .. tostring(ok and t) .. " role=" .. tostring(ok2 and r) .. " id=" .. tostring(ok3 and id)
 	end
 	local real_set = iup.SetAttribute

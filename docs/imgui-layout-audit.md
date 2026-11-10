@@ -52,15 +52,17 @@ size for a dialog's RASTERSIZE, the host the client size; both clients are equal
 | 13 | all (getters) | IupGetClassType; native parent lookups | boxes "container" vs "void"; split missing from flatdraw's void list | nativetype (`IupGetClassType`, `iupChildTreeGetNativeParent`) | `type` set from each C class; flatdraw and winframe ask `class.type == "void"` | `imgui_parity_spec` "class types" |
 | 14 | all | boolean attributes | ON/1 ignored by nine widgets, TRUE accepted by flatdraw | `iupStrBoolean` | `Element.isTrue` used everywhere | `imgui_parity_spec` "booleans" |
 
-## App issues found (reported, not changed)
+## App issue found and fixed
 
-- `core.classes.ThemeManager:_widgetKey` stamps `THEMEMGR_ID`, an unregistered attribute,
-  and reads it back with `IupGetAttribute`, which inherits it. Every widget below a stamped
-  one shares its originals store, so a restore writes another widget's captured values
-  (`FOCUSFEEDBACK`, `FONT`, colours) onto it. It affects both builds; what each ends up with
-  depends on the order the theme passes run in, which is how fix 1 surfaced. A fix belongs in
-  the theme manager (an `_IUP`-prefixed name never inherits, or `iupAttribGet`-style own
-  reads), and changes the IUP build's look too, so it is left for its owner.
+- `core.classes.ThemeManager:_widgetKey` stamped `THEMEMGR_ID`, an unregistered attribute,
+  and read it back with `IupGetAttribute`, which inherits it. Every widget below a stamped
+  one shared its originals store, so a restore wrote another widget's captured values
+  (`FOCUSFEEDBACK`, `ARROWCOLOR`, `FONT`, colours) onto it. It affected both builds, and what
+  each ended up with depended on the order the theme passes ran in: fix 1 surfaced it, and
+  after fix 1 the host's Time Clock dropdown arrows took a dark `ARROWCOLOR` from another
+  widget. The id is now `_IUPLUNAR_THEMEMGR_ID`; an `_IUP` name never inherits, on IUP or on
+  the host. With it, captures of both builds running this checkout's Lua differ by 0.3-0.5%
+  of pixels on the empty tool pages (0.5-1.0% before).
 
 ## Result of the state matrix
 

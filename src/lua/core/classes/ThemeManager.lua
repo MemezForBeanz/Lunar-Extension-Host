@@ -1019,13 +1019,20 @@ end
 -- walks, so the Lua handle itself is not a reliable table key (using it caused
 -- restore to miss on theme switch-back). Stamp each widget once with a small
 -- string id held as a native attribute and key the store by that id instead.
+--
+-- The name starts with `_IUP` so it never inherits (see `core.lib.handle`). Under a plain
+-- name, IupGetAttribute handed every widget below a stamped one its ancestor's id: the
+-- whole subtree shared one originals store, and a restore wrote one widget's saved values
+-- (FOCUSFEEDBACK, ARROWCOLOR, fonts) onto the others, differently for each order the theme
+-- passes happened to run in.
+local THEME_ID_ATTR = "_IUPLUNAR_THEMEMGR_ID"
 function ThemeManager:_widgetKey(ih, p)
 	local ffi = p and self._ffi
 	local id
 	if ffi then
-		id = ffi.get(p, "THEMEMGR_ID")
+		id = ffi.get(p, THEME_ID_ATTR)
 	else
-		id = self._iup.GetAttribute(ih, "THEMEMGR_ID")
+		id = self._iup.GetAttribute(ih, THEME_ID_ATTR)
 	end
 	if id and id ~= "" then
 		return id
@@ -1033,9 +1040,9 @@ function ThemeManager:_widgetKey(ih, p)
 	self._key_seq = (self._key_seq or 0) + 1
 	id = tostring(self._key_seq)
 	if ffi then
-		ffi.setstr(p, "THEMEMGR_ID", id)
+		ffi.setstr(p, THEME_ID_ATTR, id)
 	else
-		self._iup.SetAttribute(ih, "THEMEMGR_ID", id)
+		self._iup.SetAttribute(ih, THEME_ID_ATTR, id)
 	end
 	return id
 end
