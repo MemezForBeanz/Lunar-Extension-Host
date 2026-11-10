@@ -4,6 +4,7 @@ local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
 local Fonts = require("core.imgui.Fonts")
 local Draw = require("core.imgui.Draw")
+local Layout = require("core.imgui.Layout")
 local iup = require("core.imgui.iup")
 
 local M = {}
@@ -361,12 +362,27 @@ local function natural(el, st, L)
 	if horizontal(el) then return cw, ch + bh end
 	return cw + bw, ch
 end
-local function place(el, st, L)
-	local next_child = ensureCurrent(el)
-	if next_child ~= current(el) then setCurrent(el, next_child, false) end
-	local x, y, w, h = clientRect(el, st)
-	for _, child in ipairs(pages(el)) do L.place(child, x, y, w, h) end
+--- iFlatTabsSetChildrenCurrentSizeMethod: every page that is not FLOATING gets the client
+-- area as its current size, directly: no EXPAND rule and no MINSIZE/MAXSIZE crop (a page
+-- capped by MAXSIZE still fills the strip). IupTabs (`native`) goes through
+-- iupBaseSetCurrentSize instead (iTabsSetChildrenCurrentSizeMethod).
+local function place_pages(native)
+	return function(el, st, L)
+		local next_child = ensureCurrent(el)
+		if next_child ~= current(el) then setCurrent(el, next_child, false) end
+		local x, y, w, h = clientRect(el, st)
+		for _, child in ipairs(pages(el)) do
+			local cs = Element.state(child)
+			local floating, ignore = Layout.floating(cs)
+			if not floating then
+				if native then L.place(child, x, y, w, h) else L.set(child, x, y, w, h) end
+			elseif not ignore then
+				Layout.placeFloating(child, cs, st)
+			end
+		end
+	end
 end
+local place = place_pages(false)
 local function visibleChildren(el)
 	local c = current(el)
 	return c and { c } or {}
@@ -541,6 +557,6 @@ local def = {
 }
 
 M.flattabs = Classes.define(def)
-M.tabs = Classes.define(setmetatable({ name = "tabs" }, { __index = def }))
+M.tabs = Classes.define(setmetatable({ name = "tabs", place = place_pages(true) }, { __index = def }))
 
 return M

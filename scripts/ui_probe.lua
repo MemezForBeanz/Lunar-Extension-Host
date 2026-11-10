@@ -418,6 +418,15 @@ iup.MainLoop = function()
 				origin[1], origin[2] = pt.x, pt.y
 				emit("P", page.title)
 				emit("D", tostring(iup.GetAttribute(dlg, "CLIENTSIZE")))
+				-- the page height cap main.lua derives from the client height (ShellBudget)
+				local shell = rawget(_G, "LUNAR_DEV_SHELL")
+				local budget = shell and shell.shell_budget
+				if budget then
+					local parts = {}
+					for k, v in pairs(budget.bands or {}) do parts[#parts + 1] = k .. "=" .. tostring(v) end
+					table.sort(parts)
+					emit("B", tostring(budget.cap), table.concat(parts, ";"))
+				end
 				local list = walk(dlg, class(dlg), {})
 				stub(list)
 				queue = {}

@@ -167,6 +167,24 @@ describe("imgui parity: box user size", function()
 	end)
 end)
 
+describe("imgui parity: flattabs pages", function()
+	-- iFlatTabsSetChildrenCurrentSizeMethod sets each page's current size to the client area
+	-- directly, without iupBaseSetCurrentSize's MAXSIZE crop. Lunar caps every page's
+	-- natural height with MAXSIZE (host/Layout.lua); maximised at 1920x1080 the Build Queue
+	-- group's strip has MAXSIZE 65535x950 and fills its 988 px page on the IUP build, where
+	-- the host cropped it to 950.
+	it("gives a page the whole client area whatever its MAXSIZE", function()
+		local iup, R, B, Element = host()
+		local page = iup.vbox({ iup.fill({}), MAXSIZE = "65535x50" })
+		local tabs = iup.flattabs({ page, SHOWTABS = "NO", SHOWLINES = "NO" })
+		local d = iup.dialog({ tabs, RASTERSIZE = "300x200" })
+		iup.Show(d)
+		R.frame()
+		assert.equal(Element.state(tabs).h, Element.state(page).h)
+		assert.is_true(Element.state(page).h > 50)
+	end)
+end)
+
 describe("imgui parity: IupShow", function()
 	-- iDialogAfterShow (iup_dialog.c) calls IupFlush before SHOW_CB, so a timer that is
 	-- due when the dialog is shown runs inside IupShow. Lunar's theme manager queues its
