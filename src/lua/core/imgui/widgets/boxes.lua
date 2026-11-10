@@ -6,6 +6,10 @@
 -- narrower than its content takes the difference back from its expanding children in
 -- proportion to what each can spare (0008).
 --
+-- `type` is IupGetClassType's answer, the class's nativetype: the boxes, the fill and the
+-- normalizer are "void" (no native window: positions and the native parent pass through
+-- them), IupUser is "other".
+--
 -- @module core.imgui.widgets.boxes
 local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
@@ -205,11 +209,49 @@ local function box_place(vertical)
 	end
 end
 
-local box_defaults = { ALIGNMENT = nil }
+--- iupStrToIntInt(value, &a, &b, 'x'): either side may be missing (0 here).
+local function int_int(value)
+	local a, b = tostring(value):match("^%s*(-?%d*)%s*x?%s*(-?%d*)")
+	return tonumber(a) or 0, tonumber(b) or 0
+end
+
+--- iHboxSetRasterSizeAttrib / iHboxSetSizeAttrib and the vbox's: a box sets only its own
+-- axis ("can NOT set height" / "can NOT set width"). A value without a positive size there
+-- leaves the user size as it was. The vbox takes the second number when there is one, else
+-- the first ("200" is a height of 200). RASTERSIZE always clears SIZE; SIZE is kept for a
+-- font change, as IUP keeps it in the hash table.
+local function box_size_setters(vertical)
+	local function along(value)
+		local a, b = int_int(value)
+		if vertical and b ~= 0 then a = b end
+		return a
+	end
+	local function norm(n) return vertical and ("x" .. n) or (n .. "x") end
+	return {
+		RASTERSIZE = function(el, st, value)
+			st.attrs.SIZE = nil
+			if value == nil then st.attrs.RASTERSIZE, st.attrs.USERSIZE = nil, nil; return false end
+			local n = along(value)
+			if n > 0 then st.attrs.RASTERSIZE, st.attrs.USERSIZE = norm(n), nil end
+			return false
+		end,
+		SIZE = function(el, st, value)
+			if value == nil then
+				st.attrs.SIZE, st.attrs.RASTERSIZE, st.attrs.USERSIZE = nil, nil, nil
+				return false
+			end
+			local n = along(value)
+			if n > 0 then st.attrs.SIZE, st.attrs.RASTERSIZE, st.attrs.USERSIZE = norm(n), nil, nil end
+			return false
+		end,
+	}
+end
 
 Classes.define({
-	name = "hbox", children = -1, type = "container",
+	name = "hbox", children = -1, type = "void",
+	stacksAlong = function(el, st, horizontal) return horizontal end, -- iupLayoutMinContent
 	natural = box_natural(false), place = box_place(false),
+	set = box_size_setters(false),
 	get = {
 		ORIENTATION = function() return "HORIZONTAL" end,
 		ALIGNMENT = function(el, st) return st.attrs.ALIGNMENT or "ATOP" end,
@@ -217,8 +259,10 @@ Classes.define({
 })
 
 Classes.define({
-	name = "vbox", children = -1, type = "container",
+	name = "vbox", children = -1, type = "void",
+	stacksAlong = function(el, st, horizontal) return not horizontal end, -- iupLayoutMinContent
 	natural = box_natural(true), place = box_place(true),
+	set = box_size_setters(true),
 	get = {
 		ORIENTATION = function() return "VERTICAL" end,
 		ALIGNMENT = function(el, st) return st.attrs.ALIGNMENT or "ALEFT" end,
@@ -263,7 +307,7 @@ local ZALIGN = {
 }
 
 Classes.define({
-	name = "zbox", children = -1, type = "container",
+	name = "zbox", children = -1, type = "void",
 	visibleChildren = function(el, st)
 		local c = zbox_current(el, st)
 		return c and { c } or {}
@@ -304,8 +348,10 @@ Classes.define({
 		COUNT = function(el, st) return tostring(#st.children) end,
 	},
 	methods = nil,
+	-- iZboxComputeNaturalSizeMethod: CHILDSIZEALL (registered "Yes") measures every child,
+	-- hidden ones included; NO only the current one
 	natural = function(el, st, L)
-		local all = own(st, "CHILDSIZEALL") == "YES"
+		local all = Element.isTrue(Element.getAttribute(el, "CHILDSIZEALL"))
 		local current = zbox_current(el, st)
 		local w, h, ce = 0, 0, 0
 		for _, c in ipairs(st.children) do
@@ -396,7 +442,7 @@ Classes.define({ name = "spacer", children = 0, type = "void", transparent = tru
 -- cbox: children at CX/CY ------------------------------------------------------------------
 
 Classes.define({
-	name = "cbox", children = -1, type = "container",
+	name = "cbox", children = -1, type = "void",
 	natural = function(el, st, L)
 		local w, h = 0, 0
 		for _, c in ipairs(st.children) do
@@ -425,7 +471,7 @@ Classes.define({
 -- gridbox -------------------------------------------------------------------------------
 
 Classes.define({
-	name = "gridbox", children = -1, type = "container",
+	name = "gridbox", children = -1, type = "void",
 	natural = function(el, st, L)
 		local numdiv = max(1, tonumber(own(st, "NUMDIV")) or 1)
 		local horizontal = (own(st, "ORIENTATION") or "HORIZONTAL"):upper() == "HORIZONTAL"
@@ -491,7 +537,7 @@ local function one_place(el, st, L)
 	end
 end
 
-Classes.define({ name = "radio", children = 1, type = "container", natural = one_natural, place = one_place,
+Classes.define({ name = "radio", children = 1, type = "void", natural = one_natural, place = one_place,
 	get = {
 		VALUE = function(el, st)
 			local found
@@ -510,12 +556,12 @@ Classes.define({ name = "radio", children = 1, type = "container", natural = one
 })
 Classes.define({ name = "normalizer", children = -1, type = "void", natural = function() return 0, 0 end,
 	place = function() end, visibleChildren = function() return {} end, transparent = true })
-Classes.define({ name = "sbox", children = 1, type = "container", natural = one_natural, place = one_place })
-Classes.define({ name = "user", children = -1, type = "void", natural = function() return 0, 0 end,
+Classes.define({ name = "sbox", children = 1, type = "void", natural = one_natural, place = one_place })
+Classes.define({ name = "user", children = -1, type = "other", natural = function() return 0, 0 end,
 	place = function() end, visibleChildren = function() return {} end, transparent = true })
 
 Classes.define({
-	name = "backgroundbox", children = 1, type = "container", opaque = true,
+	name = "backgroundbox", children = 1, type = "canvas", opaque = true,
 	natural = function(el, st, L)
 		local w, h = one_natural(el, st, L)
 		local b = Element.getAttribute(el, "BORDER") == "YES" and 2 or 0
@@ -537,7 +583,7 @@ Classes.define({
 
 -- The classic iup.frame: a 1px etched border, the title cut into the top edge.
 Classes.define({
-	name = "frame", children = 1, type = "container", opaque = true,
+	name = "frame", children = 1, type = "control", opaque = true,
 	natural = function(el, st, L)
 		local w, h = one_natural(el, st, L)
 		local title = Element.getAttribute(el, "TITLE")

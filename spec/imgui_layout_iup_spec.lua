@@ -69,11 +69,13 @@ describe("imgui layout (IUP rules)", function()
 
 	it("aligns children across the box", function()
 		local a = leaf()
-		local dlg = iup.dialog({ iup.hbox({ a, ALIGNMENT = "ACENTER", RASTERSIZE = "x50" }) })
+		-- an hbox's RASTERSIZE sets only its width, a vbox's only its height
+		-- (iHboxSetRasterSizeAttrib, iVboxSetRasterSizeAttrib): the cross size comes from MINSIZE
+		local dlg = iup.dialog({ iup.hbox({ a, ALIGNMENT = "ACENTER", MINSIZE = "x50" }) })
 		Layout.run(dlg, 100, 50)
 		assert.equal(20, S(a).y)
 		local b = leaf()
-		local dlg2 = iup.dialog({ iup.vbox({ b, ALIGNMENT = "ARIGHT", RASTERSIZE = "100x" }) })
+		local dlg2 = iup.dialog({ iup.vbox({ b, ALIGNMENT = "ARIGHT", MINSIZE = "100x" }) })
 		Layout.run(dlg2, 100, 50)
 		assert.equal(60, S(b).x)
 	end)
@@ -154,7 +156,9 @@ describe("imgui layout (IUP rules)", function()
 		local dlg = iup.dialog({ iup.vbox({ box, MARGIN = "10x10" }) })
 		Layout.run(dlg, 200, 200)
 		assert.equal(40, S(box).nat_w)
-		assert.same({ 15, 16, 40, 10 }, rect(f))
+		-- POSITION is in the native parent's coordinates (iBaseSetPositionAttrib); the boxes
+		-- are void, so it is measured from the dialog, not from the hbox at 10,10
+		assert.same({ 5, 6, 40, 10 }, rect(f))
 	end)
 
 	it("lets hidden (VISIBLE=NO) children keep their space, as IUP does", function()

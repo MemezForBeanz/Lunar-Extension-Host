@@ -23,6 +23,49 @@ local function parse_size(s)
 	return tonumber(w), tonumber(h)
 end
 
+-- iDialogSizeGetScale: SIZE may give either side as a share of the screen.
+local SCREEN_FRACTION = { FULL = 1, HALF = 2, THIRD = 3, QUARTER = 4, EIGHTH = 8 }
+
+local function screen_size()
+	local w, h = parse_size(rt().getGlobal and rt().getGlobal("SCREENSIZE"))
+	return w or 1920, h or 1040
+end
+
+--- iDialogSetSizeAttrib: each side of SIZE is character units or a screen fraction
+-- (screen_width/scale). Read when laying out, so a moved window sees its screen.
+local function user_size(el, st)
+	local a = st.attrs
+	if a.RASTERSIZE or a.USERSIZE or not a.SIZE then
+		return require("core.imgui.Layout").baseUserSize(el, st)
+	end
+	local ws, hs = tostring(a.SIZE):match("^%s*([^x]*)x?(.*)$")
+	local cw, ch = Fonts.forElement(el):charsize()
+	local sw, sh = screen_size()
+	local w, h
+	if SCREEN_FRACTION[ws] then w = math.floor(sw / SCREEN_FRACTION[ws]) else w = math.floor((tonumber(ws) or 0) * cw / 4) end
+	if SCREEN_FRACTION[hs] then h = math.floor(sh / SCREEN_FRACTION[hs]) else h = math.floor((tonumber(hs) or 0) * ch / 8) end
+	return math.max(w, 0), math.max(h, 0)
+end
+
+local yes = Element.isTrue -- iupStrBoolean
+
+--- iupdrvDialogGetDecoration + iupDialogGetDecorSize: what a window's frame takes from its
+-- RASTERSIZE/SIZE (a dialog's user size is the window, its child gets the client). The
+-- numbers are the ones IUP's Windows driver measures on a mapped window at 96 DPI (the
+-- tour's dialogs sit at -8,-31 when resizable and -3,-26 when not): SM_CYCAPTION 23, a
+-- sizing border of 8 with the padded border, a fixed frame of 3, a plain border of 1.
+local CAPTION_H, SIZING_BORDER, FIXED_BORDER, THIN_BORDER = 23, 8, 3, 1
+function M.decorSize(el)
+	local function a(n) return Element.getAttribute(el, n) end
+	local has_titlebar = yes(a("MAXBOX")) or yes(a("MINBOX")) or yes(a("MENUBOX")) or Element.own(el, "TITLE") ~= nil
+	local caption = has_titlebar and CAPTION_H or 0
+	local border = 0
+	if yes(a("RESIZE")) then border = SIZING_BORDER
+	elseif has_titlebar then border = FIXED_BORDER
+	elseif yes(a("BORDER")) then border = THIN_BORDER end
+	return 2 * border, 2 * border + caption
+end
+
 local function menubar(el)
 	local menu = Element.getHandle(el, "MENU")
 	if not menu then return nil end
@@ -36,6 +79,7 @@ Classes.define({
 	children = 1,
 	type = "dialog",
 	opaque = true,
+	userSize = user_size,
 	defaults = {
 		RESIZE = "YES", MAXBOX = "YES", MINBOX = "YES", MENUBOX = "YES", BORDER = "YES",
 		SHRINK = "NO", CANFOCUS = "NO",
@@ -52,10 +96,15 @@ Classes.define({
 			if is_main(el) and backend() and backend().alive() then backend().window("title", value or "") end
 		end,
 		RASTERSIZE = function(el, st, value)
+			-- the base rule (RASTERSIZE replaces SIZE) until the window is up
+			if not st.data.shown then st.attrs.SIZE = nil end
 			local w, h = parse_size(value)
 			if st.data.shown and w and h then
 				if is_main(el) then backend().window("size", w, h)
-				else st.w, st.h = w, h end
+				else
+					local dw, dh = M.decorSize(el)
+					st.w, st.h = math.max(1, w - dw), math.max(1, h - dh)
+				end
 			end
 		end,
 		PLACEMENT = function(el, st, value)

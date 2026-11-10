@@ -22,6 +22,7 @@ local function layout(tab)
 			local s = Element.state(child); s.x, s.y, s.w, s.h = x, y, w, h
 		end,
 	}
+	L.set = L.place -- pages get the client rect as is (iFlatTabsSetChildrenCurrentSizeMethod)
 	local s = Element.state(tab); s.x, s.y, s.w, s.h = 0, 0, 240, 100
 	c.place(tab, s, L)
 	return c, s

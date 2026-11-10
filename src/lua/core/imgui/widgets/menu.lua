@@ -7,7 +7,7 @@ local iup = require("core.imgui.iup")
 
 local M = {}
 local function attr(e, n) return Element.getAttribute(e, n) end
-local function yes(v) return v == true or tostring(v or ""):upper() == "YES" end
+local yes = Element.isTrue -- iupStrBoolean
 local function children(e) return Element.children(e) end
 local function title_parts(value)
 	local s = tostring(value or "")

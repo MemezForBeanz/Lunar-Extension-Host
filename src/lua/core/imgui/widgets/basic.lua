@@ -8,7 +8,7 @@ local Draw = require("core.imgui.Draw")
 local iup = require("core.imgui.iup")
 
 local function attr(e, n) return Element.getAttribute(e, n) end
-local function yes(v) return tostring(v or ""):upper() == "YES" end
+local yes = Element.isTrue -- iupStrBoolean
 local function pad(e)
 	local a, b = tostring(attr(e, "PADDING") or "0x0"):match("^%s*(-?[%d%.]*)x(-?[%d%.]*)")
 	return tonumber(a) or 0, tonumber(b) or 0
@@ -138,44 +138,15 @@ local function progress_draw(e, st, dc, rt)
 	if attr(e, "BORDERCOLOR") then dc:rect(st.x, st.y, st.w, st.h, attr(e, "BORDERCOLOR"), { radius = radius, thickness = 1 }) end
 end
 
-local function drop_child(e)
-	return Element.getHandle(e, "DROPCHILD") or Element.getHandle(e, "DROPCHILD_HANDLE")
+-- iLabelSetSeparatorAttrib: a separator expands freely along its line
+local function label_expand(e)
+	local sep = tostring(attr(e, "SEPARATOR") or ""):upper()
+	if sep == "HORIZONTAL" then return "HORIZONTALFREE" end
+	if sep == "VERTICAL" then return "VERTICALFREE" end
+	return nil
 end
-local function drop(e, st, rt, open)
-	local child = drop_child(e)
-	if not child then return end
-	if st.drop_overlay then st.drop_overlay:close(); st.drop_overlay = nil end
-	if not open then return end
-	local cs = Element.state(child)
-	local x, y = st.x, st.y + st.h
-	st.drop_overlay = rt.overlay{
-		owner = e, x = x, y = y, w = cs.w > 0 and cs.w or st.w, h = cs.h > 0 and cs.h or 100,
-		draw = function(dc) local c = cs.class; if c.draw then c.draw(child, cs, dc, rt) end end,
-		event = function(ev) if cs.class.event then return cs.class.event(child, cs, ev, rt) end end,
-		closed = function() st.dropped = false; st.drop_overlay = nil; Element.call(e, "DROPSHOW_CB", 0) end,
-	}
-end
-local function drop_activate(e, st, rt)
-	st.dropped = not st.dropped
-	Element.call(e, "DROPDOWN_CB", st.dropped and 1 or 0)
-	drop(e, st, rt, st.dropped)
-	return Element.call(e, "FLAT_ACTION")
-end
-local function drop_draw(e, st, dc)
-	local fg = background(e, st, dc, st.pressed and st.highlighted)
-	draw_text_image(e, st, dc, fg, st.x, st.y, st.w - 18, st.h)
-	local x = st.x + st.w - 14
-	local y = st.y + math.floor(st.h / 2)
-	dc:poly({ x - 4, y - 2, x + 4, y - 2, x, y + 3 }, attr(e, "ARROWCOLOR") or fg, { filled = true })
-end
-local function drop_event(e, st, ev, rt)
-	if ev.type == "press" and ev.button == 1 and yes(attr(e, "DROPONARROW")) and ev.lx >= st.w - 18 then
-		st.pressed = true; rt.capture(e); drop_activate(e, st, rt); return true
-	end
-	return basic_event(e, st, ev, rt, function(el) return drop_activate(el, st, rt) end)
-end
-
-Classes.define{name="label", children=0, defaults={ACTIVE="YES"}, natural=label_natural, draw=label_draw}
+Classes.define{name="label", children=0, defaults={ACTIVE="YES"}, natural=label_natural, draw=label_draw,
+	expandDefault=label_expand}
 Classes.define{name="button", children=0, defaults={PADDING="4x2", CANFOCUS="YES", ACTIVE="YES"}, natural=natural_text, draw=button_draw, event=function(e,s,ev,rt) return basic_event(e,s,ev,rt,button_activate) end, focusable=true, callbacks={ACTION=true, BUTTON_CB=true}}
 Classes.define{name="toggle", children=0, defaults={VALUE="OFF", CANFOCUS="YES", ACTIVE="YES"}, natural=natural_text, draw=button_draw, event=function(e,s,ev,rt) return basic_event(e,s,ev,rt,toggle_activate) end, focusable=true, callbacks={ACTION=true, VALUECHANGED_CB=true}, set={VALUE=function(e,s,v) s.value=tostring(v or "OFF"):upper() end}, get={VALUE=function(e,s) return s.value end}}
 Classes.define{name="link", children=0, defaults={CANFOCUS="YES", ACTIVE="YES"}, natural=natural_text, draw=function(e,s,dc) draw_text_image(e,s,dc,attr(e,"FGCOLOR"),s.x,s.y,s.w,s.h) end, event=function(e,s,ev,rt) return basic_event(e,s,ev,rt,function(el) local url=attr(el,"URL"); local ok,d=pcall(require,"core.lib.desktop"); if ok and d and d.open then d.open(url) end; return Element.call(el,"ACTION",url) end) end, focusable=true, callbacks={ACTION=true}}

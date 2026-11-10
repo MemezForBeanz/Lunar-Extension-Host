@@ -6,7 +6,6 @@ local Draw = require("core.imgui.Draw")
 local iup = require("core.imgui.iup")
 
 local function attr(e, n) return Element.getAttribute(e, n) end
-local function yes(v) return tostring(v or ""):upper() == "YES" end
 local function call_result(e, name, ...)
 	return Element.call(e, name, ...)
 end
@@ -87,6 +86,7 @@ local function event(e, st, ev, rt)
 end
 Classes.define{
 	name="canvas", children=0, natural=natural, draw=draw, event=event,
+	expandDefault="YES", -- iCanvasCreateMethod: ih->expand = IUP_EXPAND_BOTH
 	drawAfter=draw_after,
 	defaults={BORDER="YES", EXPAND="YES", CANFOCUS="YES", DRAWSTYLE="STROKE", DRAWLINEWIDTH="1"},
 	callbacks={ACTION=true, BUTTON_CB=true, MOTION_CB=true, WHEEL_CB=true, ENTERWINDOW_CB=true, LEAVEWINDOW_CB=true, KEYPRESS_CB=true, K_ANY=true, RESIZE_CB=true, MAP_CB=true, SCROLL_CB=true},

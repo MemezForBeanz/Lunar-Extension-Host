@@ -9,7 +9,6 @@
 local bit = require("bit")
 local M = {}
 
-local cache = setmetatable({}, { __mode = "k" })
 local strcache = {}
 local strcount = 0
 

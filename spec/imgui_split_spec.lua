@@ -12,6 +12,15 @@ Element.globals.DLGBGCOLOR = "240 240 240"
 Element.globals.DLGFGCOLOR = "0 0 0"
 
 local function state(e) return Element.state(e) end
+-- A pane that expands both ways from a natural size of 0x0. An IupFill does not do: it
+-- expands only along an hbox or vbox, and iSplitSetChildrenCurrentSizeMethod gives each
+-- child its size through iupBaseSetCurrentSize, so a child that does not expand keeps its
+-- natural size.
+local function pane(attrs)
+	local p = iup.hbox{ iup.vbox{ iup.fill{} }, iup.fill{} }
+	for k, v in pairs(attrs or {}) do iup.SetAttribute(p, k, v) end
+	return p
+end
 local function layout(split, w, h)
 	Layout.natural(split)
 	local s = state(split)
@@ -32,7 +41,7 @@ describe("imgui split", function()
 	end)
 
 	it("places the sash and panes at VALUE 0, 500, and 1000", function()
-		local split = iup.split{iup.fill{}, iup.fill{}, VALUE = "0", BARSIZE = "4"}
+		local split = iup.split{pane(), pane(), VALUE = "0", BARSIZE = "4"}
 		local a, b, bar = layout(split, 104, 20)
 		assert.are.equal(0, a.w); assert.are.equal(100, b.w); assert.are.equal(4, bar.w)
 		for _, value in ipairs({"500", "1000"}) do
@@ -46,15 +55,21 @@ describe("imgui split", function()
 	end)
 
 	it("computes VALUE -1 from the first pane's natural size", function()
-		local split = iup.split{iup.fill{RASTERSIZE = "20x10"}, iup.fill{RASTERSIZE = "30x10"}, VALUE = "-1", BARSIZE = "5"}
-		local a, b = layout(split, 200, 20)
+		-- iSplitCreateMethod starts VALUE at -1; VALUE="-1" from the application would be
+		-- clamped to MINMAX by iSplitAdjustVal, only NULL resets it
+		local split = iup.split{iup.fill{RASTERSIZE = "20x10"}, iup.fill{RASTERSIZE = "30x10"}, BARSIZE = "5"}
+		local a, b, bar = layout(split, 200, 20)
 		assert.are.equal("400", iup.GetAttribute(split, "VALUE"))
-		assert.is_true(a.w >= 20)
-		assert.are.equal(195 - a.w, b.w)
+		-- the fills do not expand here: they keep their natural sizes, the bar sits at
+		-- ceil(195 * 400 / 1000)
+		assert.are.equal(20, a.w)
+		assert.are.equal(30, b.w)
+		assert.are.equal(78, bar.x)
+		assert.are.equal(83, b.x)
 	end)
 
 	it("clamps VALUE to MINMAX", function()
-		local split = iup.split{iup.fill{}, iup.fill{}, VALUE = "900", MINMAX = "250:750", BARSIZE = "4"}
+		local split = iup.split{pane(), pane(), VALUE = "900", MINMAX = "250:750", BARSIZE = "4"}
 		local a, b = layout(split, 104, 20)
 		assert.are.equal("750", iup.GetAttribute(split, "VALUE"))
 		assert.are.equal(75, a.w)
@@ -62,7 +77,7 @@ describe("imgui split", function()
 	end)
 
 	it("uses BARSIZE and supports horizontal orientation", function()
-		local split = iup.split{iup.fill{}, iup.fill{}, VALUE = "250", BARSIZE = "6", ORIENTATION = "HORIZONTAL"}
+		local split = iup.split{pane(), pane(), VALUE = "250", BARSIZE = "6", ORIENTATION = "HORIZONTAL"}
 		local a, b, bar = layout(split, 40, 106)
 		assert.are.equal("HORIZONTAL", iup.GetAttribute(split, "ORIENTATION"))
 		assert.are.equal(25, a.h)
@@ -72,8 +87,8 @@ describe("imgui split", function()
 	end)
 
 	it("keeps a VISIBLE=NO pane in the split layout like IUP", function()
-		local second = iup.fill{VISIBLE = "NO"}
-		local split = iup.split{iup.fill{}, second, VALUE = "500", BARSIZE = "4"}
+		local second = pane({ VISIBLE = "NO" })
+		local split = iup.split{pane(), second, VALUE = "500", BARSIZE = "4"}
 		local a, b = layout(split, 104, 20)
 		assert.are.equal("NO", iup.GetAttribute(second, "VISIBLE"))
 		assert.are.equal(50, a.w)
@@ -81,7 +96,7 @@ describe("imgui split", function()
 	end)
 
 	it("fires VALUECHANGED_CB while dragging the sash", function()
-		local split = iup.split{iup.fill{}, iup.fill{}, BARSIZE = "4"}
+		local split = iup.split{pane(), pane(), VALUE = "500", BARSIZE = "4"}
 		local _, _, bar = layout(split, 104, 20)
 		local changed, captured, released = 0, false, false
 		split.valuechanged_cb = function() changed = changed + 1 end

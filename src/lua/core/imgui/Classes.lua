@@ -16,10 +16,21 @@
 --       childAdded = function(el, st, child, pos) end,
 --       childRemoved = function(el, st, child, pos) end,
 --
+--       type = "void",          -- IupGetClassType: "void" (no native window: boxes, split),
+--                               -- "control", "canvas", "dialog", "other"
+--       iupname = "canvas",     -- the IUP class it answers to, when it differs from `name`
+--
 --       -- layout (see core.imgui.Layout)
---       natural = function(el, st, L) return w, h end, -- content size before SIZE/RASTERSIZE
+--       natural = function(el, st, L) return w, h[, children_expand] end, -- before SIZE/RASTERSIZE
 --       place = function(el, st, L) end,  -- containers: L.place(child, x, y, w, h)
---       expand = function(el, st, L) return "YES" end, -- containers: computed EXPAND
+--       expandDefault = "YES" | function(el, st) end, -- a control's EXPAND when unset
+--                               -- (what its IUP Create leaves in ih->expand)
+--       expandOverride = function(el, st, L) return bits end, -- IupFill: decided by its box
+--       childrenExpand = function(el, st, L) return bits end, -- a container's children_expand
+--       userSize = function(el, st) return w, h end, -- its own SIZE/RASTERSIZE reading
+--       clipsContent = true,    -- iupLayoutMinContent: gives up everything (tabs, scroll boxes)
+--       stacksAlong = function(el, st, horizontal) end, -- iupLayoutMinContent: children add up
+--       map = function(el, st, rt) end, -- the class's Map method
 --
 --       -- paint and input (see core.imgui.Runtime and core.imgui.Draw)
 --       draw = function(el, st, dc, rt) end,       -- before children
@@ -68,6 +79,7 @@ function M.define(def)
 	assert(type(def) == "table" and type(def.name) == "string", "class needs a name")
 	if def.children == nil then def.children = 0 end
 	def.defaults = def.defaults or {}
+	for k in pairs(def.set or {}) do Element.SETTERS[k] = true end
 	registry[def.name] = def
 	return def
 end
@@ -85,24 +97,6 @@ function M.get(name)
 end
 
 function M.has(name) return registry[name] ~= nil or M.MODULES[name] ~= nil end
-
---- Shared defaults every flat control takes (iupFlat* in IUP 3.32 + Lunar patches).
-M.FLAT = {
-	FGCOLOR = function() return Element.globals.DLGFGCOLOR end,
-	HLCOLOR = "TXTHLCOLOR",
-	PSCOLOR = nil,
-	BORDERCOLOR = "50 150 255",
-	BORDERWIDTH = "1",
-	CANFOCUS = "YES",
-	ACTIVE = "YES",
-}
-
---- A leaf class with nothing but defaults; used for constructs the host only stores.
-function M.leaf(name, extra)
-	local def = { name = name, children = 0 }
-	for k, v in pairs(extra or {}) do def[k] = v end
-	return M.define(def)
-end
 
 Element.setClasses(M)
 

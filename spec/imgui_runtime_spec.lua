@@ -256,7 +256,9 @@ describe("imgui runtime", function()
 		iup.Popup(popup, iup.CENTERPARENT, iup.CENTERPARENT)
 		assert.equal(before, R.loopLevel())
 		assert.equal("NO", iup.GetAttribute(popup, "VISIBLE"))
-		assert.equal(150, Element.state(popup).data.ox) -- centred in the 400 wide window
+		-- the 100 px window is centred in the 400 wide one (x 150); its client starts inside
+		-- the 8 px sizing border
+		assert.equal(158, Element.state(popup).data.ox)
 	end)
 
 	it("propagates K_ANY from the focus to the dialog and honours IGNORE", function()

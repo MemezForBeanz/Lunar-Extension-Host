@@ -7,7 +7,7 @@ local iup = require("core.imgui.iup")
 
 local M = {}
 local function attr(e, n) return Element.getAttribute(e, n) end
-local function yes(v) return tostring(v or ""):upper() == "YES" or v == true end
+local yes = Element.isTrue -- iupStrBoolean
 local function pair(v)
 	local a, b = tostring(v or "0x0"):match("^%s*([^xX]*)[xX]([^xX]*)")
 	return tonumber(a) or 0, tonumber(b) or 0

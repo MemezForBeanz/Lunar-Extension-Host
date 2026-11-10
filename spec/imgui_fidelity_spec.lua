@@ -175,7 +175,10 @@ describe("imgui dialogs", function()
 		local iup, R = host()
 		show(iup, R, iup.fill({})) -- the main window; the panel is a dialog of its own
 		local canvas = iup.canvas({ EXPAND = "YES" })
-		local d = iup.dialog({ iup.vbox({ iup.fill({ RASTERSIZE = "x40" }), canvas }), RASTERSIZE = "300x200", BORDER = "NO" })
+		-- no frame at all, as ActivityPanel's: BORDER=NO alone still leaves IUP's caption and
+		-- sizing border (iupdrvDialogGetDecoration), which take their room from RASTERSIZE
+		local d = iup.dialog({ iup.vbox({ iup.fill({ RASTERSIZE = "x40" }), canvas }), RASTERSIZE = "300x200",
+			BORDER = "NO", MENUBOX = "NO", MAXBOX = "NO", MINBOX = "NO", RESIZE = "NO" })
 		iup.Show(d)
 		R.frame()
 		assert.equal("300x160", iup.GetAttribute(canvas, "RASTERSIZE"))

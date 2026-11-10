@@ -1,11 +1,10 @@
 local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
-local Color = require("core.imgui.Color")
 local FlatScrollbar = require("core.imgui.widgets.flatscrollbar")
 
 local function attr(e, n) return Element.getAttribute(e, n) end
 local function own(e, n) return Element.own(e, n) end
-local function yes(v) return tostring(v or ""):upper() == "YES" end
+local yes = Element.isTrue -- iupStrBoolean
 local function num(v, d) return tonumber(v) or d or 0 end
 local function clamp(v, lo, hi) return math.max(lo, math.min(hi, v)) end
 local function pair(v)
@@ -13,21 +12,6 @@ local function pair(v)
 	return tonumber(a), tonumber(b)
 end
 local function user_child(e) return FlatScrollbar.user_child(e) end
-
-local function bar_size(e)
-	if yes(attr(e, "SHOWFLOATING")) then return 0 end
-	return math.max(0, num(attr(e, "SCROLLBARSIZE"), 15))
-end
-
-local function scroll_state(e, st, L)
-	local c = user_child(e)
-	local cw, ch = c and L.natural(c) or 0, c and select(2, L.natural(c)) or 0
-	local rw, rh = pair(own(e, "RASTERSIZE"))
-	local sw, sh = pair(own(e, "SIZE"))
-	local fcw, fch = rw or (sw and sw * L.charsize(e) / 4) or 0, rh or (sh and sh * select(2, L.charsize(e)) / 8) or 0
-	st.data.content_w, st.data.content_h = cw, ch
-	return fcw, fch
-end
 
 local function set_pos(e, st, x, y)
 	local dx, dy = st.data.dx or 0, st.data.dy or 0
@@ -69,54 +53,77 @@ local function scroll_set(e, st, value, handle)
 	return false
 end
 
+--- iFlatScrollBoxComputeNaturalSizeMethod: free of the child (0x0), except before the
+-- first layout, when it starts at the child's natural size. CANVASBOX: no natural size.
 local function scroll_natural(e, st, L)
-	local rw, rh = scroll_state(e, st, L)
-	if rw > 0 or rh > 0 then return rw, rh end
-	if st.w == 0 and st.h == 0 and user_child(e) then return L.natural(user_child(e)) end
+	local c = user_child(e)
+	if yes(attr(e, "CANVASBOX")) then return 0, 0 end
+	if (st.w or 0) == 0 and (st.h or 0) == 0 and c then return L.natural(c) end
 	return 0, 0
 end
 
-local function scroll_place(e, st, L)
-	local c = user_child(e)
-	if not c then return end
-	local nw, nh = L.natural(c)
-	local sb = bar_size(e)
-	local vpw, vph = st.w, st.h
-	local vertical = tostring(attr(e, "SCROLLBAR") or "VERTICAL"):upper()
-	local hv = vertical == "HORIZONTAL" or vertical == "YES" or vertical == "BOTH"
-	local vv = vertical ~= "HORIZONTAL" and vertical ~= "NO"
-	local cw = math.max(nw, vpw - ((vv and nw > vpw) and sb or 0))
-	local ch = math.max(nh, vph - ((hv and nh > vph) and sb or 0))
-	if yes(attr(e, "FITCONTENT")) then
-		cw = math.min(cw, L.minContent and L.minContent(c, true) or cw)
-		ch = math.min(ch, L.minContent and L.minContent(c, false) or ch)
-	end
-	st.data.xmax, st.data.ymax = hv and cw or 0, vv and ch or 0
-	st.data.dx, st.data.dy = vpw, vph
-	set_pos(e, st, st.data.posx, st.data.posy)
-	L.place(c, st.x - (st.data.posx or 0), st.y - (st.data.posy or 0), cw, ch)
+--- Which bars may show: iupFlatScrollBarGet reads FLATSCROLLBAR (default YES; SCROLLBAR is
+-- read-only NO on IupFlatScrollBox); IupScrollBox reads its native SCROLLBAR (default YES,
+-- iScrollBoxHasVertScroll) and its bars are the system's width.
+local SYSTEM_SB_SIZE = 17 -- iupdrvGetScrollbarSize: SM_CXVSCROLL at 96 DPI
+local function bars(e, native)
+	local v = tostring(attr(e, native and "SCROLLBAR" or "FLATSCROLLBAR") or ""):upper()
+	local horiz = v == "YES" or v == "HORIZONTAL"
+	local vert = v == "YES" or v == "VERTICAL"
+	local size = native and SYSTEM_SB_SIZE or num(attr(e, "SCROLLBARSIZE"), 15)
+	if not native and yes(attr(e, "SHOWFLOATING")) then size = 0 end
+	return horiz, vert, size
 end
 
-local function draw_bar(e, st, dc, vertical)
-	local maxv = vertical and st.data.ymax or st.data.xmax
-	local view = vertical and st.data.dy or st.data.dx
-	if not maxv or not view or maxv <= view then return end
-	local size = bar_size(e)
-	local x, y, w, h
-	if vertical then x, y, w, h = st.x + st.w - size, st.y, size, st.h
-	else x, y, w, h = st.x, st.y + st.h - size, st.w, size end
-	local pos = vertical and st.data.posy or st.data.posx
-	local range = vertical and st.data.ymax or st.data.xmax
-	local track = vertical and h or w
-	local thumb = math.max(8, track * view / range)
-	local offset = (track - thumb) * pos / math.max(1, range - view)
-	local fg = attr(e, "SB_FORECOLOR") or attr(e, "HIGHCOLOR") or attr(e, "FORECOLOR") or attr(e, "FGCOLOR")
-	local bg = attr(e, "SB_BACKCOLOR") or attr(e, "BACKCOLOR") or attr(e, "BGCOLOR")
-	if yes(attr(e, "SHOWTRANSPARENCY")) then bg = nil end
-	if bg then dc:fill(x, y, w, h, bg, { radius = num(attr(e, "CORNERRADIUS")) }) end
-	if vertical then dc:fill(x + 2, y + offset + 2, math.max(2, w - 4), math.max(2, thumb - 4), fg, { radius = math.min(4, w / 2) })
-	else dc:fill(x + offset + 2, y + 2, math.max(2, thumb - 4), math.max(2, h - 4), fg, { radius = math.min(4, h / 2) }) end
+--- iFlatScrollBoxSetChildrenCurrentSizeMethod, iFlatScrollBoxUpdateVisibleScrollArea and
+-- iFlatScrollBoxUpdateChildPos (iScrollBoxSetChildrenCurrentSizeMethod for IupScrollBox).
+local function scroll_place_for(native)
+	return function(e, st, L)
+		local c = user_child(e)
+		local d = st.data
+		if not c then
+			d.xmax, d.ymax, d.dx, d.dy = 0, 0, 0, 0
+			FlatScrollbar.sync(e)
+			return
+		end
+		local sb_horiz, sb_vert, sb_size = bars(e, native)
+		-- If the child is greater than the box, it keeps its natural size, else it gets the
+		-- box's. The fork's FITCONTENT measures what the child cannot give up instead.
+		local need_w, need_h = L.natural(c)
+		if not native and yes(attr(e, "FITCONTENT")) then
+			need_w = math.min(need_w, L.minContent(c, true))
+			need_h = math.min(need_h, L.minContent(c, false))
+		end
+		local w, h, has_h, has_v = st.w, st.h, false, false
+		if need_w > st.w then w = need_w; has_h = sb_horiz end
+		if need_h > st.h then h = need_h; has_v = sb_vert end
+		if not has_h and has_v then w = w - sb_size end -- reduce expand space
+		if has_h and not has_v then h = h - sb_size end
+		local cw, ch = L.currentSize(c, w, h)
+		-- the actual child size is the virtual area
+		d.xmax = sb_horiz and cw or 0
+		d.ymax = sb_vert and ch or 0
+		-- the visible area: a bar in one direction takes room from the other
+		local canvas_w, canvas_h = st.w, st.h
+		if cw > st.w and sb_horiz then canvas_h = canvas_h - sb_size end
+		if ch > st.h and sb_vert then canvas_w = canvas_w - sb_size end
+		if cw <= st.w and cw > canvas_w and sb_horiz then canvas_h = canvas_h - sb_size end
+		if ch <= st.h and ch > canvas_h and sb_vert then canvas_w = canvas_w - sb_size end
+		d.dx = sb_horiz and math.max(canvas_w, 0) or 0
+		d.dy = sb_vert and math.max(canvas_h, 0) or 0
+		-- iFlatScrollBarSetDXAttrib / SetDYAttrib: a view that holds everything scrolls to 0,
+		-- else the position stays inside the range
+		d.posx = d.dx >= d.xmax and 0 or clamp(num(d.posx), 0, d.xmax - d.dx)
+		d.posy = d.dy >= d.ymax and 0 or clamp(num(d.posy), 0, d.ymax - d.dy)
+		local posx, posy = d.posx, d.posy
+		if d.dx > d.xmax - sb_size then posx = 0 end
+		if d.dy > d.ymax - sb_size then posy = 0 end
+		local ox, oy = pair(own(e, "CHILDOFFSET"))
+		L.place(c, st.x + (ox or 0) - posx, st.y + (oy or 0) - posy, w, h)
+		FlatScrollbar.sync(e)
+	end
 end
+local scroll_place = scroll_place_for(false)
 
 local function scroll_event(e, st, ev, rt)
 	if ev.type == "wheel" then
@@ -129,12 +136,12 @@ local function scroll_defaults()
 	return {
 		SCROLLBARSIZE = "15", SB_INSET = "0", FLATSCROLLBAR = "YES", SHOWARROWS = "YES", -- iupFlatScrollBarRegister
 		SHOWFLOATING = "NO", SHOWTRANSPARENCY = "NO", FITCONTENT = "NO", CANFOCUS = "NO",
-		SCROLLBAR = "VERTICAL", BGCOLOR = function() return Element.globals.DLGBGCOLOR end,
+		BGCOLOR = function() return Element.globals.DLGBGCOLOR end,
 	}
 end
 
 local scroll_def = {
-	name = "flatscrollbox", children = 1, clip = true, visibleChildren = FlatScrollbar.visible_children, defaults = scroll_defaults(),
+	name = "flatscrollbox", children = 1, clip = true, clipsContent = true, -- iupLayoutMinContent: it scrolls visibleChildren = FlatScrollbar.visible_children, defaults = scroll_defaults(),
 	natural = scroll_natural, place = scroll_place, event = scroll_event,
 	create = function(e) FlatScrollbar.create(e) end,
 	-- iup_flatscrollbox.c: "set expand to its own expand so it will not depend on children"
@@ -157,6 +164,8 @@ local native_def = {}
 for k, v in pairs(scroll_def) do native_def[k] = v end
 native_def.name, native_def.defaults = "scrollbox", scroll_defaults()
 native_def.defaults.FLATSCROLLBAR = "NO"
+native_def.defaults.SCROLLBAR = "YES" -- iupClassRegisterReplaceAttribDef(ic, "SCROLLBAR", "YES")
+native_def.place = scroll_place_for(true)
 native_def.defaults.CANFOCUS = "NO"
 
 Classes.define(scroll_def)

@@ -43,6 +43,16 @@ def parse_default(a, b):
     m = re.match(r'^"(.*)"$', b)
     return m.group(1) if m else None
 
+# String macros the registrations use for defaults (iup_draw.h: IUP_FLAT_BORDERCOLOR...).
+MACROS = {}
+for hdr in ('iup_draw.h',):
+    for m in re.finditer(r'^#define\s+(IUP_\w+)\s+"([^"]*)"', open(os.path.join(src, hdr), encoding='latin-1').read(), re.M):
+        MACROS[m.group(1)] = m.group(2)
+
+# A class made with iupClassNew(iupRegisterFindClass("canvas")) starts with the canvas's
+# registrations (iupClassNew copies the parent's attribute table); its own replace them.
+PARENT = re.compile(r'iupClassNew\s*\(\s*iupRegisterFindClass\s*\(\s*"([a-z0-9_]+)"\s*\)\s*\)')
+
 def attrs_in(text):
     found = {}
     for m in CALL.finditer(text):
@@ -57,10 +67,12 @@ def attrs_in(text):
             value = dm.group(1)
         elif default == 'IUPAF_SAMEASSYSTEM' and sm:
             value = sm.group(1)
-        if default.startswith('IUP_FLAT_'):
-            value = {'IUP_FLAT_BORDERCOLOR': '50 150 255', 'IUP_FLAT_HIGHCOLOR': '200 225 245',
-                     'IUP_FLAT_PRESSCOLOR': '150 200 235', 'IUP_FLAT_FORECOLOR': '220 220 220',
-                     'IUP_FLAT_BACKCOLOR': '220 220 220'}.get(default, value)
+        # a macro default (iup_draw.h's IUP_FLAT_*), as the default or as the system
+        # default behind IUPAF_SAMEASSYSTEM
+        if default in MACROS:
+            value = MACROS[default]
+        elif default == 'IUPAF_SAMEASSYSTEM' and sysdef in MACROS:
+            value = MACROS[sysdef]
         noinherit = ('IUPAF_NO_INHERIT' in flags) or ('IUPAF_READONLY' in flags) or ('IUPAF_WRITEONLY' in flags)
         found[m.group(2)] = (value, noinherit, m.group(1) == 'Id')
     return found
@@ -114,6 +126,7 @@ def helper_attrs(body, seen):
     return found
 
 classes = {}
+parents = {}
 base = {}
 for sub, fn, text in files:
     if sub:
@@ -130,8 +143,22 @@ for sub, fn, text in files:
     for k, v in helper_attrs(text, set()).items():
         if k.startswith('PADDING') or k not in found or found[k][0] is None:
             found[k] = v
+    parent = PARENT.search(text)
     for n in names:
         classes.setdefault(n, {}).update(found)
+        if parent and parent.group(1) != n:
+            parents[n] = parent.group(1)
+
+def resolved(n, seen=()):
+    own = classes.get(n, {})
+    p = parents.get(n)
+    if not p or p in seen or p not in classes:
+        return dict(own)
+    merged = resolved(p, seen + (n,))
+    merged.update(own)
+    return merged
+
+classes = {n: resolved(n) for n in classes}
 
 def lua_str(s):
     return '"' + s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n') + '"'

@@ -31,6 +31,7 @@ end
 Classes.define{
 	name = "videohost",
 	children = 0,
+	expandDefault = "YES", -- vh_create: IupSetAttribute(ih, "EXPAND", "YES")
 	defaults = { BGCOLOR = "0 0 0", BORDER = "NO", EXPAND = "YES" },
 	map = function(e)
 		-- Native windows are created lazily if the dialog has not opened yet.

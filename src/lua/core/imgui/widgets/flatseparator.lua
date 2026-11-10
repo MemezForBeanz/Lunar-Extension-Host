@@ -16,28 +16,30 @@ end
 local function event(e, st, ev, rt)
 	local owner = st.data.split
 	if owner then
-		local split = require("core.imgui.Classes").get("split")
+		-- the split's bar: iSplitButton_CB, iSplitMotion_CB and the sash's hot state
+		local Split = require("core.imgui.widgets.split")
 		if ev.type == "enter" then
 			st.data.hot = true
+			Split.barEnter(e)
 			if rt.cursor then rt.cursor(horiz(e) and "SIZENS" or "SIZEWE") end
 			if rt.redraw then rt.redraw(e) end
 			return true
 		elseif ev.type == "leave" then
-			if not Element.state(owner).data.drag then st.data.hot = false end
+			if not Split.isHolding(owner) then st.data.hot = false end
+			Split.barLeave(e)
 			if rt.redraw then rt.redraw(e) end
 			return true
+		elseif ev.type == "blur" then
+			Split.barFocus(e, false)
+			return true
 		elseif ev.type == "move" then
-			Element.call(e, "MOTION_CB", ev.lx or ev.x, ev.ly or ev.y, ev.status)
-			return split.event(owner, Element.state(owner), ev, rt)
-		elseif ev.type == "press" or ev.type == "release" then
-			local pressed = ev.type == "press" and 1 or 0
-			local result = Element.call(e, "BUTTON_CB", ev.iupbutton or (iup.BUTTON1 + (ev.button or 1) - 1),
-				pressed, ev.lx or ev.x, ev.ly or ev.y, ev.status)
-			if result ~= iup.IGNORE then
-				return split.event(owner, Element.state(owner), ev, rt)
-			end
+			Split.barMotion(e, ev.x, ev.y, ev.status == nil or ev.status:sub(3, 3) == "1", rt)
+			return true
+		elseif (ev.type == "press" or ev.type == "release") and ev.button == 1 then
+			Split.barButton(e, ev.type == "press", ev.x, ev.y, rt)
 			return true
 		end
+		return false
 	end
 	if ev.type == "enter" then st.data.hot = true; if rt.redraw then rt.redraw(e) end; return true end
 	if ev.type == "leave" then st.data.hot = false; if rt.redraw then rt.redraw(e) end; return true end
@@ -58,6 +60,8 @@ local function event(e, st, ev, rt)
 end
 Classes.define{
 	name = "flatseparator", children = 0, natural = natural, event = event,
+	-- iFlatSeparatorSetOrientationAttrib: free expansion along the line
+	expandDefault = function(e) return horiz(e) and "HORIZONTALFREE" or "VERTICALFREE" end,
 	defaults = { ORIENTATION = "VERTICAL", STYLE = "SUNKENLINE", BARSIZE = "5", COLOR = "160 160 160", CANFOCUS = "NO" },
 	callbacks = { FLAT_BUTTON_CB = true, FLAT_MOTION_CB = true },
 	get = {

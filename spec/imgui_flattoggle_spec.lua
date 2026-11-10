@@ -31,10 +31,16 @@ describe("imgui flattoggle", function()
 			flat_action=function(_, v) actions[#actions+1]=v end,
 			valuechanged_cb=function() changes=changes+1 end}
 		local s,c = Element.state(t), Classes.get("flattoggle"); s.w,s.h=80,24
-		c.event(t,s,{type="press",button=1,lx=2,ly=2},rt)
-		c.event(t,s,{type="release",button=1,lx=2,ly=2},rt)
-		assert.are.equal("NOTDEF", t.VALUE)
-		assert.are.equal(1, #actions); assert.are.equal(1, changes)
+		-- iFlatToggleButton_CB: OFF -> ON -> NOTDEF (3STATE) -> OFF; FLAT_ACTION gets the
+		-- new value as a number
+		local function click()
+			c.event(t,s,{type="press",button=1,lx=2,ly=2},rt)
+			c.event(t,s,{type="release",button=1,lx=2,ly=2},rt)
+		end
+		click(); assert.are.equal("ON", t.VALUE)
+		click(); assert.are.equal("NOTDEF", t.VALUE)
+		click(); assert.are.equal("OFF", t.VALUE)
+		assert.are.same({ 1, -1, 0 }, actions); assert.are.equal(3, changes)
 	end)
 	it("draws the switch track and knob", function()
 		local b, dc = Null.new(), nil

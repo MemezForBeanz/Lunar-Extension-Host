@@ -972,6 +972,7 @@ if DEV_BUILD then
 		host = host,
 		tasks = task_runner,
 		activity = activity_panel,
+		rail = tool_rail,
 	}
 end
 

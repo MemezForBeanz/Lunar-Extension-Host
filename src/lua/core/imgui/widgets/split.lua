@@ -1,251 +1,498 @@
--- IUP split, including its internal flatseparator sash.
+--- IupSplit on the ImGui host: a port of iup_split.c with Lunar's patches (patch 0008:
+-- the sash stops where a side runs out of room, content1/content2; patch 0005: SASH grip,
+-- HLCOLOR; the VISIBLE and BARSIZE rules that keep the bar off hidden tabs).
+--
+-- The first child is the internal bar, an IupFlatSeparator. Layout follows the C:
+-- iSplitComputeNaturalSizeMethod sums the children along the split plus the bar and turns
+-- VALUE=-1 into the first child's share; iSplitSetChildrenCurrentSizeMethod gives the
+-- first child ceil(total * VALUE / 1000), cropped to what each side cannot give up, and
+-- each child takes its current size by iupBaseSetCurrentSize (so a child that does not
+-- expand keeps its natural size, as in IUP).
+--
 -- @module core.imgui.widgets.split
 local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
-local iup = require("core.imgui.iup")
+local Layout = require("core.imgui.Layout")
+local bit = require("bit")
 require("core.imgui.widgets.flatseparator")
 
-local floor, max, min = math.floor, math.max, math.min
+local M = {}
 
-local function attr(e, name) return Element.getAttribute(e, name) end
-local function own(e, name) return Element.own(e, name) end
-local function bool(v) return tostring(v or "NO"):upper() == "YES" end
-local function vertical(e) return tostring(attr(e, "ORIENTATION") or "VERTICAL"):upper() ~= "HORIZONTAL" end
-local function users(e) return Element.userChildren(e) end
-local function num(v, default) return tonumber(v) or default end
+local STATE = Element.STATE
+local floor, ceil, max = math.floor, math.ceil, math.max
 
-local function bounds(s)
-	local lo, hi = tostring(s.data.minmax or "0:1000"):match("^%s*(-?%d+)%s*:%s*(-?%d+)%s*$")
-	lo, hi = num(lo, 0), num(hi, 1000)
-	if lo > hi then lo, hi = hi, lo end
-	return max(0, lo), min(1000, hi)
+local ISPLIT_VERT, ISPLIT_HORIZ = "VERTICAL", "HORIZONTAL"
+
+local bool = Element.isTrue -- iupStrBoolean
+
+--- The control data, with iSplitCreateMethod's values. Attributes given to the
+-- constructor arrive before `create` here, so the data starts on first use.
+local function D(s)
+	local d = s.data
+	if d.val == nil then
+		d.orientation = ISPLIT_VERT
+		d.val = -1
+		d.layoutdrag = true
+		d.autohide = false
+		d.barsize = 5
+		d.showgrip = 1
+		d.min, d.max = 0, 1000
+		d.content1, d.content2 = 0, 0
+	end
+	return d
 end
 
-local function adjust(s)
-	local lo, hi = bounds(s)
-	if s.data.val ~= nil and s.data.val >= 0 then s.data.val = min(hi, max(lo, s.data.val)) end
-end
+local function bar_of(s) local b = s.children[1]; return b and STATE[b] and STATE[b].internal and b or nil end
+local function child1_of(s) return s.children[2] end
+local function child2_of(s) return s.children[3] end
+local function ignored(c) local cs = c and STATE[c]; return not cs or cs.attrs.FLOATING == "IGNORE" end
 
-local function pane_min(child, horizontal, L)
-	if not child or tostring(attr(child, "FLOATING") or ""):upper() == "IGNORE" then return 0 end
-	if L.minContent then return max(0, L.minContent(child, horizontal)) end
-	local value = attr(child, "MINSIZE")
-	local w, h = tostring(value or ""):match("^%s*(%d*)x(%d*)%s*$")
-	return horizontal and num(w, 0) or num(h, 0)
-end
-
-local function hide_child(child, hide)
-	if not child then return end
+--- iSplitAutoHideChild
+local function auto_hide_child(child, hide)
 	if hide then
-		if tostring(attr(child, "VISIBLE") or "YES"):upper() == "YES" then
+		if Element.getAttribute(child, "VISIBLE") ~= "NO" then
 			Element.setAttribute(child, "FLOATING", "IGNORE")
 			Element.setAttribute(child, "VISIBLE", "NO")
 		end
-	elseif tostring(attr(child, "VISIBLE") or "YES"):upper() ~= "YES" then
-		Element.setAttribute(child, "FLOATING", "NO")
-		Element.setAttribute(child, "VISIBLE", "YES")
-	end
-end
-
-local function auto_hide(e, s)
-	if not s.data.autohide then return end
-	local axis = vertical(e) and s.w or s.h
-	local bar = s.data.barsize
-	local tolerance = axis <= bar and 50 or (axis > 0 and floor(1000 * bar / axis) or 0)
-	local kids = users(e)
-	hide_child(kids[1], s.data.val <= tolerance)
-	hide_child(kids[2], s.data.val >= 1000 - tolerance)
-end
-
-local function natural(e, s, L)
-	local kids = users(e)
-	local a, b = kids[1], kids[2]
-	local aw, ah = a and L.natural(a) or 0, a and select(2, L.natural(a)) or 0
-	local bw, bh = b and L.natural(b) or 0, b and select(2, L.natural(b)) or 0
-	local bar = s.data.barsize
-	local w, h
-	if vertical(e) then w, h = aw + bar + bw, max(ah, bh)
-	else w, h = max(aw, bw), ah + bar + bh end
-	if s.data.val == -1 then
-		local total = (vertical(e) and (w - bar) or (h - bar))
-		s.data.val = a and total > 0 and floor(((vertical(e) and aw or ah) * 1000) / total) or bounds(s)
-		if s.data.val ~= nil and s.data.val >= 0 then adjust(s) end
-	end
-	return w, h
-end
-
-local function set_rect(child, L, x, y, w, h)
-	if not child or tostring(attr(child, "FLOATING") or ""):upper() == "IGNORE" then return end
-	if L.set then L.set(child, x, y, w, h) else L.place(child, x, y, w, h) end
-end
-
-local function place(e, s, L)
-	local kids = users(e)
-	local bar = max(0, s.data.barsize)
-	local total = max(0, (vertical(e) and s.w or s.h) - bar)
-	local first = floor(total * s.data.val / 1000 + 0.5)
-	local c1 = pane_min(kids[1], vertical(e), L)
-	local c2 = pane_min(kids[2], vertical(e), L)
-	first = max(c1, min(first, max(c1, total - c2)))
-	s.data.first, s.data.total = first, total
-	auto_hide(e, s)
-
-	local bar_el = s.children[1]
-	if vertical(e) then
-		set_rect(kids[1], L, s.x, s.y, first, s.h)
-		set_rect(bar_el, L, s.x + first, s.y, bar, s.h)
-		set_rect(kids[2], L, s.x + first + bar, s.y, total - first, s.h)
 	else
-		set_rect(kids[1], L, s.x, s.y, s.w, first)
-		set_rect(bar_el, L, s.x, s.y + first, s.w, bar)
-		set_rect(kids[2], L, s.x, s.y + first + bar, s.w, total - first)
+		if Element.getAttribute(child, "VISIBLE") == "NO" then
+			Element.setAttribute(child, "FLOATING", "NO")
+			Element.setAttribute(child, "VISIBLE", "YES")
+		end
 	end
-	if bar_el then Element.setAttribute(bar_el, "ZORDER", "TOP") end
 end
 
-local function drag_event(e, s, ev, rt)
-	local axis_pos = vertical(e) and ev.x or ev.y
-	if ev.type == "press" and ev.button == 1 then
-		s.data.drag = { start = axis_pos, value = s.data.val }
-		if rt.capture then rt.capture(s.children[1]) end
-		return true
-	elseif ev.type == "move" and s.data.drag then
-		local d = s.data.drag
-		local value = d.value + (axis_pos - d.start) * 1000 / max(1, s.data.total)
-		local lo, hi = bounds(s)
-		local old = s.data.val
-		s.data.val = floor(min(hi, max(lo, value)) + 0.5)
-		if old ~= s.data.val then
-			Element.call(e, "VALUECHANGED_CB")
-			if bool(attr(e, "LAYOUTDRAG")) and rt.relayout then rt.relayout(e) end
-			if not bool(attr(e, "LAYOUTDRAG")) then
-				local first = floor(s.data.total * s.data.val / 1000 + 0.5)
-				local bar_st = Element.state(s.children[1])
-				if vertical(e) then bar_st.x = s.x + first else bar_st.y = s.y + first end
+--- iSplitAutoHide (the fork's tolerance: one bar's width, in thousandths)
+local function auto_hide(s)
+	local d = D(s)
+	local child1 = child1_of(s)
+	if not child1 then return end
+	local child2 = child2_of(s)
+	local size = (d.orientation == ISPLIT_VERT and s.w or s.h) or 0
+	local tol
+	if size <= d.barsize then tol = 50
+	else tol = size > 0 and floor((1000 * d.barsize) / size) or 0 end
+	auto_hide_child(child1, d.val <= tol)
+	if child2 then auto_hide_child(child2, d.val >= 1000 - tol) end
+end
+
+--- iSplitAdjustVal
+local function adjust_val(s)
+	local d = D(s)
+	if d.val < d.min then d.val = d.min end
+	if d.val > d.max then d.val = d.max end
+	if d.autohide then auto_hide(s) end
+end
+
+--- iSplitCropSize1 (patch 0008)
+local function crop_size1(d, size1, total)
+	if size1 > total - d.content2 then size1 = total - d.content2 end
+	if size1 < d.content1 then size1 = d.content1 end
+	return size1
+end
+
+--- iSplitUpdateContent
+local function update_content(s)
+	local d = D(s)
+	local child1, child2 = child1_of(s), child2_of(s)
+	local horizontal = d.orientation == ISPLIT_VERT
+	d.content1 = child1 and Layout.minContent(child1, horizontal) or 0
+	d.content2 = child2 and Layout.minContent(child2, horizontal) or 0
+end
+
+local function current(s) return D(s).orientation == ISPLIT_VERT and (s.w or 0) or (s.h or 0) end
+
+--- iSplitGetWidth1 / iSplitGetHeight1: iupRoundUp, then the content crop
+local function size1(s)
+	local d = D(s)
+	local total = current(s) - d.barsize
+	local v = crop_size1(d, ceil((total * d.val) / 1000.0), total)
+	if v < 0 then v = 0 end
+	return v
+end
+
+--- iSplitGetWidth2 / iSplitGetHeight2
+local function size2(s, s1)
+	local v = (current(s) - D(s).barsize) - s1
+	if v < 0 then v = 0 end
+	return v
+end
+
+--- iSplitCalcVal (the fork's guard against nothing to divide)
+local function calc_val(s, s1)
+	local d = D(s)
+	local total = current(s) - d.barsize
+	if total <= 0 then return end
+	d.val = floor((s1 * 1000) / total)
+end
+
+--- MINSIZE/MAXSIZE of a child along the split (iupLayoutApplyMinMaxSize on one axis)
+local function minmax_along(child, v, vertical)
+	local cs = STATE[child]
+	local w, h = Layout.applyMinMax(cs, vertical and v or 0, vertical and 0 or v)
+	return vertical and w or h
+end
+
+--- iSplitAdjustWidth1 / iSplitAdjustHeight1
+local function adjust_size1(s, s1)
+	local vertical = D(s).orientation == ISPLIT_VERT
+	local child1 = child1_of(s)
+	if child1 then
+		local min1 = minmax_along(child1, s1, vertical)
+		if min1 > s1 then return min1, true end
+		local child2 = child2_of(s)
+		if child2 then
+			local s2 = size2(s, s1)
+			local min2 = minmax_along(child2, s2, vertical)
+			if min2 > s2 then
+				return (current(s) - D(s).barsize) - min2, true
 			end
 		end
-		return true
-	elseif ev.type == "release" and s.data.drag then
-		s.data.drag = nil
-		if rt.release then rt.release() end
-		return true
 	end
-	return false
+	return s1, false
 end
 
-local function create(e, s)
-	local pending = s.data
-	local bar = Element.new("flatseparator", {
-		ORIENTATION = "VERTICAL", STYLE = "GRIP", EXPAND = "NO",
-		CURSOR = "SPLITTER_VERT", BARSIZE = "5",
-	})
-	Element.appendInternal(e, bar, true)
-	local bs = Element.state(bar)
-	bs.data.split = e
-	Element.set(bar, "BUTTON_CB", function() end)
-	Element.set(bar, "MOTION_CB", function() end)
-	s.data = {
-		barsize = pending.barsize or 5, val = pending.val == nil and 500 or pending.val,
-		minmax = pending.minmax or "0:1000", layoutdrag = pending.layoutdrag == nil and true or pending.layoutdrag,
-		autohide = pending.autohide or false, showgrip = pending.showgrip or 1,
-		orientation = pending.orientation or "VERTICAL",
-	}
-	adjust(s)
-	Element.setAttribute(bar, "BARSIZE", tostring(s.data.barsize))
-	Element.setAttribute(bar, "ORIENTATION", s.data.orientation)
-	Element.setAttribute(bar, "CURSOR", s.data.orientation == "HORIZONTAL" and "SPLITTER_HORIZ" or "SPLITTER_VERT")
-	Element.setAttribute(bar, "STYLE", s.data.showgrip == 3 and "SASH" or s.data.showgrip == 2 and "DUALLINES" or "GRIP")
+--- iSplitComputeNaturalSizeMethod
+local function natural(e, s, L)
+	local d = D(s)
+	local vertical = d.orientation == ISPLIT_VERT
+	local child1, child2 = child1_of(s), child2_of(s)
+	local nw, nh = 0, 0
+	local children_expand = 0
+	if vertical then nw = nw + d.barsize else nh = nh + d.barsize end
+	for _, child in ipairs({ child1 or false, child2 or false }) do
+		if child and not ignored(child) then
+			local cw, ch = L.natural(child)
+			if vertical then nw, nh = nw + cw, max(nh, ch)
+			else nw, nh = max(nw, cw), nh + ch end
+			children_expand = bit.bor(children_expand, L.expandBits(child))
+		end
+	end
+	if d.val == -1 then -- first time or reset, re-compute value from natural size
+		if child1 then
+			local cw, ch = L.natural(child1)
+			local total = vertical and (nw - d.barsize) or (nh - d.barsize)
+			d.val = total ~= 0 and floor(((vertical and cw or ch) * 1000) / total) or d.min
+		else
+			d.val = d.min
+		end
+		adjust_val(s)
+	end
+	return nw, nh, children_expand
 end
 
-local function set_orientation(e, s, value)
-	s.data.orientation = tostring(value or "VERTICAL"):upper() == "HORIZONTAL" and "HORIZONTAL" or "VERTICAL"
-	local bar = s.children[1]
+--- iSplitSetChildrenCurrentSizeMethod + iSplitSetChildrenPositionMethod
+local function place(e, s, L)
+	local d = D(s)
+	local old_val = d.val
+	local vertical = d.orientation == ISPLIT_VERT
+	local child1, child2 = child1_of(s), child2_of(s)
+	local across = vertical and s.h or s.w
+	local function offer(child, along)
+		if vertical then return L.currentSize(child, along, across) end
+		local cw, ch = L.currentSize(child, across, along)
+		return ch, cw
+	end
+
+	update_content(s)
+	local s1 = size1(s)
+	local adjusted
+	s1, adjusted = adjust_size1(s, s1)
+	if adjusted then calc_val(s, s1) end -- has a MINMAX size, must fix split value
+
+	local offered1, offered2 = s1, nil
+	if child1 and not ignored(child1) then
+		local c1 = offer(child1, s1)
+		if c1 > s1 then -- has a minimum size, must fix split value
+			s1 = c1
+			calc_val(s, s1)
+		end
+	end
+	if child2 and not ignored(child2) then
+		local s2 = max(size2(s, s1), d.content2)
+		offered2 = s2
+		local c2 = offer(child2, s2)
+		if c2 > s2 then -- has a minimum size, must fix split value
+			s2 = c2
+			offered2 = s2
+			s1 = (current(s) - d.barsize) - s2
+			calc_val(s, s1)
+			offered1 = s1
+		end
+	end
+
+	-- positions: the bar sits at GetWidth1 of the value as it is now
+	local x, y = s.x, s.y
+	local function put(child, at, along)
+		if vertical then L.place(child, at, y, along, across)
+		else L.place(child, x, at, across, along) end
+	end
+	if child1 and not ignored(child1) then put(child1, vertical and x or y, offered1) end
+	local bar_at = (vertical and x or y) + size1(s)
+	local bar = bar_of(s)
 	if bar then
-		Element.setAttribute(bar, "ORIENTATION", s.data.orientation)
-		Element.setAttribute(bar, "CURSOR", s.data.orientation == "HORIZONTAL" and "SPLITTER_HORIZ" or "SPLITTER_VERT")
+		if vertical then L.set(bar, bar_at, y, d.barsize, s.h) else L.set(bar, x, bar_at, s.w, d.barsize) end
+	end
+	if child2 and not ignored(child2) then put(child2, bar_at + d.barsize, offered2) end
+
+	if old_val ~= d.val then Element.call(e, "VALUECHANGED_CB") end
+end
+
+-- The bar's mouse handling (iSplitButton_CB / iSplitMotion_CB), positions in dialog
+-- coordinates where the C reads CURSORPOS: only their differences matter.
+local function set_sash_hot(bar, hot)
+	local s = STATE[STATE[bar].parent]
+	if not s or D(s).showgrip ~= 3 then return end
+	STATE[bar].attrs._IUPSASH_HOT = hot and "1" or nil
+end
+
+function M.barButton(bar, pressed, ex, ey, rt)
+	local bs = STATE[bar]
+	local e = bs.parent
+	local s = STATE[e]
+	local d = D(s)
+	if not d.is_holding and pressed then -- DRAG BEGIN
+		d.is_holding = true
+		bs.attrs._IUPSASH_HELD = "1"
+		if d.orientation == ISPLIT_VERT then
+			d.start_pos, d.start_size = ex, bs.x - s.x
+		else
+			d.start_pos, d.start_size = ey, bs.y - s.y
+		end
+		if rt and rt.capture then rt.capture(bar) end
+	elseif d.is_holding and not pressed then -- DRAG END
+		d.is_holding = false
+		bs.attrs._IUPSASH_HELD = nil
+		set_sash_hot(bar, false)
+		if rt and rt.release then rt.release() end
+		if rt and rt.relayout then rt.relayout(e) end -- always refresh when releasing the mouse
+	end
+end
+
+function M.barMotion(bar, ex, ey, button1, rt)
+	local bs = STATE[bar]
+	local e = bs.parent
+	local s = STATE[e]
+	local d = D(s)
+	if not d.is_holding then return end
+	if not button1 then d.is_holding = false; return end
+	local old_val = d.val
+	local pos = d.orientation == ISPLIT_VERT and ex or ey
+	local s1 = adjust_size1(s, d.start_size + (pos - d.start_pos))
+	calc_val(s, s1)
+	adjust_val(s)
+	if old_val ~= d.val then Element.call(e, "VALUECHANGED_CB") end
+	if d.layoutdrag then
+		if rt and rt.relayout then rt.relayout(e) end
+	else
+		-- iSplitSetBarPosition: only the bar moves
+		if d.orientation == ISPLIT_VERT then bs.x = s.x + size1(s) else bs.y = s.y + size1(s) end
+		Element.setAttribute(bar, "ZORDER", "TOP")
+	end
+end
+
+function M.barEnter(bar) set_sash_hot(bar, true) end
+function M.barLeave(bar)
+	local s = STATE[STATE[bar].parent]
+	-- the pointer outruns the bar while dragging: stay lit until release
+	if not s or not D(s).is_holding then set_sash_hot(bar, false) end
+end
+function M.barFocus(bar, focus)
+	local s = STATE[STATE[bar].parent]
+	if s and not focus then D(s).is_holding = false end
+end
+function M.isHolding(e) local s = STATE[e]; return s and D(s).is_holding or false end
+
+--- iSplitCreateMethod: the bar is the first child, an internal IupFlatSeparator
+local function create(e, s)
+	local d = D(s)
+	local bar = Element.new("flatseparator", {})
+	Element.appendInternal(e, bar, true)
+	STATE[bar].data.split = e
+	Element.setAttribute(bar, "EXPAND", "NO")
+	Element.setAttribute(bar, "CURSOR", d.orientation == ISPLIT_VERT and "SPLITTER_VERT" or "SPLITTER_HORIZ")
+	Element.setAttribute(bar, "STYLE", d.showgrip == 3 and "SASH" or d.showgrip == 2 and "DUALLINES" or d.showgrip == 1 and "GRIP" or
+		(s.attrs.COLOR and "FILL" or "EMPTY"))
+	Element.setAttribute(bar, "ORIENTATION", d.orientation)
+	Element.setAttribute(bar, "BARSIZE", tostring(d.barsize))
+	if d.barsize == 0 then Element.setAttribute(bar, "VISIBLE", "NO") end
+	if d.pending_color then Element.setAttribute(bar, "COLOR", d.pending_color); d.pending_color = nil end
+	if d.pending_hlcolor then Element.setAttribute(bar, "HLCOLOR", d.pending_hlcolor); d.pending_hlcolor = nil end
+end
+
+-- Attributes ---------------------------------------------------------------------------------
+
+local function relayout(e)
+	local ok, R = pcall(require, "core.imgui.Runtime")
+	if ok and R.relayout then R.relayout(e) end
+end
+
+--- iSplitSetOrientationAttrib: only before map
+local function set_orientation(e, s, value)
+	if s.mapped then return false end
+	local d = D(s)
+	d.orientation = tostring(value or ""):upper() == "HORIZONTAL" and ISPLIT_HORIZ or ISPLIT_VERT
+	local bar = bar_of(s)
+	if bar then
+		Element.setAttribute(bar, "ORIENTATION", value)
+		Element.setAttribute(bar, "CURSOR", d.orientation == ISPLIT_VERT and "SPLITTER_VERT" or "SPLITTER_HORIZ")
 	end
 	return false
 end
 
+--- iSplitSetValueAttrib
 local function set_value(e, s, value)
-	s.data.val = value == nil and -1 or num(value, s.data.val)
-	if s.data.val ~= nil and s.data.val >= 0 then adjust(s) end
+	local d = D(s)
+	if value == nil then
+		d.val = -1 -- reset to calculate in Natural size
+	else
+		local v = tonumber(value)
+		if not v then return false end
+		d.val = floor(v)
+		adjust_val(s)
+	end
+	relayout(e)
 	return false
 end
 
-local function set_minmax(e, s, value)
-	s.data.minmax = tostring(value or "0:1000")
-	if s.data.val ~= nil and s.data.val >= 0 then adjust(s) end
-	return false
-end
-
+--- iSplitSetBarSizeAttrib (the fork: the bar's VISIBLE only changes when crossing zero)
 local function set_barsize(e, s, value)
-	s.data.barsize = max(0, num(value, 5))
-	local bar = s.children[1]
-	if bar then Element.setAttribute(bar, "BARSIZE", tostring(s.data.barsize)) end
-	if s.data.barsize == 0 and bar then Element.setAttribute(bar, "VISIBLE", "NO")
-	elseif bar then Element.setAttribute(bar, "VISIBLE", nil) end
-	if s.data.val ~= nil then adjust(s) end
+	local d = D(s)
+	local n = tonumber(value)
+	if not n then return false end
+	local old = d.barsize
+	d.barsize = floor(n)
+	local bar = bar_of(s)
+	if bar then
+		Element.setAttribute(bar, "BARSIZE", tostring(d.barsize))
+		if d.barsize == 0 then
+			Element.setAttribute(bar, "VISIBLE", "NO")
+		elseif old == 0 then
+			Element.setAttribute(bar, "VISIBLE", nil)
+		end
+	end
+	if d.val ~= -1 then adjust_val(s) end -- because of autohide
+	relayout(e)
 	return false
 end
 
+--- iSplitSetMinMaxAttrib
+local function set_minmax(e, s, value)
+	local d = D(s)
+	local a, b = tostring(value or ""):match("^%s*(-?%d+)%s*:%s*(-?%d+)")
+	if not a then return false end
+	a, b = tonumber(a), tonumber(b)
+	if a > b then a, b = b, a end
+	if a < 0 then a = 0 end
+	if b > 1000 then b = 1000 end
+	d.min, d.max = a, b
+	if d.val ~= -1 then adjust_val(s) end
+	relayout(e)
+	return false
+end
+
+--- iSplitSetShowGripAttrib
 local function set_showgrip(e, s, value)
-	local v = tostring(value or "YES"):upper()
-	s.data.showgrip = v == "SASH" and 3 or (v == "LINES" and 2 or (bool(v) and 1 or 0))
-	local bar = s.children[1]
-	if bar then Element.setAttribute(bar, "STYLE", s.data.showgrip == 3 and "SASH" or s.data.showgrip == 2 and "DUALLINES" or s.data.showgrip == 1 and "GRIP" or "FILL") end
-	if s.data.showgrip == 0 and s.data.barsize == 5 then set_barsize(e, s, "3") end
+	local d = D(s)
+	local bar = bar_of(s)
+	local v = tostring(value or ""):upper()
+	local style
+	if v == "SASH" then d.showgrip, style = 3, "SASH"
+	elseif bool(v) then d.showgrip, style = 1, "GRIP"
+	elseif v == "LINES" then d.showgrip, style = 2, "DUALLINES"
+	else
+		style = s.attrs.COLOR ~= nil and "FILL" or "EMPTY"
+		d.showgrip = 0
+		if d.barsize == 5 then set_barsize(e, s, "3") end
+	end
+	if bar then Element.setAttribute(bar, "STYLE", style) end
 	return false
 end
 
+--- iSplitSetAutoHideAttrib
+local function set_autohide(e, s, value)
+	local d = D(s)
+	if bool(value) then
+		d.autohide = true
+	else
+		local child1 = child1_of(s)
+		if child1 then
+			auto_hide_child(child1, false)
+			local child2 = child2_of(s)
+			if child2 then auto_hide_child(child2, false) end
+		end
+		d.autohide = false
+	end
+	if d.val ~= -1 then adjust_val(s) end
+	relayout(e)
+	return false
+end
+
+--- iSplitSetColorAttrib: COLOR lives on the bar
 local function set_color(e, s, value)
-	local bar = s.children[1]
-	if bar then Element.setAttribute(bar, "COLOR", value) end
-	if s.data.showgrip == 0 and bar then Element.setAttribute(bar, "STYLE", "FILL") end
+	local d = D(s)
+	local bar = bar_of(s)
+	if not bar then d.pending_color = value; return false end
+	if value ~= nil and d.showgrip == 0 then Element.setAttribute(bar, "STYLE", "FILL") end
+	Element.setAttribute(bar, "COLOR", value)
 	return false
 end
 
 local function set_hlcolor(e, s, value)
-	local bar = s.children[1]
-	if bar then Element.setAttribute(bar, "HLCOLOR", value) end
+	local bar = bar_of(s)
+	if not bar then D(s).pending_hlcolor = value; return false end
+	Element.setAttribute(bar, "HLCOLOR", value)
 	return false
 end
 
-local function child_added(e, s, child)
-	local count = #users(e)
-	if count > 2 then Element.detach(child) end
+--- iSplitSetVisibleAttrib (the fork): the bar never stores its own VISIBLE while it has a size
+local function set_visible(e, s, value)
+	local bar = bar_of(s)
+	if bar and D(s).barsize ~= 0 then STATE[bar].attrs.VISIBLE = nil end
+	return true
 end
 
-Classes.define{
-	name = "split", children = -1, create = create, childAdded = child_added,
-	natural = natural, place = place, focusable = false,
-	defaults = { VALUE = "500", MINMAX = "0:1000", BARSIZE = "5", COLOR = "160 160 160",
-		SHOWGRIP = "YES", LAYOUTDRAG = "YES", AUTOHIDE = "NO", ORIENTATION = "VERTICAL" },
-	get = {
-		VALUE = function(e, s) return tostring(s.data.val) end,
-		MINMAX = function(e, s) return s.data.minmax end,
-		BARSIZE = function(e, s) return tostring(s.data.barsize) end,
-		ORIENTATION = function(e, s) return s.data.orientation end,
-		DIRECTION = function(e, s) return s.data.orientation end,
-		LAYOUTDRAG = function(e, s) return s.data.layoutdrag and "YES" or "NO" end,
-		AUTOHIDE = function(e, s) return s.data.autohide and "YES" or "NO" end,
-		SHOWGRIP = function(e, s) return ({ [0] = "NO", [1] = "YES", [2] = "LINES", [3] = "SASH" })[s.data.showgrip] end,
-		COLOR = function(e) return Element.getAttribute(Element.state(e).children[1], "COLOR") end,
-		HLCOLOR = function(e) return Element.getAttribute(Element.state(e).children[1], "HLCOLOR") end,
-	},
+--- IupSplit takes the bar and two children (IUP_CHILDMANY+3).
+local function child_added(e, s, child)
+	if #Element.userChildren(e) > 2 then Element.detach(child) end
+end
+
+Classes.define({
+	name = "split", children = -1, focusable = false, type = "void", -- IUP_TYPEVOID
+	-- iupLayoutMinContent: a VERTICAL split stacks its children across
+	stacksAlong = function(e, s, horizontal) return (D(s).orientation == ISPLIT_VERT) == (horizontal and true or false) end,
+	create = create, childAdded = child_added,
+	natural = natural, place = place,
 	set = {
 		ORIENTATION = set_orientation, DIRECTION = set_orientation, VALUE = set_value,
 		MINMAX = set_minmax, BARSIZE = set_barsize, SHOWGRIP = set_showgrip,
-		COLOR = set_color, HLCOLOR = set_hlcolor,
-		LAYOUTDRAG = function(e, s, v) s.data.layoutdrag = bool(v); return false end,
-		AUTOHIDE = function(e, s, v) s.data.autohide = bool(v); if s.data.val ~= nil and s.data.val >= 0 then adjust(s) end; return false end,
-		VISIBLE = function(e, s)
-			if s.children[1] and s.data.barsize ~= 0 then Element.setAttribute(s.children[1], "VISIBLE", nil) end
-			return true
+		AUTOHIDE = set_autohide, COLOR = set_color, HLCOLOR = set_hlcolor, VISIBLE = set_visible,
+		LAYOUTDRAG = function(e, s, v) D(s).layoutdrag = bool(v); return false end,
+	},
+	get = {
+		VALUE = function(e, s) return tostring(D(s).val) end,
+		MINMAX = function(e, s) local d = D(s); return d.min .. ":" .. d.max end,
+		BARSIZE = function(e, s) return tostring(D(s).barsize) end,
+		-- the fork's getter: the registered default said VERTICAL whatever the split was
+		ORIENTATION = function(e, s) return D(s).orientation end,
+		LAYOUTDRAG = function(e, s) return D(s).layoutdrag and "YES" or "NO" end,
+		AUTOHIDE = function(e, s) return D(s).autohide and "YES" or "NO" end,
+		SHOWGRIP = function(e, s)
+			local g = D(s).showgrip
+			if g == 3 then return "SASH" elseif g == 2 then return "LINES" end
+			return g ~= 0 and "YES" or "NO"
+		end,
+		COLOR = function(e, s) local bar = bar_of(s); return bar and Element.getAttribute(bar, "COLOR") end,
+		HLCOLOR = function(e, s) local bar = bar_of(s); return bar and Element.getAttribute(bar, "HLCOLOR") end,
+		--- iSplitGetClientSizeAttrib
+		CLIENTSIZE = function(e, s)
+			local d = D(s)
+			local w, h = s.w or 0, s.h or 0
+			if d.orientation == ISPLIT_VERT then w = w - d.barsize else h = h - d.barsize end
+			return max(w, 0) .. "x" .. max(h, 0)
 		end,
 	},
 	callbacks = { VALUECHANGED_CB = true },
-	event = function(e, s, ev, rt) return drag_event(e, s, ev, rt) end,
-}
+})
 
-return Classes
+return M

@@ -23,11 +23,7 @@ local function own(el, name) return Element.own(el, name) end
 local function attr(el, name) return Element.getAttribute(el, name) end
 M.own, M.attr = own, attr
 
-function M.bool(v)
-	if v == nil then return false end
-	v = tostring(v):upper()
-	return v == "YES" or v == "ON" or v == "1" or v == "TRUE"
-end
+M.bool = Element.isTrue -- iupStrBoolean
 
 function M.int(v, default)
 	local n = tonumber(v)
@@ -265,7 +261,6 @@ function M.textSize(el, text, font)
 	return Draw.measureText(font, text)
 end
 
-local ALIGN = { ALEFT = "left", ACENTER = "center", ARIGHT = "right" }
 
 --- iupFlatGetHorizontalAlignment / iupFlatGetVerticalAlignment ("ACENTER" by default)
 function M.halign(v)
@@ -440,9 +435,9 @@ function M.icon(el, dc, ox, oy, icon_x, icon_y, icon_w, icon_h, img_position, sp
 	dc:clip_pop()
 end
 
--- Containers that are not windows in IUP; a control's native parent is above them.
-M.VOID = { hbox = true, vbox = true, zbox = true, fill = true, cbox = true, gridbox = true,
-	normalizer = true, radio = true, sbox = true, user = true, spacer = true }
+--- A class with no native window (IupGetClassType "void": the boxes, fill, split...): a
+-- control's native parent is above it (iupChildTreeGetNativeParent).
+function M.isVoid(st) return st.class.type == "void" end
 
 --- iupBaseNativeParentGetBgColorAttrib: BGCOLOR (or BACKGROUND) set on the nearest native
 -- ancestor that has one (iupAttribGetInheritNativeParent reads only their own values; boxes
@@ -453,7 +448,7 @@ function M.nativeParentBg(el)
 	while p do
 		local ps = Element.state(p)
 		if not ps then break end
-		if not M.VOID[ps.classname] then
+		if not M.isVoid(ps) then
 			local v = ps.attrs.BGCOLOR or ps.attrs.BACKGROUND
 			if v then return v end
 		end

@@ -69,6 +69,16 @@ M.INHERIT = { BGCOLOR = true, FGCOLOR = true, FONT = true, ACTIVE = true }
 
 function M.isInternal(name) return name:sub(1, 4) == "_IUP" end
 
+--- iupStrBoolean: "1", "YES" or "ON" in any case (a Lua true too, for internal flags).
+function M.isTrue(v)
+	if v == true then return true end
+	if v == nil or v == false then return false end
+	v = tostring(v)
+	if v == "1" then return true end
+	v = v:upper()
+	return v == "YES" or v == "ON"
+end
+
 function M.setClasses(c) Classes = c end
 
 function M.state(el) return STATE[el] end
@@ -187,9 +197,10 @@ function M.setAttribute(el, name, value)
 	else
 		value = tostr(value)
 	end
-	local common = M.commonSet[name]
-	if common and common(el, st, value, handle) == false then return end
+	-- a class that registers the name replaces the base class's registration
 	local setter = class.set and class.set[name]
+	local common = not setter and M.commonSet[name]
+	if common and common(el, st, value, handle) == false then return end
 	if setter then
 		local keep = setter(el, st, value, handle)
 		if keep == false then
@@ -205,11 +216,32 @@ function M.setAttribute(el, name, value)
 		st.attrs[name] = value
 	end
 	M.hooks.invalidate(el, LAYOUT_ATTRS[name] and "layout" or "paint", name)
+	if M.SETTERS[name] and M.inherits(class, name) then M.notifyChildren(el, st, name, value, handle) end
+end
+
+--- Names some class (or every class) has a setter for; only these need the walk below.
+M.SETTERS = {}
+
+--- iAttribNotifyChildren (iup_attrib.c): an inheritable attribute set on an element reaches
+-- each descendant that holds no value of its own, through that descendant's class setter
+-- (nothing is stored there). Reading inherits by itself; this is for the setters with side
+-- effects, such as the fork's split VISIBLE rule that clears the bar's own VISIBLE when a
+-- tab shows its page.
+function M.notifyChildren(el, st, name, value, handle)
+	for _, child in ipairs(st.children) do
+		local cs = STATE[child]
+		if cs and cs.attrs[name] == nil and M.inherits(cs.class, name) then
+			local setter = cs.class.set and cs.class.set[name]
+			if setter then setter(child, cs, value, handle)
+			elseif M.commonSet[name] then M.commonSet[name](child, cs, value, handle) end
+			M.notifyChildren(child, cs, name, value, handle)
+		end
+	end
 end
 
 --- Setters every class shares (IUP's base class). Returning false keeps the value out of
 -- the store; anything else stores it as usual.
-M.commonSet = {}
+M.commonSet = setmetatable({}, { __newindex = function(t, k, v) rawset(t, k, v); M.SETTERS[k] = true end })
 
 -- THEME / NTHEME: copy a theme user's attributes onto the element, then apply its
 -- "IUP<CLASS>" sub-theme (iupAttribSetTheme). NTHEME does not inherit.

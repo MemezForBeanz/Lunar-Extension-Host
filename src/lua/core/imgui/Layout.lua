@@ -53,9 +53,11 @@ M.parsePair = parse_pair
 
 local function size_pair(value) return parse_pair(value, "x") end
 
---- Is this a container in IUP's sense (childtype != CHILDNONE)?
+--- Is this a container in IUP's sense (childtype != IUP_CHILDNONE, or a dialog:
+-- iupBaseComputeNaturalSize treats IUP_TYPEDIALOG as one)?
+local function is_dialog(st) return st.class.type == "dialog" end
 local function is_container(st)
-	return st.class.children ~= 0 or st.classname == "dialog"
+	return st.class.children ~= 0 or is_dialog(st)
 end
 
 local function floating(st)
@@ -66,17 +68,11 @@ local function floating(st)
 end
 M.floating = floating
 
-local SCREEN_FRACTION = { FULL = 1, HALF = 1 / 2, THIRD = 1 / 3, QUARTER = 1 / 4, EIGHTH = 1 / 8 }
-
-local function screen_size()
-	local ok, R = pcall(require, "core.imgui.Runtime")
-	local s = ok and R.getGlobal and R.getGlobal("SCREENSIZE")
-	local w, h = size_pair(s)
-	return w or 1920, h or 1040
-end
-
---- The user size in pixels (iupBaseSetSizeAttrib / iupBaseSetRasterSizeAttrib).
-local function user_size(el, st)
+--- iupBaseSetSizeAttrib / iupBaseSetRasterSizeAttrib: the user size in pixels, from
+-- RASTERSIZE (or USERSIZE) or SIZE in character units (iupWIDTH2RASTER / iupHEIGHT2RASTER).
+-- A class that registers its own SIZE/RASTERSIZE (the boxes, the dialog) stores what its
+-- setter keeps, or answers `userSize` itself.
+local function base_user_size(el, st)
 	local a = st.attrs
 	local raster = a.RASTERSIZE or a.USERSIZE
 	if raster then
@@ -87,24 +83,25 @@ local function user_size(el, st)
 	if s then
 		local ws, hs = tostring(s):match("^%s*([^x]*)x?(.*)$")
 		local cw, ch = Fonts.forElement(el):charsize()
-		local w, h = 0, 0
-		if st.classname == "dialog" and (SCREEN_FRACTION[ws] or SCREEN_FRACTION[hs]) then
-			local sw, sh = screen_size()
-			if SCREEN_FRACTION[ws] then w = floor(sw * SCREEN_FRACTION[ws]) end
-			if SCREEN_FRACTION[hs] then h = floor(sh * SCREEN_FRACTION[hs]) end
-		end
 		local nw, nh = tonumber(ws), tonumber(hs)
-		if nw then w = floor(nw * cw / 4) end      -- iupWIDTH2RASTER
-		if nh then h = floor(nh * ch / 8) end      -- iupHEIGHT2RASTER
+		local w = nw and floor(nw * cw / 4) or 0      -- iupWIDTH2RASTER
+		local h = nh and floor(nh * ch / 8) or 0      -- iupHEIGHT2RASTER
 		return max(w, 0), max(h, 0)
 	end
 	return 0, 0
+end
+M.baseUserSize = base_user_size
+
+local function user_size(el, st)
+	local own = st.class.userSize
+	if own then return own(el, st) end
+	return base_user_size(el, st)
 end
 M.userSize = user_size
 
 -- SIZE and RASTERSIZE replace each other: the one set last is the user size.
 Element.commonSet.RASTERSIZE = function(el, st)
-	if st.classname ~= "dialog" or not st.data.shown then st.attrs.SIZE = nil end
+	st.attrs.SIZE = nil
 end
 Element.commonSet.SIZE = function(el, st)
 	st.attrs.RASTERSIZE = nil
@@ -138,23 +135,11 @@ local function container_expand(st)
 	return BOTH
 end
 
--- iup_canvas.c starts every canvas at IUP_EXPAND_BOTH; the flat button, label, list,
--- toggle and dropbutton reset it to NONE in their Create. Of the fork's canvas classes,
--- flatseek (HORIZONTAL) and flatsegmented (NO) set their own in Create too: their classes
--- say so with `expandDefault`.
-local CANVAS_EXPANDS = { canvas = true, flatrows = true, flatgrid = true,
-	videohost = true, flattree = true, flatval = true }
-
+--- A control's EXPAND (iupBaseSetExpandAttrib), else the expansion its class's Create
+-- leaves (`expandDefault`: IUP_EXPAND_BOTH for a canvas, NONE for the flat button and
+-- most controls, free along the line for a separator).
 local function control_expand(el, st)
 	local v = st.attrs.EXPAND
-	if v == nil and CANVAS_EXPANDS[st.classname] then return BOTH end
-	if v == nil and st.classname == "flatseparator" then
-		-- iFlatSeparatorSetOrientationAttrib: free expansion along the line
-		return ((st.attrs.ORIENTATION or ""):upper() == "HORIZONTAL") and WFREE or HFREE
-	end
-	if v == nil and st.classname == "label" and st.attrs.SEPARATOR then
-		return (st.attrs.SEPARATOR:upper() == "HORIZONTAL") and WFREE or HFREE
-	end
 	if v == nil then
 		local d = st.class.expandDefault
 		if type(d) == "function" then d = d(el, st) end
@@ -258,7 +243,6 @@ local function compute(el)
 
 	if is_container(st) then
 		local own = container_expand(st)
-		if st.classname == "dialog" and not st.attrs.EXPAND then own = BOTH end
 		-- children first (FLOATING=IGNORE ones are skipped entirely)
 		local children_expand = 0
 		for _, c in ipairs(st.children) do
@@ -275,7 +259,7 @@ local function compute(el)
 		if ce then children_expand = ce end
 		if class.childrenExpand then children_expand = class.childrenExpand(el, st, L) or children_expand end
 		w, h = floor(w or 0), floor(h or 0)
-		if st.classname == "dialog" then
+		if is_dialog(st) then
 			st.expand = bor(own, children_expand)
 			if nw <= 0 then nw = w end
 			if nh <= 0 then nh = h end
@@ -323,16 +307,18 @@ function M.placeChildren(el, st)
 	end
 end
 
---- A FLOATING child keeps its natural size; POSITION ("x,y", relative to the parent)
--- says where it goes.
+--- A FLOATING child keeps its natural size; POSITION ("x,y") says where it goes. As
+-- iBaseSetPositionAttrib stores it in ih->x/ih->y, it is in the native parent's
+-- coordinates: void containers (the boxes, split) have no window and pass those through,
+-- so a floating label in an hbox inside a flat frame sits at POSITION from the frame.
 function M.placeFloating(el, st, parent_st)
 	local px, py = parse_pair(st.attrs.POSITION, ",")
 	st.w, st.h = st.nat_w or 0, st.nat_h or 0
-	if px then
-		st.x, st.y = parent_st.x + px, parent_st.y + (py or 0)
-	else
-		st.x, st.y = parent_st.x, parent_st.y
+	local native = parent_st
+	while native.class.type == "void" and native.parent and STATE[native.parent] do
+		native = STATE[native.parent]
 	end
+	st.x, st.y = (native.x or 0) + (px or 0), (native.y or 0) + (py or 0)
 	M.placeChildren(el, st)
 end
 
@@ -345,17 +331,15 @@ function M.minContent(el, horizontal)
 	local expands = band(e, horizontal and bor(WIDTH, WFREE) or bor(HEIGHT, HFREE)) ~= 0
 	if floating(st) then return 0 end
 	if not expands then return natural end
-	local name = st.classname
-	if #st.children == 0 or name == "flattabs" or name == "tabs" or name == "flatscrollbox" or name == "scrollbox" then
+	-- a native container that clips or scrolls its content gives up everything
+	-- (the fork names flattabs, tabs, flatscrollbox and scrollbox: `clipsContent`)
+	local class = st.class
+	if #st.children == 0 or class.clipsContent then
 		local w, h = apply_minmax(st, 0, 0)
 		return horizontal and w or h
 	end
-	local along
-	if name == "split" then
-		along = ((Element.getAttribute(el, "ORIENTATION") or "VERTICAL"):upper() == "VERTICAL") == (horizontal and true or false)
-	else
-		along = name == (horizontal and "hbox" or "vbox")
-	end
+	-- hbox, vbox and split add their children up along one axis (`stacksAlong`)
+	local along = class.stacksAlong and class.stacksAlong(el, st, horizontal) or false
 	local natural_kids, min_kids = 0, 0
 	for _, c in ipairs(st.children) do
 		local cs = STATE[c]
