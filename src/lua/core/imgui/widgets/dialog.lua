@@ -23,6 +23,30 @@ local function parse_size(s)
 	return tonumber(w), tonumber(h)
 end
 
+-- iDialogSizeGetScale: SIZE may give either side as a share of the screen.
+local SCREEN_FRACTION = { FULL = 1, HALF = 2, THIRD = 3, QUARTER = 4, EIGHTH = 8 }
+
+local function screen_size()
+	local w, h = parse_size(rt().getGlobal and rt().getGlobal("SCREENSIZE"))
+	return w or 1920, h or 1040
+end
+
+--- iDialogSetSizeAttrib: each side of SIZE is character units or a screen fraction
+-- (screen_width/scale). Read when laying out, so a moved window sees its screen.
+local function user_size(el, st)
+	local a = st.attrs
+	if a.RASTERSIZE or a.USERSIZE or not a.SIZE then
+		return require("core.imgui.Layout").baseUserSize(el, st)
+	end
+	local ws, hs = tostring(a.SIZE):match("^%s*([^x]*)x?(.*)$")
+	local cw, ch = Fonts.forElement(el):charsize()
+	local sw, sh = screen_size()
+	local w, h
+	if SCREEN_FRACTION[ws] then w = math.floor(sw / SCREEN_FRACTION[ws]) else w = math.floor((tonumber(ws) or 0) * cw / 4) end
+	if SCREEN_FRACTION[hs] then h = math.floor(sh / SCREEN_FRACTION[hs]) else h = math.floor((tonumber(hs) or 0) * ch / 8) end
+	return math.max(w, 0), math.max(h, 0)
+end
+
 local function menubar(el)
 	local menu = Element.getHandle(el, "MENU")
 	if not menu then return nil end
@@ -36,6 +60,7 @@ Classes.define({
 	children = 1,
 	type = "dialog",
 	opaque = true,
+	userSize = user_size,
 	defaults = {
 		RESIZE = "YES", MAXBOX = "YES", MINBOX = "YES", MENUBOX = "YES", BORDER = "YES",
 		SHRINK = "NO", CANFOCUS = "NO",

@@ -66,17 +66,11 @@ local function floating(st)
 end
 M.floating = floating
 
-local SCREEN_FRACTION = { FULL = 1, HALF = 1 / 2, THIRD = 1 / 3, QUARTER = 1 / 4, EIGHTH = 1 / 8 }
-
-local function screen_size()
-	local ok, R = pcall(require, "core.imgui.Runtime")
-	local s = ok and R.getGlobal and R.getGlobal("SCREENSIZE")
-	local w, h = size_pair(s)
-	return w or 1920, h or 1040
-end
-
---- The user size in pixels (iupBaseSetSizeAttrib / iupBaseSetRasterSizeAttrib).
-local function user_size(el, st)
+--- iupBaseSetSizeAttrib / iupBaseSetRasterSizeAttrib: the user size in pixels, from
+-- RASTERSIZE (or USERSIZE) or SIZE in character units (iupWIDTH2RASTER / iupHEIGHT2RASTER).
+-- A class that registers its own SIZE/RASTERSIZE (the boxes, the dialog) stores what its
+-- setter keeps, or answers `userSize` itself.
+local function base_user_size(el, st)
 	local a = st.attrs
 	local raster = a.RASTERSIZE or a.USERSIZE
 	if raster then
@@ -87,18 +81,19 @@ local function user_size(el, st)
 	if s then
 		local ws, hs = tostring(s):match("^%s*([^x]*)x?(.*)$")
 		local cw, ch = Fonts.forElement(el):charsize()
-		local w, h = 0, 0
-		if st.classname == "dialog" and (SCREEN_FRACTION[ws] or SCREEN_FRACTION[hs]) then
-			local sw, sh = screen_size()
-			if SCREEN_FRACTION[ws] then w = floor(sw * SCREEN_FRACTION[ws]) end
-			if SCREEN_FRACTION[hs] then h = floor(sh * SCREEN_FRACTION[hs]) end
-		end
 		local nw, nh = tonumber(ws), tonumber(hs)
-		if nw then w = floor(nw * cw / 4) end      -- iupWIDTH2RASTER
-		if nh then h = floor(nh * ch / 8) end      -- iupHEIGHT2RASTER
+		local w = nw and floor(nw * cw / 4) or 0      -- iupWIDTH2RASTER
+		local h = nh and floor(nh * ch / 8) or 0      -- iupHEIGHT2RASTER
 		return max(w, 0), max(h, 0)
 	end
 	return 0, 0
+end
+M.baseUserSize = base_user_size
+
+local function user_size(el, st)
+	local own = st.class.userSize
+	if own then return own(el, st) end
+	return base_user_size(el, st)
 end
 M.userSize = user_size
 
