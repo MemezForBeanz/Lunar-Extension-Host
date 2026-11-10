@@ -205,11 +205,48 @@ local function box_place(vertical)
 	end
 end
 
-local box_defaults = { ALIGNMENT = nil }
+--- iupStrToIntInt(value, &a, &b, 'x'): either side may be missing (0 here).
+local function int_int(value)
+	local a, b = tostring(value):match("^%s*(-?%d*)%s*x?%s*(-?%d*)")
+	return tonumber(a) or 0, tonumber(b) or 0
+end
+
+--- iHboxSetRasterSizeAttrib / iHboxSetSizeAttrib and the vbox's: a box sets only its own
+-- axis ("can NOT set height" / "can NOT set width"). A value without a positive size there
+-- leaves the user size as it was. The vbox takes the second number when there is one, else
+-- the first ("200" is a height of 200). RASTERSIZE always clears SIZE; SIZE is kept for a
+-- font change, as IUP keeps it in the hash table.
+local function box_size_setters(vertical)
+	local function along(value)
+		local a, b = int_int(value)
+		if vertical and b ~= 0 then a = b end
+		return a
+	end
+	local function norm(n) return vertical and ("x" .. n) or (n .. "x") end
+	return {
+		RASTERSIZE = function(el, st, value)
+			st.attrs.SIZE = nil
+			if value == nil then st.attrs.RASTERSIZE, st.attrs.USERSIZE = nil, nil; return false end
+			local n = along(value)
+			if n > 0 then st.attrs.RASTERSIZE, st.attrs.USERSIZE = norm(n), nil end
+			return false
+		end,
+		SIZE = function(el, st, value)
+			if value == nil then
+				st.attrs.SIZE, st.attrs.RASTERSIZE, st.attrs.USERSIZE = nil, nil, nil
+				return false
+			end
+			local n = along(value)
+			if n > 0 then st.attrs.SIZE, st.attrs.RASTERSIZE, st.attrs.USERSIZE = norm(n), nil, nil end
+			return false
+		end,
+	}
+end
 
 Classes.define({
 	name = "hbox", children = -1, type = "container",
 	natural = box_natural(false), place = box_place(false),
+	set = box_size_setters(false),
 	get = {
 		ORIENTATION = function() return "HORIZONTAL" end,
 		ALIGNMENT = function(el, st) return st.attrs.ALIGNMENT or "ATOP" end,
@@ -219,6 +256,7 @@ Classes.define({
 Classes.define({
 	name = "vbox", children = -1, type = "container",
 	natural = box_natural(true), place = box_place(true),
+	set = box_size_setters(true),
 	get = {
 		ORIENTATION = function() return "VERTICAL" end,
 		ALIGNMENT = function(el, st) return st.attrs.ALIGNMENT or "ALEFT" end,

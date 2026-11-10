@@ -187,9 +187,10 @@ function M.setAttribute(el, name, value)
 	else
 		value = tostr(value)
 	end
-	local common = M.commonSet[name]
-	if common and common(el, st, value, handle) == false then return end
+	-- a class that registers the name replaces the base class's registration
 	local setter = class.set and class.set[name]
+	local common = not setter and M.commonSet[name]
+	if common and common(el, st, value, handle) == false then return end
 	if setter then
 		local keep = setter(el, st, value, handle)
 		if keep == false then
@@ -220,10 +221,9 @@ function M.notifyChildren(el, st, name, value, handle)
 	for _, child in ipairs(st.children) do
 		local cs = STATE[child]
 		if cs and cs.attrs[name] == nil and M.inherits(cs.class, name) then
-			local common = M.commonSet[name]
-			if common then common(child, cs, value, handle) end
 			local setter = cs.class.set and cs.class.set[name]
-			if setter then setter(child, cs, value, handle) end
+			if setter then setter(child, cs, value, handle)
+			elseif M.commonSet[name] then M.commonSet[name](child, cs, value, handle) end
 			M.notifyChildren(child, cs, name, value, handle)
 		end
 	end

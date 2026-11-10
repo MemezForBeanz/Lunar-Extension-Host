@@ -104,7 +104,7 @@ M.userSize = user_size
 
 -- SIZE and RASTERSIZE replace each other: the one set last is the user size.
 Element.commonSet.RASTERSIZE = function(el, st)
-	if st.classname ~= "dialog" or not st.data.shown then st.attrs.SIZE = nil end
+	st.attrs.SIZE = nil
 end
 Element.commonSet.SIZE = function(el, st)
 	st.attrs.RASTERSIZE = nil

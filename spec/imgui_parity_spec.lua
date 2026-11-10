@@ -120,6 +120,53 @@ describe("imgui parity: flat scroll bars", function()
 	end)
 end)
 
+describe("imgui parity: box user size", function()
+	-- iHboxSetRasterSizeAttrib: "second value will be ignored, can NOT set height". The
+	-- terminal's header is iup.hbox{ ..., RASTERSIZE = "x32" } around 28 px buttons: 28 px
+	-- tall on the IUP build, 32 on the host, and the code view below sat 4 px lower.
+	local function box_in_dialog(iup, R, box)
+		local d = iup.dialog({ iup.vbox({ box, iup.fill({}) }), RASTERSIZE = "400x300" })
+		iup.Show(d)
+		R.frame()
+		return box
+	end
+
+	it("ignores an hbox's height", function()
+		local iup, R = host()
+		local b = iup.flatbutton({ TITLE = "", RASTERSIZE = "28x28" })
+		local box = box_in_dialog(iup, R, iup.hbox({ b, RASTERSIZE = "x32", ALIGNMENT = "ACENTER" }))
+		local w, h = iup.GetAttribute(box, "RASTERSIZE"):match("(%d+)x(%d+)")
+		assert.equal("28", h)
+		local Element = require("core.imgui.Element")
+		assert.equal(Element.state(box).y, Element.state(b).y) -- centred in 28, not in 32
+	end)
+
+	it("keeps an hbox's width and drops its height from RASTERSIZE", function()
+		local iup, R = host()
+		local box = box_in_dialog(iup, R, iup.hbox({ iup.label({ TITLE = "x" }), RASTERSIZE = "120x80" }))
+		local w, h = iup.GetAttribute(box, "RASTERSIZE"):match("(%d+)x(%d+)")
+		assert.equal("120", w)
+		assert.is_true(tonumber(h) < 80)
+	end)
+
+	it("takes a vbox's single number as its height (iVboxSetRasterSizeAttrib)", function()
+		local iup, R = host()
+		local box = box_in_dialog(iup, R, iup.vbox({ iup.label({ TITLE = "x" }), RASTERSIZE = "90" }))
+		local w, h = iup.GetAttribute(box, "RASTERSIZE"):match("(%d+)x(%d+)")
+		assert.equal("90", h)
+		assert.is_true(tonumber(w) < 90)
+	end)
+
+	it("leaves the user size alone when the box's own axis is missing", function()
+		local iup, R = host()
+		local box = iup.hbox({ iup.label({ TITLE = "x" }), RASTERSIZE = "150x" })
+		iup.SetAttribute(box, "RASTERSIZE", "x40")
+		box_in_dialog(iup, R, box)
+		local w = iup.GetAttribute(box, "RASTERSIZE"):match("(%d+)x")
+		assert.equal("150", w)
+	end)
+end)
+
 describe("imgui parity: IupShow", function()
 	-- iDialogAfterShow (iup_dialog.c) calls IupFlush before SHOW_CB, so a timer that is
 	-- due when the dialog is shown runs inside IupShow. Lunar's theme manager queues its

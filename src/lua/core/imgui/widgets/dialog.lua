@@ -52,6 +52,8 @@ Classes.define({
 			if is_main(el) and backend() and backend().alive() then backend().window("title", value or "") end
 		end,
 		RASTERSIZE = function(el, st, value)
+			-- the base rule (RASTERSIZE replaces SIZE) until the window is up
+			if not st.data.shown then st.attrs.SIZE = nil end
 			local w, h = parse_size(value)
 			if st.data.shown and w and h then
 				if is_main(el) then backend().window("size", w, h)
