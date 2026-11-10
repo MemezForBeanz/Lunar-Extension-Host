@@ -8,6 +8,22 @@
 -- scripts/ui_probe_diff.lua. Run it on a hidden desktop (D:\lunar-council\tools\hidden.ps1):
 -- the clicks are posted messages, but a window on the user's screen would still flash.
 --
+-- The shell state to probe in comes from the environment, so one script covers each state:
+--
+--   LUNAR_PROBE_SIZE   "WxH" (default 1400x900) or "max" (maximised)
+--   LUNAR_PROBE_SETUP  comma list, applied in order once the window is up:
+--                      rail      toggle the tool rail (collapsed <-> expanded)
+--                      bars      toggle the rail and status bar together (View > bars)
+--                      terminal  toggle the terminal dock
+--                      split=<zone>   move the main strip's second page to right|bottom|corner
+--                      divider=<n>    set the outer pane split's VALUE (thousandths)
+--                      focus     focus the active pane (PaneGrid:toggleFocus); again restores
+--   LUNAR_PROBE_NOCLICK=1   record rectangles only (no click pass)
+--   LUNAR_PROBE_PAGES  a Lua pattern: only pages whose title matches
+--   LUNAR_PROBE_ATTRS  extra attributes for the A lines; "NTHEME:FOCUSFEEDBACK" reads an
+--                      attribute of the handle the element's NTHEME names
+--   LUNAR_PROBE_TRACE  an attribute name: log every write of it to <out>/trace.txt
+--
 -- Lines:  P <page>                         a page was shown
 --         E <path> <class> <x> <y> <w> <h> <vis> <label>   one element (main-window client px)
 --         C <path> <fired>                 the callbacks one click fired (path:NAME,...)
@@ -38,6 +54,48 @@ do
 end
 
 iup.Message = function(title, text) end
+
+-- LUNAR_PROBE_TRACE=<NAME>: log every write of that attribute (iup.SetAttribute, IupFFI.setstr,
+-- themeapply) with who it went to and a traceback, to <out>/trace.txt.
+local TRACE = os.getenv("LUNAR_PROBE_TRACE")
+if TRACE then
+	local tf = assert(io.open(((arg and arg[1]) or ".") .. "/trace.txt", "w"))
+	local function who(ih)
+		local ok, t = pcall(iup.GetAttribute, ih, "TITLE")
+		local ok2, r = pcall(iup.GetAttribute, ih, "THEMEROLE")
+		local ok3, id = pcall(iup.GetAttribute, ih, "THEMEMGR_ID")
+		return tostring(iup.GetClassName(ih)) .. " title=" .. tostring(ok and t) .. " role=" .. tostring(ok2 and r) .. " id=" .. tostring(ok3 and id)
+	end
+	local real_set = iup.SetAttribute
+	iup.SetAttribute = function(ih, name, value, ...)
+		if name == TRACE then tf:write("set ", who(ih), " = ", tostring(value), "\n", debug.traceback("", 2):sub(1, 400), "\n"); tf:flush() end
+		return real_set(ih, name, value, ...)
+	end
+	local okf, F = pcall(require, "core.classes.IupFFI")
+	if okf and type(F) == "table" and F.setstr then
+		local rs = F.setstr
+		F.setstr = function(p, name, value)
+			if name == TRACE then
+				local before = F.get(p, name)
+				tf:write("ffiset ", tostring(value), " before=", tostring(before), " title=", tostring(F.get(p, "TITLE")), " role=", tostring(F.get(p, "THEMEROLE")), "\n", debug.traceback("", 2):sub(1, 3000), "\n"); tf:flush()
+			end
+			return rs(p, name, value)
+		end
+	end
+	local ok, ta = pcall(require, "themeapply")
+	if ok and ta then
+		local rs, as = ta.restore, ta.apply_save
+		ta.restore = function(ih, store)
+			if store[TRACE] ~= nil then tf:write("restore ", who(ih), " = ", tostring(store[TRACE]), "\n"); tf:flush() end
+			return rs(ih, store)
+		end
+		ta.apply_save = function(ih, attrs)
+			local o = as(ih, attrs)
+			if attrs[TRACE] ~= nil or (o and o[TRACE] ~= nil) then tf:write("apply ", who(ih), " = ", tostring(attrs[TRACE]), " orig=", tostring(o and o[TRACE]), "\n"); tf:flush() end
+			return o
+		end
+	end
+end
 
 local out_path = ((arg and arg[1]) or ".") .. "/probe-" .. (rawget(iup, "_IMGUI") and "imgui" or "iup") .. ".tsv"
 local out = assert(io.open(out_path, "w"))
@@ -75,6 +133,8 @@ local STYLE_ATTRS = { "BGCOLOR", "FGCOLOR", "HLCOLOR", "PSCOLOR", "TEXTHLCOLOR",
 	"MARGIN", "GAP", "SHOWLINES", "TABSACTIVELINE", "TABSSELCOLOR", "TABSBACKCOLOR", "TABSFORECOLOR",
 	"TABSHIGHCOLOR", "TABSPADDING", "TABSLINECOLOR", "FORECOLOR", "SB_CORNERRADIUS", "SCROLLBARSIZE",
 	"ITEMMARKERCOLOR", "FOCUSFEEDBACK", "TABTYPE", "SHOWTABS" }
+
+for k in (os.getenv("LUNAR_PROBE_ATTRS") or ""):gmatch("[^,]+") do STYLE_ATTRS[#STYLE_ATTRS + 1] = k end
 
 local function class(h) return iup.GetClassName(h) end
 
@@ -248,6 +308,37 @@ local function click(hwnd, x, y)
 	user32.PostMessageA(target, 0x0202, 0, lparam(px, py)) -- WM_LBUTTONUP
 end
 
+local SIZE = os.getenv("LUNAR_PROBE_SIZE") or "1400x900"
+local WIN_W, WIN_H = SIZE:match("^(%d+)x(%d+)$")
+WIN_W, WIN_H = tonumber(WIN_W) or 1400, tonumber(WIN_H) or 900
+local SETUP = {}
+for item in (os.getenv("LUNAR_PROBE_SETUP") or ""):gmatch("[^,]+") do SETUP[#SETUP + 1] = item end
+local NOCLICK = os.getenv("LUNAR_PROBE_NOCLICK") == "1"
+local PAGES = os.getenv("LUNAR_PROBE_PAGES")
+
+-- One setup step (see the header); returns false when it could not be applied.
+local function setup_step(dlg, item)
+	local shell = rawget(_G, "LUNAR_DEV_SHELL")
+	if not shell then return false end
+	local name, value = item:match("^([%w_]+)=?(.*)$")
+	if name == "rail" and shell.rail then shell.rail:toggle(); return true end
+	if name == "bars" and shell.view_layout then shell.view_layout:toggleBars(); return true end
+	if name == "terminal" and shell.view_layout then shell.view_layout:toggleTerminal(); return true end
+	if name == "focus" and shell.panes then return shell.panes:toggleFocus() end
+	if name == "split" and shell.panes then
+		local main = shell.panes:strip("main")
+		local page = main and iup.GetChild(main, 1)
+		return page and shell.panes:move(page, value) or false
+	end
+	if name == "divider" and shell.panes then
+		local grid = shell.panes:widget()
+		iup.SetAttribute(grid, "VALUE", value)
+		iup.Refresh(grid)
+		return true
+	end
+	return false
+end
+
 local real_mainloop = iup.MainLoop
 iup.MainLoop = function()
 	local dlg, hwnd, pages
@@ -277,11 +368,30 @@ iup.MainLoop = function()
 				end
 				if IMGUI then
 					local B = require("core.imgui.Runtime").backend()
-					B.window("restore"); B.window("pos", 0, 0); B.window("size", 1400, 900)
+					B.window("restore"); B.window("pos", 0, 0)
+					if SIZE == "max" then B.window("maximize") else B.window("size", WIN_W, WIN_H) end
 				else
-					user32.ShowWindow(hwnd, 9); user32.MoveWindow(hwnd, 0, 0, 1400, 900, 1)
+					user32.ShowWindow(hwnd, 9); user32.MoveWindow(hwnd, 0, 0, WIN_W, WIN_H, 1)
+					if SIZE == "max" then user32.ShowWindow(hwnd, 3) end
 				end
-				pages = leaves(find_strip(dlg), {}, {})
+				phase = "setup"
+				ticks = 0
+				return
+			end
+			if phase == "setup" then
+				-- one step per tick, then let animations (bars, terminal) finish
+				local item = SETUP[ticks]
+				if item then
+					local done = setup_step(dlg, item)
+					emit("S", item, done and "ok" or "failed")
+					return
+				end
+				if ticks < #SETUP + 20 then return end
+				local all = leaves(find_strip(dlg), {}, {})
+				pages = {}
+				for _, page in ipairs(all) do
+					if not PAGES or tostring(page.title):match(PAGES) then pages[#pages + 1] = page end
+				end
 				phase = "next"
 				return
 			end
@@ -307,6 +417,7 @@ iup.MainLoop = function()
 				user32.ClientToScreen(hwnd, pt)
 				origin[1], origin[2] = pt.x, pt.y
 				emit("P", page.title)
+				emit("D", tostring(iup.GetAttribute(dlg, "CLIENTSIZE")))
 				local list = walk(dlg, class(dlg), {})
 				stub(list)
 				queue = {}
@@ -318,13 +429,24 @@ iup.MainLoop = function()
 					-- Style attributes as each build resolves them, for ui_probe_diff's attribute report.
 					local av = {}
 					for _, k in ipairs(STYLE_ATTRS) do
-						local ok, v = pcall(iup.GetAttribute, e.h, k)
+						local ok, v
+						local via, inner = k:match("^([%u_]+):([%u_]+)$")
+						if via then
+							-- "NTHEME:FOCUSFEEDBACK": an attribute of the handle the element names
+							ok, v = pcall(function()
+								local name = iup.GetAttribute(e.h, via)
+								local h = name and iup.GetHandle(name)
+								return h and iup.GetAttribute(h, inner)
+							end)
+						else
+							ok, v = pcall(iup.GetAttribute, e.h, k)
+						end
 						if ok and v ~= nil then av[#av + 1] = k .. "=" .. tostring(v) end
 					end
 					emit("A", e.path, table.concat(av, ";"))
 					-- A disabled control takes no real clicks (a posted one would still reach its window).
 					local active = iup.GetAttribute(e.h, "ACTIVE") ~= "NO"
-					if vis and active and e.cb and x and w > 2 and h > 2 and x + w / 2 > 0 and y + h / 2 > 0 and x + w / 2 < 1400 and y + h / 2 < 900 then
+					if not NOCLICK and vis and active and e.cb and x and w > 2 and h > 2 and x + w / 2 > 0 and y + h / 2 > 0 and x + w / 2 < WIN_W and y + h / 2 < WIN_H then
 						queue[#queue + 1] = { e = e, x = math.floor(x + w / 2), y = math.floor(y + h / 2) }
 					end
 				end
