@@ -264,6 +264,24 @@ describe("imgui parity: class types", function()
 	end)
 end)
 
+describe("imgui parity: floating POSITION", function()
+	-- iBaseSetPositionAttrib writes ih->x/ih->y, which are relative to the native parent;
+	-- boxes are IUP_TYPEVOID. The command palette floats its placeholder at POSITION 18,14
+	-- in an hbox (MARGIN 14x8) inside a flat frame: IUP puts it at 18,14 from the frame, the
+	-- host at 23,19 (from the hbox).
+	it("places a floating child from its native parent, through the boxes", function()
+		local iup, R, B, Element = host()
+		local label = iup.flatlabel({ TITLE = "p", FLOATING = "YES", POSITION = "18,14" })
+		local frame = iup.flatframe({ iup.vbox({ iup.hbox({ iup.label({ TITLE = "x" }), label, MARGIN = "14x8" }),
+			MARGIN = "4x4" }), TITLE = "" })
+		local d = iup.dialog({ frame, RASTERSIZE = "300x200" })
+		iup.Show(d)
+		R.frame()
+		local fs, ls = Element.state(frame), Element.state(label)
+		assert.same({ fs.x + 18, fs.y + 14 }, { ls.x, ls.y })
+	end)
+end)
+
 describe("imgui parity: IupShow", function()
 	-- iDialogAfterShow (iup_dialog.c) calls IupFlush before SHOW_CB, so a timer that is
 	-- due when the dialog is shown runs inside IupShow. Lunar's theme manager queues its

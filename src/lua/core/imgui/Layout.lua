@@ -318,16 +318,18 @@ function M.placeChildren(el, st)
 	end
 end
 
---- A FLOATING child keeps its natural size; POSITION ("x,y", relative to the parent)
--- says where it goes.
+--- A FLOATING child keeps its natural size; POSITION ("x,y") says where it goes. As
+-- iBaseSetPositionAttrib stores it in ih->x/ih->y, it is in the native parent's
+-- coordinates: void containers (the boxes, split) have no window and pass those through,
+-- so a floating label in an hbox inside a flat frame sits at POSITION from the frame.
 function M.placeFloating(el, st, parent_st)
 	local px, py = parse_pair(st.attrs.POSITION, ",")
 	st.w, st.h = st.nat_w or 0, st.nat_h or 0
-	if px then
-		st.x, st.y = parent_st.x + px, parent_st.y + (py or 0)
-	else
-		st.x, st.y = parent_st.x, parent_st.y
+	local native = parent_st
+	while native.class.type == "void" and native.parent and STATE[native.parent] do
+		native = STATE[native.parent]
 	end
+	st.x, st.y = (native.x or 0) + (px or 0), (native.y or 0) + (py or 0)
 	M.placeChildren(el, st)
 end
 

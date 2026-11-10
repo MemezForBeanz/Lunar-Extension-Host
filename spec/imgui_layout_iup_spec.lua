@@ -156,7 +156,9 @@ describe("imgui layout (IUP rules)", function()
 		local dlg = iup.dialog({ iup.vbox({ box, MARGIN = "10x10" }) })
 		Layout.run(dlg, 200, 200)
 		assert.equal(40, S(box).nat_w)
-		assert.same({ 15, 16, 40, 10 }, rect(f))
+		-- POSITION is in the native parent's coordinates (iBaseSetPositionAttrib); the boxes
+		-- are void, so it is measured from the dialog, not from the hbox at 10,10
+		assert.same({ 5, 6, 40, 10 }, rect(f))
 	end)
 
 	it("lets hidden (VISIBLE=NO) children keep their space, as IUP does", function()
