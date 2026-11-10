@@ -278,6 +278,65 @@ function activity_scene.finish(shell)
 	activity_scene.flash:finish(true, "Firmware flash finished.")
 end
 
+-- The layout next to each shot: one line per visible element, "path class x y w h label",
+-- in main-window client pixels, the same on both builds (diff them with
+-- scripts/ui_tree_diff.lua).
+local function dump_tree(dlg, path)
+	local f = io.open(path, "w")
+	if not f then return end
+	local pt = ffi.new("CAP_RECT")
+	local ox, oy = 0, 0
+	if IMGUI then
+		local Runtime = require("core.imgui.Runtime")
+		local x, y = Runtime.backend().window("client_origin")
+		ox, oy = x or 0, y or 0
+	else
+		user32.ClientToScreen(window_of(dlg), pt)
+		ox, oy = pt.left, pt.top
+	end
+	local function vis(h)
+		if IMGUI then return require("core.imgui.Runtime").isVisible(h) end
+		return iup.GetAttribute(h, "VISIBLE") == "YES"
+	end
+	-- IUP has no SCREENPOSITION for a box: its POSITION is relative to the nearest
+	-- ancestor that has a window, whose screen position is known.
+	local function screen_of(h)
+		local x, y = tostring(iup.GetAttribute(h, "SCREENPOSITION") or ""):match("^(-?%d+),(-?%d+)")
+		if x or IMGUI then return tonumber(x), tonumber(y) end
+		local px, py = tostring(iup.GetAttribute(h, "POSITION") or ""):match("^(-?%d+),(-?%d+)")
+		local a = iup.GetParent(h)
+		while a do
+			local ax, ay = tostring(iup.GetAttribute(a, "SCREENPOSITION") or ""):match("^(-?%d+),(-?%d+)")
+			if ax and iup.GetClassName(a) ~= "dialog" then return tonumber(ax) + tonumber(px or 0), tonumber(ay) + tonumber(py or 0) end
+			if iup.GetClassName(a) == "dialog" then return ox + tonumber(px or 0), oy + tonumber(py or 0) end
+			a = iup.GetParent(a)
+		end
+	end
+	local function walk(h, p)
+		if vis(h) then
+			local sz = iup.GetAttribute(h, "RASTERSIZE")
+			local x, y = screen_of(h)
+			local w, hh = tostring(sz or ""):match("^(%d+)x(%d+)")
+			local label = ""
+			for _, a in ipairs({ "TITLE", "TIP", "NAME", "THEMEROLE" }) do
+				local v = iup.GetAttribute(h, a)
+				if v and v ~= "" then label = tostring(v):gsub("[\r\n\t]", " "):sub(1, 40); break end
+			end
+			if x and w then
+				f:write(table.concat({ p, iup.GetClassName(h), tonumber(x) - ox, tonumber(y) - oy, w, hh, label }, "\t"), "\n")
+			end
+		end
+		local i, c = 0, iup.GetChild(h, 0)
+		while c do
+			walk(c, p .. "/" .. iup.GetClassName(c) .. "[" .. i .. "]")
+			i = i + 1
+			c = iup.GetChild(h, i)
+		end
+	end
+	walk(dlg, "dialog")
+	f:close()
+end
+
 local fixtures = dofile((LUNAR_SOURCE_DIR or ".") .. "/scripts/ui_fixtures.lua")
 
 local real_mainloop = iup.MainLoop
@@ -458,8 +517,9 @@ iup.MainLoop = function()
 			local slug = page.title:lower():gsub("[^%w]+", "-")
 			local IupFFI = require("core.classes.IupFFI")
 			local function shoot(suffix)
-				save_bmp(window_of(dlg), string.format("%s/%s-%02d-%s%s.bmp",
-					out_dir, prefix, index / 2, slug, suffix), whole_window)
+				local base = string.format("%s/%s-%02d-%s%s", out_dir, prefix, index / 2, slug, suffix)
+				save_bmp(window_of(dlg), base .. ".bmp", whole_window)
+				dump_tree(dlg, base .. ".tree")
 			end
 			local fixture = fixtures.for_tab(rawget(_G, "LUNAR_DEV_SHELL") or {}, page.title)
 			page.stage = (page.stage or 0) + 1

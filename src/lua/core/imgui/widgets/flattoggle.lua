@@ -4,6 +4,7 @@ local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
 local Fonts = require("core.imgui.Fonts")
 local Draw = require("core.imgui.Draw")
+local FlatDraw = require("core.imgui.widgets.flatdraw")
 local iup = require("core.imgui.iup")
 
 local function attr(e, n) return Element.getAttribute(e, n) end
@@ -93,8 +94,14 @@ local function draw_switch(e, st, dc)
 		(attr(e, "SWITCHOFFCOLOR") or attr(e, "FGCOLOR"))
 	local knob = attr(e, "SWITCHKNOBCOLOR") or attr(e, "BGCOLOR")
 	local kx = x + 3 + math.floor(pos * (w - 20) / 100)
-	dc:fill(x, y, w, h, track, { radius = h / 2 })
-	dc:fill(kx, y + 3, 14, 14, knob, { radius = 7 })
+	local bg = attr(e, "BGCOLOR")
+	local is_active = active(e)
+	-- iupFlatDrawRoundBox applies the same inactive blending as the other
+	-- flat controls. Raw dc:fill leaves disabled switches at full contrast.
+	FlatDraw.gradientBox(dc, 0, 0, x, x + w - 1, y, y + h - 1, h / 2,
+		track, nil, true, bg, is_active)
+	FlatDraw.gradientBox(dc, 0, 0, kx, kx + 13, y + 3, y + 16, 7,
+		knob, nil, true, track, is_active)
 end
 
 local function draw(e, st, dc)

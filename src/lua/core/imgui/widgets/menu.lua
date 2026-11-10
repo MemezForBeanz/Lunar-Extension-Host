@@ -55,7 +55,11 @@ local function menu_draw(menu, state, dc)
 			y = y + 8
 		else
 			local ih = item_height(item); local active = attr(item, "ACTIVE") ~= "NO"; local selected = state.selected == i
-			if selected and active then dc:fill(state.x + 3, y, w - 6, ih, attr(menu, "HLCOLOR") or "65 70 82", { radius = 3 }) end
+			if selected and active then
+				dc:fill(state.x + 3, y, w - 6, ih, attr(menu, "HLCOLOR") or "65 70 82", { radius = 3 })
+				dc:fill(state.x + 5, y + 5, 2, math.max(1, ih - 10),
+					attr(menu, "ITEMMARKERCOLOR") or attr(menu, "TXTHLCOLOR") or "0 180 150")
+			end
 			local label, accel = title_parts(attr(item, "TITLE"))
 			local mark = yes(attr(item, "VALUE")) and "✓" or ""
 			local font = Fonts.forElement(item)
@@ -133,7 +137,18 @@ function M.popupMenu(menu, x, y, rt)
 				local base = iup.XkeyBase(ev.key or 0)
 				if base == iup.K_ESCAPE then close_chain(state); return true end
 				if base == iup.K_DOWN or base == iup.K_UP then
-					local n = state.selected; repeat n = base == iup.K_DOWN and n + 1 or n - 1; if n > #children(menu) then n = 1 elseif n < 1 then n = #children(menu) end until Element.state(children(menu)[n]).classname ~= "separator"; state.selected = n; return true
+					local count = #children(menu)
+					if count == 0 then return true end
+					local n = state.selected
+					for _ = 1, count do
+						n = base == iup.K_DOWN and n + 1 or n - 1
+						if n > count then n = 1 elseif n < 1 then n = count end
+						if Element.state(children(menu)[n]).classname ~= "separator" then
+							state.selected = n
+							break
+						end
+					end
+					return true
 				elseif base == iup.K_RIGHT and state.selected > 0 then open_submenu(children(menu)[state.selected], state, rt); return true
 				elseif base == iup.K_CR and state.selected > 0 then local item = children(menu)[state.selected]; if Element.state(item).classname ~= "submenu" then activate(item, state) end; return true end
 			end

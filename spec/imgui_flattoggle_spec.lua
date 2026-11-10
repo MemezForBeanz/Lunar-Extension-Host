@@ -43,4 +43,20 @@ describe("imgui flattoggle", function()
 		dc=Draw.new(b); dc:begin(100,100); c.draw(t,s,dc,{})
 		assert.is_true(#b.frame_calls >= 2)
 	end)
+	it("blends switch colors when inactive", function()
+		local b = Null.new()
+		local t = iup.flattoggle{
+			SWITCH="YES", ACTIVE="NO", VALUE="ON",
+			BGCOLOR="100 100 100", SWITCHONCOLOR="200 200 200", SWITCHKNOBCOLOR="0 0 0",
+		}
+		local s, c = Element.state(t), Classes.get("flattoggle")
+		s.x, s.y, s.w, s.h = 0, 0, 60, 24
+		local dc = Draw.new(b); dc:begin(100, 100); c.draw(t, s, dc, {})
+		local track
+		for _, call in ipairs(b.frame_calls) do
+			if call[1] == "rect_filled" and call[4] - call[2] == 36 then track = call[5]; break end
+		end
+		assert.is_not_nil(track)
+		assert.are_not.equal(require("core.imgui.Color").parse("200 200 200"), track)
+	end)
 end)

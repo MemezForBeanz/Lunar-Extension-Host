@@ -214,30 +214,35 @@ M.clientOrigin = client_origin
 Element.commonGet = {
 	WID = function(el, st) if st.mapped then return "WID" .. st.id end end,
 	RASTERSIZE = function(el, st)
+		M.layoutNow(el)
 		if st.mapped and (st.w > 0 or st.h > 0) then return string.format("%dx%d", st.w, st.h) end
 	end,
-	CURRENTSIZE = function(el, st) return string.format("%dx%d", st.w, st.h) end,
+	CURRENTSIZE = function(el, st) M.layoutNow(el); return string.format("%dx%d", st.w, st.h) end,
 	-- A dialog's client area (the whole window for one drawn inside the main window).
 	CLIENTSIZE = function(el, st)
 		if st.classname ~= "dialog" then return nil end
 		return string.format("%dx%d", st.w, st.h)
 	end,
-	NATURALSIZE = function(el, st) return string.format("%dx%d", st.nat_w, st.nat_h) end,
+	NATURALSIZE = function(el, st) M.layoutNow(el); return string.format("%dx%d", st.nat_w, st.nat_h) end,
 	POSITION = function(el, st)
+		M.layoutNow(el)
 		local p = st.parent and STATE[st.parent]
 		if st.classname == "dialog" then return nil end
 		return string.format("%d,%d", st.x - (p and p.x or 0), st.y - (p and p.y or 0))
 	end,
 	X = function(el, st)
+		M.layoutNow(el)
 		local ox = select(1, client_origin()) + select(1, dialog_offset(el))
 		return tostring(ox + st.x)
 	end,
 	Y = function(el, st)
+		M.layoutNow(el)
 		local _, oy = client_origin()
 		local _, doy = dialog_offset(el)
 		return tostring(oy + doy + st.y)
 	end,
 	SCREENPOSITION = function(el, st)
+		M.layoutNow(el)
 		local cx, cy = client_origin()
 		local dx, dy = dialog_offset(el)
 		if st.classname == "dialog" and el == main_dialog and B and B.window then
@@ -770,6 +775,37 @@ end
 
 function M.refresh(el)
 	M.relayout(el)
+end
+
+--- IupRefresh lays a dialog out at once (iupLayoutCompute + iupLayoutUpdate); this host
+-- does it when it is needed. Reading a geometry attribute of an element whose dialog
+-- has a layout pending lays that dialog out first, so code that sets sizes, refreshes
+-- and reads RASTERSIZE back sees what IUP would show it. The dialog takes its own
+-- RASTERSIZE, else its current size, else its natural size.
+function M.layoutNow(el)
+	if in_layout or in_paint or not el then return end
+	local d, st = dialog_of(el)
+	if not d or not st or not st.data.layout_dirty then return end
+	if not Layout then Layout = require("core.imgui.Layout") end
+	local w, h
+	if d == main_dialog and st.data.shown then
+		w, h = st.w, st.h
+	else
+		w, h = parse_size(Element.own(d, "RASTERSIZE"))
+		if not (w and h) then
+			local cw, ch
+			if st.data.shown then cw, ch = st.w, st.h else cw, ch = dialog_size(d, st) end
+			w, h = w or cw, h or ch
+		end
+		if st.data.shown then st.w, st.h = w, h end
+	end
+	if not (w and h) or w <= 0 or h <= 0 then return end
+	in_layout = true
+	local ok, err = xpcall(Layout.run, debug.traceback, d, w, h)
+	in_layout = false
+	if not ok then warn(err) end
+	-- the frame need not lay it out again unless the size it gets differs
+	if st.data.lw == w and st.data.lh == h then st.data.layout_dirty = false end
 end
 
 function M.flush()

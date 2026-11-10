@@ -171,6 +171,20 @@ describe("imgui dialogs", function()
 		assert.equal("500x300", iup.GetAttribute(d, "CLIENTSIZE"))
 	end)
 
+	it("lays a dialog out on Refresh, so a size read back right after is the new one", function()
+		local iup, R = host()
+		show(iup, R, iup.fill({})) -- the main window; the panel is a dialog of its own
+		local canvas = iup.canvas({ EXPAND = "YES" })
+		local d = iup.dialog({ iup.vbox({ iup.fill({ RASTERSIZE = "x40" }), canvas }), RASTERSIZE = "300x200", BORDER = "NO" })
+		iup.Show(d)
+		R.frame()
+		assert.equal("300x160", iup.GetAttribute(canvas, "RASTERSIZE"))
+		iup.SetAttribute(d, "RASTERSIZE", "300x340")
+		iup.Refresh(d)
+		-- no frame in between: ActivityPanel measures this way to size its window
+		assert.equal("300x300", iup.GetAttribute(canvas, "RASTERSIZE"))
+	end)
+
 	it("reports an automatic name for an unnamed current tab, and the handle name once set", function()
 		local iup = host()
 		local a, b = iup.vbox({}), iup.vbox({})

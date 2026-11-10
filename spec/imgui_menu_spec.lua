@@ -26,4 +26,30 @@ describe("ImGui menus", function()
 		opened.event({ type = "press", button = 1, x = 20, y = 20 })
 		assert.is_true(fired)
 	end)
+
+	it("draws the selected-row accent marker", function()
+		local B = Null.new(); Fonts.backend = B; Fonts.reset()
+		Element.globals.DEFAULTFONT = "Segoe UI, 10"
+		local menu = iup.menu{ iup.item{ TITLE = "Run" } }
+		local opened
+		local rt = { overlay = function(opts) opened = opts; return { close = function() end } end }
+		require("core.imgui.widgets.menu").popupMenu(menu, 0, 0, rt)
+		opened.event({ type = "move", x = 4, y = 5 })
+		local dc = Draw.new(B); dc:begin(200, 100)
+		opened.draw(dc)
+		local marker = false
+		for _, call in ipairs(B.frame_calls) do
+			if call[1] == "rect_filled" and call[2] == 5 and call[3] == 9 and call[4] == 7 and call[5] == 23 then
+				marker = true
+			end
+		end
+		assert.is_true(marker)
+	end)
+
+	it("does not fail when keyboard navigation is sent to an empty menu", function()
+		local opened
+		local rt = { overlay = function(opts) opened = opts; return { close = function() end } end }
+		require("core.imgui.widgets.menu").popupMenu(iup.menu{}, 0, 0, rt)
+		assert.is_true(opened.event({ type = "key", key = iup.K_DOWN }))
+	end)
 end)
