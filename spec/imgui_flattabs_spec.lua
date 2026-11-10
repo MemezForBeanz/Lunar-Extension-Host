@@ -77,8 +77,10 @@ describe("imgui flattabs", function()
 		cls.event(tabs, st, { type = "press", button = 1, x = 35, y = 8, status = iup._status({ b1 = true }) }, { redraw = function() end })
 		cls.event(tabs, st, { type = "release", button = 1, x = 35, y = 8, status = iup._status() }, { redraw = function() end })
 		assert.are.same({ 1, 0 }, seen.change)
-		assert.are.equal(1, seen.button[1])
+		assert.are.equal(iup.BUTTON1, seen.button[1]) -- IUP's '1', which TabOrder checks
 		assert.are.equal(0, seen.button[2])
+		assert.are.equal(35 - st.x, seen.button[3])  -- x inside the strip
+		assert.are.equal(8 - st.y, seen.button[4])
 		assert.are.equal("          ", seen.button[5])
 	end)
 

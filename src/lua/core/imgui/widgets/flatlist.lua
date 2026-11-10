@@ -152,6 +152,14 @@ local function draw(e, st, dc, rt)
 		end
 	end
 end
+-- iFlatListConvertXYToPos: the 1-based item under (x, y) inside the list, or -1
+local function xy_to_pos(e, st, x, y)
+	local _, rh = line_metrics(e)
+	local posy = st.data.posy or 0
+	local pos = math.floor((y + posy) / rh) + 1
+	if y + posy < 0 or pos < 1 or pos > count(e) then return -1 end
+	return pos
+end
 local function event(e, st, ev, rt)
 	local _, rh = line_metrics(e)
 	if ev.type == "focus" then st.data.has_focus = true; rt.redraw(e); return true end
@@ -186,7 +194,7 @@ local function setter(e, st, v)
 	return false
 end
 local def = {
-	name = "flatlist", children = 0, clip = true, visibleChildren = FlatScrollbar.visible_children, natural = natural, place = place, draw = draw, event = event, focusable = true,
+	name = "flatlist", children = 0, xyToPos = xy_to_pos, clip = true, visibleChildren = FlatScrollbar.visible_children, natural = natural, place = place, draw = draw, event = event, focusable = true,
 	create = function(e) FlatScrollbar.create(e) end,
 	defaults = { FGCOLOR = function() return Element.globals.DLGFGCOLOR end, BGCOLOR = function() return Element.globals.DLGBGCOLOR end, HLCOLOR = "TXTHLCOLOR", FOCUSFEEDBACK = "YES", PADDING = "2x2", VISIBLELINES = "5", FLATSCROLLBAR = "NO", SCROLLBARSIZE = "15", ITEMRADIUS = "0", HLCOLORALPHA = "128" },
 	get = { COUNT = function(e) return count(e) end, VALUE = function(e, s) return value_string(e, s) end,

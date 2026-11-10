@@ -215,3 +215,59 @@ describe("imgui text natural size", function()
 		local _ = Element
 	end)
 end)
+
+describe("imgui ConvertXYToPos", function()
+	it("finds the tab under a point of a flat tab strip, as TabOrder and the title bar need", function()
+		local iup, R = host()
+		local tabs = iup.flattabs({ iup.vbox({}), iup.vbox({}), TABTITLE0 = "One", TABTITLE1 = "Two" })
+		show(iup, R, tabs, "400x200")
+		assert.equal(0, tonumber(iup.ConvertXYToPos(tabs, 5, 8)))
+		local p = -1
+		for x = 5, 200 do
+			p = tonumber(iup.ConvertXYToPos(tabs, x, 8))
+			if p == 1 then break end
+		end
+		assert.equal(1, p)
+		assert.equal(-1, tonumber(iup.ConvertXYToPos(tabs, 390, 8)))
+	end)
+
+	it("finds the 1-based item under a point of a flat list", function()
+		local iup, R = host()
+		local list = iup.flatlist({ "a", "b", "c", RASTERSIZE = "100x200" })
+		show(iup, R, list)
+		assert.equal(1, tonumber(iup.ConvertXYToPos(list, 5, 2)))
+		assert.equal(-1, tonumber(iup.ConvertXYToPos(list, 5, 190)))
+	end)
+end)
+
+describe("imgui flat tabs reordering", function()
+	it("keeps each tab's title when a page is moved, as iFlatTabsChildAdded/Removed do", function()
+		local iup = host()
+		-- the title travels on the page (its own TABTITLE); the strip keeps a copy by position
+		local a, b, c = iup.vbox({ TABTITLE = "A" }), iup.vbox({ TABTITLE = "B" }), iup.vbox({ TABTITLE = "C" })
+		local tabs = iup.flattabs({ a, b, c })
+		iup.Detach(c)
+		iup.Insert(tabs, a, c) -- C to the front
+		assert.equal("C", iup.GetAttribute(tabs, "TABTITLE0"))
+		assert.equal("A", iup.GetAttribute(tabs, "TABTITLE1"))
+		assert.equal("B", iup.GetAttribute(tabs, "TABTITLE2"))
+		iup.Detach(a)
+		iup.Append(tabs, a) -- A to the end
+		assert.equal("C", iup.GetAttribute(tabs, "TABTITLE0"))
+		assert.equal("B", iup.GetAttribute(tabs, "TABTITLE1"))
+		assert.equal("A", iup.GetAttribute(tabs, "TABTITLE2"))
+	end)
+end)
+
+describe("imgui flat tabs client size", function()
+	it("reports the page area under the tab band as CLIENTSIZE", function()
+		local iup, R = host()
+		local tabs = iup.flattabs({ iup.vbox({}), TABTITLE0 = "One" })
+		show(iup, R, tabs, "400x300")
+		local rw, rh = iup.GetAttribute(tabs, "RASTERSIZE"):match("(%d+)x(%d+)")
+		local cw, ch = iup.GetAttribute(tabs, "CLIENTSIZE"):match("(%d+)x(%d+)")
+		assert.is_true(tonumber(ch) < tonumber(rh)) -- the band is the difference
+		assert.is_true(tonumber(rh) - tonumber(ch) < 60)
+		assert.is_true(tonumber(cw) <= tonumber(rw))
+	end)
+end)

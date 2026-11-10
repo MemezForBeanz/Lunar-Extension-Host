@@ -384,6 +384,17 @@ end
 
 -- The run ----------------------------------------------------------------------------------------
 local commands_reg
+-- Run fn from its own one-shot timer: a modal dialog it opens runs a nested loop inside
+-- that timer's callback, and the tour's timer keeps firing to shoot and close it.
+local function later(fn)
+	local t = iup.timer({ time = 10 })
+	function t:action_cb()
+		self.run = "NO"
+		fn()
+		return iup.DEFAULT
+	end
+	t.run = "YES"
+end
 -- LUNAR_TOUR_MATCH="a|b|c": only entries whose title contains one of the words
 local function tour_match(title)
 	local only = os.getenv("LUNAR_TOUR_MATCH")
@@ -504,8 +515,11 @@ iup.MainLoop = function()
 				m.key = "menu--" .. slug(m.title) .. "-" .. hash(m.title)
 				local f = m.h.action
 				if type(f) == "function" then
-					local okc, e = pcall(f, m.h)
-					if not okc then errors[#errors + 1] = tostring(e) end
+					local item = m.h
+					later(function()
+						local okc, e = pcall(f, item)
+						if not okc then errors[#errors + 1] = tostring(e) end
+					end)
 				end
 				current = m
 				phase, ticks = "menu-settle", 0
@@ -547,8 +561,11 @@ iup.MainLoop = function()
 				errors = {}
 				before = open_things(hwnd)
 				m.key = "cmd--" .. slug(m.title) .. "-" .. hash(m.title)
-				local okc, res, why = pcall(commands_reg.run, commands_reg, m.item)
-				if not okc then errors[#errors + 1] = tostring(res) elseif res == false and why then errors[#errors + 1] = tostring(why) end
+				local item = m.item
+				later(function()
+					local okc, res, why = pcall(commands_reg.run, commands_reg, item)
+					if not okc then errors[#errors + 1] = tostring(res) elseif res == false and why then errors[#errors + 1] = tostring(why) end
+				end)
 				current = m
 				phase, ticks = "command-settle", 0
 				return

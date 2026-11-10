@@ -55,6 +55,32 @@ local function buttons(f, w)
 	}
 end
 
+-- Classes that are not windows in IUP: layout boxes and fills. Over the caption they let
+-- the bar drag the window; anything else there (buttons, tab strips, labels, canvases)
+-- is a child window in IUP, so a click on it is the control's, not the frame's.
+local VOID = { hbox = true, vbox = true, zbox = true, cbox = true, fill = true, gridbox = true,
+	radio = true, normalizer = true, space = true, multibox = true, user = true, dialog = true,
+	sbox = false, split = true }
+
+--- The rectangles over the caption that must not drag the window.
+local function no_drag_rects(main, caption_h)
+	local rects = {}
+	local R = rt()
+	local function walk(el)
+		local st = Element.state(el)
+		if not st or st.attrs.VISIBLE == "NO" then return end
+		if st.h > 0 and st.y >= caption_h then return end -- below the bar: nothing under it can reach up
+		if not VOID[st.classname] and st.w > 0 and st.h > 0 and st.y < caption_h then
+			rects[#rects + 1] = { x = st.x, y = st.y, w = st.w, h = math.min(st.h, caption_h - st.y) }
+			return -- a window covers its children
+		end
+		for _, c in ipairs(R.childrenShown(el, st)) do walk(c) end
+	end
+	if main then walk(main) end
+	return rects
+end
+M._noDragRects = no_drag_rects
+
 local function paint(f, dc, input)
 	if f.caption <= 0 then return end
 	local w = input.w
@@ -92,7 +118,7 @@ local function paint(f, dc, input)
 		min = { x = bs[1].x, y = 0, w = bs[1].w, h = f.caption },
 		max = { x = bs[2].x, y = 0, w = bs[2].w, h = f.caption },
 		close = { x = bs[3].x, y = 0, w = bs[3].w, h = f.caption },
-		nodrag = f.nodrag,
+		nodrag = no_drag_rects(rt().mainDialog(), f.caption),
 	})
 end
 
