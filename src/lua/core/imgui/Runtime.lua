@@ -645,6 +645,18 @@ local function dialog_size(d, st)
 	return math.max(w or 0, 1), math.max(h or 0, 1)
 end
 
+--- The client size of a dialog drawn inside the main window. A user size (RASTERSIZE, SIZE)
+-- is the whole window's, and iDialogSetChildrenCurrentSizeMethod gives the child that less
+-- the frame (iupDialogGetDecorSize); a dialog sized by its content gets the content.
+local function panel_client_size(d, st)
+	local w, h = dialog_size(d, st)
+	local uw, uh = Layout.userSize(d, st)
+	local dw, dh = require("core.imgui.widgets.dialog").decorSize(d)
+	if uw > 0 then w = math.max(1, uw - dw) end
+	if uh > 0 then h = math.max(1, uh - dh) end
+	return w, h
+end
+
 local SCREEN_POS = {
 	[0xFFFF] = "center", [0xFFFE] = "left", [0xFFFD] = "right", [0xFFFC] = "mouse",
 	[0xFFFB] = "current", [0xFFFA] = "centerparent", [0xFFF9] = "leftparent", [0xFFF8] = "rightparent",
@@ -709,14 +721,13 @@ function M.show(d, x, y)
 		end
 		st.x, st.y = 0, 0
 	else
-		local w, h = parse_size(Element.own(d, "RASTERSIZE"))
-		if not (w and h) then
-			local nw, nh = dialog_size(d, st)
-			w, h = w or nw, h or nh
-		end
+		local w, h = panel_client_size(d, st)
 		st.w, st.h = w, h
 		if first_show or x then
-			st.data.ox, st.data.oy = resolve_xy(d, st, x, y, w, h)
+			-- iDialogAdjustPos places the window; the client sits inside its frame
+			local dw, dh = require("core.imgui.widgets.dialog").decorSize(d)
+			local wx, wy = resolve_xy(d, st, x, y, w + dw, h + dh)
+			st.data.ox, st.data.oy = wx + dw / 2, wy + dh - dw / 2
 		end
 	end
 	st.data.shown = true
@@ -800,6 +811,9 @@ function M.layoutNow(el)
 	local w, h
 	if d == main_dialog and st.data.shown then
 		w, h = st.w, st.h
+	elseif main_dialog and d ~= main_dialog and Element.own(d, "RASTERSIZE") then
+		w, h = panel_client_size(d, st)
+		if st.data.shown then st.w, st.h = w, h end
 	else
 		w, h = parse_size(Element.own(d, "RASTERSIZE"))
 		if not (w and h) then
@@ -1412,14 +1426,14 @@ local function tooltip(d)
 	d:layer("main")
 end
 
--- Chrome for dialogs drawn inside the main window (secondary dialogs).
-local CAPTION = 31
+-- Chrome for dialogs drawn inside the main window (secondary dialogs): the caption band
+-- IUP's frame puts above the client, the top border and the caption (iupdrvDialogGetDecoration).
 local function chrome_of(d, st)
-	if Element.own(d, "BORDER") == "NO" or Element.own(d, "MENUBOX") == "NO" and (Element.own(d, "TITLE") or "") == "" then
-		return nil
-	end
 	if Element.own(d, "CUSTOMFRAME") == "YES" or Element.own(d, "HIDETITLEBAR") == "YES" then return nil end
-	return { top = CAPTION }
+	local dw, dh = require("core.imgui.widgets.dialog").decorSize(d)
+	local caption = dh - dw
+	if caption <= 0 then return nil end
+	return { top = caption + dw / 2 }
 end
 
 local function paint_dialog_frame(d, st)

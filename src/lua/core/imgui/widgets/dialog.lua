@@ -47,6 +47,28 @@ local function user_size(el, st)
 	return math.max(w, 0), math.max(h, 0)
 end
 
+local function yes(v)
+	v = tostring(v or ""):upper()
+	return v == "YES" or v == "ON" or v == "1" or v == "TRUE"
+end
+
+--- iupdrvDialogGetDecoration + iupDialogGetDecorSize: what a window's frame takes from its
+-- RASTERSIZE/SIZE (a dialog's user size is the window, its child gets the client). The
+-- numbers are the ones IUP's Windows driver measures on a mapped window at 96 DPI (the
+-- tour's dialogs sit at -8,-31 when resizable and -3,-26 when not): SM_CYCAPTION 23, a
+-- sizing border of 8 with the padded border, a fixed frame of 3, a plain border of 1.
+local CAPTION_H, SIZING_BORDER, FIXED_BORDER, THIN_BORDER = 23, 8, 3, 1
+function M.decorSize(el)
+	local function a(n) return Element.getAttribute(el, n) end
+	local has_titlebar = yes(a("MAXBOX")) or yes(a("MINBOX")) or yes(a("MENUBOX")) or Element.own(el, "TITLE") ~= nil
+	local caption = has_titlebar and CAPTION_H or 0
+	local border = 0
+	if yes(a("RESIZE")) then border = SIZING_BORDER
+	elseif has_titlebar then border = FIXED_BORDER
+	elseif yes(a("BORDER")) then border = THIN_BORDER end
+	return 2 * border, 2 * border + caption
+end
+
 local function menubar(el)
 	local menu = Element.getHandle(el, "MENU")
 	if not menu then return nil end
@@ -82,7 +104,10 @@ Classes.define({
 			local w, h = parse_size(value)
 			if st.data.shown and w and h then
 				if is_main(el) then backend().window("size", w, h)
-				else st.w, st.h = w, h end
+				else
+					local dw, dh = M.decorSize(el)
+					st.w, st.h = math.max(1, w - dw), math.max(1, h - dh)
+				end
 			end
 		end,
 		PLACEMENT = function(el, st, value)

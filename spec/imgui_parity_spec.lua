@@ -282,6 +282,38 @@ describe("imgui parity: floating POSITION", function()
 	end)
 end)
 
+describe("imgui parity: secondary dialog frame", function()
+	-- A dialog's RASTERSIZE is its window; iDialogSetChildrenCurrentSizeMethod gives the child
+	-- the client, less iupDialogGetDecorSize. On the IUP build the Feedback dialog (640x480,
+	-- resizable, titled) has its client at -8,-31 and its draft box 600x346; the host laid
+	-- the client out at 640x480 (draft 616x384).
+	local function client_of(iup, R, attrs)
+		iup.Show(iup.dialog({ iup.vbox({ iup.fill({}) }), RASTERSIZE = "800x600" })) -- the main window
+		local child = iup.canvas({ BORDER = "NO" }) -- expands both ways
+		attrs[1] = child
+		local d = iup.dialog(attrs)
+		iup.Show(d)
+		R.frame()
+		return iup.GetAttribute(child, "RASTERSIZE")
+	end
+
+	it("takes the caption and sizing border from a resizable dialog's RASTERSIZE", function()
+		local iup, R = host()
+		assert.equal("624x441", client_of(iup, R, { TITLE = "Feedback", RASTERSIZE = "640x480" }))
+	end)
+
+	it("takes a fixed frame from a dialog that does not resize", function()
+		local iup, R = host()
+		assert.equal("634x451", client_of(iup, R, { TITLE = "Token", RESIZE = "NO", RASTERSIZE = "640x480" }))
+	end)
+
+	it("takes nothing from a dialog with no title bar and no border", function()
+		local iup, R = host()
+		assert.equal("640x348", client_of(iup, R, { RASTERSIZE = "640x348", BORDER = "NO", RESIZE = "NO",
+			MENUBOX = "NO", MAXBOX = "NO", MINBOX = "NO" }))
+	end)
+end)
+
 describe("imgui parity: IupShow", function()
 	-- iDialogAfterShow (iup_dialog.c) calls IupFlush before SHOW_CB, so a timer that is
 	-- due when the dialog is shown runs inside IupShow. Lunar's theme manager queues its
