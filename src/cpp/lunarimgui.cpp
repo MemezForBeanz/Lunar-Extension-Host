@@ -156,6 +156,14 @@ void push_event(int type, int button = 0, int code = 0, float dx = 0, float dy =
     LunarUiEvent e = {};
     e.type = type; e.button = button; e.code = code; e.mods = event_mods();
     e.x = (float)g.mx; e.y = (float)g.my; e.dx = dx; e.dy = dy;
+    /* ImGui's own IO, for code that draws ImGui widgets through cimgui */
+    if (ImGui::GetCurrentContext()) {
+        ImGuiIO &io = ImGui::GetIO();
+        if (type == 1 || type == 2 || type == 3) io.AddMousePosEvent(e.x, e.y);
+        if (type == 2 || type == 3) io.AddMouseButtonEvent(((button & 7) - 1) == 1 ? 2 : ((button & 7) - 1) == 2 ? 1 : (button & 7) - 1, type == 2);
+        if (type == 4) io.AddMouseWheelEvent(dx, dy);
+        if (type == 8) io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+    }
     /* consecutive moves collapse into one: only the last position matters */
     if (type == 1 && !g.events.empty() && g.events.back().type == 1) { g.events.back() = e; return; }
     g.events.push_back(e);
@@ -283,7 +291,13 @@ LRESULT hit_test(HWND h, LPARAM l) {
 bool is_button_hit(WPARAM ht) { return ht == HTCLOSE || ht == HTMAXBUTTON || ht == HTMINBUTTON; }
 
 LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
-    if (g.device && ImGui::GetCurrentContext() && ImGui::GetIO().BackendPlatformUserData) ImGui_ImplWin32_WndProcHandler(h, m, w, l);
+    /* The mouse is this file's alone: ImGui's own handler would SetCapture/ReleaseCapture
+     * and track leaves too, and its ReleaseCapture on button-up arrives here as
+     * WM_CAPTURECHANGED before the button-up itself, which read as a second release (every
+     * click fired twice). ImGui's IO is fed from the ordered events instead (push_event). */
+    bool mouse_msg = (m >= WM_MOUSEFIRST && m <= WM_MOUSELAST) || (m >= WM_NCMOUSEMOVE && m <= WM_NCXBUTTONDBLCLK)
+        || m == WM_MOUSELEAVE || m == WM_NCMOUSELEAVE || m == WM_CAPTURECHANGED || m == WM_SETCURSOR;
+    if (!mouse_msg && g.device && ImGui::GetCurrentContext() && ImGui::GetIO().BackendPlatformUserData) ImGui_ImplWin32_WndProcHandler(h, m, w, l);
     switch (m) {
     case WM_NCCALCSIZE:
         if (w && g.custom_frame && !g.fullscreen) {
@@ -390,7 +404,9 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_CAPTURECHANGED:
-        for (int i = 0; i < 3; i++) if (g.down[i]) { g.down[i] = false; g.released[i]++; push_event(3, i + 1); }
+        /* another window took the mouse while a button was held: that is a release */
+        if ((HWND)l != h)
+            for (int i = 0; i < 3; i++) if (g.down[i]) { g.down[i] = false; g.released[i]++; push_event(3, i + 1); }
         break;
     case WM_MOUSEWHEEL: {
         float d = (float)GET_WHEEL_DELTA_WPARAM(w) / WHEEL_DELTA;

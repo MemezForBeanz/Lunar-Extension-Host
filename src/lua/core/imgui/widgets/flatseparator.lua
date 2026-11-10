@@ -48,7 +48,7 @@ local function event(e, st, ev, rt)
 	end
 	if (ev.type == "press" or ev.type == "release") and style(e) == "SASH" then
 		local p = ev.type == "press" and 1 or 0
-		local r = Element.call(e, "FLAT_BUTTON_CB", ev.button, p, ev.lx or ev.x, ev.ly or ev.y, ev.status)
+		local r = Element.call(e, "FLAT_BUTTON_CB", ev.iupbutton or 48 + (ev.button or 1), p, ev.lx or ev.x, ev.ly or ev.y, ev.status)
 		if r ~= require("core.imgui.iup").IGNORE then
 			if p == 1 and rt.capture then rt.capture(e) elseif p == 0 and rt.release then rt.release() end
 		end

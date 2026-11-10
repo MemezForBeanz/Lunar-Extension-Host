@@ -229,6 +229,12 @@ local function hitTab(el, st, x, y)
 	end
 	return nil
 end
+-- iFlatTabsConvertXYToPos: the tab under (x, y) inside the strip, or -1 (TabOrder and
+-- TabStripView find the tab a press or a drag is over with it)
+local function xyToPos(el, st, x, y)
+	local hit = hitTab(el, st, st.x + x, st.y + y)
+	return hit or -1
+end
 local function drawTabContent(el, st, dc, pos, x, y, w, h, color)
 	local child = pages(el)[pos + 1]
 	local title = tabTitle(el, pos, child)
@@ -403,6 +409,14 @@ local function classGetCount(el) return #pages(el) end
 local function childAdded(el, st, child, pos)
 	local p = (pos or #st.children) - 1
 	local names = { "TABTITLE", "TABIMAGE", "TABVISIBLE", "TABACTIVE", "TABFORECOLOR", "TABBACKCOLOR", "TABHIGHCOLOR", "TABFONT", "TABTIP" }
+	-- iFlatTabsChildAddedMethod: inserted before the last tab, the Id attributes of the
+	-- tabs after it move up one, so each keeps its own title, image and state
+	for q = #st.children - 1, p + 1, -1 do
+		for _, name in ipairs(names) do
+			Element.setAttribute(el, name .. q, own(el, name .. (q - 1)))
+			Element.setAttribute(el, name .. (q - 1), nil)
+		end
+	end
 	for _, name in ipairs(names) do
 		if own(el, name .. p) == nil and own(child, name) ~= nil then Element.setAttribute(el, name .. p, own(child, name)) end
 	end
@@ -429,12 +443,13 @@ local function childRemoved(el, st, child, pos)
 end
 
 local function event(el, st, ev, rt)
+	-- IUP's mouse callbacks take the button as '1' '2' '3' and x, y inside the control
 	if ev.type == "move" then
 		local hit = hitTab(el, st, ev.x, ev.y)
 		local extra = hitExtra(el, st, ev.x, ev.y)
 		local p = hit and hit or nil
 		if st.data.hover ~= p or st.data.extraHover ~= extra then st.data.hover, st.data.extraHover = p, extra; rt.redraw(el) end
-		local ret = Element.call(el, "FLAT_MOTION_CB", ev.x, ev.y, ev.status or iup._status())
+		local ret = Element.call(el, "FLAT_MOTION_CB", ev.lx or ev.x - st.x, ev.ly or ev.y - st.y, ev.status or iup._status())
 		return ret == iup.IGNORE
 	elseif ev.type == "leave" then
 		st.data.hover = nil
@@ -444,7 +459,7 @@ local function event(el, st, ev, rt)
 	elseif ev.type == "press" then
 		local hit, close = hitTab(el, st, ev.x, ev.y)
 		local extra = hitExtra(el, st, ev.x, ev.y)
-		local ret = Element.call(el, "FLAT_BUTTON_CB", ev.button, 1, ev.x, ev.y, ev.status or iup._status({ b1 = ev.button == 1 }))
+		local ret = Element.call(el, "FLAT_BUTTON_CB", ev.iupbutton or 48 + ev.button, 1, ev.lx or ev.x - st.x, ev.ly or ev.y - st.y, ev.status or iup._status({ b1 = ev.button == 1 }))
 		if ret == iup.IGNORE then return true end
 		if ev.button == 3 then
 			if hit and activeAt(el, hit) then fireResult(ev, Element.call(el, "RIGHTCLICK_CB", hit)) end
@@ -460,7 +475,7 @@ local function event(el, st, ev, rt)
 	elseif ev.type == "release" then
 		local hit, close = hitTab(el, st, ev.x, ev.y)
 		local extra = hitExtra(el, st, ev.x, ev.y)
-		local ret = Element.call(el, "FLAT_BUTTON_CB", ev.button, 0, ev.x, ev.y, ev.status or iup._status())
+		local ret = Element.call(el, "FLAT_BUTTON_CB", ev.iupbutton or 48 + ev.button, 0, ev.lx or ev.x - st.x, ev.ly or ev.y - st.y, ev.status or iup._status())
 		if ret == iup.IGNORE then st.data.press = nil; return true end
 		if ev.button == 1 and st.data.press ~= nil and st.data.press == hit then
 			local p = hit
@@ -496,7 +511,7 @@ local function event(el, st, ev, rt)
 end
 
 local def = {
-	name = "flattabs", children = -1, clip = true, focusable = true,
+	name = "flattabs", children = -1, clip = true, focusable = true, xyToPos = xyToPos,
 	defaults = {
 		SHOWTABS = "YES", TABTYPE = "TOP", SHOWLINES = "YES", TABSLINECOLOR = "160 160 160",
 		TABSIMAGEPOSITION = "LEFT", TABSIMAGESPACING = "2", TABSALIGNMENT = "ACENTER:ACENTER",
@@ -512,7 +527,14 @@ local def = {
 		FLAT_BUTTON_CB = true, FLAT_MOTION_CB = true, FLAT_LEAVEWINDOW_CB = true,
 		FLAT_GETFOCUS_CB = true, FLAT_KILLFOCUS_CB = true, EXTRABUTTON_CB = true,
 	},
-	get = { VALUE = classGetValue, VALUEPOS = classGetValuePos, VALUE_HANDLE = classGetValueHandle, COUNT = classGetCount },
+	get = { VALUE = classGetValue, VALUEPOS = classGetValuePos, VALUE_HANDLE = classGetValueHandle, COUNT = classGetCount,
+		-- iFlatTabsGetClientSizeAttrib: the page area, without the tab band (TabOrder takes
+		-- the band's height as RASTERSIZE minus this)
+		CLIENTSIZE = function(el, st)
+			require("core.imgui.Runtime").layoutNow(el)
+			local _, _, w, h = clientRect(el, st)
+			return string.format("%dx%d", math.max(0, w), math.max(0, h))
+		end },
 	set = { VALUE = setValue, VALUEPOS = setValuePos, VALUE_HANDLE = setValue },
 	childAdded = childAdded, childRemoved = childRemoved,
 	natural = natural, place = place, draw = draw, event = event, visibleChildren = visibleChildren,

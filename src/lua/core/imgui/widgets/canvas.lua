@@ -63,7 +63,8 @@ local function event(e, st, ev, rt)
 	local x, y = ev.lx or ((ev.x or st.x) - st.x), ev.ly or ((ev.y or st.y) - st.y)
 	local status = ev.status or iup._status(ev.mods)
 	if ev.type == "press" or ev.type == "release" then
-		local r = call_result(e, "BUTTON_CB", ev.button, ev.type == "press" and 1 or 0, x, y, status)
+		-- IUP passes the button as the character '1' '2' '3' (iup.BUTTON1...)
+		local r = call_result(e, "BUTTON_CB", ev.iupbutton or 48 + ev.button, ev.type == "press" and 1 or 0, x, y, status)
 		if r == iup.CLOSE then ev.result = r end
 		if ev.type == "press" then rt.capture(e) else rt.release() end
 		return true
