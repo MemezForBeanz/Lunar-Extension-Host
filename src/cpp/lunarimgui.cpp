@@ -994,8 +994,10 @@ int l_now(lua_State *L) {
 int l_wait(lua_State *L) {
     double t = luaL_optnumber(L, 1, 0.016);
     DWORD ms = t < 0 ? INFINITE : (DWORD)std::max(0.0, t * 1000.0);
-    MsgWaitForMultipleObjectsEx(0, nullptr, ms, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
-    return 0;
+    /* true when a message woke the wait, false when it timed out */
+    DWORD r = MsgWaitForMultipleObjectsEx(0, nullptr, ms, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+    lua_pushboolean(L, r == WAIT_OBJECT_0);
+    return 1;
 }
 
 int l_set_paint_callback(lua_State *L) {

@@ -22,8 +22,16 @@ int K32EnumProcessModules(void*, void**, uint32_t, uint32_t*);
 int K32GetModuleInformation(void*, void*, MEM_MODINFO*, uint32_t);
 uint32_t K32GetModuleBaseNameA(void*, void*, char*, uint32_t);
 int K32EmptyWorkingSet(void*);
+typedef struct { uint32_t lo, hi; } MEM_FT;
+int GetProcessTimes(void*, MEM_FT*, MEM_FT*, MEM_FT*, MEM_FT*);
 ]]
 local C = ffi.C
+local function cpu_seconds()
+	local a, b, k, u = ffi.new("MEM_FT"), ffi.new("MEM_FT"), ffi.new("MEM_FT"), ffi.new("MEM_FT")
+	C.GetProcessTimes(C.GetCurrentProcess(), a, b, k, u)
+	local function s(ft) return (ft.hi * 4294967296 + ft.lo) / 1e7 end
+	return s(k) + s(u)
+end
 
 local function memory()
 	local pmc = ffi.new("MEM_PMC"); pmc.cb = ffi.sizeof(pmc)
@@ -52,9 +60,19 @@ end
 
 local real_mainloop = iup.MainLoop
 iup.MainLoop = function()
-	local t = iup.timer({ time = 8000 })
+	-- Idle CPU: what the process burns over ten seconds of nobody touching it.
+	local idle_start
+	local idle = iup.timer({ time = 8000 })
+	function idle:action_cb()
+		self.run = "NO"
+		idle_start = cpu_seconds()
+		return iup.DEFAULT
+	end
+	idle.run = "YES"
+	local t = iup.timer({ time = 18000 })
 	function t:action_cb()
 		self.run = "NO"
+		say("idle CPU over 10 s: %.0f ms", (cpu_seconds() - (idle_start or cpu_seconds())) * 1000)
 		collectgarbage("collect")
 		say("build: %s", IMGUI and "imgui" or "iup")
 		say("after start: working set %.1f MB, private %.1f MB, lua heap %.1f MB", select(1, memory()), select(2, memory()), collectgarbage("count") / 1024)

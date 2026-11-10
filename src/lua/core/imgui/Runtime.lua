@@ -93,7 +93,15 @@ local function dialog_of(el)
 	return nil
 end
 
-Element.hooks.invalidate = function(el, kind)
+Element.hooks.invalidate = function(el, kind, name)
+	if kind ~= "layout" then
+		-- IUP repaints for a visual attribute, not for the canvas draw state (DRAWCOLOR,
+		-- DRAWSTYLE... set inside a paint callback) or internal storage; and what a
+		-- paint changes about itself is already on this frame. Either would otherwise
+		-- ask for a frame from every frame, and the window would never go idle.
+		if in_paint then return end
+		if type(name) == "string" and (name:sub(1, 4) == "DRAW" or name:sub(1, 4) == "_IUP") then return end
+	end
 	need_frame = true
 	if kind ~= "layout" or in_layout then return end
 	local _, dst = dialog_of(el)
@@ -859,8 +867,12 @@ function M.step(wait)
 		local due = next_timer_due()
 		local t = 0.5
 		if due then t = math.max(0, math.min(t, due - M.now())) end
-		if t > 0 then B.wait(t) end
+		local woke
+		if t > 0 then woke = B.wait(t) end
 		run_timers(M.now())
+		-- Nothing arrived and nothing changed: the window already shows this frame. (A
+		-- backend whose wait says nothing, like the Null one, always gets the frame.)
+		if woke == false and not need_frame and not animating then return DEFAULT end
 	end
 	M.frame()
 	return DEFAULT
