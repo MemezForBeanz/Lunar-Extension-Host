@@ -14,7 +14,7 @@ function M.new(opts)
 		name = "null",
 		w = opts.w or 1280, h = opts.h or 800,
 		clock = 0, open_ = false, frames = 0,
-		calls = {}, frame_calls = {}, inputs = {},
+		calls = {}, frame_calls = {}, inputs = {}, window_calls = {},
 		mx = -1, my = -1, down = { false, false, false },
 		clipboard = "", cursor_name = "ARROW", title = nil,
 		maximized = false, minimized = false, x = 100, y = 100,
@@ -170,6 +170,7 @@ function M.new(opts)
 	function B.cursor_pos() return B.x + math.max(0, B.mx), B.y + math.max(0, B.my) end
 
 	function B.window(op, a, b, c, d)
+		B.window_calls[#B.window_calls + 1] = { op, a, b, c, d }
 		if op == "title" then if a ~= nil then B.title = a end return B.title
 		elseif op == "size" then if a then B.w, B.h = a, b end return B.w, B.h
 		elseif op == "pos" then if a then B.x, B.y = a, b end return B.x, B.y
@@ -191,7 +192,7 @@ function M.new(opts)
 		elseif op == "full" then return 1920, 1080
 		elseif op == "dpi" then return B.dpi_scale
 		elseif op == "icon" then B.icon = { a, b, c }
-		elseif op == "tray" then B.tray = a and true or false; B.tray_tip = b
+		elseif op == "tray" then B.tray = a and true or false; if b ~= nil then B.tray_tip = b end
 		elseif op == "traytip" then B.tray_tip = a
 		elseif op == "videohost_create" then
 			local id = B.next_child; B.next_child = id + 1
