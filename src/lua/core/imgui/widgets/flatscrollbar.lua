@@ -177,8 +177,10 @@ function M.sync(e)
 	local floating = yes(attr(e, "SHOWFLOATING"))
 	local vert, horiz = bars[1], bars[2]
 	local vs, hs = Element.state(vert), Element.state(horiz)
-	local enabled = tostring(attr(e, "FLATSCROLLBAR") or "YES"):upper() == "YES"
-	local mode = tostring(attr(e, "SCROLLBAR") or "VERTICAL"):upper()
+	-- FLATSCROLLBAR is YES (both), VERTICAL, HORIZONTAL or NO, as SCROLLBAR is
+	local fsb = tostring(attr(e, "FLATSCROLLBAR") or "YES"):upper()
+	local enabled = fsb ~= "NO"
+	local mode = (fsb == "VERTICAL" or fsb == "HORIZONTAL") and fsb or tostring(attr(e, "SCROLLBAR") or "VERTICAL"):upper()
 	local needv = enabled and mode ~= "NO" and mode ~= "HORIZONTAL" and num(attr(e, "YMAX")) > num(attr(e, "DY"))
 	local needh = enabled and mode ~= "NO" and mode ~= "VERTICAL" and num(attr(e, "XMAX")) > num(attr(e, "DX"))
 	Element.setAttribute(vert, "VISIBLE", needv and (floating and "NO" or "YES") or "NO")

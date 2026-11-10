@@ -69,10 +69,19 @@ local function row_value(e, pos, field)
 	local v = Element.getId(e, field, pos)
 	return v ~= nil and v or call(e, "value", pos, field)
 end
+-- iup_flatrows.c rows_size: 240 wide, five rows tall (the header is not counted)
 local function rows_natural(e)
-	return 240, rows_header(e) + rows_height(e) * 5
+	return 240, rows_height(e) * 5
 end
+local rows_paint
+-- flatrows is a canvas in IUP: whatever it paints stays inside its own rectangle.
 local function rows_draw(e, st, dc, rt)
+	dc:clip_push(st.x, st.y, st.w, st.h)
+	local ok, err = pcall(rows_paint, e, st, dc, rt)
+	dc:clip_pop()
+	if not ok then error(err, 0) end
+end
+function rows_paint(e, st, dc, rt)
 	FlatScrollbar.sync(e)
 	local rh, header, count = rows_height(e), rows_header(e), rows_count(e)
 	local bg, fg = attr(e, "BGCOLOR"), attr(e, "FGCOLOR")
@@ -105,7 +114,12 @@ local function rows_draw(e, st, dc, rt)
 	for pos = first, last do
 		local y = st.y + header + (pos - 1) * rh - scroll
 		local selected, hovered = tostring(attr(e, "VALUE") or "0") == tostring(pos), data(e, "hover") == pos
-		if selected then dc:fill(st.x + 4, y + 1, st.w - 9, rh - 2, attr(e, "PSCOLOR") or bg, { radius = num(attr(e, "ITEMRADIUS"), 0) }) end
+		if selected then
+			dc:fill(st.x + 4, y + 1, st.w - 9, rh - 2, attr(e, "PSCOLOR") or bg, { radius = num(attr(e, "ITEMRADIUS"), 0) })
+			-- iup_flatrows.c: the selected row's marker, x 5..7 and y+6..y+rh-7 inclusive
+			local marker = attr(e, "ITEMMARKERCOLOR")
+			if marker then dc:fill(st.x + 5, y + 6, 3, rh - 12, marker) end
+		end
 		if hovered and not selected then dc:fill(st.x + 4, y + 1, st.w - 9, rh - 2, attr(e, "HLCOLOR") or bg) end
 		local x, right = st.x + 12, st.x + st.w - 12
 		local image = row_value(e, pos, "IMAGE")

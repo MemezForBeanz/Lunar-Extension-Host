@@ -383,6 +383,14 @@ local function menu_items(acc, h, trail)
 end
 
 -- The run ----------------------------------------------------------------------------------------
+local commands_reg
+-- LUNAR_TOUR_MATCH="a|b|c": only entries whose title contains one of the words
+local function tour_match(title)
+	local only = os.getenv("LUNAR_TOUR_MATCH")
+	if not only then return true end
+	for word in only:gmatch("[^|]+") do if title:find(word, 1, true) then return true end end
+	return false
+end
 local real_mainloop = iup.MainLoop
 iup.MainLoop = function()
 	local dlg, hwnd, pages, page_i, queue, qi = nil, nil, nil, 0, nil, 1
@@ -413,7 +421,9 @@ iup.MainLoop = function()
 					user32.ShowWindow(hwnd, 9); user32.MoveWindow(hwnd, 0, 0, 1400, 900, 1)
 				end
 				pages = leaves(find_strip(dlg), {}, {})
-				phase, ticks = "page", 0
+				-- LUNAR_TOUR_ONLY=commands runs just the palette commands
+				local only = os.getenv("LUNAR_TOUR_ONLY")
+				phase, ticks = (only == "commands" or only == "menus") and only or "page", 0
 				return
 			end
 			if phase == "page" then
@@ -484,9 +494,11 @@ iup.MainLoop = function()
 					show(pages[1])
 				end
 				local m = menus[mi]
-				if not m then phase = "done"; return end
+				if not m then phase, mi, menus = "commands", 1, nil; return end
 				mi = mi + 1
+				emit("M", m.title)
 				if skipped(m.title) then return end
+				if not tour_match(m.title) then return end
 				errors = {}
 				before = open_things(hwnd)
 				m.key = "menu--" .. slug(m.title) .. "-" .. hash(m.title)
@@ -509,13 +521,55 @@ iup.MainLoop = function()
 				phase, ticks = "menus", 0
 				return
 			end
+			if phase == "commands" then
+				-- Every command the palette offers (Lunar's own and the extensions').
+				if not menus then
+					local reg = rawget(_G, "LUNAR_DEV_SHELL") and LUNAR_DEV_SHELL.palette and LUNAR_DEV_SHELL.palette._registry
+					menus = {}
+					-- what the palette lists for an empty query: commands and providers' items
+					local list = reg and select(1, reg:query("")) or {}
+					local seen_titles = {}
+					for k, item in pairs(list) do
+						local title = type(item) == "table" and tostring(item.title or k)
+						if title and item.run and not seen_titles[title] then
+							seen_titles[title] = true
+							menus[#menus + 1] = { item = item, title = title }
+						end
+					end
+					table.sort(menus, function(a, b) return a.title < b.title end)
+					commands_reg = reg
+				end
+				local m = menus[mi]
+				if not m then phase = "done"; return end
+				mi = mi + 1
+				if skipped(m.title) or m.title:lower():find("theme", 1, true) or m.title:lower():find("light/dark", 1, true) then return end
+				if not tour_match(m.title) then return end
+				errors = {}
+				before = open_things(hwnd)
+				m.key = "cmd--" .. slug(m.title) .. "-" .. hash(m.title)
+				local okc, res, why = pcall(commands_reg.run, commands_reg, m.item)
+				if not okc then errors[#errors + 1] = tostring(res) elseif res == false and why then errors[#errors + 1] = tostring(why) end
+				current = m
+				phase, ticks = "command-settle", 0
+				return
+			end
+			if phase == "command-settle" then
+				if ticks < 6 then return end
+				local new = shoot_new(current.key, before, hwnd, dlg)
+				emit("O", current.key, "command", "", current.title, #new > 0 and "opened" or "nothing")
+				for _, e in ipairs(errors) do emit("X", current.key, e) end
+				close_new(new)
+				show(pages[1])
+				phase, ticks = "commands", 0
+				return
+			end
 		end)
 		if not ok then emit("X", "tour", tostring(err)) end
 		if phase == "done" then
 			self.run = "NO"
 			out:close()
-			iup.ExitLoop()
-			return iup.CLOSE
+			-- a dialog's nested loop would swallow ExitLoop; the run is over either way
+			os.exit(0)
 		end
 		return iup.DEFAULT
 	end
