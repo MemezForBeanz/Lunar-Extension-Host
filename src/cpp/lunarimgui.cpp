@@ -55,6 +55,7 @@ extern "C" {
 #include "imgui_internal.h"
 #include "backends/imgui_impl_win32.h"
 #include "backends/imgui_impl_dx11.h"
+#include "lunarimgui_gdifont.h"
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
 #ifndef WM_DPICHANGED
@@ -579,7 +580,13 @@ void merge_fallbacks(float size) {
         std::wstring p = std::wstring(windir) + name;
         if (GetFileAttributesW(p.c_str()) == INVALID_FILE_ATTRIBUTES) continue;
         ImFontConfig cfg; cfg.MergeMode = true; cfg.PixelSnapH = true;
-        ImGui::GetIO().Fonts->AddFontFromFileTTF(utf8(p.c_str()).c_str(), size, &cfg);
+        std::vector<unsigned char> bytes;
+        if (!read_file(p, bytes)) continue;
+        void *font_data = IM_ALLOC(bytes.size());
+        memcpy(font_data, bytes.data(), bytes.size());
+        lunarimgui_gdi_register_font_data(font_data, utf8(p.c_str()).c_str());
+        cfg.FontDataOwnedByAtlas = true;
+        ImGui::GetIO().Fonts->AddFontFromMemoryTTF(font_data, (int)bytes.size(), size, &cfg);
     }
 }
 
@@ -592,7 +599,11 @@ int load_face(const std::string &path) {
     read_metrics(bytes, face);
     ImFontConfig cfg; cfg.PixelSnapH = true; cfg.OversampleH = 1; cfg.OversampleV = 1;
     cfg.RasterizerMultiply = 1.4f;   /* closer to the weight GDI ClearType gave IUP text */
-    ImFont *font = ImGui::GetIO().Fonts->AddFontFromFileTTF(path.c_str(), 16.0f, &cfg);
+    void *font_data = IM_ALLOC(bytes.size());
+    memcpy(font_data, bytes.data(), bytes.size());
+    lunarimgui_gdi_register_font_data(font_data, path.c_str());
+    cfg.FontDataOwnedByAtlas = true;
+    ImFont *font = ImGui::GetIO().Fonts->AddFontFromMemoryTTF(font_data, (int)bytes.size(), 16.0f, &cfg);
     if (!font) return -1;
     merge_fallbacks(16.0f);
     face.font = font;
@@ -683,6 +694,9 @@ void ensure_imgui() {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO &io = ImGui::GetIO();
+    const char *glyphs = getenv("LUNAR_GLYPHS");
+    if (!glyphs || strcmp(glyphs, "stb") != 0)
+        io.Fonts->SetFontLoader(lunarimgui_gdi_font_loader());
     io.IniFilename = nullptr; io.LogFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     io.DisplaySize = ImVec2(1280, 800);

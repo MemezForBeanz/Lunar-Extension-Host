@@ -377,6 +377,7 @@ add_executable(Lunar WIN32
     src/c/libs/svgicon_sizes.c
     src/c/libs/imagecodec.c
     src/cpp/lunarimgui.cpp
+    src/cpp/lunarimgui_gdifont.cpp
     vendor/imgui/imgui.cpp
     vendor/imgui/imgui_draw.cpp
     vendor/imgui/imgui_tables.cpp
