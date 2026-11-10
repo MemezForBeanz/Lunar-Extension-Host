@@ -255,7 +255,7 @@ frame_begin() -> input        frame_end()
             wheel_x, wheel_y, keys = { { code, down, shift, ctrl, alt, sys }, ... },
             chars = { "a", ... }, mods = { shift, ctrl, alt, sys },
             focused, resized, close_requested, files = { ... },
-            events = { { type = "move"|"press"|"release"|"wheel"|"leave"|"keydown"|"keyup"|"char"|"file",
+            events = { { type = "move"|"press"|"release"|"wheel"|"leave"|"keydown"|"keyup"|"char"|"file"|"tray",
                          x, y, button, double, dx, dy, code, char, file,
                          mods = { shift, ctrl, alt, sys, b1, b2, b3 } }, ... } }
 gdi_font(face, bold, italic) -> gid   gdi_metrics(gid, px) -> ascent, descent, height, avg_w
@@ -273,10 +273,17 @@ clip_push(x1,y1,x2,y2) clip_pop()  layer(n)
 cursor(name)  clipboard_get() clipboard_set(s)  cursor_pos() -> sx, sy
 window(op, ...)   ops: title, size, pos, client_origin, maximize, minimize, restore,
                   is_maximized, is_minimized, fullscreen, show, hide, focus, hwnd,
-                  caption (drag region + no-drag rects), screen, full, dpi, icon
+                  caption (drag region + no-drag rects), screen, full, dpi, icon,
+                  tray and videohost child-surface lifecycle operations
 file_dialog{ type, title, filter, filterinfo, directory, file, multiple } -> path|paths|nil
 message_box(title, text, kind)
 ```
+
+`videohost` is a disabled Win32 child window, repositioned in dialog-client pixels
+each frame and hidden when its element or any ancestor is not visible. Because it is
+an HWND, native child z-order is above the ImGui draw list: dropdowns, tooltips, and
+other ImGui overlays drawn over a video host can be hidden behind the video child.
+The host reports that child through `WINDOWID`, `WID`, and `HWND`.
 
 Corner flags follow ImGui's `ImDrawFlags_RoundCorners*` bits (TL=16, TR=32, BL=64,
 BR=128; 0 = all).

@@ -1,4 +1,4 @@
--- Virtual ports of Lunar's flatrows, flatsegmented, flatgrid, flatseek and videohost.
+-- Virtual ports of Lunar's flatrows, flatsegmented, flatgrid and flatseek.
 -- @module core.imgui.widgets.raw
 local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
@@ -326,12 +326,6 @@ local function seek_event(e, st, ev, rt)
 	return false
 end
 
-local function video_draw(e, st, dc, rt)
-	dc:fill(st.x, st.y, st.w, st.h, attr(e, "BGCOLOR") or "0 0 0")
-	local B = rt and (rt.backend or rt.B); if B and B.window then Element.state(e).data.window_id = B.window("hwnd") end
-	Element.state(e).data.rect = { x = st.x, y = st.y, w = st.w, h = st.h }
-end
-
 Classes.define{ name = "flatrows", children = 0, focusable = true, visibleChildren = FlatScrollbar.visible_children, defaults = { COUNT = "0", ROWHEIGHT = "32", FOCUSFEEDBACK = "YES", ITEMRADIUS = "6", ACTIVE = "YES", FLATSCROLLBAR = "YES", SCROLLBARSIZE = "12", BGCOLOR = "255 255 255", FGCOLOR = "30 30 30" }, callbacks = { VALUECHANGED_CB = true }, natural = rows_natural, draw = rows_draw, event = rows_event,
 	create = function(e) FlatScrollbar.create(e) end,
 	get = { HOVER = function(e) return tostring(data(e, "hover", 0)) end, ACCESSIBLEVALUE = function(e) local p = num(attr(e, "VALUE")); return p > 0 and row_value(e, p, "TITLE") end,
@@ -361,7 +355,6 @@ Classes.define{ name = "flatgrid", children = 0, focusable = true, visibleChildr
 } }
 Classes.define{ name = "flatseek", children = 0, focusable = true, defaults = { MAX = "0", VALUE = "0", STEP = "1", PAGESTEP = "10", LINEWIDTH = "4", FOCUSFEEDBACK = "YES" }, callbacks = { VALUECHANGED_CB = true }, natural = seek_natural, draw = seek_draw, event = seek_event,
 	set = { VALUE = function(e, st, v) if st.data.drag then return false end end } }
-Classes.define{ name = "videohost", children = 0, defaults = { BGCOLOR = "0 0 0" }, natural = function() return 320, 180 end, draw = video_draw, get = { WINDOWID = function(e) local v = data(e, "window_id"); return v and tostring(v) end }, methods = { windowId = function(e) local v = data(e, "window_id"); return v and tostring(v) end, rect = function(e) return data(e, "rect") end } }
 
 function M.bind(e, kind, cb) callbacks(e)[kind] = cb end
 return M

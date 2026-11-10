@@ -93,7 +93,7 @@ local function mods_of(bits)
 	end
 	return m
 end
-local TYPES = { "move", "press", "release", "wheel", "keydown", "keyup", "char", "leave", "file" }
+local TYPES = { "move", "press", "release", "wheel", "keydown", "keyup", "char", "leave", "file", "tray" }
 
 local raw_frame_begin = C_API.frame_begin
 function B.frame_begin()
@@ -141,6 +141,8 @@ function B.frame_begin()
 			ev.char = chars[e.code + 1]
 		elseif t == "file" then
 			ev.file = files[e.code + 1]
+		elseif t == "tray" then
+			ev.dx, ev.dy = e.dx, e.dy
 		end
 		list[i + 1] = ev
 	end

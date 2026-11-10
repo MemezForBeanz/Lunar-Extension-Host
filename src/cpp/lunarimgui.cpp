@@ -102,6 +102,7 @@ struct Face {
 struct Rect { int x = 0, y = 0, w = 0, h = 0; bool contains(int px, int py) const { return w > 0 && px >= x && py >= y && px < x + w && py < y + h; } };
 
 struct Shot { bool pending = false; std::string path; int x = 0, y = 0, w = 0, h = 0; bool ok = false; };
+struct VideoChild { HWND hwnd = nullptr; HBRUSH brush = nullptr; };
 
 struct State {
     HWND hwnd = nullptr;
@@ -131,11 +132,61 @@ struct State {
     int last_w = 0, last_h = 0;
     Shot shot;
     std::vector<ImDrawList*> lists; int layer = 0;
+    std::vector<VideoChild> video_children;
+    bool tray = false; std::string tray_tip, tray_title; int tray_balloon = 0; std::string tray_icon;
     std::vector<LunarUiEvent> events, frame_events;
     std::vector<std::string> frame_chars, frame_files;
     std::vector<const char*> frame_char_ptrs, frame_file_ptrs;
     LunarUiFrame frame = {};
 } g;
+
+const UINT LUNAR_TRAY_MESSAGE = WM_APP + 42;
+const UINT LUNAR_TRAY_ID = 1;
+const wchar_t *VIDEO_CLASS = L"LunarImGuiVideoHost";
+std::wstring wide(const char *s);
+
+COLORREF rgb(const char *s) {
+    int r = 0, g = 0, b = 0;
+    if (s) sscanf_s(s, "%d %d %d", &r, &g, &b);
+    return RGB(std::max(0, std::min(255, r)), std::max(0, std::min(255, g)), std::max(0, std::min(255, b)));
+}
+
+LRESULT CALLBACK video_wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (m == WM_ERASEBKGND) return 1;
+    if (m == WM_PAINT) {
+        PAINTSTRUCT ps; HDC dc = BeginPaint(h, &ps);
+        HBRUSH brush = (HBRUSH)GetWindowLongPtrW(h, GWLP_USERDATA);
+        FillRect(dc, &ps.rcPaint, brush ? brush : (HBRUSH)(COLOR_WINDOW + 1)); EndPaint(h, &ps);
+        return 0;
+    }
+
+    return DefWindowProcW(h, m, w, l);
+}
+
+void tray_apply(bool add) {
+    if (!g.hwnd) return;
+    NOTIFYICONDATAW n = {}; n.cbSize = sizeof(n); n.hWnd = g.hwnd; n.uID = LUNAR_TRAY_ID;
+    n.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP; n.uCallbackMessage = LUNAR_TRAY_MESSAGE;
+    n.hIcon = (HICON)SendMessageW(g.hwnd, WM_GETICON, ICON_SMALL, 0);
+    if (!n.hIcon) n.hIcon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1));
+    std::wstring tip = wide(g.tray_tip.c_str());
+    wcsncpy_s(n.szTip, tip.c_str(), _TRUNCATE);
+    Shell_NotifyIconW(add ? (g.tray ? NIM_MODIFY : NIM_ADD) : NIM_DELETE, &n);
+    if (add) g.tray = true;
+}
+
+void tray_balloon() {
+    if (!g.tray || g.tray_balloon <= 0) return;
+    NOTIFYICONDATAW n = {}; n.cbSize = sizeof(n); n.hWnd = g.hwnd; n.uID = LUNAR_TRAY_ID;
+    n.uFlags = NIF_INFO; n.dwInfoFlags = NIIF_INFO;
+    std::wstring tip = wide(g.tray_tip.c_str()), title = wide(g.tray_title.c_str());
+    wcsncpy_s(n.szInfo, tip.c_str(), _TRUNCATE); wcsncpy_s(n.szInfoTitle, title.c_str(), _TRUNCATE);
+    Shell_NotifyIconW(NIM_MODIFY, &n);
+}
+
+void video_frame_reset() {
+    for (auto &v : g.video_children) if (v.hwnd) ShowWindow(v.hwnd, SW_HIDE);
+}
 
 ImU32 color(lua_Number n) { return (ImU32)(unsigned long long)n; }
 bool key_held(int vk) { return (GetKeyState(vk) & 0x8000) != 0; }
@@ -285,6 +336,26 @@ bool is_button_hit(WPARAM ht) { return ht == HTCLOSE || ht == HTMAXBUTTON || ht 
 LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (g.device && ImGui::GetCurrentContext() && ImGui::GetIO().BackendPlatformUserData) ImGui_ImplWin32_WndProcHandler(h, m, w, l);
     switch (m) {
+    case LUNAR_TRAY_MESSAGE:
+        if (w == LUNAR_TRAY_ID) {
+            int button = 0, pressed = 0, dbl = 0;
+            switch ((UINT)l) {
+            case WM_LBUTTONDOWN: button = 1; pressed = 1; break;
+            case WM_LBUTTONUP: button = 1; break;
+            case WM_LBUTTONDBLCLK: button = 1; pressed = 1; dbl = 1; break;
+            case WM_MBUTTONDOWN: button = 2; pressed = 1; break;
+            case WM_MBUTTONUP: button = 2; break;
+            case WM_MBUTTONDBLCLK: button = 2; pressed = 1; dbl = 1; break;
+            case WM_RBUTTONDOWN: button = 3; pressed = 1; break;
+            case WM_RBUTTONUP: button = 3; break;
+            case WM_RBUTTONDBLCLK: button = 3; pressed = 1; dbl = 1; break;
+            }
+            if (button) {
+                LunarUiEvent e = {}; e.type = 10; e.button = button + (dbl ? 8 : 0);
+                e.dx = (float)pressed; e.dy = (float)dbl; g.events.push_back(e);
+            }
+        }
+        return 0;
     case WM_NCCALCSIZE:
         if (w && g.custom_frame && !g.fullscreen) {
             NCCALCSIZE_PARAMS *p = (NCCALCSIZE_PARAMS*)l;
@@ -950,7 +1021,7 @@ int l_open(lua_State *L) {
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.hIcon = LoadIconW(wc.hInstance, MAKEINTRESOURCEW(1));
     RegisterClassExW(&wc);
-    DWORD style = WS_OVERLAPPEDWINDOW, ex = WS_EX_APPWINDOW;
+    DWORD style = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, ex = WS_EX_APPWINDOW;
     int ww = w, wh = h;
     client_to_window(ww, wh, style, ex);
     RECT work, full; monitor_rects(work, full);
@@ -959,6 +1030,9 @@ int l_open(lua_State *L) {
     g.hwnd = CreateWindowExW(ex, wc.lpszClassName, wide(title.c_str()).c_str(), style, x, y, ww, wh,
         nullptr, nullptr, wc.hInstance, nullptr);
     if (!g.hwnd) { lua_pushboolean(L, 0); lua_pushstring(L, "CreateWindowExW failed"); return 2; }
+    WNDCLASSEXW vc = {sizeof(vc)}; vc.lpfnWndProc = video_wndproc; vc.hInstance = wc.hInstance;
+    vc.hCursor = LoadCursor(nullptr, IDC_ARROW); vc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    vc.lpszClassName = VIDEO_CLASS; RegisterClassExW(&vc);
     DragAcceptFiles(g.hwnd, TRUE);
     BOOL dark = TRUE; DwmSetWindowAttribute(g.hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &dark, sizeof(dark));
     if (g.custom_frame) SetWindowPos(g.hwnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
@@ -971,6 +1045,12 @@ int l_open(lua_State *L) {
 }
 
 int l_close(lua_State *L) {
+    if (g.tray) { tray_apply(false); g.tray = false; }
+    for (auto &v : g.video_children) {
+        if (v.hwnd) DestroyWindow(v.hwnd);
+        if (v.brush) DeleteObject(v.brush);
+    }
+    g.video_children.clear();
     if (g.paint_ref != LUA_NOREF) { luaL_unref(L, LUA_REGISTRYINDEX, g.paint_ref); g.paint_ref = LUA_NOREF; }
     for (auto &t : g.textures) if (t.second) t.second->Release();
     g.textures.clear();
@@ -1347,8 +1427,60 @@ int l_window(lua_State *L) {
         if (lua_isstring(L, 2)) SetWindowTextW(h, wide(lua_tostring(L, 2)).c_str());
         wchar_t buf[1024]; GetWindowTextW(h, buf, 1024); lua_pushstring(L, utf8(buf).c_str()); return 1;
     }
+    if (is("tray")) {
+        bool on = lua_toboolean(L, 2) != 0;
+        if (on && !g.tray) tray_apply(true);
+        else if (!on && g.tray) { tray_apply(false); g.tray = false; }
+        return 0;
+    }
+    if (is("traytip")) {
+        g.tray_tip = luaL_optstring(L, 2, "");
+        if (g.tray) tray_apply(true);
+        return 0;
+    }
+    if (is("tray_image")) { g.tray_icon = luaL_optstring(L, 2, ""); return 0; }
+    if (is("tray_balloon_title")) { g.tray_title = luaL_optstring(L, 2, ""); return 0; }
+    if (is("tray_balloon_icon")) return 0;
+    if (is("tray_balloon")) {
+        g.tray_balloon = (int)luaL_optinteger(L, 2, 0);
+        if (g.tray_balloon > 0) tray_balloon();
+        return 0;
+    }
+    if (is("videohost_frame")) { video_frame_reset(); return 0; }
+    if (is("videohost_create")) {
+        VideoChild child;
+        child.hwnd = CreateWindowExW(0, VIDEO_CLASS, L"", WS_CHILD | WS_CLIPSIBLINGS,
+            0, 0, 0, 0, h, nullptr, GetModuleHandleW(nullptr), nullptr);
+        if (!child.hwnd) { lua_pushinteger(L, 0); return 1; }
+        child.brush = CreateSolidBrush(rgb(luaL_optstring(L, 2, "0 0 0")));
+        SetWindowLongPtrW(child.hwnd, GWLP_USERDATA, (LONG_PTR)child.brush);
+        EnableWindow(child.hwnd, FALSE);
+        g.video_children.push_back(child);
+        lua_pushnumber(L, (lua_Number)(uintptr_t)child.hwnd); return 1;
+    }
+    if (is("videohost_destroy")) {
+        HWND child = (HWND)(uintptr_t)luaL_checknumber(L, 2);
+        for (auto it = g.video_children.begin(); it != g.video_children.end(); ++it) {
+            if (it->hwnd == child) {
+                DestroyWindow(it->hwnd); if (it->brush) DeleteObject(it->brush);
+                g.video_children.erase(it); break;
+            }
+        }
+        return 0;
+    }
+    if (is("videohost")) {
+        HWND child = (HWND)(uintptr_t)luaL_checknumber(L, 2);
+        Rect r = rect_field(L, 3, nullptr); bool visible = lua_toboolean(L, 4) != 0;
+        for (auto &v : g.video_children) if (v.hwnd == child) {
+            SetWindowPos(child, HWND_TOP, r.x, r.y, std::max(0, r.w), std::max(0, r.h),
+                SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+            ShowWindow(child, visible ? SW_SHOW : SW_HIDE);
+            break;
+        }
+        return 0;
+    }
     if (is("show")) { if (!IsWindowVisible(h)) ShowWindow(h, SW_SHOW); return 0; }
-    if (is("hide")) { ShowWindow(h, SW_HIDE); return 0; }
+    if (is("hide")) { video_frame_reset(); ShowWindow(h, SW_HIDE); return 0; }
     if (is("focus")) { if (IsIconic(h)) ShowWindow(h, SW_RESTORE); SetForegroundWindow(h); lua_pushboolean(L, 1); return 1; }
     if (is("maximize")) { ShowWindow(h, SW_MAXIMIZE); return 0; }
     if (is("minimize")) { ShowWindow(h, SW_MINIMIZE); return 0; }

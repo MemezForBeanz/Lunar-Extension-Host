@@ -15,6 +15,7 @@ local M = {}
 local function rt() return require("core.imgui.Runtime") end
 local function backend() return rt().backend() end
 local function is_main(el) return rt().mainDialog() == el end
+local function tray_target(el) return is_main(el) or not rt().mainDialog() end
 
 local function parse_size(s)
 	if not s then return nil end
@@ -81,6 +82,24 @@ Classes.define({
 			return false
 		end,
 		SHOWMINIMIZED = function() return false end,
+		TRAY = function(el, st, value)
+			if tray_target(el) and backend() and backend().window then backend().window("tray", value == "YES") end
+		end,
+		TRAYIMAGE = function(el, st, value)
+			if tray_target(el) and backend() and backend().window then backend().window("tray_image", value) end
+		end,
+		TRAYTIP = function(el, st, value)
+			if tray_target(el) and backend() and backend().window then backend().window("traytip", value or "") end
+		end,
+		TRAYTIPBALLOON = function(el, st, value)
+			if tray_target(el) and backend() and backend().window then backend().window("tray_balloon", value) end
+		end,
+		TRAYTIPBALLOONTITLE = function(el, st, value)
+			if tray_target(el) and backend() and backend().window then backend().window("tray_balloon_title", value) end
+		end,
+		TRAYTIPBALLOONTITLEICON = function(el, st, value)
+			if tray_target(el) and backend() and backend().window then backend().window("tray_balloon_icon", value) end
+		end,
 	},
 
 	get = {
@@ -135,6 +154,12 @@ Classes.define({
 	end,
 
 	draw = function(el, st, dc, R)
+		local B = backend()
+		if st.attrs.TRAY == "YES" and B and B.window then
+			B.window("tray", true)
+			if st.attrs.TRAYTIP then B.window("traytip", st.attrs.TRAYTIP) end
+		end
+		if B and B.window then B.window("videohost_frame") end
 		dc:fill(st.x, st.y, st.w, st.h, Element.getAttribute(el, "BGCOLOR") or Element.globals.DLGBGCOLOR)
 		local menu, Menu = menubar(el)
 		if menu and Menu.drawMenubar then Menu.drawMenubar(menu, dc, st.x, st.y, st.w, R) end

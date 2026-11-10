@@ -1278,6 +1278,9 @@ local function route_events(input)
 			if code then key_event(code) end
 		elseif t == "char" then
 			if ev.char then char_event(ev.char) end
+		elseif t == "tray" then
+			local d = main_dialog
+			if d then Element.call(d, "TRAYCLICK_CB", ev.button or 1, ev.dx or 0, ev.double and 1 or 0) end
 		elseif t ~= "keyup" and t ~= "file" then
 			if t == "leave" then
 				mini.inside, mini.mx, mini.my = false, -1, -1
