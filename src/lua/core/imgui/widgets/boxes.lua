@@ -342,8 +342,11 @@ Classes.define({
 		COUNT = function(el, st) return tostring(#st.children) end,
 	},
 	methods = nil,
+	-- iZboxComputeNaturalSizeMethod: CHILDSIZEALL (registered "Yes") measures every child,
+	-- hidden ones included; NO only the current one
 	natural = function(el, st, L)
-		local all = own(st, "CHILDSIZEALL") == "YES"
+		local v = tostring(Element.getAttribute(el, "CHILDSIZEALL") or ""):upper()
+		local all = v == "YES" or v == "ON" or v == "1" or v == "TRUE"
 		local current = zbox_current(el, st)
 		local w, h, ce = 0, 0, 0
 		for _, c in ipairs(st.children) do

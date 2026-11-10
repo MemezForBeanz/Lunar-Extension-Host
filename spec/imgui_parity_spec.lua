@@ -222,6 +222,25 @@ describe("imgui parity: flat scroll box", function()
 	end)
 end)
 
+describe("imgui parity: zbox", function()
+	-- iZboxComputeNaturalSizeMethod with CHILDSIZEALL, registered "Yes": the zbox is as large
+	-- as its largest child, hidden or not. At 700x500 Build Queue's work zbox measured
+	-- 373x368 on the IUP build and 315x149 on the host, which only measured the current
+	-- child, and the split under it gave the page 42 px less.
+	it("measures every child by default", function()
+		local iup, R, B, Element = host()
+		local small = iup.label({ TITLE = "", RASTERSIZE = "20x10" })
+		local big = iup.label({ TITLE = "", RASTERSIZE = "80x60" })
+		local z = iup.zbox({ small, big })
+		local Layout = require("core.imgui.Layout")
+		local w, h = Layout.natural(z)
+		assert.same({ 80, 60 }, { w, h })
+		iup.SetAttribute(z, "CHILDSIZEALL", "NO")
+		w, h = Layout.natural(z)
+		assert.same({ 20, 10 }, { w, h })
+	end)
+end)
+
 describe("imgui parity: IupShow", function()
 	-- iDialogAfterShow (iup_dialog.c) calls IupFlush before SHOW_CB, so a timer that is
 	-- due when the dialog is shown runs inside IupShow. Lunar's theme manager queues its
