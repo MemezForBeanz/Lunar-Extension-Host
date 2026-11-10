@@ -58,7 +58,7 @@ M.MODULES = {
 	text = "text", multiline = "text",
 	scintilla = "scintilla",
 	flatrows = "flatrows", flatsegmented = "flatsegmented", flatgrid = "flatgrid", flatseek = "flatseek",
-	videohost = "raw",
+	videohost = "videohost",
 	dialog = "dialog", timer = "dialog", image = "image", imagergba = "image",
 	imagergb = "image", filedlg = "dialog", messagedlg = "dialog", clipboard = "dialog",
 }

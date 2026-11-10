@@ -1278,6 +1278,10 @@ local function route_events(input)
 			if code then key_event(code) end
 		elseif t == "char" then
 			if ev.char then char_event(ev.char) end
+		elseif t == "tray" then
+			local d = main_dialog
+			-- winDialogTrayMessage: TRAYCLICK_CB(but, pressed, dclick)
+			if d then check_close(Element.call(d, "TRAYCLICK_CB", ev.button or 1, (ev.pressed or (ev.dx or 0) ~= 0) and 1 or 0, ev.double and 1 or 0)) end
 		elseif t ~= "keyup" and t ~= "file" then
 			if t == "leave" then
 				mini.inside, mini.mx, mini.my = false, -1, -1

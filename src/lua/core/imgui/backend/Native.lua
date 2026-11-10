@@ -93,7 +93,7 @@ local function mods_of(bits)
 	end
 	return m
 end
-local TYPES = { "move", "press", "release", "wheel", "keydown", "keyup", "char", "leave", "file" }
+local TYPES = { "move", "press", "release", "wheel", "keydown", "keyup", "char", "leave", "file", "tray" }
 
 local raw_frame_begin = C_API.frame_begin
 function B.frame_begin()
@@ -141,6 +141,11 @@ function B.frame_begin()
 			ev.char = chars[e.code + 1]
 		elseif t == "file" then
 			ev.file = files[e.code + 1]
+		elseif t == "tray" then
+			-- lunarimgui: button + 8 on a double click, dx = pressed, dy = double
+			ev.button = e.button > 8 and e.button - 8 or e.button
+			ev.pressed = e.dx ~= 0
+			ev.double = e.dy ~= 0
 		end
 		list[i + 1] = ev
 	end
