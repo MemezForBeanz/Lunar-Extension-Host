@@ -42,6 +42,19 @@ end
 
 local IMGUI = rawget(iup, "_IMGUI") == true
 local BUILD = IMGUI and "imgui" or "iup"
+
+-- Every dialog the app shows, so a new native window can be traced back to its dialog.
+local shown_dialogs = {}
+for _, fname in ipairs({ "Show", "ShowXY", "Popup" }) do
+	local real = iup[fname]
+	if real then
+		iup[fname] = function(h, ...)
+			local ok, cls = pcall(iup.GetClassName, h)
+			if ok and cls == "dialog" then shown_dialogs[#shown_dialogs + 1] = h end
+			return real(h, ...)
+		end
+	end
+end
 local out_dir = (arg and arg[1]) or "."
 local out = assert(io.open(out_dir .. "/tour-" .. BUILD .. ".tsv", "w"))
 local function emit(...)
@@ -230,6 +243,12 @@ local function open_things(main)
 	return list
 end
 local function dialog_of_hwnd(hwnd)
+	-- dialogs the app showed (IupGetAllDialogs lists only named ones)
+	for i = #shown_dialogs, 1, -1 do
+		local d = shown_dialogs[i]
+		local ok, h = pcall(hwnd_of, d)
+		if ok and h == hwnd then return d end
+	end
 	local names = { iup.GetAllDialogs() }
 	if type(names[1]) == "table" then names = names[1] end
 	for _, name in ipairs(names) do
