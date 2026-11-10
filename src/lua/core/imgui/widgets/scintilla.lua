@@ -50,6 +50,9 @@ local function tokenize(st)
 	st.data.styles = styles
 end
 local function style_at(st, p)
+	for _, r in ipairs(st.data.style_ranges or {}) do
+		if p >= r[1] and p < r[2] then return r[3] end
+	end
 	for _, r in ipairs(st.data.styles or {}) do if p >= r[1] and p < r[2] then return r[3] end end
 	return 0
 end
@@ -107,7 +110,7 @@ local function draw(e, st, dc, rt)
 	dc:fill(st.x, st.y, st.w, st.h, bg)
 	dc:clip_push(st.x, st.y, st.w, st.h)
 	local first = st.data.first_line or 0
-	local margin = tonumber(st.data.margin_width[0] or 0) or 0
+	local margin = (tonumber(st.data.margin_width[0] or 0) or 0) + (tonumber(st.data.margin_width[1] or 0) or 0)
 	local text = st.data.text
 	local lines = {}
 	for line in (text .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = line end
@@ -115,7 +118,15 @@ local function draw(e, st, dc, rt)
 	for i = first + 1, math.min(#lines, first + math.ceil(st.h / ch) + 1) do
 		local y = st.y + (i - first - 1) * ch
 		if st.data.caret_line_visible and i - 1 == caret_line then dc:fill(st.x, y, st.w, ch, attr(e, "CARETLINEBACKCOLOR") or "240 240 240") end
-		if margin > 0 then dc:text(tostring(i), st.x + 4, y, margin - 8, ch, attr(e, "MARGINFGCOLOR") or "120 120 120", f, { align = "right", clip = true }) end
+		if (st.data.margin_width[0] or 0) > 0 then
+			dc:text(tostring(i), st.x + 4, y, st.data.margin_width[0] - 8, ch, attr(e, "MARGINFGCOLOR") or "120 120 120", f, { align = "right", clip = true })
+		end
+		for marker, marker_line in pairs(st.data.markers or {}) do
+			if marker_line == i - 1 and (st.data.margin_width[1] or 0) > 0 then
+				dc:circle(st.x + (st.data.margin_width[0] or 0) + 7, y + ch / 2, 4,
+					st.data.marker_fore[marker] or "220 70 70", { filled = true })
+			end
+		end
 		local p = line_start(text, i - 1)
 		local x = st.x + margin + 4 - (st.data.x_offset or 0)
 		local line = lines[i]
@@ -144,7 +155,19 @@ local function draw(e, st, dc, rt)
 	local a, b = math.min(st.data.anchor, st.data.caret), math.max(st.data.anchor, st.data.caret)
 	if a ~= b then
 		local ln, col = line_from(text, a), a - line_start(text, line_from(text, a))
-		dc:fill(st.x + margin + 4 + col * cw, st.y + (ln - first) * ch, math.max(cw, (b - a) * cw), ch, attr(e, "SELBACK") or "100 140 220 100")
+		dc:fill(st.x + margin + 4 + col * cw - (st.data.x_offset or 0), st.y + (ln - first) * ch,
+			math.max(cw, (b - a) * cw), ch, st.data.sel_back or attr(e, "SELBACK") or "100 140 220")
+	end
+	for indic, ranges in pairs(st.data.indicators or {}) do
+		local c = st.data.indic_fore[indic] or "220 70 70"
+		for _, range in ipairs(ranges) do
+			local line = line_from(text, range[1])
+			if line >= first then
+				local x = st.x + margin + 4 + (range[1] - line_start(text, line)) * cw - (st.data.x_offset or 0)
+				local width = math.max(cw, (range[2] - range[1]) * cw)
+				for xx = x, x + width - 1, 4 do dc:line(xx, st.y + (line - first + 1) * ch - 2, math.min(xx + 2, x + width), st.y + (line - first + 1) * ch - 1, c, 1) end
+			end
+		end
 	end
 	if rt and rt.focused and rt.focused() == e then
 		local ln, col = line_from(text, st.data.caret), st.data.caret - line_start(text, line_from(text, st.data.caret))
@@ -156,10 +179,16 @@ end
 local function event(e, st, ev, rt)
 	if ev.type == "focus" or ev.type == "blur" then return true end
 	if ev.type == "press" then
-		local f = Fonts.forElement(e); local cw = f:charsize()
+		local f = Fonts.forElement(e); local cw, ch = f:charsize()
 		local line = math.max(0, (st.data.first_line or 0) + math.floor((ev.ly or 0) / f:charsize()))
-		local col = math.max(0, math.floor(((ev.lx or 0) - (st.data.margin_width[0] or 0) + (st.data.x_offset or 0)) / cw))
-		st.data.caret = math.min(line_end(st.data.text, line), line_start(st.data.text, line) + col)
+		local col = math.max(0, math.floor(((ev.lx or 0) - (st.data.margin_width[0] or 0) - (st.data.margin_width[1] or 0) + (st.data.x_offset or 0)) / cw))
+		local start, p, visual = line_start(st.data.text, line), line_start(st.data.text, line), 0
+		while p < line_end(st.data.text, line) and visual < col do
+			local byte = st.data.text:byte(p + 1)
+			visual = visual + (byte == 9 and (st.data.tab_width - visual % st.data.tab_width) or 1)
+			p = p + (byte and byte >= 192 and (byte < 224 and 2 or byte < 240 and 3 or 4) or 1)
+		end
+		st.data.caret = math.min(line_end(st.data.text, line), p)
 		st.data.anchor = ev.mods and ev.mods.shift and st.data.anchor or st.data.caret
 		if rt and rt.capture then rt.capture(e) end
 		return true
@@ -184,7 +213,7 @@ local function event(e, st, ev, rt)
 	end
 	return false
 end
-local defaults = { BORDER = "YES", CANFOCUS = "YES", BGCOLOR = "255 255 255", FGCOLOR = "0 0 0", VISIBLECOLUMNS = "20", VISIBLELINES = "4", CURSOR = "IBEAM" }
+local defaults = { BORDER = "YES", CANFOCUS = "YES", BGCOLOR = "255 255 255", FGCOLOR = "0 0 0", VISIBLECOLUMNS = "20", VISIBLELINES = "4", CURSOR = "IBEAM", TABWIDTH = "4", CARETWIDTH = "1" }
 Classes.define{
 	name = "scintilla", children = 0, focusable = true, defaults = defaults, natural = natural, draw = draw, event = event,
 	set = { VALUE = set_value },
@@ -196,18 +225,58 @@ Classes.define{
 		SELECTIONSTART = function(e, st) return math.min(st.data.anchor, st.data.caret) end,
 		SELECTIONEND = function(e, st) return math.max(st.data.anchor, st.data.caret) end,
 	},
-	callbacks = { ACTION = true, VALUECHANGED_CB = true, CARET_CB = true, DWELL_CB = true, UPDATECONTENT_CB = true, UPDATEVSCROLL_CB = true, UPDATEHSCROLL_CB = true },
+	callbacks = { ACTION = true, VALUECHANGED_CB = true, CARET_CB = true, DWELL_CB = true, UPDATECONTENT_CB = true, UPDATEVSCROLL_CB = true, UPDATEHSCROLL_CB = true,
+		AUTOCSELECTION_CB = true, HOTSPOTCLICK_CB = true, MARGINCLICK_CB = true, BUTTON_CB = true, MOTION_CB = true },
 	create = function(e, st)
 		st.data.text = st.data.text or tostring(Element.own(e, "VALUE") or "")
 		st.data.caret, st.data.anchor = #st.data.text, #st.data.text
 		st.data.lexer, st.data.keywords, st.data.styles, st.data.style = "null", {}, {}, {}
 		st.data.margin_width = { [0] = 0, [1] = 0, [2] = 0, [3] = 0, [4] = 0 }
+		st.data.margin_type, st.data.margin_mask = {}, {}
+		st.data.marker_fore, st.data.marker_back, st.data.markers = {}, {}, {}
+		st.data.indicators, st.data.indic_fore, st.data.indic_style, st.data.indic_under = {}, {}, {}, {}
+		st.data.style_ranges, st.data.style_fore, st.data.style_back = {}, {}, {}
+		st.data.style_bold, st.data.style_italic, st.data.style_size, st.data.style_face = {}, {}, {}, {}
+		st.data.properties, st.data.tab_width, st.data.caret_width = {}, 4, 1
+		st.data.annotations, st.data.annotation_style, st.data.annotation_visible = {}, {}, 0
+		st.data.autoc = { visible = false, items = {}, current = 1, separator = " " }
 		st.data.first_line, st.data.x_offset, st.data.modified = 0, 0, false
 		tokenize(st)
 	end,
 }
 
+-- IUP exposes the frequently used Scintilla state as attributes as well as messages.
+local scintilla_class = Classes.get("scintilla")
+scintilla_class.set.INSERT = function(e, st, value)
+	local p = math.min(st.data.caret, st.data.anchor); replace(st, p, math.max(st.data.caret, st.data.anchor), tostring(value or ""))
+	notify_change(e, st); return false
+end
+scintilla_class.set.CARETPOS = function(_, st, value) st.data.caret, st.data.anchor = math.max(0, tonumber(value) or 0), math.max(0, tonumber(value) or 0); return false end
+scintilla_class.set.SELECTIONPOS = function(_, st, value) st.data.anchor = math.max(0, tonumber(value) or 0); return false end
+for i = 0, 4 do
+	scintilla_class.set["MARGINWIDTH" .. i] = function(_, st, value) st.data.margin_width[i] = math.max(0, tonumber(value) or 0); return false end
+	scintilla_class.set["MARGINTYPE" .. i] = function(_, st, value) st.data.margin_type[i] = tonumber(value) or 0; return false end
+	scintilla_class.set["MARGINMASK" .. i] = function(_, st, value) st.data.margin_mask[i] = tonumber(value) or 0; return false end
+end
+scintilla_class.get.INSERT = function(_, st)
+	local a, b = math.min(st.data.anchor, st.data.caret), math.max(st.data.anchor, st.data.caret)
+	return st.data.text:sub(a + 1, b)
+end
+scintilla_class.get.SELECTIONPOS = function(_, st) return st.data.anchor end
+scintilla_class.get.LEXERLANGUAGE = function(_, st) return st.data.lexer end
+for i = 0, 4 do
+	scintilla_class.get["MARGINWIDTH" .. i] = function(_, st) return st.data.margin_width[i] end
+	scintilla_class.get["MARGINTYPE" .. i] = function(_, st) return st.data.margin_type[i] end
+	scintilla_class.get["MARGINMASK" .. i] = function(_, st) return st.data.margin_mask[i] end
+end
+
 M._tokenize = tokenize
 M._bgr_to_rgb = bgr_to_rgb
 M._style_at = style_at
+M._style_clear = function(st)
+	st.data.style_ranges = {}
+	st.data.style_fore, st.data.style_back = {}, {}
+	st.data.style_bold, st.data.style_italic, st.data.style_size, st.data.style_face = {}, {}, {}, {}
+	st.data.fonts = nil
+end
 return M
