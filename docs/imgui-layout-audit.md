@@ -47,6 +47,10 @@ size for a dialog's RASTERSIZE, the host the client size; both clients are equal
 | 8 | maximised (1920x1080) | Build Queue group strip and every page's empty-state card | strip 1872x988 vs 1872x950; cards 19 px higher | `iFlatTabsSetChildrenCurrentSizeMethod` sets a page's current size directly, without `iupBaseSetCurrentSize`'s MAXSIZE crop (Lunar caps pages with MAXSIZE = work height - 130) | flattabs pages get the client rect through `L.set`; IupTabs keeps `iupBaseSetCurrentSize` | `imgui_parity_spec` "flattabs pages" |
 | 9 | 700x500; split right with divider 350; light theme 1100x700 | Settings panel; Settings' horizontal bar | panel 588 vs 603 wide (and 603 vs 618); horizontal bar 49,837 465x15 shown vs hidden | `iFlatScrollBoxSetChildrenCurrentSizeMethod` (child keeps natural size where larger, loses the other bar's width where it expands; `UpdateVisibleScrollArea`); `iupFlatScrollBarGet` reads FLATSCROLLBAR (default YES), SCROLLBAR is read-only NO | `widgets/scrollbox.lua` current-size pass ported; `flatscrollbar.sync` follows FLATSCROLLBAR only | `imgui_parity_spec` "flat scroll box" |
 | 10 | 700x500 | Build Queue work pane and output sash; Log Parser results card | pane 410 vs 368 (sash 64,559 vs 64,517); card 250 vs 113 | `iZboxComputeNaturalSizeMethod` with CHILDSIZEALL, registered "Yes" | read through getAttribute with IUP's boolean rule | `imgui_parity_spec` "zbox" |
+| 11 | command palette (tour) | placeholder label | 18,14 vs 23,19 | `iBaseSetPositionAttrib`: POSITION is in the native parent's coordinates; boxes are IUP_TYPEVOID | `Layout.placeFloating` measures from the nearest non-void ancestor | `imgui_parity_spec` "floating POSITION" |
+| 12 | tour: every sized secondary dialog | dialog content (Feedback, Run Delta Explorer, New Tab Group, Open Lunar Address, token and password dialogs) | e.g. Feedback draft 600x346 vs 616x384 | the dialog's RASTERSIZE/SIZE is the window; `iDialogSetChildrenCurrentSizeMethod` subtracts `iupDialogGetDecorSize` (`iupdrvDialogGetDecoration`: caption 23, sizing border 8, fixed 3) | `dialog.decorSize`; panels lay out the client, centre the window (`iDialogAdjustPos`), and draw the caption band by the same rule | `imgui_parity_spec` "secondary dialog frame" |
+| 13 | all (getters) | IupGetClassType; native parent lookups | boxes "container" vs "void"; split missing from flatdraw's void list | nativetype (`IupGetClassType`, `iupChildTreeGetNativeParent`) | `type` set from each C class; flatdraw and winframe ask `class.type == "void"` | `imgui_parity_spec` "class types" |
+| 14 | all | boolean attributes | ON/1 ignored by nine widgets, TRUE accepted by flatdraw | `iupStrBoolean` | `Element.isTrue` used everywhere | `imgui_parity_spec` "booleans" |
 
 ## App issues found (reported, not changed)
 
@@ -60,12 +64,43 @@ size for a dialog's RASTERSIZE, the host the client size; both clients are equal
 
 ## Result of the state matrix
 
-After fixes 1-10, every state in the list above shows no element rectangle differing by more
-than 2 px between the builds, on all nine pages (`ui_probe_diff` tolerance 2), apart from the
-noise noted under "How it is measured".
+After the fixes, every state in the list above shows no element rectangle differing by more
+than 2 px between the builds on all nine pages (`ui_probe_diff` tolerance 2), apart from the
+noise noted under "How it is measured". The default state with the click pass shows no click
+difference either (the host also clicks the void splits and one segmented control, which IUP
+gives no rectangle; nothing fires on them).
+
+## Secondary panels (`scripts/ui_tour.lua`)
+
+The tour now dumps the IUP build's dialogs too (it records the dialogs the app shows; IUP's
+`IupGetAllDialogs` lists only named ones). After fixes 11 and 12, what remains:
+
+- **Command palette** (every page's menu, and the command palette's commands): IUP's search
+  row is 8 px taller (separator at 51 vs 43, rows 264 vs 272 tall) and its EDIT sits at y 21
+  against 13. Not resolved: the IUP capture of the first opening shows the field at 17 px
+  (the 10 pt font before the palette's 11 pt theme rule reached that window), so the
+  separate window is themed and laid out at a different time than the in-window panel;
+  without the resolved attributes of that window (the tour records rectangles only) I could
+  not establish the rule.
+- **Org pack token and password dialogs**: IUP's buttons are 44x23 / 33x23 (no PADDING, no
+  theme) where the host's are themed (58x27, 61x36); the rows below follow. Same cause as
+  above (the IUP capture is of an unthemed separate window); not a layout rule.
+- **Welcome tour**: title 471x17 vs 477x28, body 102 vs 119 tall: the same theme timing (the
+  IUP title is at body size).
+- **Feedback, Run Delta Explorer**: content now matches; Feedback's buttons differ by theme
+  (118x35 vs 130x36).
+- **New Tab Group, Open Lunar Address, folder dialog**: field rows 26/34 vs 23 px and EDITs
+  20 vs 17 px tall, i.e. a larger font in IUP's separate windows (IUP has no DLGFONT, so it is
+  not that global); the folder dialog's toolbar buttons are 38x32 vs 48x32 and its split
+  starts at 283 vs 232. Not established.
+- The 8 px frame band and lighter glyph weight of IUP's popup windows remain the accepted
+  difference.
 
 ## Open
 
-- Secondary panels (activity panel, command palette, menus, message boxes, name and folder
-  dialogs) through `scripts/ui_tour.lua`: not yet compared.
+- The command palette, the folder dialog, and the theming and fonts of IUP's separate
+  windows above (a probe of those windows' resolved attributes, like ui_probe's A lines,
+  would settle it).
 - Settings sub-pages beyond the first: the probe walks tab strips only.
+- A dialog's RASTERSIZE getter: IUP answers the window size (1400x900), the host the client
+  (1384x892); both report the same CLIENTSIZE. Left as is (no app code reads it).
