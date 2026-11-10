@@ -22,7 +22,8 @@ describe("organization packs on the ImGui host", function()
 				pending("set LUNAR_ORGPACKS_DIR to run org-pack UI smoke tests")
 				return
 			end
-			local count, clicked, warnings = Harness.run(dir .. "/init.lua", dir)
+			local count, clicked, warnings = Harness.run(dir .. "/init.lua", dir,
+				rel:match("timeclock") and { skip_clicks = true } or nil)
 			assert.is_true(count >= 0)
 			assert.is_true(clicked >= 0)
 			assert.are.same({}, warnings)

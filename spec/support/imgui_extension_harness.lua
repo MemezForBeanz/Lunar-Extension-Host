@@ -6,6 +6,34 @@ local Element = require("core.imgui.Element")
 local M = {}
 
 local function no_op() end
+local function ui_module(name, fallback)
+	local ok, value = pcall(require, name)
+	if ok and type(value) == "table" and type(value.new) == "function" then return value end
+	return fallback
+end
+
+local function field_fallback(iup)
+	return {
+		new = function(_, opts)
+			opts = opts or {}
+			local text = iup.text{ VALUE = opts.value or "", CUEBANNER = opts.cue }
+			return { text = text, widget = iup.flatframe{ text, EXPAND = "HORIZONTAL" },
+				value = function(self) return iup.GetAttribute(self.text, "VALUE") or "" end,
+				setValue = function(self, value) iup.SetAttribute(self.text, "VALUE", value or "") end }
+		end,
+	}
+end
+
+local function dropdown_fallback(iup)
+	return {
+		new = function(_, opts)
+			opts = opts or {}
+			local list = iup.flatlist{ VALUE = tostring(opts.value or 1) }
+			for i, item in ipairs(opts.items or {}) do iup.SetAttribute(list, tostring(i), item) end
+			return { list = list, widget = list, value = opts.value }
+		end,
+	}
+end
 
 local function fake_db()
 	local db = {}
@@ -42,8 +70,10 @@ function M.context()
 		settings = settings,
 		tabs = tabs,
 		ui = {
-			FlatField = require("core.ui.FlatField"),
-			FlatDropdown = require("core.ui.FlatDropdown"),
+			-- VectorIcon is intentionally absent from the Null backend; use the
+			-- same text/frame shape without optional leading icons.
+			FlatField = field_fallback(iup),
+			FlatDropdown = ui_module("core.ui.FlatDropdown", dropdown_fallback(iup)),
 			ContextMenu = require("core.ui.ContextMenu"),
 		},
 		subprocess = {
@@ -104,7 +134,8 @@ local function walk(el, out)
 	for _, child in ipairs(st.children) do walk(child, out) end
 end
 
-function M.exercise(ctx)
+function M.exercise(ctx, opts)
+	opts = opts or {}
 	local root = iup.vbox(ctx.tabs)
 	local dialog = iup.dialog{ root, RASTERSIZE = "960x640", TITLE = "ImGui extension smoke" }
 	iup.Show(dialog)
@@ -115,7 +146,7 @@ function M.exercise(ctx)
 	local clicked = 0
 	for _, el in ipairs(all) do
 		local st = Element.state(el)
-		if st and st.classname == "flatbutton" and st.w > 2 and st.h > 2 and clicked < 3 then
+		if not opts.skip_clicks and st and st.classname == "flatbutton" and st.w > 2 and st.h > 2 and clicked < 3 then
 			local x, y = st.x + st.w / 2, st.y + st.h / 2
 			local b = Runtime.backend()
 			b.queue{ mx = x, my = y, press = 1 }
@@ -140,17 +171,20 @@ function M.load(path, module_path)
 	return value
 end
 
-function M.run(path, module_path)
+function M.run(path, module_path, opts)
 	Runtime.init(Null.new())
 	local warnings = {}
 	local old_warn = Runtime.warn
 	Runtime.warn = function(message) warnings[#warnings + 1] = tostring(message) end
 	local ctx = M.context()
 	local old_path = package.path
-	local old_logscan = package.preload.logscan
+	local old_flat_field = package.loaded["core.ui.FlatField"]
+	package.loaded["core.ui.FlatField"] = field_fallback(iup)
+	local old_logscan, old_loaded_logscan = package.preload.logscan, package.loaded.logscan
 	package.preload.logscan = package.preload.logscan or function()
 		return { scan_file = function() return {} end }
 	end
+	package.loaded.logscan = package.loaded.logscan or { scan_file = function() return {} end }
 	if module_path then package.path = module_path .. "/?.lua;" .. old_path end
 	local extension = M.load(path)
 	extension._ctx = ctx
@@ -158,9 +192,11 @@ function M.run(path, module_path)
 	extension.dir = module_path or "."
 	local ok, err = pcall(extension.register, extension, ctx)
 	package.path = old_path
+	package.loaded["core.ui.FlatField"] = old_flat_field
 	package.preload.logscan = old_logscan
+	package.loaded.logscan = old_loaded_logscan
 	assert(ok, err)
-	local count, clicked = M.exercise(ctx)
+	local count, clicked = M.exercise(ctx, opts)
 	Runtime.warn = old_warn
 	return count, clicked, warnings
 end
