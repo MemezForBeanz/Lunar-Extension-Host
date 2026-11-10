@@ -3,14 +3,14 @@ local Harness = require("spec.support.imgui_extension_harness")
 
 local root = os.getenv("LUNAR_ORGPACKS_DIR") or "../lunar-orgpacks"
 local CASES = {
-	{ "hpe/extensions/buildqueue" },
-	{ "hpe/extensions/iloredfish" },
-	{ "hpe/extensions/logparser" },
-	{ "hpe/extensions/scanchainparser" },
-	{ "hpe/extensions/hpe-theme" },
-	{ "microchip/extensions/blackduck" },
-	{ "microchip/extensions/microchip-theme" },
-	{ "microchip/extensions/timeclock" },
+	{ "hpe/extensions/buildqueue", 1 },
+	{ "hpe/extensions/iloredfish", 1 },
+	{ "hpe/extensions/logparser", 1 },
+	{ "hpe/extensions/scanchainparser", 1 },
+	{ "hpe/extensions/hpe-theme", 1 },
+	{ "microchip/extensions/blackduck", 1 },
+	{ "microchip/extensions/microchip-theme", 1 },
+	{ "microchip/extensions/timeclock", 1 },
 }
 
 describe("organization packs on the ImGui host", function()
@@ -22,10 +22,10 @@ describe("organization packs on the ImGui host", function()
 				pending("set LUNAR_ORGPACKS_DIR to run org-pack UI smoke tests")
 				return
 			end
-			local count, clicked, warnings = Harness.run(dir .. "/init.lua", dir,
-				rel:match("timeclock") and { skip_clicks = true } or nil)
-			assert.is_true(count >= 0)
+			local count, clicked, warnings, routes = Harness.run(dir .. "/init.lua", dir)
+			assert.are.equal(case[2], count)
 			assert.is_true(clicked >= 0)
+			assert.is_true(routes >= 0)
 			assert.are.same({}, warnings)
 		end)
 	end
