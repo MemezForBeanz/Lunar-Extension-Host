@@ -5,6 +5,7 @@ local Element = require("core.imgui.Element")
 local Fonts = require("core.imgui.Fonts")
 local Draw = require("core.imgui.Draw")
 local iup = require("core.imgui.iup")
+local FlatScrollbar = require("core.imgui.widgets.flatscrollbar")
 
 local M = {}
 local function attr(e, n) return Element.getAttribute(e, n) end
@@ -72,6 +73,7 @@ local function rows_natural(e)
 	return 240, rows_header(e) + rows_height(e) * 5
 end
 local function rows_draw(e, st, dc, rt)
+	FlatScrollbar.sync(e)
 	local rh, header, count = rows_height(e), rows_header(e), rows_count(e)
 	local bg, fg = attr(e, "BGCOLOR"), attr(e, "FGCOLOR")
 	dc:fill(st.x, st.y, st.w, st.h, bg)
@@ -145,9 +147,7 @@ local function rows_event(e, st, ev, rt)
 		call(e, "part", data(e, "hover"), "row"); return true
 	end
 	if ev.type == "wheel" then
-		local next_pos = math.max(0, num(attr(e, "POSY")) - (ev.dy or 0) * rows_height(e))
-		Element.setAttribute(e, "POSY", tostring(next_pos))
-		return true
+		return FlatScrollbar.on_wheel(e, ev.dy or 0)
 	end
 	if ev.type == "press" and ev.button == 1 then
 		local p = y >= rows_header(e) and math.floor((y - rows_header(e) + num(attr(e, "POSY"))) / rows_height(e)) + 1 or 0
@@ -224,6 +224,7 @@ local function grid_pos(e, st, pos)
 end
 local function grid_natural(e, st) local w, ih, ch, gutter, padding = grid_geometry(e, st); return 2 * w + gutter + 2 * padding, ch + 2 * padding end
 local function grid_draw(e, st, dc, rt)
+	FlatScrollbar.sync(e)
 	dc:fill(st.x, st.y, st.w, st.h, attr(e, "BGCOLOR")); local count = num(attr(e, "COUNT")); local _, _, _, _, padding, lanes = grid_geometry(e, st)
 	local horizontal = tostring(attr(e, "ORIENTATION") or "VERTICAL"):upper() == "HORIZONTAL"; local scroll = num(attr(e, horizontal and "POSX" or "POSY")); local _, ih, ch, gutter = grid_geometry(e, st)
 	local first = math.max(1, math.floor(math.max(0, scroll - padding) / (horizontal and (num(attr(e, "CELLWIDTH"), 150) + gutter) or (ch + gutter)) * lanes) + 1)
@@ -317,11 +318,21 @@ local function video_draw(e, st, dc, rt)
 	Element.state(e).data.rect = { x = st.x, y = st.y, w = st.w, h = st.h }
 end
 
-Classes.define{ name = "flatrows", children = 0, focusable = true, defaults = { COUNT = "0", ROWHEIGHT = "32", FOCUSFEEDBACK = "YES", ITEMRADIUS = "6", ACTIVE = "YES", BGCOLOR = "255 255 255", FGCOLOR = "30 30 30" }, callbacks = { VALUECHANGED_CB = true }, natural = rows_natural, draw = rows_draw, event = rows_event,
-	get = { HOVER = function(e) return tostring(data(e, "hover", 0)) end, ACCESSIBLEVALUE = function(e) local p = num(attr(e, "VALUE")); return p > 0 and row_value(e, p, "TITLE") end },
+Classes.define{ name = "flatrows", children = 0, focusable = true, visibleChildren = FlatScrollbar.visible_children, defaults = { COUNT = "0", ROWHEIGHT = "32", FOCUSFEEDBACK = "YES", ITEMRADIUS = "6", ACTIVE = "YES", FLATSCROLLBAR = "YES", SCROLLBARSIZE = "12", BGCOLOR = "255 255 255", FGCOLOR = "30 30 30" }, callbacks = { VALUECHANGED_CB = true }, natural = rows_natural, draw = rows_draw, event = rows_event,
+	create = function(e) FlatScrollbar.create(e) end,
+	get = { HOVER = function(e) return tostring(data(e, "hover", 0)) end, ACCESSIBLEVALUE = function(e) local p = num(attr(e, "VALUE")); return p > 0 and row_value(e, p, "TITLE") end,
+		POSY = function(e) return num(own(e, "POSY")) end, YMAX = function(e) return rows_count(e) * rows_height(e) + rows_header(e) end,
+		DY = function(e, s) return s.h end, XMAX = function() return 0 end, DX = function(e, s) return s.w end },
 	set = { VALUE = function(e, st, v) st.attrs.VALUE = tostring(v or 0); return false end } }
 Classes.define{ name = "flatsegmented", children = 0, focusable = true, defaults = { COUNT = "2", VALUEPOS = "0", CORNERRADIUS = "7", FOCUSFEEDBACK = "YES", BGCOLOR = "235 235 235", FGCOLOR = "30 30 30", PSCOLOR = "255 255 255" }, callbacks = { VALUECHANGED_CB = true }, natural = segment_natural, draw = segment_draw, event = segment_event }
-Classes.define{ name = "flatgrid", children = 0, focusable = true, defaults = { COUNT = "0", CELLWIDTH = "150", ASPECT = "2:3", GUTTER = "16", PADDING = "16", ROWS = "1", ORIENTATION = "VERTICAL", SHOWTEXT = "YES", MULTIPLE = "NO", ITEMRADIUS = "6", FOCUSFEEDBACK = "YES" }, natural = grid_natural, draw = grid_draw, event = grid_event, get = {
+Classes.define{ name = "flatgrid", children = 0, focusable = true, visibleChildren = FlatScrollbar.visible_children, defaults = { COUNT = "0", CELLWIDTH = "150", ASPECT = "2:3", GUTTER = "16", PADDING = "16", ROWS = "1", ORIENTATION = "VERTICAL", SHOWTEXT = "YES", MULTIPLE = "NO", FLATSCROLLBAR = "YES", SCROLLBARSIZE = "12", ITEMRADIUS = "6", FOCUSFEEDBACK = "YES" }, natural = grid_natural, draw = grid_draw, event = grid_event,
+	create = function(e) FlatScrollbar.create(e) end,
+	get = {
+		POSY = function(e) return num(own(e, "POSY")) end, POSX = function(e) return num(own(e, "POSX")) end,
+		YMAX = function(e, s) local _, _, ch, gutter, padding, lanes = grid_geometry(e, s); return tostring(attr(e, "ORIENTATION") or "VERTICAL"):upper() == "HORIZONTAL" and 0 or 2 * padding + math.ceil(num(attr(e, "COUNT")) / lanes) * (ch + gutter) - gutter end,
+		XMAX = function(e, s) local w, _, _, gutter, padding, lanes = grid_geometry(e, s); return tostring(attr(e, "ORIENTATION") or "VERTICAL"):upper() == "HORIZONTAL" and 2 * padding + math.ceil(num(attr(e, "COUNT")) / lanes) * (w + gutter) - gutter or 0 end,
+		DY = function(e, s) return tostring(attr(e, "ORIENTATION") or "VERTICAL"):upper() == "HORIZONTAL" and 0 or s.h end,
+		DX = function(e, s) return tostring(attr(e, "ORIENTATION") or "VERTICAL"):upper() == "HORIZONTAL" and s.w or s.w end,
 	SELECTIONMASK = function(e) return own(e, "SELECTIONMASK") or string.rep("-", num(attr(e, "COUNT"))) end,
 	VISIBLERANGE = function(e, st)
 		local c = num(attr(e, "COUNT")); if c == 0 then return nil end

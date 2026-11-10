@@ -2,6 +2,7 @@
 -- @module core.imgui.widgets.flatseparator
 local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
+local iup = require("core.imgui.iup")
 local Flat = require("core.imgui.widgets.flatbutton")
 local Color = require("core.imgui.Color")
 
@@ -13,6 +14,31 @@ local function natural(e)
 	return horiz(e) and 0 or n, horiz(e) and n or 0
 end
 local function event(e, st, ev, rt)
+	local owner = st.data.split
+	if owner then
+		local split = require("core.imgui.Classes").get("split")
+		if ev.type == "enter" then
+			st.data.hot = true
+			if rt.cursor then rt.cursor(horiz(e) and "SIZENS" or "SIZEWE") end
+			if rt.redraw then rt.redraw(e) end
+			return true
+		elseif ev.type == "leave" then
+			if not Element.state(owner).data.drag then st.data.hot = false end
+			if rt.redraw then rt.redraw(e) end
+			return true
+		elseif ev.type == "move" then
+			Element.call(e, "MOTION_CB", ev.lx or ev.x, ev.ly or ev.y, ev.status)
+			return split.event(owner, Element.state(owner), ev, rt)
+		elseif ev.type == "press" or ev.type == "release" then
+			local pressed = ev.type == "press" and 1 or 0
+			local result = Element.call(e, "BUTTON_CB", ev.iupbutton or (iup.BUTTON1 + (ev.button or 1) - 1),
+				pressed, ev.lx or ev.x, ev.ly or ev.y, ev.status)
+			if result ~= iup.IGNORE then
+				return split.event(owner, Element.state(owner), ev, rt)
+			end
+			return true
+		end
+	end
 	if ev.type == "enter" then st.data.hot = true; if rt.redraw then rt.redraw(e) end; return true end
 	if ev.type == "leave" then st.data.hot = false; if rt.redraw then rt.redraw(e) end; return true end
 	if ev.type == "move" then

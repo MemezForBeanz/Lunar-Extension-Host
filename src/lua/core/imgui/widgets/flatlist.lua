@@ -3,6 +3,7 @@ local Element = require("core.imgui.Element")
 local Fonts = require("core.imgui.Fonts")
 local Draw = require("core.imgui.Draw")
 local iup = require("core.imgui.iup")
+local FlatScrollbar = require("core.imgui.widgets.flatscrollbar")
 
 local function attr(e, n) return Element.getAttribute(e, n) end
 local function own(e, n) return Element.own(e, n) end
@@ -113,6 +114,8 @@ local function place(e, st, L)
 	st.data.row_h, st.data.ymax, st.data.dy = rh, rh * count(e), st.h
 	st.data.dx = st.w
 	st.data.posy = math.max(0, math.min(st.data.posy or 0, math.max(0, st.data.ymax - st.data.dy)))
+	st.data.xmax, st.data.dx = st.w, st.w
+	FlatScrollbar.sync(e)
 end
 local function draw(e, st, dc, rt)
 	local f, rh = line_metrics(e)
@@ -137,20 +140,10 @@ local function draw(e, st, dc, rt)
 		if selected(st, i) and st.data.focus == i and yes(attr(e, "FOCUSFEEDBACK")) then dc:rect(st.x, y, st.w, rh, attr(e, "HLCOLOR"), { thickness = 1 }) end
 	end
 end
-local function draw_after(e, st, dc)
-	local maxv, view = st.data.ymax or 0, st.data.dy or st.h
-	if tostring(attr(e, "FLATSCROLLBAR") or "NO"):upper() ~= "YES" or maxv <= view then return end
-	local sb = num(attr(e, "SCROLLBARSIZE"), 12)
-	local track, thumb = st.h, math.max(8, st.h * view / maxv)
-	local off = (track - thumb) * (st.data.posy or 0) / math.max(1, maxv - view)
-	dc:fill(st.x + st.w - sb + 2, st.y + off + 2, sb - 4, thumb - 4, attr(e, "SB_FORECOLOR") or attr(e, "HLCOLOR"), { radius = 4 })
-end
 local function event(e, st, ev, rt)
 	local _, rh = line_metrics(e)
 	if ev.type == "wheel" then
-		local old = st.data.posy or 0
-		st.data.posy = math.max(0, math.min(st.data.ymax - st.data.dy, old - (ev.dy or 0) * rh))
-		return old ~= st.data.posy
+		return FlatScrollbar.on_wheel(e, ev.dy or 0)
 	elseif ev.type == "press" and ev.button == 1 then
 		local i = math.floor(((ev.ly or 0) + (st.data.posy or 0)) / rh) + 1
 		local r = choose(e, st, i, ev)
@@ -179,11 +172,15 @@ local function setter(e, st, v)
 	return false
 end
 local def = {
-	name = "flatlist", children = 0, clip = true, natural = natural, place = place, draw = draw, drawAfter = draw_after, event = event, focusable = true,
+	name = "flatlist", children = 0, clip = true, visibleChildren = FlatScrollbar.visible_children, natural = natural, place = place, draw = draw, event = event, focusable = true,
+	create = function(e) FlatScrollbar.create(e) end,
 	defaults = { FGCOLOR = function() return Element.globals.DLGFGCOLOR end, BGCOLOR = function() return Element.globals.DLGBGCOLOR end, HLCOLOR = "TXTHLCOLOR", FOCUSFEEDBACK = "YES", PADDING = "2x2", VISIBLELINES = "5", FLATSCROLLBAR = "NO", SCROLLBARSIZE = "12", ITEMRADIUS = "0", HLCOLORALPHA = "128" },
-	get = { COUNT = function(e) return count(e) end, VALUE = function(e, s) return value_string(e, s) end },
+	get = { COUNT = function(e) return count(e) end, VALUE = function(e, s) return value_string(e, s) end,
+		POSY = function(e, s) return s.data.posy or 0 end, YMAX = function(e, s) return s.data.ymax or 0 end,
+		DY = function(e, s) return s.data.dy or 0 end, XMAX = function(e, s) return s.data.xmax or 0 end, DX = function(e, s) return s.data.dx or 0 end },
 	set = {
 		VALUE = setter,
+		POSY = function(e, s, v) s.data.posy = num(v); FlatScrollbar.sync(e); return false end,
 		APPENDITEM = function(e, s, v) Element.setAttribute(e, tostring(count(e) + 1), v); return false end,
 		REMOVEITEM = function(e, s, v) local n, k = count(e), num(v); if k > 0 and k <= n then for i = k, n - 1 do Element.setAttribute(e, tostring(i), own(e, tostring(i + 1))) end; Element.setAttribute(e, tostring(n), nil) end; return false end,
 	},

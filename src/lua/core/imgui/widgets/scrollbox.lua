@@ -1,6 +1,7 @@
 local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
 local Color = require("core.imgui.Color")
+local FlatScrollbar = require("core.imgui.widgets.flatscrollbar")
 
 local function attr(e, n) return Element.getAttribute(e, n) end
 local function own(e, n) return Element.own(e, n) end
@@ -11,6 +12,7 @@ local function pair(v)
 	local a, b = tostring(v or ""):match("^%s*(-?%d*)x(-?%d*)%s*$")
 	return tonumber(a), tonumber(b)
 end
+local function user_child(e) return FlatScrollbar.user_child(e) end
 
 local function bar_size(e)
 	if yes(attr(e, "SHOWFLOATING")) then return 0 end
@@ -18,7 +20,7 @@ local function bar_size(e)
 end
 
 local function scroll_state(e, st, L)
-	local c = st.children[1]
+	local c = user_child(e)
 	local cw, ch = c and L.natural(c) or 0, c and select(2, L.natural(c)) or 0
 	local rw, rh = pair(own(e, "RASTERSIZE"))
 	local sw, sh = pair(own(e, "SIZE"))
@@ -31,7 +33,7 @@ local function set_pos(e, st, x, y)
 	local dx, dy = st.data.dx or 0, st.data.dy or 0
 	st.data.posx = clamp(num(x), 0, math.max(0, (st.data.xmax or 0) - dx))
 	st.data.posy = clamp(num(y), 0, math.max(0, (st.data.ymax or 0) - dy))
-	local child = st.children[1]
+	local child = user_child(e)
 	if child then
 		local cs = Element.state(child)
 		if cs then cs.x, cs.y = st.x - st.data.posx, st.y - st.data.posy end
@@ -40,6 +42,7 @@ local function set_pos(e, st, x, y)
 	local cb = Element.call(e, "SCROLL_CB", 0, st.data.posx, st.data.posy)
 	if cb == nil then Element.call(e, "FLATSCROLL_CB") end
 	Element.call(e, "LAYOUTUPDATE_CB")
+	FlatScrollbar.sync(e)
 end
 
 local function scroll_to_child(e, st, child)
@@ -69,12 +72,12 @@ end
 local function scroll_natural(e, st, L)
 	local rw, rh = scroll_state(e, st, L)
 	if rw > 0 or rh > 0 then return rw, rh end
-	if st.w == 0 and st.h == 0 and st.children[1] then return L.natural(st.children[1]) end
+	if st.w == 0 and st.h == 0 and user_child(e) then return L.natural(user_child(e)) end
 	return 0, 0
 end
 
 local function scroll_place(e, st, L)
-	local c = st.children[1]
+	local c = user_child(e)
 	if not c then return end
 	local nw, nh = L.natural(c)
 	local sb = bar_size(e)
@@ -114,53 +117,9 @@ local function draw_bar(e, st, dc, vertical)
 	else dc:fill(x + offset + 2, y + 2, math.max(2, thumb - 4), math.max(2, h - 4), fg, { radius = math.min(4, h / 2) }) end
 end
 
-local function scroll_draw_after(e, st, dc)
-	local sb = tostring(attr(e, "SCROLLBAR") or "VERTICAL"):upper()
-	if sb ~= "NO" then
-		draw_bar(e, st, dc, sb ~= "HORIZONTAL")
-		if sb == "BOTH" then draw_bar(e, st, dc, false) end
-	end
-end
-
 local function scroll_event(e, st, ev, rt)
 	if ev.type == "wheel" then
-		local dy = ev.dy or 0
-		local line = num(attr(e, "LINEY"), 24)
-		local old = st.data.posy or 0
-		set_pos(e, st, st.data.posx, old - dy * line)
-		return st.data.posy ~= old
-	elseif ev.type == "press" and ev.button == 1 then
-		local sb = bar_size(e)
-		local vertical = tostring(attr(e, "SCROLLBAR") or "VERTICAL"):upper() ~= "HORIZONTAL"
-		local inbar = vertical and ev.lx >= st.w - sb or (not vertical and ev.ly >= st.h - sb)
-		if inbar then
-			local maxv = vertical and st.data.ymax or st.data.xmax
-			local view = vertical and st.data.dy or st.data.dx
-			local track = vertical and st.h or st.w
-			local thumb = math.max(8, track * view / math.max(1, maxv))
-			local coord = vertical and ev.ly or ev.lx
-			local pos = vertical and st.data.posy or st.data.posx
-			local thumb_at = (track - thumb) * pos / math.max(1, maxv - view)
-			if coord < thumb_at then
-				if vertical then set_pos(e, st, st.data.posx, pos - view) else set_pos(e, st, pos - view, st.data.posy) end
-			elseif coord > thumb_at + thumb then
-				if vertical then set_pos(e, st, st.data.posx, pos + view) else set_pos(e, st, pos + view, st.data.posy) end
-			else
-				st.data.drag = { x = ev.x, y = ev.y, px = st.data.posx, py = st.data.posy }
-				rt.capture(e)
-			end
-			return true
-		end
-	elseif ev.type == "move" and st.data.drag then
-		local d = st.data.drag
-		local vertical = tostring(attr(e, "SCROLLBAR") or "VERTICAL"):upper() ~= "HORIZONTAL"
-		if vertical then set_pos(e, st, d.px, d.py + (ev.y - d.y) * ((st.data.ymax - st.data.dy) / math.max(1, st.h - bar_size(e)))) 
-		else set_pos(e, st, d.px + (ev.x - d.x) * ((st.data.xmax - st.data.dx) / math.max(1, st.w - bar_size(e))), d.py) end
-		return true
-	elseif ev.type == "release" and st.data.drag then
-		st.data.drag = nil
-		rt.release()
-		return true
+		return FlatScrollbar.on_wheel(e, ev.dy or 0)
 	end
 	return false
 end
@@ -174,8 +133,9 @@ local function scroll_defaults()
 end
 
 local scroll_def = {
-	name = "flatscrollbox", children = 1, clip = true, defaults = scroll_defaults(),
-	natural = scroll_natural, place = scroll_place, drawAfter = scroll_draw_after, event = scroll_event,
+	name = "flatscrollbox", children = 1, clip = true, visibleChildren = FlatScrollbar.visible_children, defaults = scroll_defaults(),
+	natural = scroll_natural, place = scroll_place, event = scroll_event,
+	create = function(e) FlatScrollbar.create(e) end,
 	-- iup_flatscrollbox.c: "set expand to its own expand so it will not depend on children"
 	childrenExpand = function(el, st) return st.expand end,
 	get = {
