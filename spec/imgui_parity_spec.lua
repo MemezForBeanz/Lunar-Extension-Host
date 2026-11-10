@@ -42,6 +42,38 @@ describe("imgui parity: flattoggle natural size", function()
 	end)
 end)
 
+describe("imgui parity: split", function()
+	-- iSplitGetWidth1: iupRoundUp(total * VALUE / 1000.0). Measured with the panes split
+	-- at VALUE=350 over a 1336 px grid (BARSIZE 7): IUP's left pane is 466, the host's
+	-- was 465 (it rounded), and the iLO toolbar inside it lost 3 px to patch 0008's shrink.
+	it("gives the first child ceil(total * VALUE / 1000)", function()
+		local iup, R = host()
+		local function expanding() return iup.hbox({ iup.vbox({ iup.fill({}) }), iup.fill({}) }) end
+		local a, b = expanding(), expanding()
+		local split = iup.split({ a, b, VALUE = "350", BARSIZE = "7" })
+		local d = iup.dialog({ split, RASTERSIZE = "1336x200", MARGIN = "0x0" })
+		iup.Show(d)
+		R.frame()
+		local Element = require("core.imgui.Element")
+		assert.equal(466, Element.state(a).w)  -- ceil(1329 * 0.35) = ceil(465.15)
+		assert.equal(1336 - 7 - 466, Element.state(b).w)
+		assert.equal(466 + 7, Element.state(b).x)
+	end)
+
+	-- iSplitSetChildrenCurrentSizeMethod sizes each child with iupBaseSetCurrentSize: a child
+	-- that does not expand keeps its natural size; the host used to stretch it to the pane.
+	it("keeps a child that does not expand at its natural size", function()
+		local iup, R = host()
+		local a = iup.label({ TITLE = "left" })
+		local split = iup.split({ a, iup.hbox({ iup.vbox({ iup.fill({}) }), iup.fill({}) }), VALUE = "500" })
+		local d = iup.dialog({ split, RASTERSIZE = "400x100" })
+		iup.Show(d)
+		R.frame()
+		local nw, nh = require("core.imgui.Layout").natural(a)
+		assert.equal(nw .. "x" .. nh, iup.GetAttribute(a, "RASTERSIZE"))
+	end)
+end)
+
 describe("imgui parity: IupShow", function()
 	-- iDialogAfterShow (iup_dialog.c) calls IupFlush before SHOW_CB, so a timer that is
 	-- due when the dialog is shown runs inside IupShow. Lunar's theme manager queues its
