@@ -130,7 +130,7 @@ local function draw(e, st, dc, rt)
 		if own(e, "ITEMFGCOLOR" .. i) then fg = own(e, "ITEMFGCOLOR" .. i) end
 		if own(e, "ITEMBGCOLOR" .. i) then ibg = own(e, "ITEMBGCOLOR" .. i) end
 		if selected(st, i) then
-			ibg = attr(e, "PSCOLOR") or attr(e, "HLCOLOR") or ibg
+			ibg = attr(e, "PSCOLOR") or ibg -- iFlatListDrawItems: PSCOLOR, else the item bg; HLCOLOR is the alpha overlay below
 			fg = attr(e, "TEXTPSCOLOR") or fg
 			local r = num(attr(e, "ITEMRADIUS"))
 			dc:fill(st.x + (r > 0 and 4 or 0), y + 1, st.w - (r > 0 and 8 or 0), rh - 2, ibg, { radius = r })
