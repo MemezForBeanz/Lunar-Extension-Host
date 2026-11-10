@@ -461,7 +461,7 @@ local function child_added(e, s, child)
 end
 
 Classes.define({
-	name = "split", children = -1, focusable = false,
+	name = "split", children = -1, focusable = false, type = "void", -- IUP_TYPEVOID
 	create = create, childAdded = child_added,
 	natural = natural, place = place,
 	set = {

@@ -57,10 +57,9 @@ end
 
 -- Classes that are not windows in IUP: layout boxes and fills. Over the caption they let
 -- the bar drag the window; anything else there (buttons, tab strips, labels, canvases)
--- is a child window in IUP, so a click on it is the control's, not the frame's.
-local VOID = { hbox = true, vbox = true, zbox = true, cbox = true, fill = true, gridbox = true,
-	radio = true, normalizer = true, space = true, multibox = true, user = true, dialog = true,
-	sbox = false, split = true }
+-- is a child window in IUP, so a click on it is the control's, not the frame's. A class is
+-- windowless when IupGetClassType says "void"; the dialog being walked is the frame itself.
+local function windowless(st) return st.classname == "dialog" or st.class.type == "void" end
 
 --- The rectangles over the caption that must not drag the window.
 local function no_drag_rects(main, caption_h)
@@ -70,7 +69,7 @@ local function no_drag_rects(main, caption_h)
 		local st = Element.state(el)
 		if not st or st.attrs.VISIBLE == "NO" then return end
 		if st.h > 0 and st.y >= caption_h then return end -- below the bar: nothing under it can reach up
-		if not VOID[st.classname] and st.w > 0 and st.h > 0 and st.y < caption_h then
+		if not windowless(st) and st.w > 0 and st.h > 0 and st.y < caption_h then
 			rects[#rects + 1] = { x = st.x, y = st.y, w = st.w, h = math.min(st.h, caption_h - st.y) }
 			return -- a window covers its children
 		end

@@ -241,6 +241,29 @@ describe("imgui parity: zbox", function()
 	end)
 end)
 
+describe("imgui parity: class types", function()
+	-- IupGetClassType names the class's nativetype: the boxes and split are IUP_TYPEVOID,
+	-- IupBackgroundBox and IupFlatFrame canvases, IupFrame a control, IupUser "other".
+	it("answers IupGetClassType from the nativetype", function()
+		local iup = host()
+		for name, want in pairs({ hbox = "void", vbox = "void", zbox = "void", cbox = "void",
+			gridbox = "void", radio = "void", sbox = "void", fill = "void", normalizer = "void",
+			split = "void", backgroundbox = "canvas", frame = "control", user = "other" }) do
+			assert.equal(want, iup.GetClassType(iup[name]({})), name)
+		end
+	end)
+
+	-- iupBaseNativeParentGetBgColorAttrib reads only native parents (iupChildTreeGetNativeParent
+	-- skips IUP_TYPEVOID): a split's own BGCOLOR does not reach the flat controls inside it.
+	it("skips a split when a flat control looks for its native parent's background", function()
+		local iup = host()
+		local label = iup.flatlabel({ TITLE = "x" })
+		local split = iup.split({ label, iup.flatlabel({ TITLE = "y" }), BGCOLOR = "1 2 3" })
+		iup.backgroundbox({ split, BGCOLOR = "9 9 9" })
+		assert.equal("9 9 9", require("core.imgui.widgets.flatdraw").nativeParentBg(label))
+	end)
+end)
+
 describe("imgui parity: IupShow", function()
 	-- iDialogAfterShow (iup_dialog.c) calls IupFlush before SHOW_CB, so a timer that is
 	-- due when the dialog is shown runs inside IupShow. Lunar's theme manager queues its

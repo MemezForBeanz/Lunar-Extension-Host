@@ -6,6 +6,10 @@
 -- narrower than its content takes the difference back from its expanding children in
 -- proportion to what each can spare (0008).
 --
+-- `type` is IupGetClassType's answer, the class's nativetype: the boxes, the fill and the
+-- normalizer are "void" (no native window: positions and the native parent pass through
+-- them), IupUser is "other".
+--
 -- @module core.imgui.widgets.boxes
 local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
@@ -244,7 +248,7 @@ local function box_size_setters(vertical)
 end
 
 Classes.define({
-	name = "hbox", children = -1, type = "container",
+	name = "hbox", children = -1, type = "void",
 	natural = box_natural(false), place = box_place(false),
 	set = box_size_setters(false),
 	get = {
@@ -254,7 +258,7 @@ Classes.define({
 })
 
 Classes.define({
-	name = "vbox", children = -1, type = "container",
+	name = "vbox", children = -1, type = "void",
 	natural = box_natural(true), place = box_place(true),
 	set = box_size_setters(true),
 	get = {
@@ -301,7 +305,7 @@ local ZALIGN = {
 }
 
 Classes.define({
-	name = "zbox", children = -1, type = "container",
+	name = "zbox", children = -1, type = "void",
 	visibleChildren = function(el, st)
 		local c = zbox_current(el, st)
 		return c and { c } or {}
@@ -437,7 +441,7 @@ Classes.define({ name = "spacer", children = 0, type = "void", transparent = tru
 -- cbox: children at CX/CY ------------------------------------------------------------------
 
 Classes.define({
-	name = "cbox", children = -1, type = "container",
+	name = "cbox", children = -1, type = "void",
 	natural = function(el, st, L)
 		local w, h = 0, 0
 		for _, c in ipairs(st.children) do
@@ -466,7 +470,7 @@ Classes.define({
 -- gridbox -------------------------------------------------------------------------------
 
 Classes.define({
-	name = "gridbox", children = -1, type = "container",
+	name = "gridbox", children = -1, type = "void",
 	natural = function(el, st, L)
 		local numdiv = max(1, tonumber(own(st, "NUMDIV")) or 1)
 		local horizontal = (own(st, "ORIENTATION") or "HORIZONTAL"):upper() == "HORIZONTAL"
@@ -532,7 +536,7 @@ local function one_place(el, st, L)
 	end
 end
 
-Classes.define({ name = "radio", children = 1, type = "container", natural = one_natural, place = one_place,
+Classes.define({ name = "radio", children = 1, type = "void", natural = one_natural, place = one_place,
 	get = {
 		VALUE = function(el, st)
 			local found
@@ -551,12 +555,12 @@ Classes.define({ name = "radio", children = 1, type = "container", natural = one
 })
 Classes.define({ name = "normalizer", children = -1, type = "void", natural = function() return 0, 0 end,
 	place = function() end, visibleChildren = function() return {} end, transparent = true })
-Classes.define({ name = "sbox", children = 1, type = "container", natural = one_natural, place = one_place })
-Classes.define({ name = "user", children = -1, type = "void", natural = function() return 0, 0 end,
+Classes.define({ name = "sbox", children = 1, type = "void", natural = one_natural, place = one_place })
+Classes.define({ name = "user", children = -1, type = "other", natural = function() return 0, 0 end,
 	place = function() end, visibleChildren = function() return {} end, transparent = true })
 
 Classes.define({
-	name = "backgroundbox", children = 1, type = "container", opaque = true,
+	name = "backgroundbox", children = 1, type = "canvas", opaque = true,
 	natural = function(el, st, L)
 		local w, h = one_natural(el, st, L)
 		local b = Element.getAttribute(el, "BORDER") == "YES" and 2 or 0
@@ -578,7 +582,7 @@ Classes.define({
 
 -- The classic iup.frame: a 1px etched border, the title cut into the top edge.
 Classes.define({
-	name = "frame", children = 1, type = "container", opaque = true,
+	name = "frame", children = 1, type = "control", opaque = true,
 	natural = function(el, st, L)
 		local w, h = one_natural(el, st, L)
 		local title = Element.getAttribute(el, "TITLE")
