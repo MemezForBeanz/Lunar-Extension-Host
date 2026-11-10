@@ -47,10 +47,7 @@ local function user_size(el, st)
 	return math.max(w, 0), math.max(h, 0)
 end
 
-local function yes(v)
-	v = tostring(v or ""):upper()
-	return v == "YES" or v == "ON" or v == "1" or v == "TRUE"
-end
+local yes = Element.isTrue -- iupStrBoolean
 
 --- iupdrvDialogGetDecoration + iupDialogGetDecorSize: what a window's frame takes from its
 -- RASTERSIZE/SIZE (a dialog's user size is the window, its child gets the client). The

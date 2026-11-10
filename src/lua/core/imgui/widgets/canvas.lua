@@ -6,7 +6,7 @@ local Draw = require("core.imgui.Draw")
 local iup = require("core.imgui.iup")
 
 local function attr(e, n) return Element.getAttribute(e, n) end
-local function yes(v) return tostring(v or ""):upper() == "YES" end
+local yes = Element.isTrue -- iupStrBoolean
 local function call_result(e, name, ...)
 	return Element.call(e, name, ...)
 end

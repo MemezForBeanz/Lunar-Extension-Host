@@ -9,7 +9,7 @@ local FlatScrollbar = require("core.imgui.widgets.flatscrollbar")
 local function attr(e, n) return Element.getAttribute(e, n) end
 local function own(e, n) return Element.own(e, n) end
 local function num(v, d) return tonumber(v) or d or 0 end
-local function yes(v) return tostring(v or ""):upper() == "YES" end
+local yes = Element.isTrue -- iupStrBoolean
 local function pair(v)
 	local a, b = tostring(v or ""):match("^%s*(-?%d*)x(-?%d*)%s*$")
 	return tonumber(a), tonumber(b)

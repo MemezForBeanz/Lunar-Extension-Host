@@ -13,7 +13,7 @@ local EXTRA_BASE = -6
 
 local function attr(el, name) return Element.getAttribute(el, name) end
 local function own(el, name) return Element.own(el, name) end
-local function yes(v) return tostring(v or ""):upper() == "YES" end
+local yes = Element.isTrue -- iupStrBoolean
 local function integer(v, default)
 	local n = tonumber(v)
 	return n and math.floor(n) or default

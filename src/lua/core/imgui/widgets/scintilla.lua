@@ -6,7 +6,7 @@ local Fonts = require("core.imgui.Fonts")
 local iup = require("core.imgui.iup")
 
 local M = {}
-local function yes(v) return tostring(v or ""):upper() == "YES" or v == true end
+local yes = Element.isTrue -- iupStrBoolean
 local function attr(e, n) return Element.getAttribute(e, n) end
 local function line_start(s, line)
 	local p = 1

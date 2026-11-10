@@ -314,6 +314,27 @@ describe("imgui parity: secondary dialog frame", function()
 	end)
 end)
 
+describe("imgui parity: booleans", function()
+	-- iupStrBoolean: "1", "YES" and "ON" in any case; everything else (including "TRUE") is
+	-- false. The widgets each had a yes() that took only YES, and flatdraw took TRUE as well.
+	it("reads attribute booleans as iupStrBoolean does", function()
+		local _, _, _, Element = host()
+		for _, v in ipairs({ "1", "YES", "Yes", "yes", "ON", "on" }) do assert.is_true(Element.isTrue(v), v) end
+		for _, v in ipairs({ "0", "NO", "TRUE", "", "2" }) do assert.is_false(Element.isTrue(v), v) end
+		assert.is_false(Element.isTrue(nil))
+	end)
+
+	it("lets a widget take ON where it took only YES", function()
+		local iup, R, B, Element = host()
+		local a = iup.flatscrollbox({ iup.vbox({ iup.label({ TITLE = "x", RASTERSIZE = "50x400", EXPAND = "HORIZONTAL" }) }),
+			SHOWFLOATING = "ON" })
+		local d = iup.dialog({ a, RASTERSIZE = "300x200" })
+		iup.Show(d); R.frame(); R.relayout(d); R.frame()
+		-- a floating bar takes no room from the child
+		assert.equal(Element.state(a).w, Element.state(iup.GetChild(a, 2)).w)
+	end)
+end)
+
 describe("imgui parity: IupShow", function()
 	-- iDialogAfterShow (iup_dialog.c) calls IupFlush before SHOW_CB, so a timer that is
 	-- due when the dialog is shown runs inside IupShow. Lunar's theme manager queues its

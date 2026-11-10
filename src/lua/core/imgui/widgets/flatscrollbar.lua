@@ -9,7 +9,7 @@ local FlatDraw = require("core.imgui.widgets.flatdraw")
 local M = {}
 local function attr(e, n) return Element.getAttribute(e, n) end
 local function num(v, d) return tonumber(v) or d or 0 end
-local function yes(v) return tostring(v or ""):upper() == "YES" end
+local yes = Element.isTrue -- iupStrBoolean
 local function clamp(v, lo, hi) return math.max(lo, math.min(hi, v)) end
 local function owner(e) return Element.state(e).data.scroll_owner end
 

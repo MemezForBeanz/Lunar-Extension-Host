@@ -8,7 +8,7 @@ local Draw = require("core.imgui.Draw")
 local iup = require("core.imgui.iup")
 
 local function attr(e, n) return Element.getAttribute(e, n) end
-local function yes(v) return tostring(v or ""):upper() == "YES" end
+local yes = Element.isTrue -- iupStrBoolean
 local function pad(e)
 	local a, b = tostring(attr(e, "PADDING") or "0x0"):match("^%s*(-?[%d%.]*)x(-?[%d%.]*)")
 	return tonumber(a) or 0, tonumber(b) or 0

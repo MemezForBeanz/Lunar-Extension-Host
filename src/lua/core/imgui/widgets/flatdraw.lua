@@ -23,11 +23,7 @@ local function own(el, name) return Element.own(el, name) end
 local function attr(el, name) return Element.getAttribute(el, name) end
 M.own, M.attr = own, attr
 
-function M.bool(v)
-	if v == nil then return false end
-	v = tostring(v):upper()
-	return v == "YES" or v == "ON" or v == "1" or v == "TRUE"
-end
+M.bool = Element.isTrue -- iupStrBoolean
 
 function M.int(v, default)
 	local n = tonumber(v)

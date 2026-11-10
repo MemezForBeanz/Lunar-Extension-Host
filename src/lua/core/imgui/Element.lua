@@ -69,6 +69,16 @@ M.INHERIT = { BGCOLOR = true, FGCOLOR = true, FONT = true, ACTIVE = true }
 
 function M.isInternal(name) return name:sub(1, 4) == "_IUP" end
 
+--- iupStrBoolean: "1", "YES" or "ON" in any case (a Lua true too, for internal flags).
+function M.isTrue(v)
+	if v == true then return true end
+	if v == nil or v == false then return false end
+	v = tostring(v)
+	if v == "1" then return true end
+	v = v:upper()
+	return v == "YES" or v == "ON"
+end
+
 function M.setClasses(c) Classes = c end
 
 function M.state(el) return STATE[el] end

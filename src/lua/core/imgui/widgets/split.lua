@@ -23,10 +23,7 @@ local floor, ceil, max = math.floor, math.ceil, math.max
 
 local ISPLIT_VERT, ISPLIT_HORIZ = "VERTICAL", "HORIZONTAL"
 
-local function bool(v)
-	v = tostring(v or ""):upper()
-	return v == "YES" or v == "ON" or v == "1" or v == "TRUE"
-end
+local bool = Element.isTrue -- iupStrBoolean
 
 --- The control data, with iSplitCreateMethod's values. Attributes given to the
 -- constructor arrive before `create` here, so the data starts on first use.
