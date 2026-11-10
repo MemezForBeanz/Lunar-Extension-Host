@@ -190,12 +190,12 @@ function M.sync(e)
 	local floating = yes(attr(e, "SHOWFLOATING"))
 	local vert, horiz = bars[1], bars[2]
 	local vs, hs = Element.state(vert), Element.state(horiz)
-	-- FLATSCROLLBAR is YES (both), VERTICAL, HORIZONTAL or NO, as SCROLLBAR is
-	local fsb = tostring(attr(e, "FLATSCROLLBAR") or "YES"):upper()
-	local enabled = fsb ~= "NO"
-	local mode = (fsb == "VERTICAL" or fsb == "HORIZONTAL") and fsb or tostring(attr(e, "SCROLLBAR") or "VERTICAL"):upper()
-	local needv = enabled and mode ~= "NO" and mode ~= "HORIZONTAL" and num(attr(e, "YMAX")) > num(attr(e, "DY"))
-	local needh = enabled and mode ~= "NO" and mode ~= "VERTICAL" and num(attr(e, "XMAX")) > num(attr(e, "DX"))
+	-- iupFlatScrollBarGet: FLATSCROLLBAR alone says which bars exist (YES both, HORIZONTAL,
+	-- VERTICAL, else none); iFlatScrollBarSetDXAttrib/SetDYAttrib show a bar while the view
+	-- is smaller than the range.
+	local fsb = tostring(attr(e, "FLATSCROLLBAR") or ""):upper()
+	local needv = (fsb == "YES" or fsb == "VERTICAL") and num(attr(e, "YMAX")) > num(attr(e, "DY"))
+	local needh = (fsb == "YES" or fsb == "HORIZONTAL") and num(attr(e, "XMAX")) > num(attr(e, "DX"))
 	Element.setAttribute(vert, "VISIBLE", needv and (floating and "NO" or "YES") or "NO")
 	Element.setAttribute(horiz, "VISIBLE", needh and (floating and "NO" or "YES") or "NO")
 	if floating then return end

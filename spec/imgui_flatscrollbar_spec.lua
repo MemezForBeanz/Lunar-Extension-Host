@@ -11,7 +11,7 @@ Fonts.reset()
 local function layout(el, w, h)
 	local st = Element.state(el)
 	st.x, st.y, st.w, st.h = 0, 0, w, h
-	local L = {
+	local L = { currentSize = function(_, cw, ch) return cw, ch end,
 		font = Fonts.forElement,
 		charsize = function() return 5, 10 end,
 		natural = function(c) return (Element.state(c).nat_w > 0 and Element.state(c).nat_w or 200), (Element.state(c).nat_h > 0 and Element.state(c).nat_h or 400) end,
@@ -101,7 +101,9 @@ describe("imgui flat scrollbar modes", function()
 
 	it("insets scrollbar children and paints the configured gradient thumb", function()
 		local child = iup.canvas{ RASTERSIZE = "80x400" }
-		local box = iup.flatscrollbox{ child, RASTERSIZE = "100x100", SB_INSET = "2",
+		-- FLATSCROLLBAR=VERTICAL: the stub natural size is 200 wide, which would add a
+		-- horizontal bar (iupFlatScrollBarGet: FLATSCROLLBAR defaults to both)
+		local box = iup.flatscrollbox{ child, RASTERSIZE = "100x100", SB_INSET = "2", FLATSCROLLBAR = "VERTICAL",
 			SB_GRADIENTCOLOR = "3 4 5", SB_CORNERRADIUS = "4" }
 		local st = layout(box, 100, 100)
 		local sb = iup.GetChild(box, 0)

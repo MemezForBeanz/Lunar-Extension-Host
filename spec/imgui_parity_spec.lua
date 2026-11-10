@@ -185,6 +185,43 @@ describe("imgui parity: flattabs pages", function()
 	end)
 end)
 
+describe("imgui parity: flat scroll box", function()
+	-- iFlatScrollBoxSetChildrenCurrentSizeMethod: a child taller than the box keeps its
+	-- natural height and loses the vertical bar's width (SCROLLBARSIZE) from the width it
+	-- expands to. The Settings panel at 700x500 was 588 px wide on the IUP build and 603 on
+	-- the host.
+	local function settings_like(iup, R, w, h, child)
+		local box = iup.flatscrollbox({ child })
+		local d = iup.dialog({ box, RASTERSIZE = w .. "x" .. h })
+		iup.Show(d)
+		R.frame()
+		-- the first layout starts the box at the child's natural size (currentwidth == 0 in
+		-- iFlatScrollBoxComputeNaturalSizeMethod); from the second on it is free of the child
+		R.relayout(d)
+		R.frame()
+		return box
+	end
+
+	it("takes the vertical bar's width from an expanding child", function()
+		local iup, R, B, Element = host()
+		local child = iup.vbox({ iup.label({ TITLE = "x", RASTERSIZE = "50x400", EXPAND = "HORIZONTAL" }) })
+		local box = settings_like(iup, R, 300, 200, child)
+		assert.equal(Element.state(box).w - 15, Element.state(child).w)
+		assert.equal("400", iup.GetAttribute(box, "YMAX"))
+	end)
+
+	-- FLATSCROLLBAR (default YES) decides both bars; SCROLLBAR is read-only NO there. With
+	-- the panes split narrow, IUP shows Settings' horizontal bar (49,837 465x15); the host
+	-- read SCROLLBAR, defaulted it to VERTICAL and never showed it.
+	it("shows the horizontal bar when the child is wider than the box", function()
+		local iup, R, B, Element = host()
+		local child = iup.vbox({ iup.label({ TITLE = "x", RASTERSIZE = "500x50" }) })
+		local box = settings_like(iup, R, 300, 200, child)
+		assert.equal("500", iup.GetAttribute(box, "XMAX"))
+		assert.is_true(R.isVisible(iup.GetChild(box, 1)))
+	end)
+end)
+
 describe("imgui parity: IupShow", function()
 	-- iDialogAfterShow (iup_dialog.c) calls IupFlush before SHOW_CB, so a timer that is
 	-- due when the dialog is shown runs inside IupShow. Lunar's theme manager queues its

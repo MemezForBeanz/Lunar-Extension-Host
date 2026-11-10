@@ -7,7 +7,7 @@ describe("imgui scrollbox", function()
 		local box = iup.flatscrollbox{child, SCROLLBAR = "VERTICAL"}
 		local st = Element.state(box); st.x, st.y, st.w, st.h = 0, 0, w, h
 		local cs = Element.state(child)
-		local L = { natural = function() return 40, 200 end, charsize = function() return 8, 16 end,
+		local L = { currentSize = function(_, cw, ch) return cw, ch end, natural = function() return 40, 200 end, charsize = function() return 8, 16 end,
 			place = function(_, x, y, pw, ph) cs.x, cs.y, cs.w, cs.h = x, y, pw, ph end }
 		Classes.get("flatscrollbox").natural(box, st, L)
 		Classes.get("flatscrollbox").place(box, st, L)
@@ -36,7 +36,7 @@ describe("imgui scrollbox", function()
 		local box = iup.flatscrollbox{child, FITCONTENT = "YES", SCROLLBAR = "BOTH"}
 		local st = Element.state(box); st.x, st.y, st.w, st.h = 0, 0, 100, 50
 		local cs = Element.state(child)
-		local L = {
+		local L = { currentSize = function(_, cw, ch) return cw, ch end,
 			natural = function(c) return c == child and 400 or 200, 20 end,
 			minContent = function(c, horizontal) return c == child and (horizontal and 240 or 20) or 0 end,
 			place = function(_, x, y, w, h) cs.x, cs.y, cs.w, cs.h = x, y, w, h end,
