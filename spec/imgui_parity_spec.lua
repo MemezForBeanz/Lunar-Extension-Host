@@ -11,6 +11,37 @@ local function host(opts)
 	return require("core.imgui.iup"), Runtime, B, Element
 end
 
+describe("imgui parity: flattoggle natural size", function()
+	-- iFlatToggleComputeNaturalSizeMethod: iupFlatDrawGetIconSize (text + padding, +4 for
+	-- the focus feedback of a focusable control), then CHECKSIZE + CHECKSPACING (5 by
+	-- default) across, at least CHECKSIZE down, then the border on both sides. Measured on
+	-- the IUP build: "Weekdays only" with CHECKSIZE=16 is 114x23 where the host made 105x17.
+	it("adds the focus room, the check spacing default and the border", function()
+		local iup, R = host()
+		local Fonts = require("core.imgui.Fonts")
+		local t = iup.flattoggle({ TITLE = "Weekdays only", CHECKSIZE = "16" })
+		local d = iup.dialog({ iup.vbox({ t }), RASTERSIZE = "300x100" })
+		iup.Show(d)
+		R.frame()
+		local tw, th = Fonts.forElement(t):measure("Weekdays only")
+		assert.equal(string.format("%dx%d", tw + 4 + 16 + 5 + 2, math.max(th + 4, 16) + 2),
+			iup.GetAttribute(t, "RASTERSIZE"))
+	end)
+
+	it("defaults CHECKSIZE to 16 and drops the check with CHECKSIZE=0", function()
+		local iup, R = host()
+		local Fonts = require("core.imgui.Fonts")
+		local a = iup.flattoggle({ TITLE = "On" })
+		local b = iup.flattoggle({ TITLE = "On", CHECKSIZE = "0", CANFOCUS = "NO" })
+		local d = iup.dialog({ iup.vbox({ a, b }), RASTERSIZE = "300x100" })
+		iup.Show(d)
+		R.frame()
+		local tw, th = Fonts.forElement(a):measure("On")
+		assert.equal(string.format("%dx%d", tw + 4 + 16 + 5 + 2, math.max(th + 4, 16) + 2), iup.GetAttribute(a, "RASTERSIZE"))
+		assert.equal(string.format("%dx%d", tw + 2, th + 2), iup.GetAttribute(b, "RASTERSIZE"))
+	end)
+end)
+
 describe("imgui parity: IupShow", function()
 	-- iDialogAfterShow (iup_dialog.c) calls IupFlush before SHOW_CB, so a timer that is
 	-- due when the dialog is shown runs inside IupShow. Lunar's theme manager queues its
