@@ -44,6 +44,9 @@ size for a dialog's RASTERSIZE, the host the client size; both clients are equal
 | 5 | Settings and pages with a flat scroll box | internal scroll bars | class `canvas` vs `flatscrollbar` | `iupFlatScrollBarCreate` makes them with `IupCanvas` | `iupname = "canvas"` | `imgui_parity_spec` "flat scroll bars" |
 | 6 | terminal open | terminal header, code view below | header 28 vs 32 tall; code view 51,628 1320x183 vs 51,632 1320x179 | `iHboxSetRasterSizeAttrib` "can NOT set height", `iVboxSetRasterSizeAttrib` "can NOT set width" | hbox/vbox own SIZE/RASTERSIZE setters; a class setter replaces the base one | `imgui_parity_spec` "box user size" |
 | 7 | all | 397 elements' FORECOLOR, and other defaults | `50 150 255` vs nil | `iupClassNew(iupRegisterFindClass("canvas"))` copies the parent's registrations; `IUP_FLAT_*` defaults behind `IUPAF_SAMEASSYSTEM` | `scripts/gen_imgui_attrs.py` follows parent classes and reads the macros from `iup_draw.h`; `attrs.lua` regenerated | covered by the suite |
+| 8 | maximised (1920x1080) | Build Queue group strip and every page's empty-state card | strip 1872x988 vs 1872x950; cards 19 px higher | `iFlatTabsSetChildrenCurrentSizeMethod` sets a page's current size directly, without `iupBaseSetCurrentSize`'s MAXSIZE crop (Lunar caps pages with MAXSIZE = work height - 130) | flattabs pages get the client rect through `L.set`; IupTabs keeps `iupBaseSetCurrentSize` | `imgui_parity_spec` "flattabs pages" |
+| 9 | 700x500; split right with divider 350; light theme 1100x700 | Settings panel; Settings' horizontal bar | panel 588 vs 603 wide (and 603 vs 618); horizontal bar 49,837 465x15 shown vs hidden | `iFlatScrollBoxSetChildrenCurrentSizeMethod` (child keeps natural size where larger, loses the other bar's width where it expands; `UpdateVisibleScrollArea`); `iupFlatScrollBarGet` reads FLATSCROLLBAR (default YES), SCROLLBAR is read-only NO | `widgets/scrollbox.lua` current-size pass ported; `flatscrollbar.sync` follows FLATSCROLLBAR only | `imgui_parity_spec` "flat scroll box" |
+| 10 | 700x500 | Build Queue work pane and output sash; Log Parser results card | pane 410 vs 368 (sash 64,559 vs 64,517); card 250 vs 113 | `iZboxComputeNaturalSizeMethod` with CHILDSIZEALL, registered "Yes" | read through getAttribute with IUP's boolean rule | `imgui_parity_spec` "zbox" |
 
 ## App issues found (reported, not changed)
 
@@ -55,10 +58,14 @@ size for a dialog's RASTERSIZE, the host the client size; both clients are equal
   the theme manager (an `_IUP`-prefixed name never inherits, or `iupAttribGet`-style own
   reads), and changes the IUP build's look too, so it is left for its owner.
 
+## Result of the state matrix
+
+After fixes 1-10, every state in the list above shows no element rectangle differing by more
+than 2 px between the builds, on all nine pages (`ui_probe_diff` tolerance 2), apart from the
+noise noted under "How it is measured".
+
 ## Open
 
-- maximised (43 rectangles), 700x500 (31), and `lunar_light` at 1100x700 with rail and
-  terminal (39): not yet analysed after fixes 1-7.
 - Secondary panels (activity panel, command palette, menus, message boxes, name and folder
   dialogs) through `scripts/ui_tour.lua`: not yet compared.
 - Settings sub-pages beyond the first: the probe walks tab strips only.
