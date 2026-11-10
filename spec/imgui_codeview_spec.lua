@@ -45,3 +45,47 @@ describe("ImGui CodeView", function()
 		iup.Destroy(d)
 	end)
 end)
+
+describe("ImGui CodeView through real input", function()
+	local Null = require("core.imgui.backend.Null")
+	local R = require("core.imgui.Runtime")
+	local iup = require("core.imgui.iup")
+	local Element = require("core.imgui.Element")
+	local CodeView = require("core.ui.CodeView")
+	local B
+	local function view(text)
+		B = Null.new(); R.init(B)
+		local v = CodeView.new(iup, { framed = false, read_only = false, language = "lua", text = text })
+		local d = iup.dialog{ iup.vbox{ v:widget(), MARGIN = "0x0" }, RASTERSIZE = "600x300", BORDER = "NO" }
+		iup.Show(d); R.frame(); R.frame()
+		return v, Element.state(v:control())
+	end
+
+	it("starts a dwell after the pointer rests (SETMOUSEDWELLTIME) and ends it on a move", function()
+		local v, st = view("local value = 1\nprint(value)")
+		local seen = {}
+		v:onHover(function(line, column) seen[#seen + 1] = line and { line, column } or "end" end)
+		local _, ch = require("core.imgui.Fonts").forElement(v:control()):charsize()
+		B.queue({ events = { { type = "move", x = st.x + 80, y = st.y + 2 } } }); R.frame()
+		assert.equal(0, #seen)
+		B.advance(1); R.step(0)
+		assert.equal(1, #seen)
+		assert.equal(0, seen[1][1])                -- the first line
+		B.queue({ events = { { type = "move", x = st.x + 90, y = st.y + ch + 2 } } }); R.frame()
+		assert.equal("end", seen[2])
+		B.advance(1); R.step(0)
+		assert.equal(1, seen[3][1])                -- the second line, a line height below
+	end)
+
+	it("hands a Ctrl+click to onClick through BUTTON_CB", function()
+		local v, st = view("print(value)")
+		local got
+		v:onClick(function(line, column, status) got = { line, column, status }; return true end)
+		B.queue({ events = { { type = "move", x = st.x + 60, y = st.y + 4 },
+			{ type = "press", x = st.x + 60, y = st.y + 4, button = 1, mods = { ctrl = true, b1 = true } } } }); R.frame()
+		B.queue({ events = { { type = "release", x = st.x + 60, y = st.y + 4, button = 1 } } }); R.frame()
+		assert.is_truthy(got)
+		assert.equal(0, got[1])
+		assert.is_truthy(tostring(got[3]):find("C", 1, true))
+	end)
+end)

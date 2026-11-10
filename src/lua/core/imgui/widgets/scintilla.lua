@@ -176,7 +176,63 @@ local function draw(e, st, dc, rt)
 	end
 	dc:clip_pop()
 end
+-- Scintilla's dwell (SCN_DWELLSTART / SCN_DWELLEND, IUP's DWELL_CB(state, pos, x, y)): the
+-- pointer resting for SETMOUSEDWELLTIME ms starts a dwell; moving, a key or a click ends it.
+local SC_TIME_FOREVER = 10000000
+local function dwell_end(e, st)
+	local d = st.data
+	if d.dwelling then
+		d.dwelling = false
+		Element.call(e, "DWELL_CB", 0, d.dwell_pos or -1, d.dwell_x or 0, d.dwell_y or 0)
+	end
+end
+local function dwell_arm(e, st, x, y)
+	local d = st.data
+	local ms = d.dwell_time or SC_TIME_FOREVER
+	if ms >= SC_TIME_FOREVER then return end
+	d.dwell_x, d.dwell_y = x, y
+	if not d.dwell_timer then
+		d.dwell_timer = iup.timer{ time = tostring(ms) }
+		d.dwell_timer.action_cb = function(t)
+			t.run = "NO"
+			if not d.dwell_inside then return iup.DEFAULT end
+			local sci = require("core.imgui.native.sci")
+			local pos = sci.send(e, 2023, d.dwell_x, d.dwell_y) -- POSITIONFROMPOINTCLOSE
+			d.dwelling, d.dwell_pos = true, pos
+			Element.call(e, "DWELL_CB", 1, pos or -1, d.dwell_x, d.dwell_y)
+			return iup.DEFAULT
+		end
+	end
+	d.dwell_timer.run = "NO"
+	d.dwell_timer.time = tostring(ms)
+	d.dwell_timer.run = "YES"
+end
+
 local function event(e, st, ev, rt)
+	-- iupScintilla: BUTTON_CB and MOTION_CB see the mouse before the editor does, and
+	-- IGNORE keeps it from the editor (CodeView's Ctrl+click and hover use them)
+	if ev.type == "press" or ev.type == "release" then
+		local r = Element.call(e, "BUTTON_CB", ev.iupbutton or (48 + (ev.button or 1)),
+			ev.type == "press" and 1 or 0, ev.lx or 0, ev.ly or 0, ev.status or "")
+		if r == iup.IGNORE then return true end
+	elseif ev.type == "move" then
+		local r = Element.call(e, "MOTION_CB", ev.lx or 0, ev.ly or 0, ev.status or "")
+		if r == iup.IGNORE then return true end
+	end
+	if ev.type == "move" or ev.type == "enter" then
+		st.data.dwell_inside = true
+		if ev.lx ~= st.data.dwell_x or ev.ly ~= st.data.dwell_y then
+			dwell_end(e, st)
+			dwell_arm(e, st, ev.lx, ev.ly)
+		end
+		return ev.type == "move"
+	elseif ev.type == "leave" then
+		st.data.dwell_inside = false
+		if st.data.dwell_timer then st.data.dwell_timer.run = "NO" end
+		dwell_end(e, st)
+		return true
+	end
+	if ev.type == "press" or ev.type == "key" or ev.type == "char" then dwell_end(e, st) end
 	if ev.type == "focus" or ev.type == "blur" then return true end
 	if ev.type == "press" then
 		local f = Fonts.forElement(e); local cw, ch = f:charsize()

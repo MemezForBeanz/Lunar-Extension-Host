@@ -157,8 +157,11 @@ function M.send(el, msg, w, l)
 		local p = clamp(d, l)
 		return visual_column(el, text, p, d.tab_width) * char_width(el) - (d.x_offset or 0) + (d.margin_width[0] or 0) + (d.margin_width[1] or 0)
 	elseif msg == 2165 then
-		return (line_of(text, clamp(d, l)) - (d.first_line or 0)) * char_width(el)
-	elseif msg == 2279 then return char_width(el)
+		-- POINTYFROMPOSITION / TEXTHEIGHT: lines are the font's height apart
+		return (line_of(text, clamp(d, l)) - (d.first_line or 0)) * select(2, char_width(el))
+	elseif msg == 2279 then return select(2, char_width(el))
+	elseif msg == 2264 then d.dwell_time = tonumber(w) or 10000000; return 0 -- SETMOUSEDWELLTIME
+	elseif msg == 2265 then return d.dwell_time or 10000000 -- GETMOUSEDWELLTIME
 	elseif msg == 2276 then return text_width(el, l, w)
 	elseif msg == 2023 then -- POSITIONFROMPOINTCLOSE; l is y, w is x
 		local cw, ch = char_width(el); local line = math.max(0, math.min(line_count(text) - 1, (d.first_line or 0) + math.floor((tonumber(l) or 0) / ch)))
