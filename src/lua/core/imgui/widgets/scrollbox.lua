@@ -1,6 +1,5 @@
 local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
-local Color = require("core.imgui.Color")
 local FlatScrollbar = require("core.imgui.widgets.flatscrollbar")
 
 local function attr(e, n) return Element.getAttribute(e, n) end
@@ -130,27 +129,6 @@ local function scroll_place_for(native)
 	end
 end
 local scroll_place = scroll_place_for(false)
-
-local function draw_bar(e, st, dc, vertical)
-	local maxv = vertical and st.data.ymax or st.data.xmax
-	local view = vertical and st.data.dy or st.data.dx
-	if not maxv or not view or maxv <= view then return end
-	local size = bar_size(e)
-	local x, y, w, h
-	if vertical then x, y, w, h = st.x + st.w - size, st.y, size, st.h
-	else x, y, w, h = st.x, st.y + st.h - size, st.w, size end
-	local pos = vertical and st.data.posy or st.data.posx
-	local range = vertical and st.data.ymax or st.data.xmax
-	local track = vertical and h or w
-	local thumb = math.max(8, track * view / range)
-	local offset = (track - thumb) * pos / math.max(1, range - view)
-	local fg = attr(e, "SB_FORECOLOR") or attr(e, "HIGHCOLOR") or attr(e, "FORECOLOR") or attr(e, "FGCOLOR")
-	local bg = attr(e, "SB_BACKCOLOR") or attr(e, "BACKCOLOR") or attr(e, "BGCOLOR")
-	if yes(attr(e, "SHOWTRANSPARENCY")) then bg = nil end
-	if bg then dc:fill(x, y, w, h, bg, { radius = num(attr(e, "CORNERRADIUS")) }) end
-	if vertical then dc:fill(x + 2, y + offset + 2, math.max(2, w - 4), math.max(2, thumb - 4), fg, { radius = math.min(4, w / 2) })
-	else dc:fill(x + offset + 2, y + 2, math.max(2, thumb - 4), math.max(2, h - 4), fg, { radius = math.min(4, h / 2) }) end
-end
 
 local function scroll_event(e, st, ev, rt)
 	if ev.type == "wheel" then
