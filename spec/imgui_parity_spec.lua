@@ -109,6 +109,17 @@ describe("imgui parity: inheritable attributes reach the class setters below", f
 	end)
 end)
 
+describe("imgui parity: flat scroll bars", function()
+	-- iupFlatScrollBarCreate: the two bars are IupCanvas children (IUP_INTERNAL). The probe
+	-- listed them as canvas on the IUP build and as flatscrollbar on the host.
+	it("reports its internal bars as canvas", function()
+		local iup = host()
+		local box = iup.flatscrollbox({ iup.vbox({ iup.label({ TITLE = "x" }) }) })
+		assert.equal("canvas", iup.GetClassName(iup.GetChild(box, 0)))
+		assert.equal("canvas", iup.GetClassName(iup.GetChild(box, 1)))
+	end)
+end)
+
 describe("imgui parity: IupShow", function()
 	-- iDialogAfterShow (iup_dialog.c) calls IupFlush before SHOW_CB, so a timer that is
 	-- due when the dialog is shown runs inside IupShow. Lunar's theme manager queues its

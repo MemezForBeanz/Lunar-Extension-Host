@@ -157,8 +157,10 @@ local function scrollbar_event(sb, st, ev, rt)
 	return false
 end
 
+-- iupFlatScrollBarCreate makes each bar with IupCanvas: IupGetClassName says "canvas", and the
+-- canvas's registrations apply to it.
 local scrollbar_def = {
-	name = "flatscrollbar", children = 0, draw = scrollbar_draw, event = scrollbar_event,
+	name = "flatscrollbar", iupname = "canvas", children = 0, draw = scrollbar_draw, event = scrollbar_event,
 	defaults = { BORDER = "NO", CANFOCUS = "NO", VISIBLE = "NO", ZORDER = "TOP" },
 	callbacks = { ACTION = true, BUTTON_CB = true, MOTION_CB = true, LEAVEWINDOW_CB = true, WHEEL_CB = true },
 }
