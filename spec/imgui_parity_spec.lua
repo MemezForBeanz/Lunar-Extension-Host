@@ -74,6 +74,41 @@ describe("imgui parity: split", function()
 	end)
 end)
 
+describe("imgui parity: inheritable attributes reach the class setters below", function()
+	-- iAttribNotifyChildren: IupSetAttribute(page, "VISIBLE", "YES"), as IupFlatTabs does
+	-- when it shows a tab, calls the VISIBLE setter of every descendant without its own
+	-- value. The fork's iSplitSetVisibleAttrib then clears the bar's own VISIBLE, so a sash
+	-- an application hid comes back with its tab. Measured: Build Queue's output sash (hidden
+	-- by Adaptive.setSecondPane while the output pane is closed) shows on the IUP build at
+	-- 64,837 1304x7 and stayed hidden on the host.
+	it("lets a page's VISIBLE reach the split's setter, which clears the bar's own VISIBLE", function()
+		local iup, R, B, Element = host()
+		local split = iup.split({ iup.label({ TITLE = "a" }), iup.label({ TITLE = "b" }) })
+		local page = iup.vbox({ split })
+		local d = iup.dialog({ page, RASTERSIZE = "300x200" })
+		iup.Show(d)
+		local bar = iup.GetChild(split, 0)
+		iup.SetAttribute(bar, "VISIBLE", "NO")
+		assert.is_false(R.isVisible(bar))
+		iup.SetAttribute(page, "VISIBLE", "YES")
+		assert.is_nil(Element.own(bar, "VISIBLE"))
+		assert.is_true(R.isVisible(bar))
+	end)
+
+	it("stops at a descendant that has its own value", function()
+		local iup, R, B, Element = host()
+		local split = iup.split({ iup.label({ TITLE = "a" }), iup.label({ TITLE = "b" }) })
+		local inner = iup.vbox({ split, VISIBLE = "NO" })
+		local page = iup.vbox({ inner })
+		local d = iup.dialog({ page, RASTERSIZE = "300x200" })
+		iup.Show(d)
+		local bar = iup.GetChild(split, 0)
+		iup.SetAttribute(bar, "VISIBLE", "NO")
+		iup.SetAttribute(page, "VISIBLE", "YES")
+		assert.equal("NO", Element.own(bar, "VISIBLE"))
+	end)
+end)
+
 describe("imgui parity: IupShow", function()
 	-- iDialogAfterShow (iup_dialog.c) calls IupFlush before SHOW_CB, so a timer that is
 	-- due when the dialog is shown runs inside IupShow. Lunar's theme manager queues its

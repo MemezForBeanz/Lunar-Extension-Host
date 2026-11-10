@@ -205,11 +205,33 @@ function M.setAttribute(el, name, value)
 		st.attrs[name] = value
 	end
 	M.hooks.invalidate(el, LAYOUT_ATTRS[name] and "layout" or "paint", name)
+	if M.SETTERS[name] and M.inherits(class, name) then M.notifyChildren(el, st, name, value, handle) end
+end
+
+--- Names some class (or every class) has a setter for; only these need the walk below.
+M.SETTERS = {}
+
+--- iAttribNotifyChildren (iup_attrib.c): an inheritable attribute set on an element reaches
+-- each descendant that holds no value of its own, through that descendant's class setter
+-- (nothing is stored there). Reading inherits by itself; this is for the setters with side
+-- effects, such as the fork's split VISIBLE rule that clears the bar's own VISIBLE when a
+-- tab shows its page.
+function M.notifyChildren(el, st, name, value, handle)
+	for _, child in ipairs(st.children) do
+		local cs = STATE[child]
+		if cs and cs.attrs[name] == nil and M.inherits(cs.class, name) then
+			local common = M.commonSet[name]
+			if common then common(child, cs, value, handle) end
+			local setter = cs.class.set and cs.class.set[name]
+			if setter then setter(child, cs, value, handle) end
+			M.notifyChildren(child, cs, name, value, handle)
+		end
+	end
 end
 
 --- Setters every class shares (IUP's base class). Returning false keeps the value out of
 -- the store; anything else stores it as usual.
-M.commonSet = {}
+M.commonSet = setmetatable({}, { __newindex = function(t, k, v) rawset(t, k, v); M.SETTERS[k] = true end })
 
 -- THEME / NTHEME: copy a theme user's attributes onto the element, then apply its
 -- "IUP<CLASS>" sub-theme (iupAttribSetTheme). NTHEME does not inherit.

@@ -68,6 +68,7 @@ function M.define(def)
 	assert(type(def) == "table" and type(def.name) == "string", "class needs a name")
 	if def.children == nil then def.children = 0 end
 	def.defaults = def.defaults or {}
+	for k in pairs(def.set or {}) do Element.SETTERS[k] = true end
 	registry[def.name] = def
 	return def
 end
