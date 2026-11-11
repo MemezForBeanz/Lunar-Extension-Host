@@ -511,14 +511,29 @@ as the flat scrollbar's size (IUP registers 15) were found.
   (ImGui answers what IUP leaves nil) and the Build Queue's tab-scoped status items, which
   IUP leaves attached on later pages.
 
+- **Secondary dialogs are native windows** again, as under IUP. A dialog keeps its place at
+  (ox, oy) in the main window's client coordinates; lunarimgui gives it an owned window
+  (`window("popup_*")`: its own swap chain and draw lists, rendered with that origin) whose
+  client sits exactly there, with `winDialogMapMethod`'s styles (caption, MENUBOX/MINBOX/MAXBOX,
+  RESIZE, BORDER, TOOLBOX, DIALOGFRAME, TASKBARBUTTON; owned by PARENTDIALOG's window, else
+  top level). Windows draws the frame and caption; the user's moves and sizes come back as
+  MOVE_CB and RESIZE_CB, the close button as CLOSE_CB; a modal one disables the main
+  window. Its input arrives in main-window coordinates tagged with the window it came
+  from, so the hit test only looks at that window whatever the stacking order. The window
+  exists from IupMap on, so `IupFFI.getptr(dlg, "HWND")` (WindowChrome themes the caption
+  with it) works as on IUP. `scripts/ui_dialogwin.lua` compares the two builds through
+  Win32 (styles, owner, geometry, PrintWindow pixels, a click, the close button): they
+  match but for the button being a child window on IUP. `LUNAR_DIALOG_WINDOWS=0` (and the
+  headless backend unless asked) keeps the old in-window panels.
+- **A dialog's RASTERSIZE is its window** on the main dialog too (it was the client), and
+  CENTERPARENT centres the dialog's window over the main window's, as `iDialogAdjustPos`.
+
 Known differences, in order of visibility:
 
-- **Secondary dialogs** (the activity panel, the command palette, message boxes) are
-  drawn inside the main window as panels rather than as separate OS windows. They
-  cannot leave the main window's bounds, and IUP's popup frame (8 px above the panel's
-  content in a capture) is not drawn.
+- **Popups of a dialog window** (a dropdown's list, a tooltip, a menu opened from a control
+  on it) draw inside that window, so one cannot reach past its edges; IUP's are windows.
 - **Text weight in IUP's popups**: IUP's secondary windows draw text heavier than its main
-  window; the ImGui panels use the main window's weight.
+  window; the ImGui host draws them at the main window's weight.
 - **Text positions are bytes**: `CARETPOS`, `SELECTIONPOS` and `COUNT` on native text count
   UTF-8 bytes, where the Win32 EDIT counts UTF-16 units; they agree for ASCII.
 - **Canvas `ACTION`** runs every frame a canvas is drawn (IUP calls it on WM_PAINT only).

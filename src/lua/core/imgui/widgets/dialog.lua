@@ -1,8 +1,9 @@
 --- Dialog-level classes: `dialog`, `timer`, `filedlg`, `messagedlg`, `clipboard`, and the
 -- stock dialogs behind `iup.Message`, `iup.Alarm`, `iup.GetText` and `iup.GetParam`.
 --
--- The first dialog shown owns the OS window; the rest are drawn inside it as floating
--- panels (see `core.imgui.Runtime`). The stock dialogs are built from flat controls
+-- The first dialog shown owns the main OS window; each other one gets a native window of
+-- its own (or, with LUNAR_DIALOG_WINDOWS=0 or the headless backend, a floating panel
+-- inside the main one; see `core.imgui.Runtime`). The stock dialogs are built from flat controls
 -- and take the current theme's colours, where IUP showed unthemed system boxes.
 --
 -- @module core.imgui.widgets.dialog

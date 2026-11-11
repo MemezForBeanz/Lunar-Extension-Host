@@ -254,7 +254,9 @@ Element.commonGet = {
 	HWND = function(el, st)
 		if st.mapped and B and B.window then
 			local d = dialog_of(el)
-			if d == main_dialog or st.classname == "dialog" then return tostring(B.window("hwnd") or 0) end
+			-- a dialog on its own window (and its controls, which have none of their own)
+			local own = d and M.dialogHwnd(d)
+			if own then return tostring(own) end
 			return tostring(B.window("hwnd") or 0)
 		end
 	end,
@@ -679,12 +681,21 @@ local function resolve_xy(d, st, x, y, w, h)
 	local cx, cy = client_origin()
 	local ww, wh = 1280, 800
 	if main_dialog then ww, wh = STATE[main_dialog].w, STATE[main_dialog].h end
+	-- iDialogAdjustPos places the dialog's window against the parent's window, not its
+	-- client: (fl, ft) is the main window's frame left of and above its client
+	local fl, ft = 0, 0
+	if B and B.window then
+		local wx, wy = B.window("pos")
+		local ow, oh = B.window("window_size")
+		if wx and ow then fl, ft, ww, wh = cx - wx, cy - wy, ow, oh end
+	end
 	local function axis(v, size, total, origin, is_x)
 		local kind = SCREEN_POS[v or 0xFFFA]
 		if v == nil then kind = "centerparent" end
-		if kind == "center" or kind == "centerparent" then return math.floor((total - size) / 2) end
-		if kind == "left" or kind == "leftparent" then return 0 end
-		if kind == "right" or kind == "rightparent" then return total - size end
+		local f = is_x and fl or ft
+		if kind == "center" or kind == "centerparent" then return math.floor((total - size) / 2) - f end
+		if kind == "left" or kind == "leftparent" then return -f end
+		if kind == "right" or kind == "rightparent" then return total - size - f end
 		if kind == "mouse" then
 			local m = is_x and last_mouse[1] or last_mouse[2]
 			return math.max(0, math.min(m, total - size))
@@ -745,6 +756,7 @@ function M.show(d, x, y)
 	end
 	st.data.shown = true
 	raise(d)
+	if not first_show and st.data.win and st.data.win_shown then B.window("popup_focus", st.data.win) end
 	need_frame = true
 	-- iDialogAfterShow (iup_dialog.c): process the pending messages first (IupFlush, so
 	-- due timers run here, before SHOW_CB), then SHOW_CB, then the start focus unless
@@ -777,6 +789,10 @@ function M.hide(d)
 	end
 	if not st.data.shown then return 0 end
 	st.data.shown = false
+	if st.data.win and st.data.win_shown then
+		B.window("popup_place", st.data.win, 0, 0, 1, 1, false)
+		st.data.win_shown = false
+	end
 	for i = #dialogs, 1, -1 do if dialogs[i] == d then table.remove(dialogs, i) end end
 	if focused and dialog_of(focused) == d then
 		focused = nil
@@ -804,6 +820,7 @@ function M.destroy(el)
 	local st = STATE[el]
 	if not st then return end
 	if st.classname == "dialog" and st.data.shown then M.hide(el) end
+	if st.data.win then B.window("popup_close", st.data.win); st.data.win = nil end
 	Element.destroy(el)
 end
 
@@ -824,7 +841,7 @@ function M.layoutNow(el)
 	local w, h
 	if d == main_dialog and st.data.shown then
 		w, h = st.w, st.h
-	elseif main_dialog and d ~= main_dialog and Element.own(d, "RASTERSIZE") then
+	elseif main_dialog and d ~= main_dialog and Element.own(d, "RASTERSIZE") and not st.data.user_sized then
 		w, h = panel_client_size(d, st)
 		if st.data.shown then st.w, st.h = w, h end
 	else
@@ -1110,17 +1127,121 @@ local function status_for(input, extra)
 	})
 end
 
+-- Secondary dialogs as their own windows (backends with B.surface; LUNAR_DIALOG_WINDOWS=0
+-- keeps them as panels in the main window). The dialog keeps its place at (ox, oy) in the
+-- main window's client coordinates; the backend puts the client of an owned native window
+-- there (iupwin_dialog.c styles: caption, MENUBOX/MINBOX/MAXBOX, RESIZE, BORDER, TOOLBOX),
+-- so Windows draws the frame and caption as under IUP, and reports input in the main
+-- window's coordinates, so routing does not change.
+local dialog_windows = false
+local pending_closes = {}
+
+local function ensure_window(d, st)
+	if not dialog_windows or st.data.win == false then return false end
+	if st.data.win then return true end
+	if not (B.alive and B.alive()) then return false end
+	local function a(n) return Element.getAttribute(d, n) end
+	local yes = Element.isTrue
+	-- winDialogMapMethod: RESIZE=NO turns MAXBOX off; TITLE or a box makes the title bar,
+	-- and any of those or BORDER the border
+	local resize = yes(a("RESIZE"))
+	local maxbox = resize and yes(a("MAXBOX"))
+	local caption = Element.own(d, "TITLE") ~= nil or yes(a("MENUBOX")) or maxbox or yes(a("MINBOX"))
+	if Element.own(d, "CUSTOMFRAME") == "YES" or Element.own(d, "HIDETITLEBAR") == "YES" then caption = false end
+	local border = yes(a("BORDER")) or caption or resize
+	-- iupDialogGetNativeParent: PARENTDIALOG's window owns it; without one it is top level
+	local parent = Element.getHandle(d, "PARENTDIALOG")
+	local pst = parent and STATE[parent]
+	local id = B.window("popup_open", {
+		title = a("TITLE") or "", caption = caption, border = border, resize = resize,
+		menubox = yes(a("MENUBOX")), minbox = yes(a("MINBOX")), maxbox = maxbox, dropfiles = Element.hasCallback(d, "DROPFILES_CB"),
+		toolbox = yes(a("TOOLBOX")), dialogframe = yes(a("DIALOGFRAME")),
+		taskbar = Element.own(d, "TASKBARBUTTON"),
+		owned = parent ~= nil, parent = (parent ~= main_dialog and pst and pst.data.win) or 0,
+	})
+	st.data.win = id or false
+	return id ~= nil
+end
+
+--- The native window of a secondary dialog (made now if needed, as IupMap makes it on
+-- IUP, so code that themes the frame right after mapping finds it), or nil when the
+-- dialog has none (the main dialog, or dialogs drawn as panels).
+function M.dialogHwnd(d)
+	local st = STATE[d]
+	if not st or st.classname ~= "dialog" or d == main_dialog then return nil end
+	if not ensure_window(d, st) then return nil end
+	return B.window("popup_hwnd", st.data.win)
+end
+
+--- Where the user moved or sized a dialog window, and whether its close button was used.
+local function sync_windows()
+	if not dialog_windows then return end
+	for _, d in ipairs(dialogs) do
+		local st = STATE[d]
+		if st and d ~= main_dialog and st.data.win and st.data.win_shown then
+			local x, y, w, h, close, minimized = B.window("popup_state", st.data.win)
+			if x and not minimized then
+				if x ~= st.data.ox or y ~= st.data.oy then
+					st.data.ox, st.data.oy = x, y
+					check_close(Element.call(d, "MOVE_CB", x, y))
+				end
+				if w > 0 and h > 0 and (w ~= st.w or h ~= st.h) then
+					st.w, st.h = w, h
+					st.data.user_sized = true
+					st.data.layout_dirty = true
+				end
+			end
+			if close then pending_closes[#pending_closes + 1] = d end
+		end
+	end
+end
+
+--- The close button (WM_CLOSE): CLOSE_CB, then hide unless it says IGNORE. Run after the
+-- frame ends, since hiding flushes and may draw a frame itself.
+local function run_closes()
+	if #pending_closes == 0 then return end
+	local list = pending_closes
+	pending_closes = {}
+	for _, d in ipairs(list) do
+		local st = STATE[d]
+		if st and st.data.shown then
+			local r = Element.call(d, "CLOSE_CB")
+			if r ~= IGNORE then
+				if r == CLOSE then M.exitLoop() end
+				M.hide(d)
+			end
+		end
+	end
+end
+
+--- The dialog window an element is on: its dialog's state, or nil on the main window.
+local function window_of(el)
+	if not el then return nil end
+	local d, st = dialog_of(el)
+	if d and d ~= main_dialog and st and st.data.win and st.data.win_shown then return st end
+	return nil
+end
+
 --- What is under the window point (x, y): an overlay, or an element and its dialog.
-local function pick(x, y)
+-- With dialog windows, `win` is the window the pointer is over (0 the main one): only
+-- what is on that window can be under it, whatever the windows' stacking order.
+local function surface_of(d, st)
+	if d ~= main_dialog and st and st.data.win and st.data.win_shown then return st.data.win end
+	return 0
+end
+local function pick(x, y, win)
 	for i = #overlays, 1, -1 do
 		local o = overlays[i]
-		if o.event and x >= o.x and y >= o.y and x < o.x + o.w and y < o.y + o.h then return nil, nil, o end
+		local ws = win and window_of(o.owner)
+		local here = not win or (ws and ws.data.win or 0) == win
+		if here and o.event and x >= o.x and y >= o.y and x < o.x + o.w and y < o.y + o.h then return nil, nil, o end
 		if o.modal then return nil, nil, o end
 	end
 	local modal = modal_top()
 	for i = #dialogs, 1, -1 do
 		local d = dialogs[i]
 		local st = STATE[d]
+		if win and surface_of(d, st) ~= win then goto next_dialog end
 		local ox, oy = 0, 0
 		if d ~= main_dialog then ox, oy = st.data.ox or 0, st.data.oy or 0 end
 		local lx, ly = x - ox, y - oy
@@ -1132,6 +1253,7 @@ local function pick(x, y)
 			return hit(d, lx, ly) or d, d
 		end
 		if d == modal then return nil, d end
+		::next_dialog::
 	end
 	return nil, nil
 end
@@ -1170,7 +1292,7 @@ local function route(input)
 
 	local target, target_dialog, overlay, part = nil, nil, nil, nil
 	if input.inside or captured then
-		target, target_dialog, overlay, part = pick(mx, my)
+		target, target_dialog, overlay, part = pick(mx, my, dialog_windows and input.win or nil)
 	end
 	local modal = modal_top()
 	if modal and target and dialog_of(target) ~= modal then target = nil end
@@ -1332,7 +1454,10 @@ local function route_events(input)
 			if t == "leave" then
 				mini.inside, mini.mx, mini.my = false, -1, -1
 			else
-				mini.inside, mini.mx, mini.my = ev.x >= 0, ev.x, ev.y
+				-- (-1, -1) is "no pointer" (after a leave); a dialog window left of or above
+				-- the main window reports real negative coordinates
+				mini.inside, mini.mx, mini.my = not (ev.x == -1 and ev.y == -1), ev.x, ev.y
+				mini.win = ev.win
 			end
 			if t == "press" then
 				p[ev.button] = 1
@@ -1441,14 +1566,18 @@ local function tooltip(d)
 	local pw, ph = tw + 12, th + 8
 	local x, y = last_mouse[1] + 2, last_mouse[2] + 22
 	local win = main_dialog and STATE[main_dialog]
-	local W, H = win and win.w or 1280, win and win.h or 800
-	if x + pw > W then x = W - pw - 2 end
-	if y + ph > H then y = last_mouse[2] - ph - 4 end
+	local bx, by, W, H = 0, 0, win and win.w or 1280, win and win.h or 800
+	local ws = window_of(hovered)
+	if ws then bx, by, W, H = ws.data.ox or 0, ws.data.oy or 0, ws.w, ws.h end
+	if x + pw > bx + W then x = bx + W - pw - 2 end
+	if y + ph > by + H then y = last_mouse[2] - ph - 4 end
+	if ws then d:surface(ws.data.win, bx, by, W, H) end
 	d:layer("overlay")
 	d:fill(x, y, pw, ph, bg, { radius = 4 })
 	d:rect(x, y, pw, ph, border, { radius = 4 })
 	d:text(tip, x + 6, y + 4, tw, th, fg, font, { wrap = tw >= 400 })
 	d:layer("main")
+	if ws then d:surface_end() end
 end
 
 -- Chrome for dialogs drawn inside the main window (secondary dialogs): the caption band
@@ -1503,6 +1632,7 @@ function M.frame()
 		end
 	end
 
+	sync_windows()
 	local ok, err = xpcall(route_events, debug.traceback, input)
 	frame_input = input
 	if not ok then warn(err) end
@@ -1533,24 +1663,45 @@ function M.frame()
 					local scrim = globals.LUNAR_SCRIMCOLOR or "0 0 0 90"
 					dc:fill(0, 0, input.w, input.h, scrim)
 				end
-				st.data.chrome = chrome_of(d, st)
-				paint_dialog_frame(d, st)
-				dc:offset_push(st.data.ox or 0, st.data.oy or 0)
-				dc:clip_push(0, 0, st.w, st.h)
-				paint(d, dc)
-				dc:clip_pop()
-				dc:offset_pop()
+				if ensure_window(d, st) then
+					-- its own window: Windows draws the frame and the caption
+					st.data.chrome = nil
+					local ox, oy = st.data.ox or 0, st.data.oy or 0
+					B.window("popup_place", st.data.win, ox, oy, st.w, st.h, true, st.data.modal and true or false,
+						Element.getAttribute(d, "TITLE") or "")
+					st.data.win_shown = true
+					dc:surface(st.data.win, ox, oy, st.w, st.h)
+					dc:offset_push(ox, oy)
+					dc:clip_push(0, 0, st.w, st.h)
+					local bg = Element.getAttribute(d, "BGCOLOR")
+					if bg then dc:fill(0, 0, st.w, st.h, bg) end
+					paint(d, dc)
+					dc:clip_pop()
+					dc:offset_pop()
+					dc:surface_end()
+				else
+					st.data.chrome = chrome_of(d, st)
+					paint_dialog_frame(d, st)
+					dc:offset_push(st.data.ox or 0, st.data.oy or 0)
+					dc:clip_push(0, 0, st.w, st.h)
+					paint(d, dc)
+					dc:clip_pop()
+					dc:offset_pop()
+				end
 			end
 		end
 	end
 	for _, o in ipairs(overlays) do
 		if o.draw then
+			local ws = window_of(o.owner)
+			if ws then dc:surface(ws.data.win, ws.data.ox or 0, ws.data.oy or 0, ws.w, ws.h) end
 			dc:layer("overlay")
 			dc:offset_push(o.dx or 0, o.dy or 0)
 			local okd, errd = xpcall(o.draw, debug.traceback, dc, o)
 			if not okd then warn(errd) end
 			dc:offset_pop()
 			dc:layer("main")
+			if ws then dc:surface_end() end
 		end
 	end
 	tooltip(dc)
@@ -1568,6 +1719,7 @@ function M.frame()
 		B.cursor(M.CURSORS[name] or name)
 	end
 	B.frame_end()
+	run_closes()
 end
 
 M.CURSORS = {
@@ -1616,6 +1768,8 @@ function M.init(backend)
 	iup = require("core.imgui.iup")
 	dialogs, overlays, timers = {}, {}, {}
 	main_dialog, hovered, captured, focused = nil, nil, nil, nil
+	dialog_windows = B.surface ~= nil and B.dialog_windows == true and os.getenv("LUNAR_DIALOG_WINDOWS") ~= "0"
+	pending_closes = {}
 	loop_level, exit_levels = 0, {}
 	need_frame, animating, closed = true, false, false
 	wake_at = nil

@@ -37,9 +37,17 @@ local function main_hwnd(p)
 	return ffi.cast("void*", ffi.cast("uintptr_t", tonumber(h)))
 end
 
+-- A secondary dialog's own window (Runtime.dialogHwnd), for its controls too.
+local function dialog_hwnd(p)
+	local d = Element.dialogOf(p) or p
+	local h = require("core.imgui.Runtime").dialogHwnd(d)
+	if not h or not ffi_ok then return nil end
+	return ffi.cast("void*", ffi.cast("uintptr_t", tonumber(h)))
+end
+
 function M.getptr(p, name)
 	if p == nil or not Element.is(p) then return nil end
-	if name == "HWND" or name == "WID" then return main_hwnd(p) end
+	if name == "HWND" or name == "WID" then return main_hwnd(p) or dialog_hwnd(p) end
 	return nil
 end
 

@@ -70,6 +70,20 @@ local FLT_MAX = 3.402823466e38
 local floor = math.floor
 local dl = C.lunar_ui_draw_list(0)
 local layer = 0
+-- The surface draws land on: 0 is the main window, else a dialog window's id
+-- (window("popup_open")). An exe without dialog windows draws everything on the main one.
+local surface = 0
+local list_of = function(n) return C.lunar_ui_draw_list(n) end
+if pcall(ffi.cdef, "ImDrawList *lunar_ui_popup_list(int id, int layer);")
+	and pcall(function() return C.lunar_ui_popup_list end) then
+	list_of = function(n) return C.lunar_ui_popup_list(surface, n) end
+	B.dialog_windows = true
+	--- Draw on a dialog window (id) or the main window (0) from here on.
+	function B.surface(id)
+		id = id or 0
+		if id ~= surface then surface = id; dl = list_of(layer) end
+	end
+end
 
 -- Input -----------------------------------------------------------------------------------
 -- The table Runtime reads, filled from the frame struct and reused every frame.
@@ -98,6 +112,7 @@ local TYPES = { "move", "press", "release", "wheel", "keydown", "keyup", "char",
 local raw_frame_begin = C_API.frame_begin
 function B.frame_begin()
 	local f = ffi.cast(frame_ptr_t, raw_frame_begin())
+	surface = 0
 	dl, layer = C.lunar_ui_draw_list(0), 0
 	input.w, input.h, input.scale = f.w, f.h, f.scale
 	input.mx, input.my, input.inside = f.mx, f.my, f.inside ~= 0
@@ -124,8 +139,11 @@ function B.frame_begin()
 		if dbl then button = button - 8 end
 		ev.type, ev.x, ev.y, ev.button, ev.double = t, e.x, e.y, button, dbl
 		ev.dx, ev.dy, ev.code, ev.char, ev.file = e.dx, e.dy, nil, nil, nil
-		ev.mods = mods_of(e.mods)
-		last_mods = e.mods
+		-- bits 8 and up: the window it came from (0 the main one, else a dialog window id)
+		local bits = bit.band(e.mods, 0xFF)
+		ev.win = bit.rshift(e.mods, 8)
+		ev.mods = mods_of(bits)
+		last_mods = bits
 		if t == "press" then
 			pressed[button] = pressed[button] + 1
 			if dbl then double[button] = double[button] + 1 end
@@ -172,7 +190,7 @@ end
 -- Drawing --------------------------------------------------------------------------------
 function B.layer(n)
 	n = (n == 1) and 1 or 0
-	if n ~= layer then layer = n; dl = C.lunar_ui_draw_list(n) end
+	if n ~= layer then layer = n; dl = list_of(n) end
 end
 function B.rect(x1, y1, x2, y2, col, rounding, thick, flags)
 	C.lunar_ui_rect(dl, x1, y1, x2, y2, col, rounding or 0, thick or 1, flags or 0)

@@ -227,6 +227,49 @@ function M.new(opts)
 		return 1
 	end
 
+	-- Dialog windows (opts.dialog_windows): what lunarimgui does for window("popup_*"), kept
+	-- in B.popups[id] = { opts, x, y, w, h, visible, modal, title }. A test plays the user by
+	-- setting x, y, w, h (moved or sized), close (the close button) or minimized. Draw calls
+	-- record "surface" when they switch to a dialog window (id) or back to the main one (0).
+	if opts.dialog_windows then
+		B.dialog_windows = true
+		B.popups, B.next_popup, B.surface_id = {}, 1, 0
+		function B.surface(id) B.surface_id = id or 0; record("surface", B.surface_id) end
+		local frame_begin = B.frame_begin
+		function B.frame_begin(...) B.surface_id = 0; return frame_begin(...) end
+		local window = B.window
+		function B.window(op, ...)
+			local a = { ... }
+			if op == "popup_open" then
+				local id = B.next_popup; B.next_popup = id + 1
+				B.popups[id] = { opts = a[1], visible = false, x = 0, y = 0, w = 100, h = 100 }
+				return id
+			elseif op == "popup_place" then
+				local p = B.popups[a[1]]
+				if p then
+					p.visible = a[6] and true or false
+					if p.visible then p.x, p.y, p.w, p.h, p.modal, p.title = a[2], a[3], a[4], a[5], a[7], a[8] end
+				end
+				return
+			elseif op == "popup_state" then
+				local p = B.popups[a[1]]
+				if not p then return end
+				local close = p.close; p.close = false
+				return p.x, p.y, p.w, p.h, close and true or false, p.minimized and true or false, p.active and true or false
+			elseif op == "popup_hwnd" then
+				return B.popups[a[1]] and 5000 + a[1] or nil
+			elseif op == "popup_focus" then
+				local p = B.popups[a[1]]
+				if p then p.focused = (p.focused or 0) + 1 end
+				return
+			elseif op == "popup_close" then
+				B.popups[a[1]] = nil
+				return
+			end
+			return window(op, ...)
+		end
+	end
+
 	--- Every text string drawn in the last frame, in order (handy in tests).
 	function B.texts()
 		local out = {}

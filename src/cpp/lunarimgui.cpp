@@ -102,7 +102,7 @@ struct Face {
 
 struct Rect { int x = 0, y = 0, w = 0, h = 0; bool contains(int px, int py) const { return w > 0 && px >= x && py >= y && px < x + w && py < y + h; } };
 
-struct Shot { bool pending = false; std::string path; int x = 0, y = 0, w = 0, h = 0; bool ok = false; };
+struct Shot { bool pending = false; std::string path; int x = 0, y = 0, w = 0, h = 0; bool ok = false; int popup = 0; };
 struct VideoChild { HWND hwnd = nullptr; HBRUSH brush = nullptr; bool seen = false; Rect at; bool shown = false; };
 
 struct State {
@@ -114,7 +114,8 @@ struct State {
     IDXGISwapChain *swap = nullptr; ID3D11RenderTargetView *rtv = nullptr;
     int sc_w = 0, sc_h = 0; bool warp = true;
     bool alive = false, close = false, resized = false;
-    bool custom_frame = false, fullscreen = false, tracking = false, nc_tracking = false;
+    bool custom_frame = false, fullscreen = false, nc_tracking = false;
+    HWND tracked = nullptr;   /* the window TrackMouseEvent watches (main or a dialog window) */
     bool inside = false, in_sizemove = false, in_callback = false, frame_open = false, ready = false;
     WINDOWPLACEMENT saved_placement = { sizeof(WINDOWPLACEMENT) };
     LONG saved_style = 0;
@@ -140,6 +141,35 @@ struct State {
     std::vector<const char*> frame_char_ptrs, frame_file_ptrs;
     LunarUiFrame frame = {};
 } g;
+
+/* Secondary dialogs as their own windows. Lua keeps a secondary dialog where it always
+ * did, at (ox, oy) in the main window's client coordinates; such a dialog gets an owned
+ * native window (caption, frame and buttons are Windows', as under IUP) whose client area
+ * sits exactly there, with its own swap chain and draw lists. Its mouse input is moved
+ * into main-client coordinates, so routing and hit testing in Lua do not change. */
+struct Popup {
+    int id = 0; HWND hwnd = nullptr; DWORD style = 0, ex = 0;
+    IDXGISwapChain *swap = nullptr; ID3D11RenderTargetView *rtv = nullptr; int sc_w = 0, sc_h = 0;
+    ImDrawList *lists[2] = {nullptr, nullptr};
+    Rect at;   /* the client rect Lua draws it at, main-client coordinates */
+    bool visible = false, shown = false, modal = false, close = false, drawn = false;
+    std::string title;
+};
+std::vector<Popup*> popups; int next_popup = 1;
+int event_src = 0;   /* the window the message being handled is for: 0 main, else a dialog window id */
+void popup_destroy(Popup *p);
+const wchar_t *POPUP_CLASS = L"LunarImGuiDialog";
+Popup *popup_by_id(int id) { for (Popup *p : popups) if (p->id == id) return p; return nullptr; }
+Popup *popup_of(HWND h) { if (!h) return nullptr; for (Popup *p : popups) if (p->hwnd == h) return p; return nullptr; }
+bool is_ours(HWND h) { return h && (h == g.hwnd || popup_of(h) != nullptr); }
+/* Is the pointer over the client area of another of this host's windows than `from`? */
+bool over_other_client(HWND from) {
+    POINT p; GetCursorPos(&p);
+    HWND w = WindowFromPoint(p);
+    if (!w || w == from || !is_ours(w)) return false;
+    ScreenToClient(w, &p); RECT r; GetClientRect(w, &r);
+    return p.x >= 0 && p.y >= 0 && p.x < r.right && p.y < r.bottom;
+}
 
 const UINT LUNAR_TRAY_MESSAGE = WM_APP + 42;
 const UINT LUNAR_TRAY_ID = 1;
@@ -216,7 +246,7 @@ int event_mods() {
 
 void push_event(int type, int button = 0, int code = 0, float dx = 0, float dy = 0) {
     LunarUiEvent e = {};
-    e.type = type; e.button = button; e.code = code; e.mods = event_mods();
+    e.type = type; e.button = button; e.code = code; e.mods = event_mods() | (event_src << 8);
     e.x = (float)g.mx; e.y = (float)g.my; e.dx = dx; e.dy = dy;
     /* ImGui's own IO, for code that draws ImGui widgets through cimgui */
     if (ImGui::GetCurrentContext()) {
@@ -315,7 +345,9 @@ void call_paint() {
 
 void mouse_to_client(HWND h, LPARAM l, bool screen) {
     POINT p = {GET_X_LPARAM(l), GET_Y_LPARAM(l)};
-    if (screen) ScreenToClient(h, &p);
+    /* a dialog window's points are reported in the main window's client coordinates */
+    if (!screen && h != g.hwnd) ClientToScreen(h, &p);
+    if (screen || h != g.hwnd) ScreenToClient(g.hwnd, &p);
     g.mx = p.x; g.my = p.y; g.inside = true;
 }
 
@@ -357,6 +389,7 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
      * and track leaves too, and its ReleaseCapture on button-up arrives here as
      * WM_CAPTURECHANGED before the button-up itself, which read as a second release (every
      * click fired twice). ImGui's IO is fed from the ordered events instead (push_event). */
+    { Popup *src = popup_of(h); event_src = src ? src->id : 0; }
     bool mouse_msg = (m >= WM_MOUSEFIRST && m <= WM_MOUSELAST) || (m >= WM_NCMOUSEMOVE && m <= WM_NCXBUTTONDBLCLK)
         || m == WM_MOUSELEAVE || m == WM_NCMOUSELEAVE || m == WM_CAPTURECHANGED || m == WM_SETCURSOR;
     if (!mouse_msg && g.device && ImGui::GetCurrentContext() && ImGui::GetIO().BackendPlatformUserData) ImGui_ImplWin32_WndProcHandler(h, m, w, l);
@@ -408,11 +441,11 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
             }
             return 0;
         }
-        if (g.custom_frame && !g.tracking && g.inside) { g.inside = false; g.mx = g.my = -1; push_event(8); }
+        if (g.custom_frame && !g.tracked && g.inside) { g.inside = false; g.mx = g.my = -1; push_event(8); }
         break;
     case WM_NCMOUSELEAVE:
         g.nc_tracking = false;
-        if (!g.tracking && g.inside) { g.inside = false; g.mx = g.my = -1; push_event(8); }
+        if (!g.tracked && g.inside) { g.inside = false; g.mx = g.my = -1; push_event(8); }
         break;
     case WM_NCLBUTTONDOWN: case WM_NCLBUTTONDBLCLK:
         if (g.custom_frame && is_button_hit(w)) {
@@ -505,11 +538,12 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_MOUSEMOVE:
         mouse_to_client(h, l, false);
         push_event(1);
-        if (!g.tracking) { TRACKMOUSEEVENT t = {sizeof(t), TME_LEAVE, h, 0}; TrackMouseEvent(&t); g.tracking = true; }
+        if (g.tracked != h) { TRACKMOUSEEVENT t = {sizeof(t), TME_LEAVE, h, 0}; TrackMouseEvent(&t); g.tracked = h; }
         return 0;
     case WM_MOUSELEAVE:
-        g.tracking = false;
-        if (!g.down[0] && !g.down[1] && !g.down[2]) { g.inside = false; g.mx = g.my = -1; push_event(8); }
+        if (g.tracked == h) g.tracked = nullptr;
+        /* into another of this host's windows: its moves follow, so the pointer never left */
+        if (!g.down[0] && !g.down[1] && !g.down[2] && !over_other_client(h)) { g.inside = false; g.mx = g.my = -1; push_event(8); }
         return 0;
     case WM_DROPFILES: {
         HDROP drop = (HDROP)w;
@@ -524,6 +558,28 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     }
     return DefWindowProcW(h, m, w, l);
+}
+
+/* A dialog window: its own close, size and frame; everything else (keys, characters, the
+ * client mouse, cursor, drops, sizing loops) is the main window's handling. */
+LRESULT CALLBACK popup_wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    Popup *p = popup_of(h);
+    switch (m) {
+    case WM_CLOSE: if (p) p->close = true; return 0;   /* Lua runs CLOSE_CB and hides it */
+    case WM_DESTROY: return 0;
+    case WM_ERASEBKGND: return 1;
+    case WM_SIZE: if (w != SIZE_MINIMIZED) call_paint(); return 0;
+    case WM_PAINT: { PAINTSTRUCT ps; BeginPaint(h, &ps); EndPaint(h, &ps); if (g.in_sizemove) call_paint(); return 0; }
+    case WM_DPICHANGED: {
+        RECT *r = (RECT*)l;
+        SetWindowPos(h, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top, SWP_NOZORDER | SWP_NOACTIVATE);
+        return 0;
+    }
+    case WM_NCCALCSIZE: case WM_NCHITTEST: case WM_NCMOUSEMOVE: case WM_NCMOUSELEAVE:
+    case WM_NCLBUTTONDOWN: case WM_NCLBUTTONUP: case WM_NCLBUTTONDBLCLK:
+        return DefWindowProcW(h, m, w, l);
+    }
+    return wndproc(h, m, w, l);
 }
 
 /* -- Fonts ------------------------------------------------------------------- */
@@ -787,7 +843,10 @@ void fit_target() {
     create_target();
 }
 
-void client_to_window(int &w, int &h, DWORD style, DWORD ex) {
+/* A dialog's RASTERSIZE is its whole window under IUP (iupdrvDialogGetDecoration takes the
+ * frame out for the child), so the size Lua asks for is the window's; this is kept for
+ * code that has a client size. */
+[[maybe_unused]] void client_to_window(int &w, int &h, DWORD style, DWORD ex) {
     if (g.custom_frame) return;   /* the client is the whole window but the side frames */
     RECT r = {0, 0, w, h};
     typedef BOOL (WINAPI *Fn)(LPRECT, DWORD, BOOL, DWORD, UINT);
@@ -835,10 +894,12 @@ Rect rect_field(lua_State *L, int idx, const char *name) {
     return r;
 }
 
-void write_shot() {
+/* The back buffer of the main window, or of a dialog window (screenshot's 6th argument). */
+void write_shot(IDXGISwapChain *swap = nullptr, HWND hwnd = nullptr) {
     Shot &s = g.shot;
+    if (!swap) { swap = g.swap; hwnd = g.hwnd; }
     s.pending = false; s.ok = false;
-    RECT rc; GetClientRect(g.hwnd, &rc);
+    RECT rc; GetClientRect(hwnd, &rc);
     int W = rc.right, H = rc.bottom;
     int x = s.w > 0 ? std::max(0, s.x) : 0, y = s.w > 0 ? std::max(0, s.y) : 0;
     int w = s.w > 0 ? std::min(s.w, W - x) : W, h = s.h > 0 ? std::min(s.h, H - y) : H;
@@ -846,7 +907,7 @@ void write_shot() {
     std::vector<unsigned char> px((size_t)w * h * 4);
     /* the back buffer through a CPU-readable copy, rows bottom-up as the BMP wants them */
     ID3D11Texture2D *back = nullptr;
-    if (FAILED(g.swap->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&back)) || !back) return;
+    if (FAILED(swap->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&back)) || !back) return;
     D3D11_TEXTURE2D_DESC d; back->GetDesc(&d);
     d.Usage = D3D11_USAGE_STAGING; d.BindFlags = 0; d.CPUAccessFlags = D3D11_CPU_ACCESS_READ; d.MiscFlags = 0;
     ID3D11Texture2D *copy = nullptr;
@@ -1063,7 +1124,7 @@ int l_open(lua_State *L) {
     RegisterClassExW(&wc);
     DWORD style = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, ex = WS_EX_APPWINDOW;
     int ww = w, wh = h;
-    client_to_window(ww, wh, style, ex);
+    /* w x h is the window (RASTERSIZE), as IUP sizes a dialog */
     RECT work, full; monitor_rects(work, full);
     if (!has_x) x = work.left + std::max(0, (int)(work.right - work.left - ww) / 2);
     if (!has_y) y = work.top + std::max(0, (int)(work.bottom - work.top - wh) / 2);
@@ -1085,6 +1146,7 @@ int l_open(lua_State *L) {
 }
 
 int l_close(lua_State *L) {
+    while (!popups.empty()) popup_destroy(popups.back());
     if (g.tray) { tray_apply(false); g.tray = false; }
     for (auto &v : g.video_children) {
         if (v.hwnd) DestroyWindow(v.hwnd);
@@ -1155,6 +1217,15 @@ int l_frame_begin(lua_State *L) {
     g.lists.push_back(ImGui::GetBackgroundDrawList());
     g.lists.push_back(ImGui::GetForegroundDrawList());
     g.layer = 0;
+    for (Popup *p : popups) {
+        for (ImDrawList *&dl : p->lists) {
+            if (!dl) dl = IM_NEW(ImDrawList)(ImGui::GetDrawListSharedData());
+            dl->_ResetForNewFrame();
+            dl->PushTexture(io.Fonts->TexRef);
+            dl->PushClipRect(ImVec2(-32768, -32768), ImVec2(32768, 32768), false);
+        }
+        p->drawn = false;
+    }
     g.frame_open = true;
 
     /* This frame's input moves to the frame_* buffers, which stay valid until the next
@@ -1167,9 +1238,9 @@ int l_frame_begin(lua_State *L) {
     LunarUiFrame &f = g.frame;
     f.w = w; f.h = h;
     f.scale = (float)window_dpi(g.hwnd) / 96.0f;
-    f.focused = GetForegroundWindow() == g.hwnd;
+    f.focused = is_ours(GetForegroundWindow());
     f.resized = g.resized; f.minimized = minimized; f.close_requested = g.close;
-    f.inside = g.inside && g.mx >= 0;
+    f.inside = g.inside && !(g.mx == -1 && g.my == -1);   /* a dialog window may lie left of or above */
     f.mx = (float)g.mx; f.my = (float)g.my;
     f.nevents = (int32_t)g.frame_events.size(); f.events = g.frame_events.data();
     f.nchars = (int32_t)g.frame_char_ptrs.size(); f.chars = g.frame_char_ptrs.data();
@@ -1182,6 +1253,161 @@ int l_frame_begin(lua_State *L) {
     return 1;
 }
 
+/* The dialog window's swap chain follows its client size. */
+void popup_fit(Popup *p) {
+    RECT r; GetClientRect(p->hwnd, &r);
+    int w = std::max(1, (int)r.right), h = std::max(1, (int)r.bottom);
+    if (w == p->sc_w && h == p->sc_h && p->rtv) return;
+    if (p->rtv) { p->rtv->Release(); p->rtv = nullptr; }
+    g.ctx->OMSetRenderTargets(0, nullptr, nullptr);
+    p->swap->ResizeBuffers(0, (UINT)w, (UINT)h, DXGI_FORMAT_UNKNOWN, 0);
+    ID3D11Texture2D *back = nullptr;
+    if (SUCCEEDED(p->swap->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&back)) && back) {
+        g.device->CreateRenderTargetView(back, nullptr, &p->rtv);
+        D3D11_TEXTURE2D_DESC d; back->GetDesc(&d); p->sc_w = (int)d.Width; p->sc_h = (int)d.Height;
+        back->Release();
+    }
+}
+
+/* Its lists, drawn in main-client coordinates, rendered with the client's origin as the
+ * display origin. The atlas was brought up to date by the main window's render. */
+void popup_render(Popup *p) {
+    if (!p->visible || !p->swap || !p->drawn || IsIconic(p->hwnd)) return;
+    popup_fit(p);
+    if (!p->rtv) return;
+    ImDrawData dd;
+    dd.Valid = true;
+    for (ImDrawList *dl : p->lists) {
+        dl->_PopUnusedDrawCmd();
+        if (dl->CmdBuffer.Size == 0) continue;
+        dd.CmdLists.push_back(dl);
+        dd.TotalVtxCount += dl->VtxBuffer.Size; dd.TotalIdxCount += dl->IdxBuffer.Size;
+    }
+    dd.DisplayPos = ImVec2((float)p->at.x, (float)p->at.y);
+    dd.DisplaySize = ImVec2((float)p->sc_w, (float)p->sc_h);
+    dd.FramebufferScale = ImVec2(1, 1);
+    dd.Textures = nullptr;
+    const float black[4] = {0, 0, 0, 1};
+    g.ctx->OMSetRenderTargets(1, &p->rtv, nullptr);
+    g.ctx->ClearRenderTargetView(p->rtv, black);
+    if (dd.CmdLists.Size > 0) ImGui_ImplDX11_RenderDrawData(&dd);
+    if (g.shot.pending && g.shot.popup == p->id) write_shot(p->swap, p->hwnd);
+    p->swap->Present(0, 0);
+    /* shown once it has a frame to show (IupShow activates it) */
+    if (!p->shown) { ShowWindow(p->hwnd, SW_SHOW); p->shown = true; }
+}
+
+/* IupPopup: the main window takes no input while a modal dialog window is up. */
+void popup_update_modal() {
+    if (!g.hwnd) return;
+    bool any = false;
+    for (Popup *p : popups) if (p->visible && p->modal) any = true;
+    bool enabled = IsWindowEnabled(g.hwnd) != 0;
+    if (enabled == any) EnableWindow(g.hwnd, any ? FALSE : TRUE);
+}
+
+void popup_hide(Popup *p) {
+    p->visible = false;
+    popup_update_modal();   /* the owner first, so activation returns to it */
+    if (p->shown) { ShowWindow(p->hwnd, SW_HIDE); p->shown = false; }
+}
+
+void popup_destroy(Popup *p) {
+    popup_hide(p);
+    if (p->rtv) p->rtv->Release();
+    if (p->swap) p->swap->Release();
+    if (p->hwnd) DestroyWindow(p->hwnd);
+    for (ImDrawList *dl : p->lists) if (dl) IM_DELETE(dl);
+    popups.erase(std::remove(popups.begin(), popups.end(), p), popups.end());
+    delete p;
+}
+
+/* The client rect in main-client coordinates. */
+Rect popup_client(Popup *p) {
+    POINT o = {0, 0}; ClientToScreen(p->hwnd, &o);
+    POINT m = {0, 0}; ClientToScreen(g.hwnd, &m);
+    RECT c; GetClientRect(p->hwnd, &c);
+    Rect r; r.x = o.x - m.x; r.y = o.y - m.y; r.w = c.right; r.h = c.bottom;
+    return r;
+}
+
+Popup *popup_create(lua_State *L, int t) {
+    auto flag = [&](const char *k) { lua_getfield(L, t, k); bool v = lua_toboolean(L, -1) != 0; lua_pop(L, 1); return v; };
+    std::string title;
+    lua_getfield(L, t, "title"); if (lua_isstring(L, -1)) title = lua_tostring(L, -1); lua_pop(L, 1);
+    /* iupwin_dialog.c winDialogMapMethod: RESIZE a sizing frame, MENUBOX/MAXBOX/MINBOX their
+     * boxes; with a native parent a popup with a caption (or a border), without one an
+     * overlapped window (or a popup that never activates); TASKBARBUTTON, TOOLBOX and
+     * DIALOGFRAME the extended styles. Lua passes caption = has_titlebar, border = has_border. */
+    bool caption = flag("caption"), border = flag("border"), owned = flag("owned");
+    DWORD style = WS_CLIPSIBLINGS | WS_CLIPCHILDREN, ex = 0;
+    if (flag("resize")) style |= WS_THICKFRAME;
+    if (flag("menubox")) style |= WS_SYSMENU;
+    if (flag("maxbox")) style |= WS_MAXIMIZEBOX;
+    if (flag("minbox")) style |= WS_MINIMIZEBOX;
+    if (owned) {
+        style |= WS_POPUP;
+        if (caption) style |= WS_CAPTION; else if (border) style |= WS_BORDER;
+    } else if (caption) {
+        style |= WS_OVERLAPPED;
+    } else {
+        style |= WS_POPUP; if (border) style |= WS_BORDER;
+        ex |= WS_EX_NOACTIVATE;
+    }
+    lua_getfield(L, t, "taskbar");
+    if (lua_isstring(L, -1)) {
+        if (!_stricmp(lua_tostring(L, -1), "SHOW")) ex |= WS_EX_APPWINDOW;
+        else if (!_stricmp(lua_tostring(L, -1), "HIDE")) ex |= WS_EX_TOOLWINDOW;
+    }
+    lua_pop(L, 1);
+    if (flag("toolbox") && owned) ex |= WS_EX_TOOLWINDOW | WS_EX_WINDOWEDGE;
+    if (flag("dialogframe") && owned) ex |= WS_EX_DLGMODALFRAME;
+    HWND owner = nullptr;
+    if (owned) {
+        lua_getfield(L, t, "parent"); int pid = (int)lua_tointeger(L, -1); lua_pop(L, 1);
+        Popup *pp = pid ? popup_by_id(pid) : nullptr;
+        owner = pp ? pp->hwnd : g.hwnd;
+    }
+    static bool registered = false;
+    HINSTANCE hi = GetModuleHandleW(nullptr);
+    if (!registered) {
+        WNDCLASSEXW wc = {sizeof(wc)};
+        wc.style = CS_DBLCLKS | CS_OWNDC; wc.hInstance = hi; wc.lpfnWndProc = popup_wndproc;
+        wc.lpszClassName = POPUP_CLASS; wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+        wc.hIcon = LoadIconW(hi, MAKEINTRESOURCEW(1));
+        RegisterClassExW(&wc); registered = true;
+    }
+    HWND h = CreateWindowExW(ex, POPUP_CLASS, wide(title.c_str()).c_str(), style, 0, 0, 100, 100, owner, nullptr, hi, nullptr);
+    if (!h) return nullptr;
+    /* the caption stays the system's until the app themes it (core.ui.WindowChrome), as on IUP */
+    /* what Windows made of it (an overlapped window gains its caption), for the frame maths */
+    style = (DWORD)GetWindowLongW(h, GWL_STYLE) & ~WS_VISIBLE; ex = (DWORD)GetWindowLongW(h, GWL_EXSTYLE);
+    if (flag("dropfiles")) DragAcceptFiles(h, TRUE);
+    IDXGIDevice *dxgi = nullptr; IDXGIAdapter *adapter = nullptr; IDXGIFactory *factory = nullptr;
+    IDXGISwapChain *swap = nullptr;
+    if (SUCCEEDED(g.device->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgi)) && dxgi &&
+        SUCCEEDED(dxgi->GetAdapter(&adapter)) && adapter &&
+        SUCCEEDED(adapter->GetParent(__uuidof(IDXGIFactory), (void**)&factory)) && factory) {
+        DXGI_SWAP_CHAIN_DESC sd = {};
+        sd.BufferCount = 2; sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; sd.OutputWindow = h;
+        sd.SampleDesc.Count = 1; sd.Windowed = TRUE; sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+        if (FAILED(factory->CreateSwapChain(g.device, &sd, &swap))) {
+            sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD; sd.BufferCount = 1;
+            if (FAILED(factory->CreateSwapChain(g.device, &sd, &swap))) swap = nullptr;
+        }
+        if (swap) factory->MakeWindowAssociation(h, DXGI_MWA_NO_ALT_ENTER);
+    }
+    if (factory) factory->Release();
+    if (adapter) adapter->Release();
+    if (dxgi) dxgi->Release();
+    if (!swap) { DestroyWindow(h); return nullptr; }
+    Popup *p = new Popup;
+    p->id = next_popup++; p->hwnd = h; p->style = style; p->ex = ex; p->swap = swap; p->title = title;
+    popups.push_back(p);
+    return p;
+}
+
 int l_frame_end(lua_State *) {
     if (!g.frame_open) return 0;
     g.frame_open = false;
@@ -1192,7 +1418,8 @@ int l_frame_end(lua_State *) {
     g.ctx->OMSetRenderTargets(1, &g.rtv, nullptr);
     g.ctx->ClearRenderTargetView(g.rtv, black);
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-    if (g.shot.pending) write_shot();
+    if (g.shot.pending && g.shot.popup == 0) write_shot();
+    for (Popup *p : popups) popup_render(p);
     /* LUNAR_VSYNC=0 presents at once (frame timing in scripts/imgui_perf.lua) */
     static int vsync = -1;
     if (vsync < 0) { char v[8] = ""; GetEnvironmentVariableA("LUNAR_VSYNC", v, sizeof(v)); vsync = v[0] == '0' ? 0 : 1; }
@@ -1406,7 +1633,7 @@ int l_cursor(lua_State *L) {
     if (c != g.cursor) {
         g.cursor = c;
         POINT p; GetCursorPos(&p);
-        if (g.hwnd && WindowFromPoint(p) == g.hwnd && g.inside) SetCursor(c);
+        if (g.hwnd && is_ours(WindowFromPoint(p)) && g.inside) SetCursor(c);
     }
     return 0;
 }
@@ -1448,6 +1675,7 @@ int l_screenshot(lua_State *L) {
     g.shot.path = luaL_checkstring(L, 1);
     g.shot.x = (int)luaL_optinteger(L, 2, 0); g.shot.y = (int)luaL_optinteger(L, 3, 0);
     g.shot.w = (int)luaL_optinteger(L, 4, 0); g.shot.h = (int)luaL_optinteger(L, 5, 0);
+    g.shot.popup = (int)luaL_optinteger(L, 6, 0);
     lua_pushboolean(L, 1);
     return 1;
 }
@@ -1525,6 +1753,67 @@ int l_window(lua_State *L) {
         }
         return 0;
     }
+    if (is("popup_open")) {
+        if (!g.device || !lua_istable(L, 2)) return 0;
+        Popup *p = popup_create(L, 2);
+        if (!p) return 0;
+        lua_pushinteger(L, p->id); return 1;
+    }
+    if (is("popup_place")) {
+        /* id, x, y, w, h (the client, main-client coordinates), visible, modal, title */
+        Popup *p = popup_by_id((int)luaL_checkinteger(L, 2));
+        if (!p) return 0;
+        Rect r; r.x = (int)luaL_checknumber(L, 3); r.y = (int)luaL_checknumber(L, 4);
+        r.w = std::max(1, (int)luaL_checknumber(L, 5)); r.h = std::max(1, (int)luaL_checknumber(L, 6));
+        bool visible = lua_toboolean(L, 7) != 0;
+        p->modal = lua_toboolean(L, 8) != 0;
+        if (lua_isstring(L, 9)) {
+            std::string t = lua_tostring(L, 9);
+            if (t != p->title) { p->title = t; SetWindowTextW(p->hwnd, wide(t.c_str()).c_str()); }
+        }
+        if (!visible) { popup_hide(p); return 0; }
+        if (!IsIconic(p->hwnd)) {
+            Rect cur = popup_client(p);
+            if (cur.x != r.x || cur.y != r.y || cur.w != r.w || cur.h != r.h) {
+                POINT o = {0, 0}; ClientToScreen(g.hwnd, &o);
+                RECT wr = {o.x + r.x, o.y + r.y, o.x + r.x + r.w, o.y + r.y + r.h};
+                typedef BOOL (WINAPI *Fn)(LPRECT, DWORD, BOOL, DWORD, UINT);
+                static Fn fn = (Fn)(void*)GetProcAddress(GetModuleHandleA("user32.dll"), "AdjustWindowRectExForDpi");
+                if (fn) fn(&wr, p->style, FALSE, p->ex, window_dpi(p->hwnd)); else AdjustWindowRectEx(&wr, p->style, FALSE, p->ex);
+                SetWindowPos(p->hwnd, nullptr, wr.left, wr.top, wr.right - wr.left, wr.bottom - wr.top,
+                    SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER);
+            }
+        }
+        p->at = r; p->visible = true;
+        popup_update_modal();
+        return 0;
+    }
+    if (is("popup_state")) {
+        /* where the user left it: x, y, w, h (main-client), close asked, minimized, active */
+        Popup *p = popup_by_id((int)luaL_checkinteger(L, 2));
+        if (!p) return 0;
+        Rect c = popup_client(p);
+        lua_pushinteger(L, c.x); lua_pushinteger(L, c.y); lua_pushinteger(L, c.w); lua_pushinteger(L, c.h);
+        lua_pushboolean(L, p->close); p->close = false;
+        lua_pushboolean(L, IsIconic(p->hwnd));
+        lua_pushboolean(L, GetForegroundWindow() == p->hwnd);
+        return 7;
+    }
+    if (is("popup_hwnd")) {
+        Popup *p = popup_by_id((int)luaL_checkinteger(L, 2));
+        if (!p) return 0;
+        lua_pushnumber(L, (lua_Number)(uintptr_t)p->hwnd); return 1;
+    }
+    if (is("popup_focus")) {
+        Popup *p = popup_by_id((int)luaL_checkinteger(L, 2));
+        if (p && p->shown) SetForegroundWindow(p->hwnd);
+        return 0;
+    }
+    if (is("popup_close")) {
+        Popup *p = popup_by_id((int)luaL_checkinteger(L, 2));
+        if (p) popup_destroy(p);
+        return 0;
+    }
     if (is("show")) { if (!IsWindowVisible(h)) ShowWindow(h, SW_SHOW); return 0; }
     if (is("hide")) { ShowWindow(h, SW_HIDE); return 0; }
     if (is("focus")) { if (IsIconic(h)) ShowWindow(h, SW_RESTORE); SetForegroundWindow(h); lua_pushboolean(L, 1); return 1; }
@@ -1538,7 +1827,6 @@ int l_window(lua_State *L) {
     if (is("size")) {
         if (lua_isnumber(L, 2)) {
             int w = (int)lua_tointeger(L, 2), hh = (int)luaL_checkinteger(L, 3);
-            client_to_window(w, hh, (DWORD)GetWindowLongW(h, GWL_STYLE), (DWORD)GetWindowLongW(h, GWL_EXSTYLE));
             SetWindowPos(h, nullptr, 0, 0, w, hh, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
         RECT r; GetClientRect(h, &r); lua_pushinteger(L, r.right); lua_pushinteger(L, r.bottom); return 2;
@@ -1547,6 +1835,7 @@ int l_window(lua_State *L) {
         if (lua_isnumber(L, 2)) SetWindowPos(h, nullptr, (int)lua_tointeger(L, 2), (int)luaL_checkinteger(L, 3), 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         RECT r; GetWindowRect(h, &r); lua_pushinteger(L, r.left); lua_pushinteger(L, r.top); return 2;
     }
+    if (is("window_size")) { RECT r; GetWindowRect(h, &r); lua_pushinteger(L, r.right - r.left); lua_pushinteger(L, r.bottom - r.top); return 2; }
     if (is("client_origin")) { POINT p = {0, 0}; ClientToScreen(h, &p); lua_pushinteger(L, p.x); lua_pushinteger(L, p.y); return 2; }
     if (is("custom_frame")) {
         g.custom_frame = lua_toboolean(L, 2) != 0;
@@ -1686,6 +1975,14 @@ int l_message_box(lua_State *L) {
 LUNAR_FFI ImDrawList *lunar_ui_draw_list(int layer) {
     if (!g.frame_open || g.lists.empty()) return scratch_list();
     return g.lists[(size_t)((layer == 1 && g.lists.size() > 1) ? 1 : 0)];
+}
+/* A dialog window's list (id from window("popup_open")); 0 is the main window. */
+LUNAR_FFI ImDrawList *lunar_ui_popup_list(int id, int layer) {
+    if (id == 0) return lunar_ui_draw_list(layer);
+    Popup *p = popup_by_id(id);
+    if (!g.frame_open || !p || !p->lists[0]) return scratch_list();
+    p->drawn = true;
+    return p->lists[layer == 1 ? 1 : 0];
 }
 LUNAR_FFI void lunar_ui_rect(ImDrawList *dl, float x1, float y1, float x2, float y2, uint32_t col, float rounding, float thick, int flags) {
     dl->AddRect(ImVec2(x1, y1), ImVec2(x2, y2), col, rounding, thick, (ImDrawFlags)flags);

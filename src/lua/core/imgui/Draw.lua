@@ -35,6 +35,7 @@ function DC:begin(w, h)
 	self.alphas, self.clips, self.offsets = {}, {}, {}
 	self.cx1, self.cy1, self.cx2, self.cy2 = 0, 0, w or 1e9, h or 1e9
 	self.layer_index = 0
+	self.surfaces, self.surface_id = nil, 0
 	if self.B.layer then self.B.layer(0) end
 end
 
@@ -466,6 +467,26 @@ end
 function DC:offset_pop()
 	local o = table.remove(self.offsets)
 	if o then self.ox, self.oy = o[1], o[2] end
+end
+
+--- Draw on a secondary dialog's own window (the backend surface `id`) until surface_end.
+-- (x, y, w, h) is that window's client in main-window coordinates: culling and clipping
+-- start from it, not from the main window, since the dialog may lie outside the main one.
+function DC:surface(id, x, y, w, h)
+	local stack = self.surfaces
+	if not stack then stack = {}; self.surfaces = stack end
+	stack[#stack + 1] = { self.cx1, self.cy1, self.cx2, self.cy2, self.surface_id or 0 }
+	self.cx1, self.cy1, self.cx2, self.cy2 = x, y, x + w, y + h
+	self.surface_id = id
+	self:_emit("surface", id)
+end
+
+function DC:surface_end()
+	local top = self.surfaces and table.remove(self.surfaces)
+	if not top then return end
+	self.cx1, self.cy1, self.cx2, self.cy2 = top[1], top[2], top[3], top[4]
+	self.surface_id = top[5]
+	self:_emit("surface", top[5])
 end
 
 function DC:layer(name)

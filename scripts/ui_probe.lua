@@ -195,6 +195,43 @@ end
 -- block the run (message boxes, native file dialogs, opening a browser) is answered
 -- with "cancel".
 local LIVE = os.getenv("LUNAR_PROBE_LIVE") == "1"
+-- LUNAR_PROBE_DIALOGSHOT=<dir> (with LIVE, on ImGui): save each dialog a click opens, as its
+-- own window shows it (PrintWindow), to <dir>/dialog-<n>.bmp.
+local DIALOGSHOT = os.getenv("LUNAR_PROBE_DIALOGSHOT")
+local shot_n = 0
+local function dialog_shot(d)
+	local ffi = require("ffi")
+	local function decl(s) pcall(ffi.cdef, s) end
+	decl("typedef struct { long left, top, right, bottom; } PS_RECT;")
+	decl([[typedef struct { uint32_t biSize; long biWidth, biHeight; uint16_t biPlanes, biBitCount;
+	  uint32_t biCompression, biSizeImage; long biXPelsPerMeter, biYPelsPerMeter; uint32_t biClrUsed, biClrImportant; } PS_BMIH;]])
+	decl("int GetWindowRect(void*, PS_RECT*);")
+	decl("void* GetDC(void*);") decl("int ReleaseDC(void*, void*);") decl("int PrintWindow(void*, void*, unsigned);")
+	decl("void* CreateCompatibleDC(void*);") decl("void* CreateCompatibleBitmap(void*, int, int);")
+	decl("void* SelectObject(void*, void*);") decl("int GetDIBits(void*, void*, unsigned, unsigned, void*, PS_BMIH*, unsigned);")
+	decl("int DeleteObject(void*);") decl("int DeleteDC(void*);")
+	local user32, gdi32 = ffi.load("user32"), ffi.load("gdi32")
+	local v = tonumber(iup.GetAttribute(d, "HWND")) or 0
+	if v == 0 then return end
+	local h = ffi.cast("void*", ffi.cast("uintptr_t", v))
+	local r = ffi.new("PS_RECT"); user32.GetWindowRect(h, r)
+	local w, hh = r.right - r.left, r.bottom - r.top
+	if w <= 0 or hh <= 0 then return end
+	local sdc = user32.GetDC(nil)
+	local dc = gdi32.CreateCompatibleDC(sdc); local bm = gdi32.CreateCompatibleBitmap(sdc, w, hh); local old = gdi32.SelectObject(dc, bm)
+	user32.PrintWindow(h, dc, 2)
+	gdi32.SelectObject(dc, old)
+	local bi = ffi.new("PS_BMIH"); bi.biSize, bi.biWidth, bi.biHeight, bi.biPlanes, bi.biBitCount = ffi.sizeof(bi), w, -hh, 1, 32
+	local px = ffi.new("uint8_t[?]", w * hh * 4)
+	gdi32.GetDIBits(dc, bm, 0, hh, px, bi, 0)
+	gdi32.DeleteObject(bm); gdi32.DeleteDC(dc); user32.ReleaseDC(nil, sdc)
+	shot_n = shot_n + 1
+	local f = io.open(string.format("%s/dialog-%02d.bmp", DIALOGSHOT, shot_n), "wb")
+	if not f then return end
+	local function le(n, c) local t = {} for i = 1, c do t[i] = string.char(bit.band(bit.rshift(n, (i - 1) * 8), 255)) end return table.concat(t) end
+	f:write("BM", le(54 + w * hh * 4, 4), le(0, 4), le(54, 4), ffi.string(bi, 40), ffi.string(px, w * hh * 4)); f:close()
+	emit("S", string.format("dialog-%02d.bmp", shot_n), tostring(iup.GetAttribute(d, "TITLE")))
+end
 local errors = {}
 if LIVE then
 	iup.Alarm = function() return 2 end
@@ -509,6 +546,7 @@ iup.MainLoop = function()
 						local titles = {}
 						for i = q.dialogs + 1, #ds do titles[#titles + 1] = tostring(iup.GetAttribute(ds[i], "TITLE")) end
 						emit("N", q.e.path, string.format("dialogs +%d overlays +%d %s", #ds - q.dialogs, #os_ - q.overlays, table.concat(titles, "; ")))
+						if DIALOGSHOT then for i = q.dialogs + 1, #ds do pcall(dialog_shot, ds[i]) end end
 					end
 					for i = #os_, q.overlays + 1, -1 do pcall(function() os_[i]:close() end) end
 					for i = #ds, q.dialogs + 1, -1 do pcall(iup.Hide, ds[i]) end
