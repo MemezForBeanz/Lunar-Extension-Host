@@ -7,18 +7,17 @@
 --
 -- ### Why each control is what it is
 --
--- * Buttons are `iup.flatbutton`, not `iup.button`. A native Win32 button paints
---   itself from the system theme and ignores `BGCOLOR`, so it stays light on a
+-- * Buttons are flat buttons (`ui.Button`), not `iup.button`. A native Win32 button
+--   paints itself from the system theme and ignores `BGCOLOR`, so it stays light on a
 --   dark theme and flashes the shell's blue on hover.
--- * The entry is `iup.text` because IUP has no flat text-entry control, but it is
---   given `BORDER="NO"` (which removes the native 3D edge) and wrapped in an
---   `iup.flatframe` that supplies a themed border instead. This is the same
---   arrangement `core.ui.FolderDialog` uses for its own prompts.
--- * `flat_action`, not `action`: that is the callback `IupFlatButton` fires.
+-- * The entry is `iup.text` (`ui.Input`) because IUP has no flat text-entry control,
+--   but it is given `BORDER="NO"` (which removes the native 3D edge) and wrapped in a
+--   flat frame that supplies a themed border instead. This is the same arrangement
+--   `core.ui.FolderDialog` uses for its own prompts.
 --
--- Every control carries a `THEMEROLE` so `core.classes.ThemeManager` can colour
--- it, and the finished dialog is handed to `notify_tree_change` before it is
--- shown so the active theme is applied to the whole tree.
+-- Every control carries a theme role so `core.classes.ThemeManager` can colour it, and
+-- the finished dialog is handed to `notify_tree_change` before it is shown so the
+-- active theme is applied to the whole tree.
 --
 -- It is shown through `core.ui.ModalMotion` rather than `iup.Popup` directly, so
 -- it dims the page behind it and rises into place like every other modal in the
@@ -28,8 +27,45 @@
 
 local L = require("core.lib.CarbonLayout")
 local ModalMotion = require("core.ui.ModalMotion")
+local ui = require("core.lui")
 
 local NameDialog = {}
+
+local FONT = "Segoe UI, 11"
+
+--- The prompt as a component. `p.finish(kind, text)` closes it ("confirm" or "cancel").
+function NameDialog.Prompt(p)
+	local value, setValue = ui.useState(p.value or "")
+	local function accept() return p.finish("confirm", value) end
+	local function cancel() return p.finish("cancel") end
+	return ui.Dialog{
+		title = p.title or "Name",
+		-- Win32 ICON RESOURCE name from assets/Lunar.rc, so popups carry
+		-- the app icon in their title bar and Alt-Tab entry too.
+		ICON = "IUP", RASTERSIZE = "380x150", SHRINK = "YES", PARENTDIALOG = p.parent,
+		-- DEFAULTENTER/DEFAULTESC are deliberately NOT set: on Windows IUP activates a
+		-- default button by posting BN_CLICKED, which a flat button never receives.
+		-- Enter and Escape are handled here instead, so they work from the entry too
+		-- (K_ANY propagates from the focused control up to the dialog).
+		onKey = function(c)
+			if c == p.iup.K_CR then return accept() end
+			if c == p.iup.K_ESC then return cancel() end
+		end,
+		ui.VBox{ padding = L.margin(4), gap = L.gap(3),
+			ui.Label{ p.label or "Name:", font = FONT, role = "settingslabel" },
+			ui.Frame{ title = "", padding = L.margin(1), expand = "horizontal", role = "text",
+				-- SELECTION=ALL on open, so typing replaces the pre-filled text
+				ui.Input{ value = value, onChange = setValue, expand = "horizontal", columns = 28,
+					font = FONT, border = false, role = "text", SELECTION = "ALL" },
+			},
+			ui.HBox{ gap = L.gap(3), align = "center",
+				ui.Spacer{},
+				ui.Button{ p.ok or "OK", role = "primary_btn", padding = { 12, 5 }, onClick = accept },
+				ui.Button{ "Cancel", role = "actionbutton", padding = { 12, 5 }, onClick = cancel },
+			},
+		},
+	}
+end
 
 --- Show the prompt and block until the user confirms or cancels.
 --
@@ -48,99 +84,24 @@ local NameDialog = {}
 function NameDialog.show(opts)
 	opts = opts or {}
 	local iup = assert(opts.iup, "NameDialog.show requires iup")
-
-	local input = iup.text({
-		VALUE = opts.value or "",
-		EXPAND = "HORIZONTAL",
-		VISIBLECOLUMNS = "28",
-		FONT = "Segoe UI, 11",
-		-- Drops the native sunken edge; the flatframe below draws a themed one.
-		BORDER = "NO",
-		THEMEROLE = "text",
-		SELECTION = "ALL",
-	})
-	local ok_btn = iup.flatbutton({
-		TITLE = opts.ok or "OK",
-		THEMEROLE = "primary_btn",
-		PADDING = "12x5",
-	})
-	local cancel_btn = iup.flatbutton({
-		TITLE = "Cancel",
-		THEMEROLE = "actionbutton",
-		PADDING = "12x5",
-	})
-
 	local result, dlg
-
-	local function accept()
-		local text = tostring(iup.GetAttribute(input, "VALUE") or "")
-		text = text:gsub("^%s+", ""):gsub("%s+$", "")
-		result = (text ~= "") and text or nil
-		ModalMotion.result(iup, dlg, "confirm")
+	local props = {}
+	for k, v in pairs(opts) do props[k] = v end
+	function props.finish(kind, text)
+		if kind == "confirm" then
+			text = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+			result = (text ~= "") and text or nil
+		else
+			result = nil
+		end
+		ModalMotion.result(iup, dlg, kind)
 		return iup.CLOSE
 	end
-
-	function ok_btn:flat_action()
-		return accept()
-	end
-
-	local function cancel()
-		result = nil
-		ModalMotion.result(iup, dlg, "cancel")
-		return iup.CLOSE
-	end
-
-	function cancel_btn:flat_action()
-		return cancel()
-	end
-
-	dlg = iup.dialog({
-		iup.vbox({
-			iup.label({
-				TITLE = opts.label or "Name:",
-				FONT = "Segoe UI, 11",
-				THEMEROLE = "settingslabel",
-			}),
-			iup.flatframe({
-				input,
-				TITLE = "",
-				MARGIN = L.margin(1),
-				EXPAND = "HORIZONTAL",
-				THEMEROLE = "text",
-			}),
-			iup.hbox({
-				iup.fill({}), ok_btn, cancel_btn,
-				GAP = L.gap(3), ALIGNMENT = "ACENTER",
-			}),
-			MARGIN = L.margin(4),
-			GAP = L.gap(3),
-		}),
-		TITLE = opts.title or "Name",
-		-- Win32 ICON RESOURCE name from assets/Lunar.rc, so popups carry
-		-- the app icon in their title bar and Alt-Tab entry too.
-		ICON = "IUP",
-		RASTERSIZE = "380x150",
-		SHRINK = "YES",
-		PARENTDIALOG = opts.parent,
-		-- DEFAULTENTER/DEFAULTESC are deliberately NOT set. They appear to support
-		-- flat buttons -- iup_key.c explicitly accepts IupClassMatch(bt,
-		-- "flatbutton") -- but then call iupdrvActivate, which on Windows posts
-		-- WM_COMMAND/BN_CLICKED to the parent: how a NATIVE button reports a click.
-		-- A flatbutton is a canvas raising FLAT_ACTION from its own BUTTON_CB, so
-		-- the message goes nowhere and the key silently does nothing.
-	})
-
-	-- Enter and Escape handled on the dialog, so they work from the entry too
-	-- (K_ANY propagates from the focused control up to the dialog).
-	function dlg:k_any(c)
-		if c == iup.K_CR then return accept() end
-		if c == iup.K_ESC then return cancel() end
-		return iup.DEFAULT
-	end
-
+	local root = ui.mount(NameDialog.Prompt, { iup = iup, props = props, theme = false })
+	dlg = root:widget()
 	if opts.notify_tree_change then pcall(opts.notify_tree_change, dlg) end
 	ModalMotion.popup(iup, dlg)
-	iup.Destroy(dlg)
+	root:unmount()
 	return result
 end
 
