@@ -132,3 +132,47 @@ describe("imgui multiline: Enter and Tab", function()
 		assert.equal(t, R.focused())
 	end)
 end)
+
+describe("imgui multiline: CARET, SELECTION and SCROLLTO", function()
+	-- iupwin_text.c: CARET is "lin,col" (from 1) on a multiline and EM_SCROLLCARETs; SELECTION
+	-- is "lin,col:lin,col" there and "start:end" (from 1) on one line; SELECTION, SELECTIONPOS
+	-- and SELECTEDTEXT are NULL without a selection; SCROLLTO "lin" makes that line the first
+	-- shown (EM_LINESCROLL). The Log Parser opens a log at a result line with exactly these
+	-- (CARET "ln:1", SELECTION "ln,1:ln,col", SCROLLTO "ln:1"); the host ignored CARET and
+	-- SELECTION, answered SELECTION with YES/NO and SELECTIONPOS with "c:c".
+	local function make(value, multi)
+		local iup, R = host()
+		local t = iup.text({ MULTILINE = multi and "YES" or "NO", RASTERSIZE = "200x120", VALUE = value })
+		local d = iup.dialog({ iup.vbox({ t }), RASTERSIZE = "400x300" })
+		iup.Show(d); R.frame()
+		return iup, R, t, require("core.imgui.Element").state(t)
+	end
+	it("reads and sets them as the EDIT does", function()
+		local lines = {}
+		for i = 1, 40 do lines[i] = "line " .. i end
+		local iup, R, t, st = make(table.concat(lines, "\n"), true)
+		assert.is_nil(iup.GetAttribute(t, "SELECTION"))
+		assert.is_nil(iup.GetAttribute(t, "SELECTIONPOS"))
+		assert.is_nil(iup.GetAttribute(t, "SELECTEDTEXT"))
+		iup.SetAttribute(t, "CARET", "20:1")       -- "20:1" has no ',': line 20, column 1
+		assert.equal("20,1", iup.GetAttribute(t, "CARET"))
+		iup.SetAttribute(t, "SELECTION", "20,1:20,8")
+		assert.equal("line 20", iup.GetAttribute(t, "SELECTEDTEXT"))
+		assert.equal("20,1:20,8", iup.GetAttribute(t, "SELECTION"))
+		iup.SetAttribute(t, "SCROLLTO", "20:1")
+		assert.equal(19, st.data.top_line)
+		iup.SetAttribute(t, "SELECTION", "NONE")
+		assert.is_nil(iup.GetAttribute(t, "SELECTION"))
+		iup.SetAttribute(t, "SELECTIONPOS", "ALL")
+		assert.equal("0:" .. #iup.GetAttribute(t, "VALUE"), iup.GetAttribute(t, "SELECTIONPOS"))
+	end)
+	it("counts from 1 on one line", function()
+		local iup, R, t = make("abcdef", false)
+		iup.SetAttribute(t, "SELECTION", "2:4")
+		assert.equal("bc", iup.GetAttribute(t, "SELECTEDTEXT"))
+		assert.equal("2:4", iup.GetAttribute(t, "SELECTION"))
+		assert.equal("1:3", iup.GetAttribute(t, "SELECTIONPOS"))
+		iup.SetAttribute(t, "CARET", "3")
+		assert.equal("3", iup.GetAttribute(t, "CARET"))
+	end)
+end)

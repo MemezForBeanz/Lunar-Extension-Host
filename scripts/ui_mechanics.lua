@@ -71,6 +71,7 @@ void* ChildWindowFromPointEx(void*, MC_POINT, unsigned);
 int PostMessageA(void*, unsigned, uintptr_t, intptr_t);
 intptr_t SendMessageA(void*, unsigned, uintptr_t, intptr_t);
 void* GetFocus(void);
+void* GetCapture(void);
 int GetKeyboardState(uint8_t*);
 int SetKeyboardState(uint8_t*);
 int IsZoomed(void*);
@@ -98,6 +99,13 @@ end
 local function lp(x, y) return bit.bor(bit.band(x, 0xFFFF), bit.lshift(bit.band(y, 0xFFFF), 16)) end
 local function target(x, y)
 	local t, pt = main_hwnd, ffi.new("MC_POINT", x, y)
+	-- a window holding the mouse capture gets every mouse message, as with a real pointer
+	-- (on IUP the tab drag's layered overlay window would otherwise be under the point)
+	local cap = user32.GetCapture()
+	if not IMGUI and cap ~= nil then
+		local s2 = ffi.new("MC_POINT", x, y); user32.ClientToScreen(main_hwnd, s2); user32.ScreenToClient(cap, s2)
+		return cap, s2.x, s2.y
+	end
 	if not IMGUI then
 		while true do
 			local c = user32.ChildWindowFromPointEx(t, pt, 5)
@@ -115,6 +123,10 @@ local function mouse(kind, x, y, held)
 	local wp = 0
 	if kind == "down" or kind == "dbl" or held then wp = 1 end
 	if kind == "rdown" then wp = 2 end
+	if kind ~= "move" and os.getenv("LUNAR_MECH_TRACE") then
+		local buf = ffi.new("char[64]"); user32.GetClassNameA(t, buf, 64)
+		say("  post", kind, x, y, "->", ffi.string(buf), px, py)
+	end
 	user32.PostMessageA(t, MSG[kind], wp, lp(px, py))
 end
 local function click(x, y) mouse("move", x, y); mouse("down", x, y); mouse("up", x, y) end
@@ -271,10 +283,24 @@ local function tab_span(pos)
 end
 step(1, function()
 	local a0, a1 = tab_span(0)
-	local c0, c1 = tab_span(2)
+	local c0, c1 = tab_span(1)
 	S.from = { S.bar_x + math.floor((c0 + c1) / 2), S.bar_y + math.floor(S.bar_h / 2) }
 	S.to = { S.bar_x + a0 + 4, S.bar_y + math.floor(S.bar_h / 2) }
-	say("drag tab 2 from", S.from[1], "to", S.to[1], "(tab 0 spans", a0, a1, "tab 2 spans", c0, c1, ")")
+	say("drag tab 1 from", S.from[1], "to", S.to[1], "(tab 0 spans", a0, a1, "tab 1 spans", c0, c1, ")")
+	-- trace the strip's callbacks for this gesture
+	for _, name in ipairs({ "flat_button_cb", "flat_motion_cb", "rightclick_cb" }) do
+		local f = S.bar[name]
+		if type(f) == "function" and not S.traced then
+			S.bar[name] = function(self_, ...)
+				local a = { ... }
+				for k = 1, #a do a[k] = tostring(a[k]) end
+				if name ~= "flat_motion_cb" or (S.motions or 0) < 3 then say("  cb", name, table.concat(a, ",")) end
+				if name == "flat_motion_cb" then S.motions = (S.motions or 0) + 1 end
+				return f(self_, ...)
+			end
+		end
+	end
+	S.traced = true
 	mouse("move", S.from[1], S.from[2]); mouse("down", S.from[1], S.from[2])
 end)
 for i = 1, 12 do

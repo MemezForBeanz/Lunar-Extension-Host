@@ -594,6 +594,29 @@ local function event_any(e, st, ev, rt)
 	return event(e, st, ev, rt)
 end
 
+--- iupStrToIntInt: "a<sep>b", "a" alone or "<sep>b" alone; nil where a value is missing.
+local function int_pair(v, sep)
+	local s = tostring(v or "")
+	local i = s:find(sep, 1, true)
+	if not i then return tonumber(s:match("^%s*(-?%d+)")), nil end
+	return tonumber(s:sub(1, i - 1):match("^%s*(-?%d+)")), tonumber(s:sub(i + 1):match("^%s*(-?%d+)"))
+end
+--- winTextSetLinColToPosition: line and column from 1, clamped to the text.
+local function lincol_to_pos(st, lin, col)
+	local lines = lines_of(st)
+	local l = lines[math.max(1, math.min(#lines, lin))]
+	return l.s + math.max(0, math.min(#l.t, col - 1))
+end
+M.lineOf = line_of
+--- winTextScrollTo: EM_LINESCROLL(col, lin - first visible line) on a plain EDIT.
+function M.lineScroll(e, st, lin0, cols)
+	local m = metrics(e, st)
+	st.data.top_line = lin0
+	st.data.scroll_x = (st.data.scroll_x or 0) + cols * m.cw
+	clamp_view(e, st, m)
+	Element.hooks.invalidate(e, "paint", "POS")
+end
+
 local common = {
 	children = 0, focusable = true, natural = text_natural, draw = draw_any, event = event_any,
 	-- IUP registers BORDER, PADDING ("0x0"), VISIBLECOLUMNS ("5"), VISIBLELINES and the TXT colours (attrs.lua)
@@ -630,23 +653,67 @@ local common = {
 		end,
 		-- winTextSetCaretPosAttrib: EM_SETSEL, then EM_SCROLLCARET
 		CARETPOS = function(e, st, v) st.data.caret = clamp(st, tonumber(v) or 0); st.data.anchor = st.data.caret; M.scrollCaret(e, st); return false end,
+		-- winTextSetSelectionPosAttrib: NONE, ALL or "start:end" (from 0)
 		SELECTIONPOS = function(e, st, v)
-			local a, b = tostring(v or ""):match("^(%d+)%s*[,;:]%s*(%d+)$")
-			if a then st.data.anchor, st.data.caret = clamp(st, tonumber(a)), clamp(st, tonumber(b)) end
+			if st.data.text == nil then return true end -- applied at create, as IUP does at map
+			local s = tostring(v or "NONE"):upper()
+			if s == "NONE" then st.data.anchor = st.data.caret
+			elseif s == "ALL" then st.data.anchor, st.data.caret = 0, #st.data.text
+			else
+				local a, b = int_pair(v, ":")
+				if a and b and a >= 0 and b >= 0 then st.data.anchor, st.data.caret = clamp(st, a), clamp(st, b) end
+			end
 			return false
 		end,
-		-- winTextSetScrollToPosAttrib / SetScrollToAttrib: bring a position (or "lin,col", from
-		-- 1) into view
+		-- winTextSetSelectionAttrib: NONE, ALL, "lin,col:lin,col" on a multiline, "start:end" on
+		-- one line (all from 1)
+		SELECTION = function(e, st, v)
+			if st.data.text == nil then return true end -- applied at create, as IUP does at map
+			local s = tostring(v or "NONE"):upper()
+			if s == "NONE" then st.data.anchor = st.data.caret
+			elseif s == "ALL" then st.data.anchor, st.data.caret = 0, #st.data.text
+			elseif M.isMulti(e, st) then
+				local l1, c1, l2, c2 = tostring(v):match("^%s*(-?%d+)%s*,%s*(-?%d+)%s*:%s*(-?%d+)%s*,%s*(-?%d+)")
+				l1, c1, l2, c2 = tonumber(l1), tonumber(c1), tonumber(l2), tonumber(c2)
+				if l1 and l1 >= 1 and c1 >= 1 and l2 >= 1 and c2 >= 1 then
+					st.data.anchor, st.data.caret = lincol_to_pos(st, l1, c1), lincol_to_pos(st, l2, c2)
+				end
+			else
+				local a, b = int_pair(v, ":")
+				if a and b and a >= 1 and b >= 1 then st.data.anchor, st.data.caret = clamp(st, a - 1), clamp(st, b - 1) end
+			end
+			return false
+		end,
+		-- winTextSetCaretAttrib: "lin,col" on a multiline (permissive), "col" on one line, from
+		-- 1; then EM_SCROLLCARET
+		CARET = function(e, st, v)
+			if st.data.text == nil then return true end -- applied at create, as IUP does at map
+			if v == nil then return false end
+			if M.isMulti(e, st) then
+				local lin, col = int_pair(v, ",")
+				st.data.caret = lincol_to_pos(st, math.max(1, lin or 1), math.max(1, col or 1))
+			else
+				st.data.caret = clamp(st, math.max(1, tonumber(tostring(v):match("^%s*(-?%d+)")) or 1) - 1)
+			end
+			st.data.anchor = st.data.caret
+			M.scrollCaret(e, st)
+			return false
+		end,
+		-- winTextSetScrollToAttrib / SetScrollToPosAttrib -> winTextScrollTo: EM_LINESCROLL makes
+		-- the line the first one shown (as far as the text allows) and scrolls col characters
 		SCROLLTOPOS = function(e, st, v)
-			if M.isMulti(e, st) then M.scrollTo(e, st, clamp(st, tonumber(v) or 0)) else st.data.scroll_y = tonumber(v) or 0 end
+			if M.isMulti(e, st) then
+				local p = clamp(st, tonumber(v) or 0)
+				local lines = M.lines(st)
+				local li = M.lineOf(lines, p)
+				M.lineScroll(e, st, li - 1, p - lines[li].s)
+			else st.data.scroll_y = tonumber(v) or 0 end
 			return false
 		end,
 		SCROLLTO = function(e, st, v)
-			local lin, col = tostring(v or ""):match("^%s*(%d+)%s*[,:]%s*(%d+)")
-			if lin and M.isMulti(e, st) then
-				local lines = M.lines(st)
-				local l = lines[math.max(1, math.min(#lines, tonumber(lin)))]
-				M.scrollTo(e, st, l.s + math.min(#l.t, math.max(0, tonumber(col) - 1)))
+			if M.isMulti(e, st) then
+				local lin, col = int_pair(v, ",")
+				M.lineScroll(e, st, math.max(1, lin or 1) - 1, math.max(1, col or 1) - 1)
 			else st.data.scroll_x = tonumber(v) or 0 end
 			return false
 		end,
@@ -654,12 +721,31 @@ local common = {
 	get = {
 		VALUE = function(e, st) return st.data.text or "" end,
 		COUNT = function(e, st) return #st.data.text end,
-		CARET = function(e, st) return tostring(st.data.caret or 0) end,
-		CARETPos = function() end,
+		-- winTextGetCaretAttrib: "lin,col" on a multiline, "col" on one line, from 1
+		CARET = function(e, st)
+			local p = st.data.caret or 0
+			if M.isMulti(e, st) then
+				local lines = M.lines(st)
+				local li = M.lineOf(lines, p)
+				return li .. "," .. (p - lines[li].s + 1)
+			end
+			return tostring(p + 1)
+		end,
 		CARETPOS = function(e, st) return tostring(st.data.caret or 0) end,
-		SELECTIONPOS = function(e, st) local a, b = sorted_selection(st); return a .. ":" .. b end,
-		SELECTION = function(e, st) local a, b = sorted_selection(st); return a ~= b and "YES" or "NO" end,
-		SELECTEDTEXT = function(e, st) local a, b = sorted_selection(st); return st.data.text:sub(a + 1, b) end,
+		-- winTextGetSelectionPosAttrib / SelectionAttrib / SelectedTextAttrib: NULL without a
+		-- selection
+		SELECTIONPOS = function(e, st) local a, b = sorted_selection(st); if a == b then return nil end; return a .. ":" .. b end,
+		SELECTION = function(e, st)
+			local a, b = sorted_selection(st)
+			if a == b then return nil end
+			if M.isMulti(e, st) then
+				local lines = M.lines(st)
+				local la, lb = M.lineOf(lines, a), M.lineOf(lines, b)
+				return string.format("%d,%d:%d,%d", la, a - lines[la].s + 1, lb, b - lines[lb].s + 1)
+			end
+			return (a + 1) .. ":" .. (b + 1)
+		end,
+		SELECTEDTEXT = function(e, st) local a, b = sorted_selection(st); if a == b then return nil end; return st.data.text:sub(a + 1, b) end,
 		LINECOUNT = function(e, st) return select(2, st.data.text:gsub("\n", "\n")) + 1 end,
 		LINEVALUE = function(e, st) local n = tonumber(Element.own(e, "LINE") or 1) or 1; local lines = {}; for x in (st.data.text .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = x end; return lines[n] or "" end,
 	},
@@ -670,6 +756,12 @@ local function create(e, st)
 	st.data.caret, st.data.anchor = #st.data.text, #st.data.text
 	if is_multi(e, st) then st.data.caret, st.data.anchor = 0, 0 end
 	st.data.captured = false
+	-- attributes set before the control existed (iupAttribUpdate at map)
+	local class = st.class
+	for _, name in ipairs({ "CARET", "SELECTION", "SELECTIONPOS" }) do
+		local v = Element.own(e, name)
+		if v ~= nil and class.set and class.set[name] then class.set[name](e, st, v) end
+	end
 end
 common.create = create
 Classes.define(setmetatable({ name = "text", defaults = common.defaults }, { __index = common }))

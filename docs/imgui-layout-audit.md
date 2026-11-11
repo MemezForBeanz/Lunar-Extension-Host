@@ -154,3 +154,29 @@ WORDWRAP still draws wrapped text but scrolls by logical lines. The single-line 
 unchanged (its horizontal scrolling to the caret is not ported). A non-dropdown `iup.list`
 is still drawn as a flat list (IUP: a LISTBOX with its border and Windows bar); nothing in
 the app or the org packs uses one.
+
+### Behaviour under real input (`scripts/ui_mechanics.lua`)
+
+The script (rewritten: the old one cleared `package.preload`, so theme discovery failed and
+it exited before its first step, and it dragged in the root strip, whose tab bar is hidden:
+`IupConvertXYToPos` is -1 along it on both builds, which is why its reorder check never
+changed anything) posts mouse messages to the window under the point (or to the window
+holding the capture, as a real pointer would: on IUP the drag's layered overlay window is
+otherwise under it), keys to the focused window with `SetKeyboardState` for the modifiers,
+and records the shell's state. Both builds run this worktree's Lua.
+
+| # | behaviour | IUP | host | status |
+|---|---|---|---|---|
+| B1 | drag the second title-bar tab onto the first tab's left edge | order becomes Microchip, HPE, Settings | same | matches |
+| B2 | drag a tab onto the middle of another | the two merge into one group | same | matches |
+| B3 | right-click a title-bar tab | menu: Move to Left Toolbar, Hide tab bar, Rename Group..., Ungroup, New Group... | same items | matches (menus are recorded, not shown) |
+| B4 | Ctrl+B twice, Ctrl+\` twice, Ctrl+, | rail toggles, terminal toggles, Settings shown | same | matches |
+| B5 | Ctrl+P, type "toggle side", Enter; Ctrl+P, Esc | 2 matches, Enter runs Toggle Sidebar; Esc closes | same | matches |
+| B6 | click the Settings search field, Tab x6, Shift+Tab x2 | dropbutton, 3 toggles, dropbutton, toggle; back | same sequence | matches |
+| B7 | text entry: type, Home, Shift+End, Ctrl+C, End, Ctrl+V, Ctrl+Left, Ctrl+Z | same values and carets where both steps ran | | matches; the IUP run lost three Left keys to a script error (clipboard read), now fixed in the script |
+| B8 | SELECTION / SELECTIONPOS / SELECTEDTEXT / CARET / SCROLLTO on a text (the Log Parser opens a log with CARET "ln:1", SELECTION "ln,1:ln,col", SCROLLTO "ln:1") | `iupwin_text.c`: NULL without a selection; SELECTION "lin,col:lin,col" (multiline) or "start:end" from 1; CARET "lin,col" / "col" from 1 with EM_SCROLLCARET; SCROLLTO puts the line first (EM_LINESCROLL); NONE/ALL; set before map, applied at map | SELECTION answered YES/NO, SELECTIONPOS "c:c" with no selection, CARET and SELECTION setters missing (the log line was never selected; NameDialog's SELECTION=ALL ignored), SCROLLTO only brought the line into view | fixed (`widgets/text.lua`), `imgui_multiline_spec` "CARET, SELECTION and SCROLLTO". Positions stay in bytes on the host (IUP counts UTF-16 units: differs for non-ASCII text) |
+| B9 | drag the pane sash 120 px | `iSplitMotion_CB` reads `CURSORPOS` (the real cursor), not the message: posted moves cannot drive it on a private desktop | follows the pointer (500 -> 408, the main pane 121 px narrower) | not measurable on IUP |
+| B10 | double-click the sash | no handler in `iup_split.c` or the app | nothing | matches by source |
+| B11 | pane focus and restore (`PaneGrid:toggleFocus`/`restoreFocus`) | VALUE 0, then back | same | matches |
+| B12 | focus at start and after a secondary dialog closes | the IUP build reports the dialog itself: the window on a private desktop is never activated, so `IupNextField` and WM_ACTIVATE's focus restore cannot take effect | first focusable control (`iDialogAfterShow` -> `IupNextField`), restored after the palette | IUP side not measurable here; the host follows the C |
+| B13 | tooltip after resting 1.5 s | the native tooltip never shows for posted moves | | not measurable |
