@@ -40,25 +40,28 @@ function NameDialog.Prompt(p)
 	local function cancel() return p.finish("cancel") end
 	return ui.Dialog{
 		title = p.title or "Name",
-		-- Win32 ICON RESOURCE name from assets/Lunar.rc, so popups carry
-		-- the app icon in their title bar and Alt-Tab entry too.
-		ICON = "IUP", RASTERSIZE = "380x150", SHRINK = "YES", PARENTDIALOG = p.parent,
+		size = { 380, 150 },
+		-- ICON: the Win32 icon resource from assets/Lunar.rc, so popups carry the app
+		-- icon in their title bar and Alt-Tab entry too. Window settings with no typed
+		-- prop yet go through the compatibility namespace.
+		iup = { ICON = "IUP", SHRINK = "YES", PARENTDIALOG = p.parent },
 		-- DEFAULTENTER/DEFAULTESC are deliberately NOT set: on Windows IUP activates a
 		-- default button by posting BN_CLICKED, which a flat button never receives.
 		-- Enter and Escape are handled here instead, so they work from the entry too
 		-- (K_ANY propagates from the focused control up to the dialog).
-		onKey = function(c)
-			if c == p.iup.K_CR then return accept() end
-			if c == p.iup.K_ESC then return cancel() end
+		onKey = function(e)
+			if e.key == p.iup.K_CR then return accept() end
+			if e.key == p.iup.K_ESC then return cancel() end
 		end,
-		ui.VBox{ padding = L.margin(4), gap = L.gap(3),
+		ui.VBox{ padding = L.px(4), gap = L.px(3),
 			ui.Label{ p.label or "Name:", font = FONT, role = "settingslabel" },
-			ui.Frame{ title = "", padding = L.margin(1), expand = "horizontal", role = "text",
-				-- SELECTION=ALL on open, so typing replaces the pre-filled text
-				ui.Input{ value = value, onChange = setValue, expand = "horizontal", columns = 28,
-					font = FONT, border = false, role = "text", SELECTION = "ALL" },
+			ui.Frame{ title = "", padding = L.px(1), grow = "x", role = "text",
+				ui.Input{ value = value, onChange = function(e) setValue(e.value) end, grow = "x", columns = 28,
+					font = FONT, border = false, role = "text",
+					-- selected on open, so typing replaces the pre-filled text
+					iup = { SELECTION = "ALL" } },
 			},
-			ui.HBox{ gap = L.gap(3), align = "center",
+			ui.HBox{ gap = L.px(3), align = "center",
 				ui.Spacer{},
 				ui.Button{ p.ok or "OK", role = "primary_btn", padding = { 12, 5 }, onClick = accept },
 				ui.Button{ "Cancel", role = "actionbutton", padding = { 12, 5 }, onClick = cancel },
@@ -95,7 +98,7 @@ function NameDialog.show(opts)
 			result = nil
 		end
 		ModalMotion.result(iup, dlg, kind)
-		return iup.CLOSE
+		return ui.CLOSE
 	end
 	local root = ui.mount(NameDialog.Prompt, { iup = iup, props = props, theme = false })
 	dlg = root:widget()

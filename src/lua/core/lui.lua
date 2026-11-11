@@ -69,6 +69,14 @@ ui.createStore = store.createStore
 -- Colours
 ui.token = props.token
 
+-- What an event handler may return (nothing means the default handling)
+ui.CLOSE, ui.IGNORE, ui.CONTINUE = "close", "ignore", "continue"
+
+--- Development mode: unknown props, wrong value types and conflicting props are errors
+-- (on by default; `LUNAR_LUI_DEV=0` starts with it off).
+function ui.setDevMode(on) props.dev = on and true or false end
+function ui.devMode() return props.dev end
+
 -- Roots and scheduling
 ui.mount = R.mount
 

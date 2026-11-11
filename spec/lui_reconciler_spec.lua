@@ -105,19 +105,19 @@ describe("lui reconciler", function()
 	end)
 
 	it("writes only the attributes that changed", function()
-		local root = ui.mount(ui.Text{ "a", tip = "t", font = "Segoe UI, 9" }, { iup = iup })
+		local root = ui.mount(ui.Text{ "a", tooltip = "t", font = "Segoe UI, 9" }, { iup = iup })
 		local label = root:widget()
 		local writes = {}
 		local raw = iup.SetAttribute
 		iup.SetAttribute = function(h, k, v) writes[#writes + 1] = k; return raw(h, k, v) end
-		root:update(ui.Text{ "b", tip = "t", font = "Segoe UI, 9" })
+		root:update(ui.Text{ "b", tooltip = "t", font = "Segoe UI, 9" })
 		iup.SetAttribute = raw
 		assert.same({ "TITLE" }, writes)
 		assert.equal("b", iup.GetAttribute(label, "TITLE"))
 	end)
 
 	it("resets an attribute whose prop went away", function()
-		local root = ui.mount(ui.Text{ "a", tip = "hello" }, { iup = iup })
+		local root = ui.mount(ui.Text{ "a", tooltip = "hello" }, { iup = iup })
 		root:update(ui.Text{ "a" })
 		assert.is_nil(iup.GetAttribute(root:widget(), "TIP"))
 	end)

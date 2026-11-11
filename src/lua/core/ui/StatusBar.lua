@@ -56,18 +56,18 @@ local function call(fn) if fn then fn() end end
 
 local Settings = ui.memo(function(p)
 	local bar = p.bar
-	return ui.Button{ ref = bar._refs.settings, tip = "Settings (Ctrl+,)", canFocus = true, size = { 48, 28 },
+	return ui.Button{ ref = bar._refs.settings, tooltip = "Settings (Ctrl+,)", focusable = true, size = { 48, 28 },
 		padding = 0, role = "statusbar_button", onClick = function() call(bar._on_settings) end }
 end, nil)
 
 local Activity = ui.memo(function(p)
 	local bar = p.bar
 	local a = ui.useStore(bar._store, function(s) return s.activity end)
-	return ui.HBox{ ref = bar._refs.activity_box, align = "center", gap = L.gap(1), hidden = not a.shown,
+	return ui.HBox{ ref = bar._refs.activity_box, align = "center", gap = L.px(1), hidden = not a.shown,
 		ui.Native{ handle = bar._activity_icon:widget() },
 		ui.Button{ a.text, ref = bar._refs.activity_text, width = ui.useStore(bar._store, function(s) return s.activity_w end),
-			align = "left:center", ellipsis = true, canFocus = false, padding = { 4, 0 }, role = "statusbar_button",
-			tip = a.tip, onClick = function() call(bar._on_activity) end },
+			align = "left", valign = "center", ellipsis = true, focusable = false, padding = { 4, 0 },
+			role = "statusbar_button", tooltip = a.tip, onClick = function() call(bar._on_activity) end },
 	}
 end)
 
@@ -77,7 +77,7 @@ local StatusLine = ui.memo(function(p)
 	-- The literals are the Classic (no-override) look; every real theme restyles the bar
 	-- through the statusbar/statusbar_text roles. The width is a floor, not a size: long
 	-- text ends in an ellipsis, it doesn't widen the window.
-	return ui.Label{ text, ref = bar._refs.label, expand = "horizontal", width = 40, ellipsis = true,
+	return ui.Label{ text, ref = bar._refs.label, grow = "x", width = 40, ellipsis = true,
 		font = "Segoe UI, 9", fg = "60 60 60", role = "statusbar_text" }
 end)
 
@@ -85,11 +85,11 @@ local CommandField = ui.memo(function(p)
 	local bar = p.bar
 	local w = ui.useStore(bar._store, function(s) return s.field_w end)
 	local function command() call(bar._on_command) end
-	return ui.Frame{ ref = bar._refs.field, title = "", size = { w, 24 }, expand = false, role = "commandbar",
-		ui.HBox{ padding = { 2, 1 }, gap = 4, align = "center", expand = "horizontal",
-			ui.Button{ "Search or run a command", ref = bar._refs.command, canFocus = true, imagePosition = "left",
-				align = "left:center", spacing = 8, expand = "horizontal", role = "commandbar_text", onClick = command },
-			ui.Button{ "Ctrl+P", canFocus = false, role = "keycap", onClick = command },
+	return ui.Frame{ ref = bar._refs.field, title = "", size = { w, 24 }, grow = false, role = "commandbar",
+		ui.HBox{ padding = { 2, 1 }, gap = 4, align = "center", grow = "x",
+			ui.Button{ "Search or run a command", ref = bar._refs.command, focusable = true, imagePosition = "left",
+				align = "left", valign = "center", spacing = 8, grow = "x", role = "commandbar_text", onClick = command },
+			ui.Button{ "Ctrl+P", focusable = false, role = "keycap", onClick = command },
 		},
 	}
 end)
@@ -99,14 +99,15 @@ local Logo = ui.memo(function(p)
 	local logo = ui.useStore(bar._store, function(s) return s.logo end)
 	return ui.HBox{ ref = bar._refs.logo_box, hidden = not logo.shown, align = "center", padding = { 6, 0 },
 		-- the image stays while hidden: a mapped image label must stay an image label
-		ui.Image{ ref = bar._refs.logo, tip = bar._logo_tip, padding = { 6, 0 }, align = "center:center", image = logo.image },
+		ui.Image{ ref = bar._refs.logo, tooltip = bar._logo_tip, padding = { 6, 0 }, align = "center", valign = "center",
+			image = logo.image },
 	}
 end)
 
 local Focus = ui.memo(function(p)
 	local bar = p.bar
 	local pane = ui.useStore(bar._store, function(s) return s.pane end)
-	return ui.Button{ ref = bar._refs.focus, tip = pane.tip, canFocus = true, size = { 32, 28 },
+	return ui.Button{ ref = bar._refs.focus, tooltip = pane.tip, focusable = true, size = { 32, 28 },
 		role = "statusbar_button", enabled = pane.split, onClick = function() call(bar._on_focus) end }
 end)
 
@@ -116,17 +117,17 @@ local function Bar(p)
 	local reveal = revealed and {
 		hidden = revealed == 0, height = revealed, minSize = { 1, revealed }, maxSize = { 65535, revealed },
 	} or { height = StatusBar.HEIGHT }
-	return ui.HBox{ homogeneous = true, height = reveal.height, hidden = reveal.hidden,
+	return ui.HBox{ uniform = true, height = reveal.height, hidden = reveal.hidden,
 		minSize = reveal.minSize, maxSize = reveal.maxSize,
-		bg = "240 240 240", role = "statusbar", padding = 0, gap = 0, align = "center", expand = "horizontal",
-		ui.HBox{ expand = "horizontal", align = "center", gap = 0,
+		bg = "240 240 240", role = "statusbar", padding = 0, gap = 0, align = "center", grow = "x",
+		ui.HBox{ grow = "x", align = "center", gap = 0,
 			Settings{ bar = bar }, Activity{ bar = bar }, StatusLine{ bar = bar } },
-		ui.HBox{ expand = "horizontal", align = "center", ui.Spacer{}, CommandField{ bar = bar }, ui.Spacer{} },
-		ui.HBox{ expand = "horizontal", align = "center", gap = L.gap(2), padding = { 8, 0 },
+		ui.HBox{ grow = "x", align = "center", ui.Spacer{}, CommandField{ bar = bar }, ui.Spacer{} },
+		ui.HBox{ grow = "x", align = "center", gap = L.px(2), padding = { 8, 0 },
 			ui.Spacer{},
 			bar._has_logo and Logo{ bar = bar },
 			-- extensions append their status elements here (HostAPI's status_box)
-			ui.HBox{ ref = bar._refs.ext_box, gap = L.gap(2), align = "center" },
+			ui.HBox{ ref = bar._refs.ext_box, gap = L.px(2), align = "center" },
 			Focus{ bar = bar },
 		},
 	}

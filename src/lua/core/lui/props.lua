@@ -1,21 +1,26 @@
 --- Typed props and the attributes they become.
 --
 -- A primitive lists the prop groups it accepts (`core.lui.primitives`); each group is a
--- table `propName -> { ATTRIBUTE, converter }`. `attributes(def, props)` turns a props
--- table into the attribute map the widget should have, and the reconciler writes only
--- the entries that differ from the last map it wrote. Nothing in here touches a widget.
+-- table `propName -> { ATTRIBUTE, converter, types }`. `attributes(def, props)` turns a
+-- props table into the attribute map the widget should have, and the reconciler writes
+-- only the entries that differ from the last map it wrote. Nothing in here touches a
+-- widget.
 --
--- Converters take the prop value (and the primitive, for direction-dependent ones) and
--- return the attribute string, or nil for "leave unset". Strings always pass through
--- untouched, so `gap = L.gap(3)` and `gap = 8` both work.
+-- The names are Lunar's, not IUP's: `hidden` / `invisible`, `grow`, `tooltip`,
+-- `focusable`, `selected`. IUP attributes and callbacks are reachable only through the
+-- explicit compatibility namespace `iup = { RASTERSIZE = "40x", k_any = fn }`.
 --
--- Escape hatches: an UPPERCASE prop is a raw attribute (numbers become integers,
--- booleans YES/NO); a lower-case `*_cb` function prop is a raw callback.
+-- In development mode (the default; `ui.setDevMode(false)` or `LUNAR_LUI_DEV=0` turns it
+-- off) `validate` rejects an unknown prop, a value of the wrong type, a typed prop and a
+-- raw attribute that set the same attribute, and a theme `role` combined with a palette
+-- token colour (see "Styling ownership" in docs/lunar-ui.md).
 --
 -- @module core.lui.props
 local M = {}
 
 local fmt = string.format
+
+M.dev = os.getenv("LUNAR_LUI_DEV") ~= "0"
 
 -- Converters ---------------------------------------------------------------------------
 
@@ -37,44 +42,37 @@ end
 
 function M.bool(v)
 	if v == nil then return nil end
-	if type(v) == "string" then return v end
 	return v and "YES" or "NO"
 end
 
---- `true`/`false`, or "ON"/"OFF" values of toggles.
 function M.onoff(v)
 	if v == nil then return nil end
-	if type(v) == "string" then return v end
 	return v and "ON" or "OFF"
 end
 
-local EXPAND = {
-	horizontal = "HORIZONTAL", vertical = "VERTICAL", both = "YES", none = "NO",
-	horizontalfree = "HORIZONTALFREE", verticalfree = "VERTICALFREE",
-}
-function M.expand(v)
+--- `grow`: does the element take a share of its box's free space? `true` both ways,
+-- `"x"` horizontally, `"y"` vertically, `false` never. Unset: the primitive's own
+-- default (boxes and controls do not grow; entries, lists and tabs grow across).
+local GROW = { x = "HORIZONTAL", y = "VERTICAL" }
+function M.grow(v)
 	if v == nil then return nil end
 	if v == true then return "YES" elseif v == false then return "NO" end
-	return EXPAND[v] or tostring(v)
+	return GROW[v]
 end
+local function grow_ok(v) return v == true or v == false or GROW[v] ~= nil, 'true, false, "x" or "y"' end
 
---- `{ w, h }`, `"WxH"`; either part may be nil/false ("" in the string).
+--- `{ w, h }` (either may be nil: natural on that axis).
 function M.size(v)
 	if v == nil then return nil end
-	if type(v) == "table" then
-		local w, h = v[1] or v.w, v[2] or v.h
-		return (w and M.int(w) or "") .. "x" .. (h and M.int(h) or "")
-	end
-	if type(v) == "number" then return M.int(v) .. "x" .. M.int(v) end
-	return tostring(v)
+	local w, h = v[1] or v.w, v[2] or v.h
+	return (w and M.int(w) or "") .. "x" .. (h and M.int(h) or "")
 end
 
---- A margin or padding: a number for both axes, `{ x, y }`, or "XxY".
+--- A margin or padding: a number for both axes, or `{ x, y }`.
 function M.spacing(v)
 	if v == nil then return nil end
 	if type(v) == "number" then return M.int(v) .. "x" .. M.int(v) end
-	if type(v) == "table" then return M.int(v[1] or v.x or 0) .. "x" .. M.int(v[2] or v.y or 0) end
-	return tostring(v)
+	return M.int(v[1] or v.x or 0) .. "x" .. M.int(v[2] or v.y or 0)
 end
 
 -- Colours -------------------------------------------------------------------------------
@@ -89,7 +87,7 @@ function M.palette()
 	return {}
 end
 
---- Set while computing a fiber's attributes: whether a palette token was read.
+--- Set while converting one prop: whether a palette token was read.
 M.token_used = false
 
 local function hex(s)
@@ -101,6 +99,12 @@ local function hex(s)
 	end
 	return fmt("%d %d %d", tonumber(r, 16), tonumber(g, 16), tonumber(b, 16))
 end
+
+local function is_token(v)
+	return (type(v) == "table" and v.token ~= nil)
+		or (type(v) == "string" and v:match("^[%a_][%w_]*$") ~= nil)
+end
+M.isToken = is_token
 
 --- `"r g b"`, `{ r, g, b }`, `"#rrggbb"`, `"#rgb"`, or a palette token name
 -- (`"text_secondary"`), resolved through the active theme and re-resolved on each
@@ -129,94 +133,101 @@ end
 --- `ui.token(name, fallback)`: an explicit palette token with a fallback colour.
 function M.token(name, fallback) return { token = name, fallback = fallback } end
 
--- Alignment: words per box direction ---------------------------------------------------
+-- Alignment -------------------------------------------------------------------------------
 
-local ALIGN = {
-	h = { start = "ATOP", top = "ATOP", center = "ACENTER", ["end"] = "ABOTTOM", bottom = "ABOTTOM" },
-	v = { start = "ALEFT", left = "ALEFT", center = "ACENTER", ["end"] = "ARIGHT", right = "ARIGHT" },
-	-- a control's text: "left", "center", "right", or "left:center" style pairs
-	c = { left = "ALEFT", center = "ACENTER", right = "ARIGHT", top = "ATOP", bottom = "ABOTTOM",
-		start = "ALEFT", ["end"] = "ARIGHT" },
+-- A box aligns its children across its own direction.
+local BOX_ALIGN = {
+	h = { start = "ATOP", center = "ACENTER", ["end"] = "ABOTTOM" },
+	v = { start = "ALEFT", center = "ACENTER", ["end"] = "ARIGHT" },
 }
-local function align_for(dir)
-	local words = ALIGN[dir]
-	return function(v)
-		if v == nil then return nil end
-		v = tostring(v)
-		if v:match("^A%u") then return v end
-		if dir == "c" and v:find(":") then
-			local a, b = v:match("^(%w+):(%w+)$")
-			return (words[a] or a) .. ":" .. (words[b] or b)
-		end
-		return words[v] or v
-	end
+local function box_align(dir)
+	local words = BOX_ALIGN[dir]
+	return function(v) return words[v] end, function(v) return words[v] ~= nil, '"start", "center" or "end"' end
 end
-M.alignH, M.alignV, M.alignC = align_for("h"), align_for("v"), align_for("c")
+local hconv, hok = box_align("h")
+local vconv, vok = box_align("v")
 
-local ORIENT = { horizontal = "HORIZONTAL", vertical = "VERTICAL" }
-function M.orientation(v) if v == nil then return nil end return ORIENT[v] or tostring(v) end
+-- A control aligns its text and image: `align` across, `valign` down.
+local H = { left = "ALEFT", center = "ACENTER", right = "ARIGHT" }
+local V = { top = "ATOP", center = "ACENTER", bottom = "ABOTTOM" }
+local function h_ok(v) return H[v] ~= nil, '"left", "center" or "right"' end
+local function v_ok(v) return V[v] ~= nil, '"top", "center" or "bottom"' end
+
+local POSITION = { left = "LEFT", right = "RIGHT", top = "TOP", bottom = "BOTTOM" }
+local function pos_ok(v) return POSITION[v] ~= nil, '"left", "right", "top" or "bottom"' end
 
 -- Groups ---------------------------------------------------------------------------------
 
-local function a(attr, conv) return { attr, conv } end
+-- { attribute, converter, types (a set of Lua types, or a check function) }
+local function a(attr, conv, types) return { attr, conv, types } end
+local NUM_STR = { number = true, string = true }
+local NUM = { number = true }
+local STR = { string = true }
+local BOOL = { boolean = true }
+local SIZE = { table = true }
+local SPACE = { number = true, table = true }
+local COLOR = { string = true, table = true }
+M.TYPES = { NUM_STR = NUM_STR, NUM = NUM, STR = STR, BOOL = BOOL, SIZE = SIZE, SPACE = SPACE, COLOR = COLOR }
+M.a = a
 
 --- Props every primitive accepts.
 M.common = {
-	visible = a("VISIBLE", M.bool),
-	enabled = a("ACTIVE", M.bool),
-	tip = a("TIP", M.str),
-	font = a("FONT", M.str),
-	bg = a("BGCOLOR", M.color),
-	fg = a("FGCOLOR", M.color),
-	role = a("THEMEROLE", M.str),
-	name = a("NAME", M.str),
-	expand = a("EXPAND", M.expand),
-	minSize = a("MINSIZE", M.size),
-	maxSize = a("MAXSIZE", M.size),
-	canFocus = a("CANFOCUS", M.bool),
-	tabTitle = a("TABTITLE", M.str),
-	tabImage = a("TABIMAGE", M.str),
-	cursor = a("CURSOR", M.str),
+	enabled = a("ACTIVE", M.bool, BOOL),
+	tooltip = a("TIP", M.str, STR),
+	font = a("FONT", M.str, STR),
+	bg = a("BGCOLOR", M.color, COLOR),
+	fg = a("FGCOLOR", M.color, COLOR),
+	role = a("THEMEROLE", M.str, STR),
+	name = a("NAME", M.str, STR),
+	grow = a("EXPAND", M.grow, grow_ok),
+	minSize = a("MINSIZE", M.size, SIZE),
+	maxSize = a("MAXSIZE", M.size, SIZE),
+	focusable = a("CANFOCUS", M.bool, BOOL),
+	tabTitle = a("TABTITLE", M.str, STR),
+	tabImage = a("TABIMAGE", M.str, STR),
+	cursor = a("CURSOR", M.str, STR),
 }
 
 --- Boxes: hbox, vbox, zbox, frames, scroll boxes.
 M.box = {
-	gap = a("GAP", M.int),
-	padding = a("MARGIN", M.spacing),
-	homogeneous = a("HOMOGENEOUS", M.bool),
+	gap = a("GAP", M.int, NUM),
+	padding = a("MARGIN", M.spacing, SPACE),
+	uniform = a("HOMOGENEOUS", M.bool, BOOL),
 }
-M.hbox = { align = a("ALIGNMENT", M.alignH) }
-M.vbox = { align = a("ALIGNMENT", M.alignV) }
+M.hbox = { align = a("ALIGNMENT", hconv, hok) }
+M.vbox = { align = a("ALIGNMENT", vconv, vok) }
 
---- Controls that draw a caption (buttons, labels, toggles).
+--- Controls that draw a caption (buttons, labels, toggles). `align`/`valign` are
+-- combined by the `derive` rule below.
 M.control = {
-	padding = a("PADDING", M.spacing),
-	align = a("ALIGNMENT", M.alignC),
-	image = a("IMAGE", M.str),
-	spacing = a("SPACING", M.int),
-	imagePosition = a("IMAGEPOSITION", function(v) return v and tostring(v):upper() end),
+	padding = a("PADDING", M.spacing, SPACE),
+	image = a("IMAGE", M.str, STR),
+	spacing = a("SPACING", M.int, NUM),
+	imagePosition = a("IMAGEPOSITION", function(v) return POSITION[v] end, pos_ok),
 }
+M.controlAlign = { align = h_ok, valign = v_ok }
 
---- Composite rules: props that become more than one attribute, or that share one.
--- Each is `fn(props, out)`, run after the per-prop table.
+--- Props that become more than one attribute, or share one. `{ keys, check, rule }`.
 M.composite = {
-	-- `size = { w, h }`, `width`, `height`: RASTERSIZE (either part may be left natural)
-	function(p, out)
+	-- size = { w, h }, width, height: RASTERSIZE (either part may be left natural)
+	{ keys = { size = SIZE, width = NUM, height = NUM }, rule = function(p, out)
 		local s = p.size
-		if s ~= nil and type(s) ~= "table" then out.RASTERSIZE = M.size(s); return end
 		local w = p.width or (s and (s[1] or s.w)) or nil
 		local h = p.height or (s and (s[2] or s.h)) or nil
 		if w == nil and h == nil then return end
 		out.RASTERSIZE = (w and M.int(w) or "") .. "x" .. (h and M.int(h) or "")
-	end,
-	-- `hidden = true`: out of the layout as well as invisible (FLOATING + VISIBLE), the
-	-- pattern the shell uses to hide something without leaving a gap. `hidden = false`
-	-- writes both back.
-	function(p, out)
-		if p.hidden == nil then return end
-		out.FLOATING = p.hidden and "YES" or "NO"
-		out.VISIBLE = p.hidden and "NO" or "YES"
-	end,
+	end },
+	-- hidden: not displayed and takes no space (FLOATING + VISIBLE); invisible: not
+	-- drawn but keeps its space (VISIBLE). `false` writes them back.
+	{ keys = { hidden = BOOL, invisible = BOOL }, rule = function(p, out)
+		if p.hidden ~= nil then
+			out.FLOATING = p.hidden and "YES" or "NO"
+			out.VISIBLE = p.hidden and "NO" or "YES"
+		end
+		if p.invisible ~= nil and not p.hidden then
+			out.VISIBLE = p.invisible and "NO" or "YES"
+		end
+	end },
 }
 
 --- Attributes the layout depends on: a change to one of these asks for an `iup.Refresh`.
@@ -229,11 +240,6 @@ M.LAYOUT = {
 	WORDWRAP = true, TEXTWRAP = true, IMAGEPOSITION = true, CHILDOFFSET = true,
 }
 
---- Is `k` a raw attribute name (UPPERCASE, digits allowed: `TABTITLE0`, `1`)?
-function M.isRaw(k)
-	return type(k) == "string" and k:match("^[%u%d_]+$") ~= nil and k:match("%u") ~= nil
-end
-
 local function raw(v)
 	local t = type(v)
 	if t == "number" then return num(v) end
@@ -241,12 +247,111 @@ local function raw(v)
 	return v -- strings and handles
 end
 
+-- Validation ---------------------------------------------------------------------------
+
+local RESERVED = { children = true, key = true, ref = true, iup = true }
+
+local function check_type(name, prim, v, types)
+	if types == nil then return end
+	if type(types) == "function" then
+		local ok, want = types(v)
+		if not ok then error(fmt("lui: %s.%s must be %s, got %s", prim, name, want, tostring(v)), 0) end
+		return
+	end
+	if not types[type(v)] then
+		local list = {}
+		for t in pairs(types) do list[#list + 1] = t end
+		table.sort(list)
+		error(fmt("lui: %s.%s must be a %s, got %s", prim, name, table.concat(list, " or "), type(v)), 0)
+	end
+end
+
+-- The closest known name, for "did you mean".
+local function suggest(name, known)
+	local lname = name:lower()
+	for k in pairs(known) do if k:lower() == lname then return k end end
+	for k in pairs(known) do
+		if #lname > 2 and (k:lower():find(lname, 1, true) or lname:find(k:lower(), 1, true)) then return k end
+	end
+	return nil
+end
+
+--- The props a primitive knows, as a set (cached on the definition).
+function M.known(def)
+	if def._known then return def._known end
+	local k = {}
+	for name in pairs(RESERVED) do k[name] = true end
+	for _, group in ipairs(def.groups) do for name in pairs(group) do k[name] = true end end
+	for _, c in ipairs(M.composite) do for name in pairs(c.keys) do k[name] = true end end
+	if def.controlAlign then for name in pairs(M.controlAlign) do k[name] = true end end
+	for name in pairs(def.events) do k[name] = true end
+	for name in pairs(def.extra or {}) do k[name] = true end
+	def._known = k
+	return k
+end
+
+--- Development-mode checks of one element's props (see the module header).
+function M.validate(def, props)
+	if not M.dev then return end
+	local known = M.known(def)
+	local prim = def.name
+	for name, v in pairs(props) do
+		if type(name) == "string" and not known[name] then
+			local s = suggest(name, known)
+			local hint = s and (" (did you mean `" .. s .. "`?)") or ""
+			if name:match("^[%u%d_]+$") or name:match("_cb$") then
+				hint = " (IUP attributes and callbacks go in `iup = { " .. name .. " = ... }`)"
+			end
+			error(fmt("lui: %s has no prop `%s`%s", prim, name, hint), 0)
+		end
+	end
+	for _, group in ipairs(def.groups) do
+		for name, spec in pairs(group) do
+			if props[name] ~= nil then check_type(name, prim, props[name], spec[3]) end
+		end
+	end
+	for _, c in ipairs(M.composite) do
+		for name, types in pairs(c.keys) do
+			if props[name] ~= nil then check_type(name, prim, props[name], types) end
+		end
+	end
+	if def.controlAlign then
+		for name, chk in pairs(M.controlAlign) do
+			if props[name] ~= nil then check_type(name, prim, props[name], chk) end
+		end
+	end
+	for name, extra in pairs(def.extra or {}) do
+		if props[name] ~= nil then check_type(name, prim, props[name], extra) end
+	end
+	for name in pairs(def.events) do
+		if props[name] ~= nil and type(props[name]) ~= "function" then
+			error(fmt("lui: %s.%s must be a function, got %s", prim, name, type(props[name])), 0)
+		end
+	end
+	local rawt = props.iup
+	if rawt ~= nil then
+		if type(rawt) ~= "table" then error(fmt("lui: %s.iup must be a table of IUP attributes and callbacks", prim), 0) end
+		-- a typed prop and a raw attribute naming the same attribute: which one wins is
+		-- not obvious, so say so
+		local typed = M.attributes(def, props, nil, true)
+		for k, v in pairs(rawt) do
+			if type(v) ~= "function" and typed[k] ~= nil then
+				error(fmt("lui: %s sets %s twice: from a typed prop and from iup.%s; keep one", prim, k, k), 0)
+			end
+		end
+	end
+	if props.role ~= nil and (is_token(props.bg) or is_token(props.fg)) then
+		error(fmt("lui: %s has a theme role and a palette token colour; a widget's colours "
+			.. "belong to the theme (role) or to the component (token), not both", prim), 0)
+	end
+end
+
 --- The attribute map `props` asks for on primitive `def`.
--- @treturn table `{ ATTR = value }`
--- @treturn boolean whether a palette token was read
 -- @tparam[opt] string text the element's text children, for a primitive with `content`
+-- @tparam[opt] boolean typed_only leave out the `iup` namespace (for validation)
+-- @treturn table `{ ATTR = value }`
 -- @treturn table|nil the attributes that came from palette tokens (`{ BGCOLOR = true }`)
-function M.attributes(def, props, text)
+function M.attributes(def, props, text, typed_only)
 	local out, tokens = {}, nil
 	if text ~= nil and def.content then out[def.content] = text end
 	for _, group in ipairs(def.groups) do
@@ -260,11 +365,16 @@ function M.attributes(def, props, text)
 			end
 		end
 	end
-	for _, rule in ipairs(M.composite) do rule(props, out) end
+	for _, c in ipairs(M.composite) do c.rule(props, out) end
+	if def.controlAlign and (props.align ~= nil or props.valign ~= nil) then
+		local h, v = H[props.align], V[props.valign]
+		if v then out.ALIGNMENT = (h or "ACENTER") .. ":" .. v else out.ALIGNMENT = h end
+	end
 	if def.derive then def.derive(props, out) end
-	-- raw attributes win: they are the escape hatch
-	for k, v in pairs(props) do
-		if M.isRaw(k) and type(v) ~= "function" then out[k] = raw(v) end
+	if not typed_only and type(props.iup) == "table" then
+		for k, v in pairs(props.iup) do
+			if type(v) ~= "function" then out[k] = raw(v) end
+		end
 	end
 	M.token_used = false
 	return out, tokens

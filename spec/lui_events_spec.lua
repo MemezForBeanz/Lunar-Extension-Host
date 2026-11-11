@@ -30,17 +30,19 @@ describe("lui event trampolines", function()
 		local iup = r.iup
 		local a, b = r:getByText("a"), r:getByText("b")
 		assert.equal(iup.DEFAULT, r.Element.call(a, "FLAT_ACTION"))
-		ret = iup.IGNORE
+		ret = ui.IGNORE
 		assert.equal(iup.IGNORE, r.Element.call(b, "FLAT_ACTION"))
+		ret = ui.CLOSE
+		assert.equal(iup.CLOSE, r.Element.call(b, "FLAT_ACTION"))
 		r:unmount()
 	end)
 
-	it("passes adapted arguments: Toggle checked, List index and text, Tabs index", function()
+	it("hands every handler one event table: Toggle, List and Tabs", function()
 		local got = {}
 		local r = T.render(ui.VBox{
-			ui.Toggle{ "t", onChange = function(c) got.toggle = c end },
-			ui.List{ items = { "x", "y" }, onChange = function(i, t) got.list = { i, t } end },
-			ui.Tabs{ onChange = function(i, old) got.tabs = { i, old } end, ui.VBox{ tabTitle = "1" }, ui.VBox{ tabTitle = "2" } },
+			ui.Toggle{ "t", onChange = function(e) got.toggle = e.value end },
+			ui.List{ items = { "x", "y" }, onChange = function(e) got.list = { e.value, e.text, e.type } end },
+			ui.Tabs{ onChange = function(e) got.tabs = { e.value, e.previous } end, ui.VBox{ tabTitle = "1" }, ui.VBox{ tabTitle = "2" } },
 		})
 		local E = r.Element
 		local tg = r:queryAllByClass("flattoggle")[1]
@@ -50,20 +52,10 @@ describe("lui event trampolines", function()
 		assert.is_false(got.toggle)
 		local list = r:queryAllByClass("flatlist")[1]
 		E.call(list, "FLAT_ACTION", "y", 2, 1)
-		assert.same({ 2, "y" }, got.list)
+		assert.same({ 2, "y", "change" }, got.list)
 		local tabs = r:queryAllByClass("flattabs")[1]
 		E.call(tabs, "TABCHANGEPOS_CB", 1, 0)
 		assert.same({ 2, 1 }, got.tabs)
-		r:unmount()
-	end)
-
-	it("installs raw *_cb props and gives them iup's own arguments", function()
-		local got
-		local r = T.render(ui.Label{ "status", button_cb = function(self, b, pressed) got = { self, b, pressed } end })
-		local l = r:getByText("status")
-		r.Element.call(l, "BUTTON_CB", 49, 1, 0, 0, "")
-		assert.equal(l, got[1])
-		assert.equal(49, got[2])
 		r:unmount()
 	end)
 
@@ -95,7 +87,7 @@ describe("lui controlled input", function()
 		local writes = 0
 		local function App()
 			local v, set = ui.useState("")
-			return ui.VBox{ ui.Input{ value = v, onChange = set, name = "in" }, ui.Text{ "[" .. v .. "]", name = "echo" } }
+			return ui.VBox{ ui.Input{ value = v, onChange = function(e) set(e.value) end, name = "in" }, ui.Text{ "[" .. v .. "]", name = "echo" } }
 		end
 		local r = T.render(App)
 		local input = r:getByName("in")
@@ -121,7 +113,7 @@ describe("lui controlled input", function()
 	it("filters input through state", function()
 		local function Digits()
 			local v, set = ui.useState("")
-			return ui.Input{ value = v, name = "in", onChange = function(s) set((s:gsub("%D", ""))) end }
+			return ui.Input{ value = v, name = "in", onChange = function(e) set((e.value:gsub("%D", ""))) end }
 		end
 		local r = T.render(Digits)
 		r:type(r:getByName("in"), "a1b2")
@@ -220,7 +212,7 @@ describe("lui test helper", function()
 
 	it("presses keys on the focused widget and shows dialogs", function()
 		local keys = {}
-		local r = T.render(ui.Dialog{ title = "d", RASTERSIZE = "300x200", onKey = function(c) keys[#keys + 1] = c end,
+		local r = T.render(ui.Dialog{ title = "d", size = { 300, 200 }, onKey = function(e) keys[#keys + 1] = e.key end,
 			ui.VBox{ ui.Input{ name = "in" } } })
 		r:click(r:getByName("in"))
 		r:key(r.iup.K_ESC)

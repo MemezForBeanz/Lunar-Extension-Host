@@ -90,7 +90,7 @@ describe("lui and children added by other code", function()
 		local function Bar()
 			local text, s = ui.useState("one")
 			set = s
-			return ui.HBox{ ui.Text{ text }, ui.HBox{ ref = box_ref, gap = 2, tip = text } }
+			return ui.HBox{ ui.Text{ text }, ui.HBox{ ref = box_ref, gap = 2, tooltip = text } }
 		end
 		local root = ui.mount(Bar, { iup = iup })
 		local ext = box_ref.current
@@ -170,7 +170,7 @@ describe("lui inside an iup tree", function()
 
 	it("does not refresh for paint-only changes, nor with layout = manual", function()
 		local set
-		local function C() local v, s = ui.useState("a"); set = s; return ui.VBox{ ui.Button{ "x", tip = v } } end
+		local function C() local v, s = ui.useState("a"); set = s; return ui.VBox{ ui.Button{ "x", tooltip = v } } end
 		local root = ui.mount(C, { iup = iup })
 		local dlg = iup.dialog({ root:widget(), RASTERSIZE = "300x200" })
 		iup.Show(dlg)

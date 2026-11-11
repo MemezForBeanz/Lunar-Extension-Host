@@ -332,8 +332,8 @@ function work(tx, f, old)
 			end
 			f.children = reconcile(tx, f, old and old.children or EMPTY, container_kids(tx, elems))
 		end
-		if def.attributes then f.next, f.next_tokens = def.attributes(f.props), nil
-		else f.next, f.next_tokens = P.attributes(def, f.props, text) end
+		P.validate(def, f.props)
+		f.next, f.next_tokens = P.attributes(def, f.props, text)
 	elseif k == "component" then
 		render_component(tx, f, old)
 	elseif k == "fragment" then
@@ -469,13 +469,17 @@ local function fire(root, hrec, cbname, self, ...)
 		if not cur then return end
 		local props = cur.props
 		local okh, r = xpcall(function()
-			local raw = props[cbname]
+			-- the compatibility namespace: iup's own callback, iup's own arguments
+			local raw = type(props.iup) == "table" and props.iup[cbname]
 			if type(raw) == "function" then return raw(self, unpack(args, 1, n)) end
 			local evs = cur.type.cbEvents[cbname]
 			if evs then
 				for _, e in ipairs(evs) do
 					local fn = props[e[1]]
-					if fn then return e[2](fn, self, unpack(args, 1, n)) end
+					if fn then
+						local event = e[2](self, unpack(args, 1, n))
+						if event ~= nil then return fn(event) end
+					end
 				end
 			end
 		end, traceback)
@@ -484,8 +488,9 @@ local function fire(root, hrec, cbname, self, ...)
 	if not ok then root:_report(err) end
 	local cur = hrec.fiber
 	if cur and cur.host and next(cur.type.live) then pcall(reassert, D, cur) end
-	if result == nil then return D.DEFAULT end
-	return result
+	local rok, code = pcall(D.result, result)
+	if not rok then root:_report(code); return D.DEFAULT end
+	return code
 end
 
 local function install_events(tx, f)
@@ -500,10 +505,9 @@ local function install_events(tx, f)
 	for ev, spec in pairs(def.events) do
 		if props[ev] ~= nil then install(spec[1]) end
 	end
-	for k, v in pairs(props) do
-		if type(v) == "function" and type(k) == "string"
-			and (k:match("^[%l%d_]+_cb$") or k == "flat_action" or k == "action") then
-			install(k)
+	if type(props.iup) == "table" then
+		for k, v in pairs(props.iup) do
+			if type(v) == "function" then install(k:lower()) end
 		end
 	end
 end
@@ -938,7 +942,7 @@ function Root:_retheme(force)
 	local D = self._driver
 	for hnd, f in pairs(self._tokens) do
 		if D.isHandle(hnd) and f.host == hnd and f.tokens then
-			local attrs = f.type.attributes and f.type.attributes(f.props) or P.attributes(f.type, f.props, f.attrs and f.type.content and f.attrs[f.type.content])
+			local attrs = P.attributes(f.type, f.props, f.attrs and f.type.content and f.attrs[f.type.content])
 			for name in pairs(f.tokens) do
 				local v = attrs[name]
 				if force or v ~= f.attrs[name] then D.set(hnd, name, v) end

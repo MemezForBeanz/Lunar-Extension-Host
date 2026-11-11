@@ -122,6 +122,19 @@ function M.iup(iup)
 	end
 
 	D.DEFAULT = iup.DEFAULT or -2
+
+	--- What a handler returned, as IUP wants it: nil is the default; `ui.CLOSE`,
+	-- `ui.IGNORE`, `ui.CONTINUE` ("close", "ignore", "continue") map to IUP's codes; a
+	-- number (an iup constant from the compatibility namespace) passes through.
+	local RESULTS = { close = iup.CLOSE or -3, ignore = iup.IGNORE or -1, continue = iup.CONTINUE or -4,
+		default = D.DEFAULT }
+	function D.result(r)
+		if r == nil then return D.DEFAULT end
+		if type(r) == "number" then return r end
+		local code = RESULTS[r]
+		if code == nil then error("lui: a handler returned " .. tostring(r) .. "; return ui.CLOSE, ui.IGNORE, ui.CONTINUE or nothing", 0) end
+		return code
+	end
 	--- The main-loop nesting level (a modal iup.Popup runs one level deeper).
 	function D.loopLevel() return iup.MainLoopLevel and iup.MainLoopLevel() or 0 end
 	return D
