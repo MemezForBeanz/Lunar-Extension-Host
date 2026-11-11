@@ -57,6 +57,48 @@ for _, fname in ipairs({ "Show", "ShowXY", "Popup" }) do
 end
 local out_dir = (arg and arg[1]) or "."
 local out = assert(io.open(out_dir .. "/tour-" .. BUILD .. ".tsv", "w"))
+-- LUNAR_TOUR_TRACE=<NAME>: log every write of that attribute (iup.SetAttribute, IupFFI.setstr,
+-- themeapply) with who it went to and a traceback, to <out>/trace.txt.
+local TRACE = os.getenv("LUNAR_TOUR_TRACE")
+if TRACE then
+	local tf = assert(io.open(((arg and arg[1]) or ".") .. "/trace.txt", "w"))
+	local function who(ih)
+		local ok, t = pcall(iup.GetAttribute, ih, "TITLE")
+		local ok2, r = pcall(iup.GetAttribute, ih, "THEMEROLE")
+		local ok3, id = pcall(iup.GetAttribute, ih, "_IUPLUNAR_THEMEMGR_ID")
+		return tostring(iup.GetClassName(ih)) .. " title=" .. tostring(ok and t) .. " role=" .. tostring(ok2 and r) .. " id=" .. tostring(ok3 and id)
+	end
+	local real_set = iup.SetAttribute
+	iup.SetAttribute = function(ih, name, value, ...)
+		if name == TRACE then tf:write("set ", who(ih), " = ", tostring(value), "\n", debug.traceback("", 2):sub(1, 400), "\n"); tf:flush() end
+		return real_set(ih, name, value, ...)
+	end
+	local okf, F = pcall(require, "core.classes.IupFFI")
+	if okf and type(F) == "table" and F.setstr then
+		local rs = F.setstr
+		F.setstr = function(p, name, value)
+			if name == TRACE then
+				local before = F.get(p, name)
+				tf:write("ffiset ", tostring(value), " before=", tostring(before), " title=", tostring(F.get(p, "TITLE")), " role=", tostring(F.get(p, "THEMEROLE")), "\n", debug.traceback("", 2):sub(1, 3000), "\n"); tf:flush()
+			end
+			return rs(p, name, value)
+		end
+	end
+	local ok, ta = pcall(require, "themeapply")
+	if ok and ta then
+		local rs, as = ta.restore, ta.apply_save
+		ta.restore = function(ih, store)
+			if store[TRACE] ~= nil then tf:write("restore ", who(ih), " = ", tostring(store[TRACE]), "\n"); tf:flush() end
+			return rs(ih, store)
+		end
+		ta.apply_save = function(ih, attrs)
+			local o = as(ih, attrs)
+			if attrs[TRACE] ~= nil or (o and o[TRACE] ~= nil) then tf:write("apply ", who(ih), " = ", tostring(attrs[TRACE]), " orig=", tostring(o and o[TRACE]), "\n"); tf:flush() end
+			return o
+		end
+	end
+end
+
 local function emit(...)
 	local t = { ... }
 	for i = 1, #t do t[i] = tostring(t[i]):gsub("[\r\n\t]+", " ") end
@@ -270,6 +312,12 @@ local function dump_tree(key, dlg)
 		if visible(e.h) then
 			local x, y, w, h = rect(e.h, ox, oy)
 			if x then emit("T", key, e.path, class(e.h), x, y, w, h, label(e.h)) end
+			-- resolved attributes, as ui_probe's A lines: what decided the size
+			local a = {}
+			for _, n in ipairs({ "FONT", "PADDING", "SIZE", "RASTERSIZE", "THEMEROLE", "CHARSIZE", "NATURALSIZE", "BORDER", "BGCOLOR", "TITLE", "TITLEPADDING", "TITLELINE", "FRAME", "FRAMEWIDTH", "FRAMESPACE", "DECOROFFSET", "MARGIN", "CMARGIN", "GAP" }) do
+				a[#a + 1] = n .. "=" .. tostring(attr(e.h, n))
+			end
+			emit("A", key, e.path, class(e.h), table.concat(a, " "))
 		end
 	end
 end
