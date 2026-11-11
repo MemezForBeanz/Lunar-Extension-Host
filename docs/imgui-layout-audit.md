@@ -126,6 +126,8 @@ and content-drag input sent as window messages.
 | S3 | every dialog's first frame | a scroll box at its own size vs at its child's natural size until the next layout | `iupDialogShowXY`, then the new window's WM_SIZE -> `winDialogResize` -> `IupRefresh`: the first layout is computed twice, and `iScrollBoxComputeNaturalSizeMethod` uses the child's size only while the box has none | `layout_dialog` runs `Layout.run` twice the first time | `imgui_scrollbars_spec` "lays a new dialog out twice" |
 | S4 | native bars | look | captured: track #F0F0F0, white line on the content side, 2 px #858585 thumb on columns 8-9 with #989898 ends, an 8 px thumb painted 17 px long, no arrows at rest | `winscrollbar.draw` | `imgui_scrollbars_spec` "Windows 11 look" |
 | S5 | IupCanvas without WHEEL_CB (inside a scroll box) | wheel scrolls the box vs swallowed by the canvas | `winCanvasMsgProc` WM_MOUSEWHEEL: WHEEL_CB, else a vertical bar scrolls, else DefWindowProc forwards to the parent | canvas `event` returns false then | `imgui_scrollbars_spec` "the wheel over a canvas" |
+| S6 | multiline APPEND/INSERT (Build Queue output log: READONLY, APPEND per line) | text appended on a new line vs nothing appended to a READONLY control, no line break, ACTION/VALUECHANGED_CB fired | `winTextSetAppendAttrib`/`SetInsertAttrib`: EM_REPLACESEL ignores ES_READONLY, "
+" first when the multiline has text and APPENDNEWLINE (default YES), callbacks disabled, caret after the text | APPEND/INSERT write the text directly | `imgui_multiline_spec` "APPEND and INSERT" |
 
 Result (`ui_scroll.lua`, both builds at the same 884x481 client): every DX/DY/XMAX/YMAX, box,
 child and bar rectangle and thumb position matches after wheel, arrow, track, SCROLLTO,

@@ -247,8 +247,29 @@ local common = {
 	defaults = { CURSOR = "IBEAM" },
 	set = {
 		VALUE = set_value,
-		APPEND = function(e, st, v) replace(e, st, #st.data.text, #st.data.text, v); return false end,
-		INSERT = function(e, st, v) replace(e, st, st.data.caret, st.data.caret, v); return false end,
+		-- winTextSetAppendAttrib: EM_REPLACESEL at the end (it ignores ES_READONLY), after a
+		-- line break when the multiline has text and APPENDNEWLINE (default YES), with the
+		-- callbacks disabled; the caret ends after it.
+		APPEND = function(e, st, v)
+			local ins = tostring(v or "")
+			local multiline = st.classname == "multiline" or yes(attr(e, "MULTILINE"))
+			if multiline and #st.data.text > 0 and attr(e, "APPENDNEWLINE") ~= "NO" then ins = "\n" .. ins end
+			st.data.text = st.data.text .. ins
+			st.data.caret, st.data.anchor = #st.data.text, #st.data.text
+			if M.scrollCaret then M.scrollCaret(e, st) end
+			Element.hooks.invalidate(e, "paint", "VALUE")
+			return false
+		end,
+		-- winTextSetInsertAttrib: EM_REPLACESEL over the selection, callbacks disabled
+		INSERT = function(e, st, v)
+			local a, b = sorted_selection(st)
+			local ins = tostring(v or "")
+			st.data.text = st.data.text:sub(1, a) .. ins .. st.data.text:sub(b + 1)
+			st.data.caret, st.data.anchor = a + #ins, a + #ins
+			if M.scrollCaret then M.scrollCaret(e, st) end
+			Element.hooks.invalidate(e, "paint", "VALUE")
+			return false
+		end,
 		DELETERANGE = function(e, st, v)
 			local a, b = tostring(v or ""):match("^(%d+)%s*[,;:]%s*(%d+)$")
 			if a then replace(e, st, tonumber(a), tonumber(b), "") end
