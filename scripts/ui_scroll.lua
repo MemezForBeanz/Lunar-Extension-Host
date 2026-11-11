@@ -200,7 +200,10 @@ local wide = iup.vbox{ iup.hbox{ iup.flatbutton{ TITLE = "wide", RASTERSIZE = "5
 local b = iup.scrollbox{ wide, RASTERSIZE = "260x300" }
 -- box C: holds everything (no bar shown)
 local c = iup.scrollbox{ column(3, "few"), RASTERSIZE = "260x300" }
-boxes, names = { a, b, c }, { "A", "B", "C" }
+-- box D: a huge child (minimum thumb); box E: shorter than two arrow buttons
+local dd = iup.scrollbox{ iup.vbox{ iup.flatbutton{ TITLE = "huge", RASTERSIZE = "100x30000" } }, SCROLLBAR = "VERTICAL", RASTERSIZE = "130x120", EXPAND = "NO" }
+local ee = iup.scrollbox{ iup.vbox{ iup.flatbutton{ TITLE = "e", RASTERSIZE = "60x300" } }, SCROLLBAR = "VERTICAL", RASTERSIZE = "100x30", EXPAND = "NO" }
+boxes, names = { a, b, c, dd, ee }, { "A", "B", "C", "D", "E" }
 for i, box in ipairs(boxes) do
 	local n = names[i]
 	box.layoutupdate_cb = function() cbs[#cbs + 1] = n .. ":LAYOUTUPDATE" end
@@ -208,8 +211,10 @@ end
 local ml = iup.text{ MULTILINE = "YES", RASTERSIZE = "200x120", VALUE = (string.rep("line of text that is long enough to wrap or scroll\n", 30)) }
 local list = iup.list{ RASTERSIZE = "200x120" }
 for i = 1, 40 do list[tostring(i)] = "list item " .. i end
-dlg = iup.dialog{ iup.vbox{ iup.hbox{ a, b, c, GAP = "10" }, iup.hbox{ ml, list, GAP = "10" }, MARGIN = "10x10", GAP = "10" },
+dlg = iup.dialog{ iup.vbox{ iup.hbox{ a, b, c, GAP = "10" }, iup.hbox{ ml, list, dd, ee, GAP = "10" }, MARGIN = "10x10", GAP = "10" },
 	TITLE = "scroll probe", RASTERSIZE = "900x520", BGCOLOR = "240 240 240" }
+-- IUP's RASTERSIZE is the window, the host's the client: give the host IUP's client
+if IMGUI then dlg.rastersize = os.getenv("LUNAR_SCROLL_CLIENT") or "884x481" end
 
 local step = 0
 local shot = 0
@@ -271,7 +276,7 @@ local function run()
 		local ok, err = pcall(function()
 			if step == 4 then
 				main_hwnd = hwnd_of(dlg)
-				if IMGUI then local B = require("core.imgui.Runtime").backend(); B.window("pos", 0, 0); B.window("size", 900, 520) end
+				say("clientsize", iup.GetAttribute(dlg, "CLIENTSIZE"))
 			elseif step > 6 then
 				local f = seq[step - 6]
 				if f then f() else out:close(); os.exit(0) end

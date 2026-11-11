@@ -122,3 +122,18 @@ and content-drag input sent as window messages.
 | # | element | IUP vs host before | rule | fix | spec |
 |---|---|---|---|---|---|
 | S1 | every IupFlatScrollBox (Settings, page scroll hosts) | bars above the content vs painted under it, and clicks on them went to the content | `iupFlatScrollBarCreate`: the bars are canvases with `ZORDER=TOP`. Commit fefe0ca folded `visibleChildren` (and `defaults`) into a comment, so the internal bars, inserted first, painted and hit-tested below the child | restored `visibleChildren = FlatScrollbar.visible_children` and the defaults | `imgui_scrollbars_spec` "paints and hits the bars above the content" |
+| S2 | IupScrollBox (the media server page; `scripts/ui_scroll.lua` boxes A-E) | 17 px Windows bars with wheel, arrows, track, thumb and content drag vs no bars and 24 px wheel steps | `iup_scrollbox.c` over `iupwin_canvas.c`: SCROLLBAR (default YES) decides the bars, XAUTOHIDE/YAUTOHIDE show one while DX/DY < XMAX/YMAX, the bars are non-client (the child is clipped to and hit in the client rect), a line is a tenth of the page (LINEX/LINEY from the hash table), the wheel sends one SB_LINEUP/DOWN per whole notch and is consumed whenever there is a vertical bar, `SCROLL_CB` is `iScrollBoxScroll_CB` (LAYOUTDRAG) unless the application sets one, POSX/POSY setters move only the thumb, button 1 on the box drags the content | `widgets/winscrollbar.lua` (geometry as GetScrollBarInfo reports it: arrows 17 or half the bar, thumb MulDiv(track, page, range) at least 8, MulDiv position; tracking with auto-repeat) and a native `scrollbox` class; `class.clipRect` in Runtime | `imgui_scrollbars_spec` "IupScrollBox" (8 cases) |
+| S3 | every dialog's first frame | a scroll box at its own size vs at its child's natural size until the next layout | `iupDialogShowXY`, then the new window's WM_SIZE -> `winDialogResize` -> `IupRefresh`: the first layout is computed twice, and `iScrollBoxComputeNaturalSizeMethod` uses the child's size only while the box has none | `layout_dialog` runs `Layout.run` twice the first time | `imgui_scrollbars_spec` "lays a new dialog out twice" |
+| S4 | native bars | look | captured: track #F0F0F0, white line on the content side, 2 px #858585 thumb on columns 8-9 with #989898 ends, an 8 px thumb painted 17 px long, no arrows at rest | `winscrollbar.draw` | `imgui_scrollbars_spec` "Windows 11 look" |
+
+Result (`ui_scroll.lua`, both builds at the same 884x481 client): every DX/DY/XMAX/YMAX, box,
+child and bar rectangle and thumb position matches after wheel, arrow, track, SCROLLTO,
+POSY, content drag and resize; the bars' pixels match exactly (0 of 16,000 px differ above
+24, box D's painted thumb included after S4). Left: POSX/POSY differ in the 8th decimal
+(IUP quantises to INT_MAX scroll units), and box E (30 px tall: no track) where Windows
+reports an 8 px thumb it does not paint and the host reports none. Not measurable through
+posted messages: the system bar's hover look (it widens under the real pointer; the host's
+hover look is an approximation), its auto-repeat timing (Wine's 200/50 ms used), and thumb
+dragging (the system's tracking loop ignores posted moves; the host's follows Windows'
+MulDiv rule, covered by the spec). The bars are the system's light ones in the dark theme
+too, as on the IUP build.

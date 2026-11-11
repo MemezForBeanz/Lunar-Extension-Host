@@ -340,7 +340,13 @@ local function hit(el, x, y)
 		if not class.hit(el, st, x, y) then in_rect = false end
 	end
 	if class.clip and not in_rect then return nil end
-	local kids = children_shown(el, st)
+	-- a native control's children live in its client area: not under its own scroll bars
+	local in_client = true
+	if class.clipRect then
+		local cx, cy, cw, ch = class.clipRect(el, st)
+		in_client = x >= cx and y >= cy and x < cx + cw and y < cy + ch
+	end
+	local kids = in_client and children_shown(el, st) or {}
 	for i = #kids, 1, -1 do
 		local found = hit(kids[i], x, y)
 		if found then return found end
@@ -1360,9 +1366,10 @@ local function paint(el, d)
 	end
 	local kids = children_shown(el, st)
 	if #kids > 0 then
-		if class.clip then d:clip_push(st.x, st.y, st.w, st.h) end
+		if class.clipRect then d:clip_push(class.clipRect(el, st))
+		elseif class.clip then d:clip_push(st.x, st.y, st.w, st.h) end
 		for i = 1, #kids do paint(kids[i], d) end
-		if class.clip then d:clip_pop() end
+		if class.clip or class.clipRect then d:clip_pop() end
 	end
 	if not culled and class.drawAfter then
 		local ok, err = xpcall(class.drawAfter, debug.traceback, el, st, d, M)
@@ -1386,6 +1393,14 @@ local function layout_dialog(d, w, h)
 	if st.data.layout_dirty then
 		in_layout = true
 		local ok, err = xpcall(Layout.run, debug.traceback, d, w, h)
+		-- A dialog's first layout runs twice on IUP: IupMap/IupShow compute it, then the
+		-- WM_SIZE of the new window reaches winDialogResize, whose IupRefresh computes it
+		-- again with every control at its current size (a scroll box's natural size is its
+		-- child's only while it has no size yet: iScrollBoxComputeNaturalSizeMethod).
+		if ok and not st.data.laid_out then
+			st.data.laid_out = true
+			ok, err = xpcall(Layout.run, debug.traceback, d, w, h)
+		end
 		in_layout = false
 		if not ok then warn(err) end
 		st.data.layout_dirty = false
