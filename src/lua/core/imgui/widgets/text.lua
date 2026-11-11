@@ -193,6 +193,21 @@ local function scroll_to(e, st, v)
 	local lin = tonumber(tostring(v or ""):match("^%s*(-?%d+)")) or 1
 	line_scroll_to(e, st, math.max(1, lin) - 1)
 end
+-- winTextSetLinColToPosition: 1-based line and column to a position, the line clamped to
+-- the last one and the column to just after the line's last character.
+local function rt_of() return package.loaded["core.imgui.Runtime"] end
+local function lincol_to_pos(text, lin, col)
+	local lines = lines_of(text or "")
+	lin = math.max(1, math.min(#lines, math.floor(lin)))
+	local ln = lines[lin]
+	col = math.max(1, math.min(ln[2] - ln[1] + 1, math.floor(col)))
+	return ln[1] + col - 1
+end
+-- winTextGetLinColFromPosition: a position to 1-based line and column.
+local function pos_to_lincol(text, p)
+	local line, col = line_at(text or "", p)
+	return line + 1, col + 1
+end
 local function action(e, old, proposed, from, to)
 	local c = proposed:sub(1, 1)
 	local r = Element.call(e, "ACTION", c:byte() or 0, proposed)
@@ -464,6 +479,43 @@ local common = {
 		end,
 		SCROLLTO = function(e, st, v) scroll_to(e, st, v); return false end,
 		-- Lunar fork (patch 0001, iupwin_text.c): 1-based first visible line of a multiline
+		-- winTextSetCaretAttrib: "lin,col" on a multiline (iupStrToIntInt with ',', so "12:1"
+		-- is line 12), the column on a single line, then EM_SCROLLCARET
+		CARET = function(e, st, v)
+			local text = st.data.text or ""
+			local p
+			if is_multiline(e, st) then
+				local lin, col = tostring(v or ""):match("^%s*(-?%d+)%s*,%s*(-?%d+)")
+				lin = tonumber(lin) or tonumber(tostring(v or ""):match("^%s*(-?%d+)")) or 1
+				p = lincol_to_pos(text, lin, tonumber(col) or 1)
+			else
+				p = clamp(st, (tonumber(tostring(v or ""):match("^%s*(-?%d+)")) or 1) - 1)
+			end
+			st.data.caret, st.data.anchor = p, p
+			st.data.last_caret_pos = p -- a programmatic move fires no CARET_CB
+			moved(e, st, rt_of(e))
+			return false
+		end,
+		-- winTextSetSelectionAttrib: NONE, ALL, "l1,c1:l2,c2" (multiline) or "c1:c2", 1-based;
+		-- the anchor is the start and the caret the end (EM_SETSEL)
+		SELECTION = function(e, st, v)
+			local s = tostring(v or "NONE"):upper()
+			local text = st.data.text or ""
+			if v == nil or s == "NONE" then st.data.anchor = st.data.caret; return false end
+			if s == "ALL" then st.data.anchor, st.data.caret = 0, #text; return false end
+			if is_multiline(e, st) then
+				local l1, c1, l2, c2 = s:match("^%s*(%d+)%s*,%s*(%d+)%s*:%s*(%d+)%s*,%s*(%d+)")
+				if not l1 then return false end
+				l1, c1, l2, c2 = tonumber(l1), tonumber(c1), tonumber(l2), tonumber(c2)
+				if l1 < 1 or c1 < 1 or l2 < 1 or c2 < 1 then return false end
+				st.data.anchor, st.data.caret = lincol_to_pos(text, l1, c1), lincol_to_pos(text, l2, c2)
+			else
+				local a, b = s:match("^%s*(%d+)%s*:%s*(%d+)")
+				if not a or tonumber(a) < 1 or tonumber(b) < 1 then return false end
+				st.data.anchor, st.data.caret = clamp(st, tonumber(a) - 1), clamp(st, tonumber(b) - 1)
+			end
+			return false
+		end,
 		FIRSTVISIBLELINE = function(e, st, v)
 			local line = tonumber(v)
 			if line then line_scroll_to(e, st, math.max(1, line) - 1) end
@@ -473,11 +525,26 @@ local common = {
 	get = {
 		VALUE = function(e, st) return st.data.text or "" end,
 		COUNT = function(e, st) return #st.data.text end,
-		CARET = function(e, st) return tostring(st.data.caret or 0) end,
+		-- winTextGetCaretAttrib: "lin,col" on a multiline, the column on a single line (1-based)
+		CARET = function(e, st)
+			local lin, col = pos_to_lincol(st.data.text, st.data.caret or 0)
+			if is_multiline(e, st) then return lin .. "," .. col end
+			return tostring(col)
+		end,
 		CARETPos = function() end,
 		CARETPOS = function(e, st) return tostring(st.data.caret or 0) end,
 		SELECTIONPOS = function(e, st) local a, b = sorted_selection(st); return a .. ":" .. b end,
-		SELECTION = function(e, st) local a, b = sorted_selection(st); return a ~= b and "YES" or "NO" end,
+		-- winTextGetSelectionAttrib: nothing when empty, else 1-based "l1,c1:l2,c2" or "a:b"
+		SELECTION = function(e, st)
+			local a, b = sorted_selection(st)
+			if a == b then return nil end
+			if is_multiline(e, st) then
+				local l1, c1 = pos_to_lincol(st.data.text, a)
+				local l2, c2 = pos_to_lincol(st.data.text, b)
+				return string.format("%d,%d:%d,%d", l1, c1, l2, c2)
+			end
+			return (a + 1) .. ":" .. (b + 1)
+		end,
 		SELECTEDTEXT = function(e, st) local a, b = sorted_selection(st); return st.data.text:sub(a + 1, b) end,
 		LINECOUNT = function(e, st) return select(2, st.data.text:gsub("\n", "\n")) + 1 end,
 		FIRSTVISIBLELINE = function(e, st)

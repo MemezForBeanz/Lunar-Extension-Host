@@ -321,3 +321,59 @@ describe("native text on the ImGui host: NATIVETEXTSCROLL hosting", function()
 		assert.equal(0, Element.state(t).data.scroll_x or 0)
 	end)
 end)
+
+-- winTextSetCaretAttrib / winTextSetSelectionAttrib and their getters (the Log Parser
+-- highlights the failure line with CARET "ln:1" and SELECTION "ln,1:ln,col").
+describe("native text on the ImGui host: CARET and SELECTION", function()
+	before_each(boot)
+
+	local function multi(value)
+		local t = iup.multiline{ VALUE = value, BORDER = "NO", SCROLLBAR = "NO", RASTERSIZE = "200x60" }
+		show(t, 300, 100)
+		return t
+	end
+
+	it("sets and reads CARET as 1-based lin,col on a multiline", function()
+		local t = multi("abc\ndefgh\nij")
+		iup.SetAttribute(t, "CARET", "2,3")
+		assert.equal("6", iup.GetAttribute(t, "CARETPOS"))
+		assert.equal("2,3", iup.GetAttribute(t, "CARET"))
+		iup.SetAttribute(t, "CARET", "3:1")                 -- iupStrToIntInt with ',' reads line 3
+		assert.equal("3,1", iup.GetAttribute(t, "CARET"))
+		iup.SetAttribute(t, "CARET", "9,99")                -- clamped to the last line's end
+		assert.equal("3,3", iup.GetAttribute(t, "CARET"))
+	end)
+
+	it("sets and reads CARET as the column on a single line", function()
+		local t = iup.text{ VALUE = "hello", RASTERSIZE = "100x20" }
+		show(t, 200, 60)
+		iup.SetAttribute(t, "CARET", "3")
+		assert.equal("2", iup.GetAttribute(t, "CARETPOS"))
+		assert.equal("3", iup.GetAttribute(t, "CARET"))
+	end)
+
+	it("selects a whole line with SELECTION l,1:l,len+1 and scrolls it into view with CARET", function()
+		local lines = {}
+		for i = 1, 50 do lines[i] = "line " .. i end
+		local t = multi(table.concat(lines, "\n"))
+		iup.SetAttribute(t, "CARET", "30:1")
+		iup.SetAttribute(t, "SELECTION", "30,1:30,8")
+		assert.equal("line 30", iup.GetAttribute(t, "SELECTEDTEXT"))
+		assert.equal("30,1:30,8", iup.GetAttribute(t, "SELECTION"))
+		local st = Element.state(t)
+		local _, ch = require("core.imgui.Fonts").forElement(t):charsize()
+		assert.is_true(st.data.scroll_y <= 29 * ch and st.data.scroll_y + st.h >= 30 * ch)
+	end)
+
+	it("returns no SELECTION when nothing is selected, and takes ALL and NONE", function()
+		local t = iup.text{ VALUE = "hello", RASTERSIZE = "100x20" }
+		show(t, 200, 60)
+		assert.is_nil(iup.GetAttribute(t, "SELECTION"))
+		iup.SetAttribute(t, "SELECTION", "ALL")
+		assert.equal("1:6", iup.GetAttribute(t, "SELECTION"))
+		iup.SetAttribute(t, "SELECTION", "2:4")
+		assert.equal("el", iup.GetAttribute(t, "SELECTEDTEXT"))
+		iup.SetAttribute(t, "SELECTION", "NONE")
+		assert.is_nil(iup.GetAttribute(t, "SELECTION"))
+	end)
+end)
