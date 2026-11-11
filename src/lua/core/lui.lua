@@ -76,7 +76,10 @@ ui.mount = R.mount
 -- returning. `ui.flushSync()` with no function just flushes.
 function ui.flushSync(fn, ...)
 	if fn == nil then return S.flushAll() end
-	return S.batch(fn, ...)
+	local res = (function(...) return { n = select("#", ...), ... } end)(S.batch(fn, ...))
+	-- inside an outer batch (a handler) the batch above did not flush: this call does
+	S.flushAll()
+	return unpack(res, 1, res.n)
 end
 
 --- Batch updates without forcing a flush when the batch is nested in another.

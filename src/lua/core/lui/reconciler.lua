@@ -905,14 +905,12 @@ function Root:update(x)
 	else self._element = h(self._element.type, x or {}) end
 	self._element_changed = true
 	self._fiber.pending = true
-	S.cancel(self)
-	self:_flushNow()
+	S.flushRoot(self)
 end
 
 --- Flush this root's pending updates now.
 function Root:flush()
-	S.cancel(self)
-	return self:_flushNow()
+	return S.flushRoot(self)
 end
 
 --- What the last flush changed the layout of (the containers it refreshed, or would
@@ -986,7 +984,8 @@ function M.mount(el, opts)
 	}, Root)
 	local ok, TR = pcall(require, "core.ui.ThemeReactor")
 	if ok and TR then TR.register(root) end
-	root:_flushNow()
+	S.setLoopLevel(D.loopLevel)
+	S.flushRoot(root)
 	return root
 end
 

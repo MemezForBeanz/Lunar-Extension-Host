@@ -117,10 +117,13 @@ function M.iup(iup)
 		return {
 			start = function() iup.SetAttribute(t, "RUN", "NO"); iup.SetAttribute(t, "RUN", "YES") end,
 			stop = function() iup.SetAttribute(t, "RUN", "NO") end,
+			handle = t,
 		}
 	end
 
 	D.DEFAULT = iup.DEFAULT or -2
+	--- The main-loop nesting level (a modal iup.Popup runs one level deeper).
+	function D.loopLevel() return iup.MainLoopLevel and iup.MainLoopLevel() or 0 end
 	return D
 end
 
