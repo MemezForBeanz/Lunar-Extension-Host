@@ -13,12 +13,39 @@ local function pair(v)
 end
 local function user_child(e) return FlatScrollbar.user_child(e) end
 
+-- Lunar fork (patch 0001, iup_flatscrollbox.c): NATIVETEXTSCROLL lets the flat bars drive a
+-- native multiline text child's own line scroll. iFlatScrollBoxNativeTextMode: the box has
+-- NATIVETEXTSCROLL and the child is a text (IupClassMatch(child, "text") also matches a
+-- multiline, which is the text class with MULTILINE=YES).
+local function native_text_child(e)
+	if not yes(attr(e, "NATIVETEXTSCROLL")) then return nil end
+	local c = user_child(e)
+	local cs = c and Element.state(c)
+	if cs and (cs.classname == "text" or cs.classname == "multiline") then return c, cs end
+	return nil
+end
+-- iFlatScrollBoxNativeLineHeight: iupdrvFontGetCharSize of the child.
+local function native_line_height(c)
+	local _, h = require("core.imgui.Fonts").forElement(c):charsize()
+	return math.max(1, h or 1)
+end
+
 local function set_pos(e, st, x, y)
 	local dx, dy = st.data.dx or 0, st.data.dy or 0
 	st.data.posx = clamp(num(x), 0, math.max(0, (st.data.xmax or 0) - dx))
 	st.data.posy = clamp(num(y), 0, math.max(0, (st.data.ymax or 0) - dy))
 	local child = user_child(e)
-	if child then
+	local text = native_text_child(e)
+	if text then
+		-- iFlatScrollBoxUpdateChildPos, native mode: the EDIT stays put and POSY becomes its
+		-- first visible line; the guard stops the scroll bouncing back into POSY.
+		if not st.data.native_applying then
+			st.data.native_applying = true
+			local liney = st.data.native_liney or native_line_height(text)
+			Element.setAttribute(text, "FIRSTVISIBLELINE", tostring(math.floor(st.data.posy / liney) + 1))
+			st.data.native_applying = false
+		end
+	elseif child then
 		local cs = Element.state(child)
 		if cs then cs.x, cs.y = st.x - st.data.posx, st.y - st.data.posy end
 	end
@@ -87,6 +114,26 @@ local function scroll_place_for(native)
 			return
 		end
 		local sb_horiz, sb_vert, sb_size = bars(e, native)
+		local text, ts
+		if not native then text, ts = native_text_child(e) end
+		if text then
+			-- iFlatScrollBoxSetChildrenCurrentSizeMethod, native mode: the EDIT keeps the
+			-- viewport size (less the vertical bar) and the virtual height is its line count.
+			local liney = native_line_height(text)
+			local lines = math.max(1, tonumber(Element.getAttribute(text, "LINECOUNT")) or 1)
+			local w = st.w
+			if sb_vert then w = w - sb_size end
+			w = math.max(0, w)
+			L.currentSize(text, w, st.h)
+			ts.data.flat_host, ts.data.flat_liney = e, liney
+			d.native_liney = liney
+			d.xmax, d.ymax, d.dx, d.dy = 0, lines * liney, 0, st.h
+			d.posx = 0
+			d.posy = d.dy >= d.ymax and 0 or clamp(num(d.posy), 0, d.ymax - d.dy)
+			L.place(text, st.x, st.y, w, st.h)
+			FlatScrollbar.sync(e)
+			return
+		end
 		-- If the child is greater than the box, it keeps its natural size, else it gets the
 		-- box's. The fork's FITCONTENT measures what the child cannot give up instead.
 		local need_w, need_h = L.natural(c)
@@ -160,6 +207,19 @@ local scroll_def = {
 		SCROLLTOCHILD_HANDLE = scroll_set,
 		POSX = function(e, s, v) set_pos(e, s, v, s.data.posy) return false end,
 		POSY = function(e, s, v) set_pos(e, s, s.data.posx, v) return false end,
+		-- iFlatScrollBoxSetSyncFromChildAttrib: POSY follows the text's first visible line
+		-- after the application moved it (SCROLLTO to a failure line).
+		SYNCFROMCHILD = function(e, s)
+			local text = native_text_child(e)
+			if text then
+				local liney = s.data.native_liney or native_line_height(text)
+				local first = tonumber(Element.getAttribute(text, "FIRSTVISIBLELINE")) or 1
+				s.data.native_applying = true
+				set_pos(e, s, 0, (first - 1) * liney)
+				s.data.native_applying = false
+			end
+			return false
+		end,
 	},
 	callbacks = { SCROLL_CB = true, FLATSCROLL_CB = true, LAYOUTUPDATE_CB = true },
 }

@@ -252,3 +252,72 @@ describe("native text on the ImGui host: caret blink", function()
 		assert.is_true(caret_drawn())
 	end)
 end)
+
+-- Lunar fork patch 0001: IupFlatScrollBox NATIVETEXTSCROLL drives a multiline's own line
+-- scroll (iup_flatscrollbox.c native mode, iupwin_text.c FIRSTVISIBLELINE and the wheel).
+describe("native text on the ImGui host: NATIVETEXTSCROLL hosting", function()
+	before_each(boot)
+
+	local function hosted(n)
+		local lines = {}
+		for i = 1, n do lines[i] = "line " .. i end
+		local t = iup.multiline{ VALUE = table.concat(lines, "\n"), BORDER = "NO", SCROLLBAR = "NO", EXPAND = "YES" }
+		local box = iup.flatscrollbox{ t, NATIVETEXTSCROLL = "YES", FLATSCROLLBAR = "VERTICAL", RASTERSIZE = "300x200" }
+		local dlg = iup.dialog{ iup.vbox{ box, MARGIN = "0x0", GAP = "0" }, RASTERSIZE = "400x300", BORDER = "NO" }
+		iup.Show(dlg); R.frame(); R.frame()
+		local _, ch = require("core.imgui.Fonts").forElement(t):charsize()
+		return t, box, ch
+	end
+
+	it("keeps the text at viewport size and makes the line count the virtual height", function()
+		local t, box, ch = hosted(100)
+		local ts, bs = Element.state(t), Element.state(box)
+		assert.equal(bs.x, ts.x); assert.equal(bs.y, ts.y)
+		assert.equal(bs.w - 15, ts.w); assert.equal(bs.h, ts.h)
+		assert.equal(tostring(100 * ch), iup.GetAttribute(box, "YMAX"))
+		assert.equal(tostring(bs.h), iup.GetAttribute(box, "DY"))
+	end)
+
+	it("turns POSY into the text's first visible line without moving the text", function()
+		local t, box, ch = hosted(100)
+		local ts = Element.state(t)
+		local y0 = ts.y
+		iup.SetAttribute(box, "POSY", tostring(10 * ch + 3)); R.frame()
+		assert.equal("11", iup.GetAttribute(t, "FIRSTVISIBLELINE"))
+		assert.equal(y0, ts.y)
+	end)
+
+	it("jumps to a line with SCROLLTO lin:col and SYNCFROMCHILD moves the thumb (Log Parser)", function()
+		local t, box, ch = hosted(100)
+		iup.SetAttribute(t, "SCROLLTO", "40:1")
+		assert.equal("40", iup.GetAttribute(t, "FIRSTVISIBLELINE"))
+		iup.SetAttribute(box, "SYNCFROMCHILD", "1")
+		assert.equal(tostring(39 * ch), iup.GetAttribute(box, "POSY"))
+	end)
+
+	it("clamps a jump so the last line sits at the bottom (EM_LINESCROLL)", function()
+		local t, _, ch = hosted(100)
+		iup.SetAttribute(t, "SCROLLTO", "100,1")
+		local visible = math.floor(Element.state(t).h / ch)
+		assert.equal(tostring(100 - visible + 1), iup.GetAttribute(t, "FIRSTVISIBLELINE"))
+		iup.SetAttribute(t, "SCROLLTOPOS", "0")
+		assert.equal("1", iup.GetAttribute(t, "FIRSTVISIBLELINE"))
+	end)
+
+	it("hands the wheel to the box: 3 lines a notch through POSY", function()
+		local t, box, ch = hosted(100)
+		local ts = Element.state(t)
+		iup.SetAttribute(box, "POSY", tostring(30 * ch)); R.frame()
+		B.queue({ events = { { type = "move", x = ts.x + 20, y = ts.y + 20 }, { type = "wheel", dx = 0, dy = 1 } } }); R.frame()
+		assert.equal(tostring(27 * ch), iup.GetAttribute(box, "POSY"))
+		assert.equal("28", iup.GetAttribute(t, "FIRSTVISIBLELINE"))
+	end)
+
+	it("ignores SCROLLTO on a single-line text (EM_LINESCROLL is multiline only)", function()
+		local t = iup.text{ VALUE = "abc", RASTERSIZE = "100x20" }
+		show(t, 200, 60)
+		iup.SetAttribute(t, "SCROLLTO", "5")
+		assert.equal("1", iup.GetAttribute(t, "FIRSTVISIBLELINE"))
+		assert.equal(0, Element.state(t).data.scroll_x or 0)
+	end)
+end)

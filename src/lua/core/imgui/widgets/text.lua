@@ -168,6 +168,31 @@ local function word_at(s, p)
 	while b < #s and not blank(s:sub(b + 1, b + 1)) do b = b + 1 end
 	return a, b
 end
+-- EM_LINESCROLL: the first visible line, clamped so the last line can reach the bottom
+-- (Wine's EDIT_EM_LineScroll: never past line_count - visible lines).
+local function line_scroll_to(e, st, first)
+	if not is_multiline(e, st) then return end
+	local _, ch = Fonts.forElement(e):charsize()
+	ch = math.max(1, ch)
+	local _, _, _, fh = frame(e, st)
+	local lines = #lines_of(st.data.text or "")
+	local visible = math.max(1, math.floor(fh / ch))
+	first = math.max(0, math.min(math.floor(first), math.max(0, lines - visible)))
+	st.data.scroll_y = first * ch
+	Element.hooks.invalidate(e, "paint", "SCROLL")
+end
+local function first_visible(e, st)
+	local _, ch = Fonts.forElement(e):charsize()
+	return math.floor((st.data.scroll_y or 0) / math.max(1, ch))
+end
+-- winTextSetScrollToAttrib: "lin,col" on a multiline (1-based, iupStrToIntInt with ','
+-- so "12:1" reads as line 12), then winTextScrollTo's EM_LINESCROLL. A single-line
+-- EDIT ignores EM_LINESCROLL.
+local function scroll_to(e, st, v)
+	if not is_multiline(e, st) then return end
+	local lin = tonumber(tostring(v or ""):match("^%s*(-?%d+)")) or 1
+	line_scroll_to(e, st, math.max(1, lin) - 1)
+end
 local function action(e, old, proposed, from, to)
 	local c = proposed:sub(1, 1)
 	local r = Element.call(e, "ACTION", c:byte() or 0, proposed)
@@ -335,6 +360,13 @@ local function event(e, st, ev, rt)
 	elseif ev.type == "move" and st.data.captured then
 		st.data.caret = pos_from_point(e, st, ev.lx or ev.x or 0, ev.ly or ev.y or 0)
 		moved(e, st, rt); return true
+	elseif ev.type == "wheel" and is_multiline(e, st) and st.data.flat_host and Element.state(st.data.flat_host) then
+		-- Lunar fork WM_MOUSEWHEEL: POSY -= (delta / WHEEL_DELTA) * 3 * liney on the host
+		local host = st.data.flat_host
+		local liney = st.data.flat_liney or 1
+		local posy = tonumber(Element.getAttribute(host, "POSY")) or 0
+		Element.setAttribute(host, "POSY", tostring(posy - (tonumber(ev.dy) or 0) * 3 * liney))
+		return true
 	elseif ev.type == "wheel" and is_multiline(e, st) then
 		-- WM_MOUSEWHEEL: SPI_GETWHEELSCROLLLINES (3) lines a notch
 		local _, ch = Fonts.forElement(e):charsize()
@@ -423,8 +455,20 @@ local common = {
 			if a then st.data.anchor, st.data.caret = clamp(st, tonumber(a)), clamp(st, tonumber(b)) end
 			return false
 		end,
-		SCROLLTOPOS = function(e, st, v) st.data.scroll_y = tonumber(v) or 0; return false end,
-		SCROLLTO = function(e, st, v) st.data.scroll_x = tonumber(v) or 0; return false end,
+		-- winTextSetScrollToPosAttrib: the position's line, as SCROLLTO
+		SCROLLTOPOS = function(e, st, v)
+			local p = clamp(st, tonumber(v) or 0)
+			local line = select(2, (st.data.text or ""):sub(1, p):gsub("\n", "\n"))
+			line_scroll_to(e, st, line)
+			return false
+		end,
+		SCROLLTO = function(e, st, v) scroll_to(e, st, v); return false end,
+		-- Lunar fork (patch 0001, iupwin_text.c): 1-based first visible line of a multiline
+		FIRSTVISIBLELINE = function(e, st, v)
+			local line = tonumber(v)
+			if line then line_scroll_to(e, st, math.max(1, line) - 1) end
+			return false
+		end,
 	},
 	get = {
 		VALUE = function(e, st) return st.data.text or "" end,
@@ -436,6 +480,10 @@ local common = {
 		SELECTION = function(e, st) local a, b = sorted_selection(st); return a ~= b and "YES" or "NO" end,
 		SELECTEDTEXT = function(e, st) local a, b = sorted_selection(st); return st.data.text:sub(a + 1, b) end,
 		LINECOUNT = function(e, st) return select(2, st.data.text:gsub("\n", "\n")) + 1 end,
+		FIRSTVISIBLELINE = function(e, st)
+			if not is_multiline(e, st) then return "1" end
+			return tostring(first_visible(e, st) + 1)
+		end,
 		LINEVALUE = function(e, st) local n = tonumber(Element.own(e, "LINE") or 1) or 1; local lines = {}; for x in (st.data.text .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = x end; return lines[n] or "" end,
 	},
 	callbacks = { ACTION = true, VALUECHANGED_CB = true, CARET_CB = true },
