@@ -11,7 +11,7 @@ platform-specific or belongs to a file the ImGui port deliberately does not emul
 | 0001 flatscrollbar/flattext/flat scrollbox hunks | `widgets/flatscrollbar.lua`, `scrollbox.lua`, `text.lua` | fixed | `imgui_flatscrollbar_spec.lua`, `imgui_scrollbox_spec.lua`, `imgui_text_spec.lua` |
 | 0001 flattoggle/gauge hunks | `widgets/flattoggle.lua`; gauge is not an owned Lua class | matched; gauge not applicable | `imgui_flattoggle_spec.lua` |
 | 0001 `win/iupwin_draw_gdi.c`, WDL GDI+ backend | `Draw.lua`, `widgets/flatdraw.lua` | not applicable (backend-specific; Lua uses Null/ImGui draw lists) | `imgui_fidelity_spec.lua` |
-| 0001 native text line-count/scrollbar hunks | `widgets/text.lua` | not applicable (native Win32 implementation) | `imgui_text_spec.lua` |
+| 0001 native text line-count/scrollbar hunks (FIRSTVISIBLELINE, NATIVETEXTSCROLL, wheel redirect) | `widgets/text.lua`, `widgets/scrollbox.lua` | ported | `imgui_text_edit_spec.lua`, `imgui_multiline_spec.lua`, org packs `hpe/spec/imgui_resultsview_spec.lua` |
 | 0002 GTK menubar | No Lua equivalent | not applicable (GTK-only) | `imgui_menu_spec.lua` |
 | 0003 list rounded body/border hunks | `widgets/flatlist.lua`, `widgets/flatdraw.lua` | matched | `imgui_flatlist_spec.lua` |
 | 0003 list clear-value focus clamp | `widgets/flatlist.lua` `set_value` | matched | `imgui_flatlist_spec.lua` |
@@ -28,7 +28,7 @@ platform-specific or belongs to a file the ImGui port deliberately does not emul
 | 0005 tabs rounded selected card | `widgets/flattabs.lua` | matched | `imgui_flattabs_spec.lua` |
 | 0005 toggle CHECKRADIUS and pixel-aligned drawing | `widgets/flattoggle.lua`, `Draw.lua` | matched | `imgui_flattoggle_spec.lua` |
 | 0005 split zero-size guard, sash and HLCOLOR | `widgets/split.lua`, `flatseparator.lua` | matched | `imgui_split_spec.lua` |
-| 0005 GDI+ rounded primitives and cue-banner text | Native backend / `Runtime.lua` | not applicable; cue-banner behavior remains a native-file issue | `imgui_text_spec.lua` |
+| 0005 GDI+ rounded primitives and cue-banner text | Native backend / `Runtime.lua`; `widgets/text.lua` | primitives not applicable; cue banner ported (shown until text is typed, aligned like the text) | `imgui_text_spec.lua`, `imgui_text_edit_spec.lua` |
 | 0006 ITEMMARKERCOLOR | `widgets/flatlist.lua` | fixed | `imgui_flatlist_spec.lua` |
 | 0007 SWITCH/SWITCHPOS track and knob | `widgets/flattoggle.lua` | matched | `imgui_flattoggle_spec.lua` |
 | 0008 scrollbox FITCONTENT | `widgets/scrollbox.lua` | fixed | `imgui_scrollbox_spec.lua` |

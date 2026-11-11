@@ -466,6 +466,51 @@ as the flat scrollbar's size (IUP registers 15) were found.
 - **Patch audit**: `docs/imgui-patch-audit.md` maps every hunk of the fork's patches to its
   Lua port; `docs/imgui-scintilla.md` lists the Scintilla surface Lunar uses.
 
+### What changed in the immediate-mode port pass
+
+- **Native text** (`widgets/text.lua`) follows the Win32 EDIT: a `BORDER` inset of 3 px on
+  both axes plus horizontal `PADDING` (EM_SETMARGINS), `ALIGNMENT`, a bullet per UTF-8
+  character for `PASSWORD`, nearest-boundary hit testing, a third-of-the-width caret scroll,
+  blank-delimited double-click words, and a 530 ms caret blink driven by `Runtime.wakeAt`
+  (a deadline, not a frame per tick). `CARET` and `SELECTION` take and return IUP's
+  1-based `lin,col` / `l1,c1:l2,c2` forms; `CARET_CB` is 1-based and fires only on a move.
+  Text ink lands on the IUP build's pixels (`scripts/ui_textmargin.lua` measures both).
+- **The multiline EDIT view** (from the parity sweep, measured with `scripts/ui_scroll.lua`)
+  is the one multiline model: format rect 1 px in, native bars, 3 lines a wheel notch, and
+  `top_line` as the scroll state behind `FIRSTVISIBLELINE`, `SCROLLTO` (EM_LINESCROLL,
+  clamped so the last line can reach the bottom) and `SCROLLTOPOS`. Up/Down take the
+  caret's current x, as Wine's `EDIT_MoveDown_ML` does (no goal column).
+- **NATIVETEXTSCROLL** (patch 0001): an `IupFlatScrollBox` hosting a multiline keeps it
+  at viewport size, makes `lines * liney` the virtual height, turns `POSY` into the
+  text's first visible line, follows the text with `SYNCFROMCHILD`, and takes the text's
+  wheel (`POSY -= notches * 3 * liney`). The range getters and setters lay a pending
+  dialog out first, because `IupRefresh` is synchronous on IUP and lazy here. The Log
+  Parser preview runs on it unchanged (`hpe/spec/imgui_resultsview_spec.lua` in the org
+  packs runs the real view headless).
+- **`iup.list` with `DROPDOWN=YES`** is the Win32 classic combo box: the sunken edge, the
+  17 px raised button with its arrow, the field and the text placement, pixel-matched to
+  the IUP build, with a popup list, `ACTION` (old item 0, new item 1), `VALUECHANGED_CB`,
+  `DROPDOWN_CB` and keyboard selection.
+- **Scintilla editing**: the default Scintilla 3.x keymap (word, line, page and document
+  moves, Shift extension, Ctrl+Backspace/Delete, block Tab/Shift+Tab, overtype,
+  Ctrl/Shift+Insert, undo and redo), UTF-8-safe moves, mouse word and line selection,
+  drag selection, wheel and Shift+wheel, `EnsureCaretVisible`, and `CARET_CB` only on a
+  move (`spec/imgui_scintilla_editing_spec.lua`).
+- **Background work** (`spec/imgui_background_spec.lua`): timers fired between frames, a
+  failing timer, callback or Activity listener contained, `ProcessJob` chunks one per
+  frame and cancellation, `TaskRunner` re-entrancy, extension teardown errors contained,
+  and the service loop (`core.lib.EventLoop`, `core.headless`) loading no ImGui code.
+- **Probe**: `H` lines record what the host's hit test picks at each control's centre, and
+  the fork's raw media widgets (`flatgrid`, `flatrows`, `flatseek`, `flatsegmented`) are not
+  clicked on ImGui alone (the IUP probe cannot see their C callbacks), so later clicks stay
+  comparable; `LUNAR_PROBE_RAW=1` clicks them anyway.
+- **Verified end to end**: the HPE and Microchip org packs' pages give the same callbacks
+  on both builds, and the Media, Media server and Metadata pages match in layout and clicks
+  against a live headless media server (`LunarCLI --headless --require media-server`).
+  The remaining probe differences are the dialog frame accounting, inherited-attribute reads
+  (ImGui answers what IUP leaves nil) and the Build Queue's tab-scoped status items, which
+  IUP leaves attached on later pages.
+
 Known differences, in order of visibility:
 
 - **Secondary dialogs** (the activity panel, the command palette, message boxes) are
@@ -474,11 +519,12 @@ Known differences, in order of visibility:
   content in a capture) is not drawn.
 - **Text weight in IUP's popups**: IUP's secondary windows draw text heavier than its main
   window; the ImGui panels use the main window's weight.
-- **Native edit margins**: text in a native `iup.text`/`multiline` starts about 3 px further
-  right on IUP (the Win32 EDIT control's font-derived margin).
+- **Text positions are bytes**: `CARETPOS`, `SELECTIONPOS` and `COUNT` on native text count
+  UTF-8 bytes, where the Win32 EDIT counts UTF-16 units; they agree for ASCII.
+- **Canvas `ACTION`** runs every frame a canvas is drawn (IUP calls it on WM_PAINT only).
 - **The code editor** is an emulation of the Scintilla messages CodeView sends, not
   Scintilla itself (see `docs/imgui-scintilla.md`).
 - **Video overlays**: ImGui popups (menus, tooltips) cannot draw over the native video child
   window, as an IUP popup window could.
-- **Compositor scaling**: snapshots replay with offset and alpha; a sprite's scale is
-  approximated by its recorded size.
+- **Compositor scaling** is not a gap: the native blend (`blend.c`) also requires the
+  destination rect to equal the source size, so neither build scales a snapshot.
