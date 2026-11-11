@@ -5,8 +5,8 @@ status section below.
 
 ## Status
 
-- Done: elements (`ui.h`, table constructors, Fragment), reconciler (keyed diffing,
-  fragments, components returning nil, type change, unmount), hooks, store, scheduler,
-  iup driver, typed props, primitives, test helper (`core.lui.test`), `spec/lui_reconciler_spec.lua`.
-- In progress: specs for hooks, props, events, interop, error boundaries.
+- Done: elements, reconciler, hooks, store, scheduler, iup driver, typed props, primitives,
+
+  test helper; specs lui_reconciler, lui_hooks, lui_props, lui_events, lui_interop (84 tests).
+- In progress: StatusBar migration.
 - Not started: StatusBar migration, NameDialog migration, captures, the guide and migration plan.

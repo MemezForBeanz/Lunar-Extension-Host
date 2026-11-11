@@ -20,6 +20,9 @@ M.ELEMENT = ELEMENT
 --- The fragment type: children without a host widget of their own.
 M.Fragment = setmetatable({ kind = "fragment", name = "Fragment" }, { __tostring = function() return "lui.Fragment" end })
 
+--- The children of an element that has none (read-only by convention).
+M.NO_CHILDREN = setmetatable({}, { __newindex = function() error("lui: element children are read-only", 2) end })
+
 function M.isElement(v)
 	return type(v) == "table" and getmetatable(v) == ELEMENT
 end
@@ -28,7 +31,7 @@ end
 local function collect(out, list, n)
 	for i = 1, n do
 		local c = list[i]
-		if c == nil or c == false or c == true then
+		if c == nil or c == false or c == true or c == M.NO_CHILDREN then
 			-- a hole: `cond and ui.X{}` with cond false, or nil
 		elseif type(c) == "table" and getmetatable(c) == nil then
 			-- a plain list of children (an iup handle on the emulator is a table too, but
@@ -68,7 +71,8 @@ function M.h(type_, props, ...)
 	end
 	local n = select("#", ...)
 	if n > 0 then collect(children, { ... }, n) end
-	p.children = children
+	-- one shared empty list, so `ui.memo`'s shallow compare sees childless props as equal
+	p.children = #children > 0 and children or M.NO_CHILDREN
 	return setmetatable({ type = type_, props = p, key = key, ref = ref }, ELEMENT)
 end
 

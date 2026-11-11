@@ -45,6 +45,19 @@ describe("lui reconciler", function()
 		end
 	end)
 
+	it("moves only the children that changed place", function()
+		local root = ui.mount(list_of({ "a", "b", "c", "d" }), { iup = iup })
+		local moves = 0
+		local raw = iup.Reparent
+		iup.Reparent = function(...) moves = moves + 1; return raw(...) end
+		root:update(list_of({ "a", "b", "c", "d", "e" }))
+		assert.equal(0, moves, "an append moves nothing")
+		root:update(list_of({ "b", "c", "d", "e", "a" }))
+		assert.equal(1, moves, "the first item to the end is one move")
+		iup.Reparent = raw
+		assert.same({ "b", "c", "d", "e", "a" }, titles(root:widget()))
+	end)
+
 	it("inserts and removes keyed children in the middle", function()
 		local root = ui.mount(list_of({ "a", "c" }), { iup = iup })
 		local box = root:widget()

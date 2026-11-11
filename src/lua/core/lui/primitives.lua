@@ -39,6 +39,7 @@ local function define(def)
 	def.groups = def.groups or { P.common }
 	def.events = def.events or {}
 	def.live = def.live or {}
+	def.late = def.late or {}
 	index_events(def)
 	setmetatable(def, { __tostring = function() return "lui." .. def.name end })
 	vnode.callable(def)
@@ -59,7 +60,7 @@ define{ name = "HBox", class = "hbox", groups = { P.common, P.box, P.hbox } }
 --- Children stacked on one another; `value` (1-based) is the one shown.
 define{ name = "ZBox", class = "zbox", groups = { P.common, P.box, P.vbox, {
 	value = { "VALUEPOS", function(v) return string.format("%d", v - 1) end },
-} } }
+} }, late = { VALUEPOS = true } }
 
 --- `iup.fill`: takes the free space along its box (or a fixed `size`).
 define{ name = "Spacer", class = "fill", leaf = true }
@@ -76,7 +77,7 @@ define{ name = "Scroll", class = "flatscrollbox", groups = { P.common, P.box } }
 -- `value` is the 1-based page shown; `onChange(index, previous)`.
 define{ name = "Tabs", class = "flattabs", groups = { P.common, P.box, {
 	value = { "VALUEPOS", function(v) return string.format("%d", v - 1) end },
-} }, live = { VALUEPOS = true },
+} }, live = { VALUEPOS = true }, late = { VALUEPOS = true },
 	events = { onChange = { "tabchangepos_cb", function(fn, _, new, old) return fn(new + 1, old + 1) end } } }
 
 --- Two panes and a sash (`iup.split`). `orientation = "vertical"` puts them side by side
@@ -85,7 +86,7 @@ define{ name = "Split", class = "split", groups = { P.common, {
 	orientation = { "ORIENTATION", P.orientation },
 	value = { "VALUE", P.int },
 	barSize = { "BARSIZE", P.int },
-} }, live = { VALUE = true },
+} }, live = { VALUE = true }, late = { VALUE = true },
 	events = { onChange = { "valuechanged_cb", function(fn, self) return fn(tonumber(self.VALUE)) end } } }
 
 -- Text and controls -------------------------------------------------------------------
@@ -160,7 +161,7 @@ define{ name = "List", class = "flatlist", leaf = true, groups = { P.common, {
 	value = { "VALUE", P.int },
 	lines = { "VISIBLELINES", P.int },
 	columns = { "VISIBLECOLUMNS", P.int },
-} }, live = { VALUE = true },
+} }, live = { VALUE = true }, late = { VALUE = true },
 	derive = function(p, out)
 		if type(p.items) == "table" then
 			for i, s in ipairs(p.items) do out[tostring(i)] = tostring(s) end
@@ -236,7 +237,7 @@ function M.host(class, opts)
 	local def = {
 		kind = "host", name = "host:" .. class, class = class,
 		-- padding is ambiguous for an unknown class (MARGIN or PADDING): use the raw name
-		groups = { P.common, { gap = P.box.gap } }, events = {}, live = {}, leaf = opts.leaf,
+		groups = { P.common, { gap = P.box.gap } }, events = {}, live = {}, late = {}, leaf = opts.leaf,
 		content = opts.content,
 	}
 	index_events(def)

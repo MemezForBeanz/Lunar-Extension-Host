@@ -448,12 +448,17 @@ local function write_attrs(tx, f)
 	local D, hnd, def = tx.D, f.host, f.type
 	local old, new = f.attrs or EMPTY, f.next
 	local removed
-	for name, v in pairs(new) do
-		local differs
-		if def.live[name] then differs = tostring(D.get(hnd, name)) ~= v else differs = old[name] ~= v end
-		if differs then
-			D.set(hnd, name, v)
-			if P.LAYOUT[name] or name:match("^%d+$") then tx.layout[hnd] = true end
+	-- two passes: a `late` attribute (a selection) goes after the items it selects
+	for pass = 1, 2 do
+		for name, v in pairs(new) do
+			if (def.late[name] and 2 or 1) == pass then
+				local differs
+				if def.live[name] then differs = tostring(D.get(hnd, name)) ~= v else differs = old[name] ~= v end
+				if differs then
+					D.set(hnd, name, v)
+					if P.LAYOUT[name] or name:match("^%d+$") then tx.layout[hnd] = true end
+				end
+			end
 		end
 	end
 	for name in pairs(old) do
@@ -537,7 +542,16 @@ local function commit_host(tx, f)
 			f.host, f.instance = def.mount(D, f.props, f.hrec)
 			for name, v in pairs(f.next) do D.set(f.host, name, v) end
 		else
-			f.host = D.create(def.class, f.next)
+			local early, late = f.next, nil
+			if next(def.late) then
+				early = {}
+				for name, v in pairs(f.next) do
+					if def.late[name] then late = late or {}; late[name] = v else early[name] = v end
+				end
+			end
+			f.host = D.create(def.class, early)
+			-- written once the children (or items) exist; see commit_fiber
+			f.late_attrs = late
 		end
 		f.attrs = f.next
 		tx.created[f.host] = true
@@ -557,7 +571,7 @@ local function child_after(D, parent, child, managed)
 	local kids = D.children(parent)
 	local found = false
 	for _, c in ipairs(kids) do
-		if found and managed[c] then return c end
+		if found and managed[c] then return c, true end
 		if c == child then found = true end
 	end
 	return nil, found
@@ -621,6 +635,10 @@ local function commit_fiber(tx, f, parent)
 	end
 	for _, c in ipairs(f.children) do commit_fiber(tx, c, f) end
 	if k == "host" and not f.type.leaf then place(tx, f.host, f) end
+	if f.late_attrs then
+		for name, v in pairs(f.late_attrs) do tx.D.set(f.host, name, v) end
+		f.late_attrs = nil
+	end
 	if (k == "host" or k == "native") then
 		local ref = f.vnode.ref
 		if f.alternate and f.alternate.host ~= f.host and f.ref then set_ref(f.ref, nil) end
