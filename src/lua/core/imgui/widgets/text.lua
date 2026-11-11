@@ -732,6 +732,12 @@ local common = {
 			return tostring(p + 1)
 		end,
 		CARETPOS = function(e, st) return tostring(st.data.caret or 0) end,
+		-- winTextSetPaddingAttrib keeps the horizontal part only (vert_padding = 0), and
+		-- iTextGetPaddingAttrib answers both
+		PADDING = function(e, st)
+			local h = pair(Element.own(e, "PADDING") or "0x0")
+			return string.format("%dx0", h)
+		end,
 		-- winTextGetSelectionPosAttrib / SelectionAttrib / SelectedTextAttrib: NULL without a
 		-- selection
 		SELECTIONPOS = function(e, st) local a, b = sorted_selection(st); if a == b then return nil end; return a .. ":" .. b end,

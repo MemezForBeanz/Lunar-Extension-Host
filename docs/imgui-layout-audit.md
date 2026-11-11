@@ -192,3 +192,16 @@ and records the shell's state. Both builds run this worktree's Lua.
 | D1 | command palette (Open Lunar Address, Load Org Pack, Run Task: the same palette) | search row 8 px lower on IUP in some runs (separator 51 vs 43), not in others (43 vs 43) | the IUP build's palette frame carries TITLEPADDING=12x4 and TITLELINE=NO in the runs with the band (DECOROFFSET 3x11), the defaults in the others (3x3). The trace shows them written by `ThemeManager:_newNativeUser` into the theme's `IUPFLATFRAME` sub-theme (the card rule: `titlealign`, `titlepad = "12x4"`), which `IupCreate` copies onto every new flatframe through the DEFAULTTHEME global (`iup_object.c`), so it depends on whether the palette is first built before or after the startup re-theme sets DEFAULTTHEME. With TITLE="" the 2 x 4 padding is an empty 8 px title band; the palette's floating prompt (POSITION 18,14) only lines up with the field without it | an IUP-build bug (timing-dependent theme leak); the host stays without the band. DEFAULTTHEME-at-creation was ported and measured (it puts the band on the host every time, and on the folder dialog's path frame too), then left out on purpose (comment in `Element.new`). Kept: NTHEME/THEME copy only the attributes the class registers (`iupClassObjectAttribCanCopy`), `imgui_theme_spec` |
 | D2 | folder dialog, Feedback, Run Delta Explorer, New Tab Group / Open Lunar Address fields | IUP's EDITs and labels taller (20 vs 17), the path EDIT 14 vs 17, the toolbar's icon buttons 38x32 vs 48x32, the split at 281 vs 229 | IUP's natural sizes do not match its own current attributes: the folder dialog's status label reports FONT "Segoe UI, 10", CHARSIZE 7x17 and NATURALSIZE 249x20 (a 20 px line is the 11 pt font it was built with); the path EDIT is 14 px, Consolas 9, the font its constructor gives it, though its FONT now reads "Segoe UI, 10". The theme pass changes FONT/PADDING after the dialog's layout and nothing calls IupRefresh, and IUP does not re-layout on a FONT change. The host re-lays out on a size-affecting attribute (`Element.LAYOUT_ATTRS`) | an IUP-build bug (stale layout after a late theme pass); the host's sizes follow the attributes both builds report. Not changed |
 | D3 | New Tab Group | the tour could not open it on IUP (`ModalMotion.lua:136: attempt to index local 'dlg' (a nil value)` in the tour's popup wrapper) | | not measured on IUP |
+
+### Settings sections (`LUNAR_PROBE_SETTINGS=1`)
+
+`scripts/ui_probe.lua` now walks every Settings section (each nav button's own `flat_action`,
+recorded as pages "Settings / <section>"): Appearance, Background, Build Queue, iLO Redfish,
+Scan Chain, Black Duck, Language servers. Run on both builds at 1400x900 in `lunar_dark` and
+`lunar_light`, rectangles only (`LUNAR_PROBE_NOCLICK=1`), `ui_probe_diff` tolerance 2:
+
+| # | finding | status |
+|---|---|---|
+| G1 | no element rectangle differs by more than 2 px in any section, in either theme | matches |
+| G2 | every text answered PADDING 4x2 on the host and 4x0 on IUP (`winTextSetPaddingAttrib` keeps the horizontal part only; the layout already ignored the vertical one) | fixed: the text class's PADDING getter; `imgui_text_spec` "PADDING" |
+| G3 | the status bar's first flat button's BGCOLOR and a status label's FGCOLOR (dark theme) | the status bar (network-dependent, out of scope as before) |
