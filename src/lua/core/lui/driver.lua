@@ -67,6 +67,17 @@ function M.iup(iup)
 
 	function D.parent(h) return iup.GetParent(h) end
 
+	--- The children other code may have put there: not the ones a class keeps for itself
+	-- (a split's sash, a scroll box's scrollbars). The emulator marks those; on the native
+	-- build the classes that have them are skipped.
+	local INTERNAL = { split = true, flatscrollbox = true, scrollbox = true }
+	function D.userChildren(h)
+		local E = iup._Element
+		if E and E.userChildren then return E.userChildren(h) end
+		if INTERNAL[iup.GetClassName(h)] then return {} end
+		return D.children(h)
+	end
+
 	local function mapped(h)
 		local ok, wid = pcall(iup.GetAttribute, h, "WID")
 		return ok and wid ~= nil

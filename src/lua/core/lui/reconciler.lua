@@ -534,6 +534,7 @@ local function commit_host(tx, f)
 		end
 		f.attrs = f.next
 		tx.created[f.host] = true
+		tx.root._created[f.host] = true
 		tx.created_list[#tx.created_list + 1] = f.host
 	else
 		write_attrs(tx, f)
@@ -655,7 +656,7 @@ local function unmount_fiber(tx, f, natives)
 		end
 	end
 	if f.ref then set_ref(f.ref, nil); f.ref = nil end
-	if f.kind == "native" then natives[#natives + 1] = f.host end
+	if f.kind == "native" then natives[#natives + 1] = { f.host, f.props.owned == true } end
 	if f.kind == "host" and f.host then
 		tx.root._tokens[f.host] = nil
 		if f.hrec then f.hrec.fiber = nil end
@@ -671,25 +672,48 @@ local function delete(tx, f)
 	tx.dead[#tx.dead + 1] = { f, natives }
 end
 
+-- Children of a widget lui is about to destroy that lui did not create (an extension's
+-- status element, a borrowed Native) are taken out first, so they outlive it.
+local function rescue_foreign(tx, h)
+	local D, created = tx.D, tx.root._created
+	for _, c in ipairs(D.userChildren(h)) do
+		if created[c] then
+			rescue_foreign(tx, c)
+		elseif not tx.live_natives[c] then
+			D.detach(c)
+		end
+	end
+end
+
 local function remove_dead(tx, f, natives)
-	local D = tx.D
-	-- embedded handles belong to someone else: take them out before their container
-	-- dies, unless the new tree placed them somewhere (then they have moved already)
+	local D, root = tx.D, tx.root
+	local top_native = {}
 	for _, n in ipairs(natives) do
-		if not tx.live_natives[n] and D.isHandle(n) and D.parent(n) then
-			tx.layout[D.parent(n)] = true
-			D.detach(n)
+		local h, owned = n[1], n[2]
+		top_native[h] = true
+		if owned then
+			-- handed over: it dies with the tree (unless the new tree placed it again)
+			if not tx.live_natives[h] and D.isHandle(h) then
+				if D.parent(h) then tx.layout[D.parent(h)] = true end
+				D.destroy(h)
+			end
+		elseif not tx.live_natives[h] and D.isHandle(h) and D.parent(h) then
+			-- borrowed: never destroyed. Unmounting leaves it in a container lui does not
+			-- own; anywhere else it is detached, or it would die with lui's widget or stay
+			-- on screen where the tree no longer has it.
+			local p = D.parent(h)
+			if not (tx.unmounting and not root._created[p]) then
+				tx.layout[p] = true
+				D.detach(h)
+			end
 		end
 	end
 	for _, hnd in ipairs(collect_hosts({ f }, {})) do
-		if D.isHandle(hnd) then
+		if not top_native[hnd] and D.isHandle(hnd) then
 			local p = D.parent(hnd)
-			local is_native = false
-			for _, n in ipairs(natives) do if n == hnd then is_native = true end end
-			if not is_native then
-				if p then tx.layout[p] = true end
-				D.destroy(hnd)
-			end
+			if p then tx.layout[p] = true end
+			rescue_foreign(tx, hnd)
+			D.destroy(hnd)
 		end
 	end
 end
@@ -905,6 +929,7 @@ function Root:widgets() return self._fiber.placed or {} end
 
 --- Render a new element, or new props for the root component. Synchronous.
 function Root:update(x)
+	if self._unmounted then error("lui: root:update on a root that was unmounted", 2) end
 	if vnode.isElement(x) then self._element = x
 	else self._element = h(self._element.type, x or {}) end
 	self._element_changed = true
@@ -921,11 +946,24 @@ end
 -- have with `layout = "manual"`).
 function Root:layoutChanged() return self._lastLayout or {} end
 
---- Unmount: effect cleanups run and the widgets are destroyed (Native ones detached).
+--- Unmount. The disposal contract:
+--
+-- * every effect cleanup runs (layout before effect, children before parents) and every
+--   ref is set to nil; setters and store changes reaching the tree afterwards do nothing;
+-- * every widget this root created is destroyed;
+-- * a borrowed `Native` is never destroyed: left where it is when that is a container
+--   the root does not own (`opts.parent`), detached otherwise; an owned one
+--   (`ui.Native{ handle = h, owned = true }`) is destroyed;
+-- * children other code appended into the root's widgets are detached before those
+--   widgets are destroyed, never destroyed with them;
+-- * `opts.parent` itself is untouched;
+-- * unmounting twice is a no-op; `root:update` afterwards is an error, `root:flush` a
+--   no-op, `root:widget()` nil.
 function Root:unmount()
 	if self._unmounted then return end
 	S.cancel(self)
 	local tx = new_tx(self)
+	tx.unmounting = true
 	local rf = self._fiber
 	for _, f in ipairs(rf.children) do delete(tx, f) end
 	for _, d in ipairs(tx.dead) do remove_dead(tx, d[1], d[2]) end
@@ -984,6 +1022,7 @@ function M.mount(el, opts)
 	local root = setmetatable({
 		_driver = D, _opts = opts, _element = el, _late = {},
 		_tokens = setmetatable({}, { __mode = "k" }),
+		_created = setmetatable({}, { __mode = "k" }), -- the widgets this root made
 		_fiber = { kind = "root", children = {}, host = opts.parent, placed = {} },
 	}, Root)
 	local ok, TR = pcall(require, "core.ui.ThemeReactor")
