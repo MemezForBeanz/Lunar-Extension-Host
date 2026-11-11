@@ -18,6 +18,58 @@ local function line_end(s, line)
 	local p = line_start(s, line); local n = s:find("\n", p + 1, true)
 	return n and n - 1 or #s
 end
+local function utf8_next(s, p)
+	local b = s:byte(p + 1)
+	if not b then return #s end
+	if b < 128 then return p + 1 end
+	local n = b < 224 and 2 or b < 240 and 3 or 4
+	return math.min(#s, p + n)
+end
+local function utf8_prev(s, p)
+	p = math.max(0, p - 1)
+	while p > 0 and (s:byte(p + 1) or 0) >= 128 and (s:byte(p + 1) or 0) < 192 do p = p - 1 end
+	return p
+end
+local function visual_column(s, p, tab)
+	local line = line_from(s, p); local i, col = line_start(s, line), 0
+	tab = tonumber(tab) or 4
+	while i < p do
+		local b = s:byte(i + 1)
+		col = col + (b == 9 and tab - col % tab or 1)
+		i = utf8_next(s, i)
+	end
+	return col
+end
+local function position_for_column(s, line, wanted, tab)
+	local p, col, finish = line_start(s, line), 0, line_end(s, line)
+	while p < finish and col < wanted do
+		local b = s:byte(p + 1)
+		local width = b == 9 and tab - col % tab or 1
+		if col + width > wanted then break end
+		col, p = col + width, utf8_next(s, p)
+	end
+	return p
+end
+local function word_char(s, p)
+	local c = s:sub(p + 1, p + 1)
+	return c ~= "" and c:match("[%w_]") ~= nil
+end
+-- Document::NextWordStart, used by Editor's SCI_WORDLEFT/SCI_WORDRIGHT commands.
+local function next_word_start(s, p, delta)
+	if delta < 0 then
+		while p > 0 and not word_char(s, utf8_prev(s, p)) do p = utf8_prev(s, p) end
+		if p > 0 then
+			local kind = word_char(s, utf8_prev(s, p))
+			while p > 0 and word_char(s, utf8_prev(s, p)) == kind do p = utf8_prev(s, p) end
+		end
+	else
+		local kind = word_char(s, p)
+		while p < #s and word_char(s, p) == kind do p = utf8_next(s, p) end
+		while p < #s and not word_char(s, p) do p = utf8_next(s, p) end
+	end
+	return p
+end
+local function line_count(s) return select(2, s:gsub("\n", "\n")) + 1 end
 local function bgr_to_rgb(v)
 	v = tonumber(v) or 0
 	return string.format("%d %d %d", v % 256, math.floor(v / 256) % 256, math.floor(v / 65536) % 256)
@@ -75,6 +127,11 @@ local function emit_action(e, st, insert, a, b)
 	local proposed = st.data.text:sub(1, a) .. insert .. st.data.text:sub(b + 1)
 	local r = Element.call(e, "ACTION", insert ~= "" and insert:byte() or 0, 0, #insert, insert)
 	if r == iup.IGNORE then return false end
+	st.data.undo = st.data.undo or {}
+	st.data.redo = {}
+	st.data.undo[#st.data.undo + 1] = {
+		text = st.data.text, caret = st.data.caret, anchor = st.data.anchor, modified = st.data.modified
+	}
 	replace(st, a, b, insert); notify_change(e, st)
 	return true, proposed
 end
@@ -128,6 +185,13 @@ local function draw(e, st, dc, rt)
 		local p = line_start(text, i - 1)
 		local x = st.x + margin + 4 - (st.data.x_offset or 0)
 		local line = lines[i]
+		local sa, sb = math.min(st.data.anchor, st.data.caret), math.max(st.data.anchor, st.data.caret)
+		local ls, le = p, p + #line
+		if sa < le and sb > ls then
+			local from, to = math.max(sa, ls) - ls, math.min(sb, le) - ls
+			dc:fill(st.x + margin + 4 + from * cw - (st.data.x_offset or 0), y,
+				math.max(cw, (to - from) * cw), ch, st.data.sel_back or attr(e, "SELBACK") or "100 140 220")
+		end
 		local at = 1
 		while at <= #line do
 			-- the first character of the run (one byte, or a whole UTF-8 sequence)
@@ -149,12 +213,6 @@ local function draw(e, st, dc, rt)
 			dc:text(run, x, y, math.max(cw, st.w - (x - st.x)), ch, sc, sf, { clip = true })
 			x = x + sf:measure(run); at = nextat
 		end
-	end
-	local a, b = math.min(st.data.anchor, st.data.caret), math.max(st.data.anchor, st.data.caret)
-	if a ~= b then
-		local ln, col = line_from(text, a), a - line_start(text, line_from(text, a))
-		dc:fill(st.x + margin + 4 + col * cw - (st.data.x_offset or 0), st.y + (ln - first) * ch,
-			math.max(cw, (b - a) * cw), ch, st.data.sel_back or attr(e, "SELBACK") or "100 140 220")
 	end
 	for indic, ranges in pairs(st.data.indicators or {}) do
 		local c = st.data.indic_fore[indic] or "220 70 70"
@@ -206,6 +264,59 @@ local function dwell_arm(e, st, x, y)
 	d.dwell_timer.run = "YES"
 end
 
+-- Editor::EnsureCaretVisible: minimal scrolling that keeps the caret in the viewport.
+local function ensure_caret_visible(e, st)
+	local d = st.data; local f = Fonts.forElement(e); local _, ch = f:charsize()
+	local visible = math.max(1, tonumber(attr(e, "VISIBLELINES")) or math.floor(st.h / ch))
+	local line = line_from(d.text, d.caret)
+	if line < (d.first_line or 0) then d.first_line = line; Element.call(e, "UPDATEVSCROLL_CB")
+	elseif line >= (d.first_line or 0) + visible then
+		d.first_line = math.max(0, line - visible + 1); Element.call(e, "UPDATEVSCROLL_CB")
+	end
+	local col = visual_column(d.text, d.caret, d.tab_width)
+	local cols = math.max(1, tonumber(attr(e, "VISIBLECOLUMNS")) or math.floor(st.w / f:charsize()))
+	if col < (d.x_offset or 0) then d.x_offset = col; Element.call(e, "UPDATEHSCROLL_CB")
+	elseif col >= (d.x_offset or 0) + cols then
+		d.x_offset = math.max(0, col - cols + 1); Element.call(e, "UPDATEHSCROLL_CB")
+	end
+end
+
+local function caret_changed(e, st, old)
+	local d = st.data
+	if old == d.caret then return end
+	ensure_caret_visible(e, st)
+	local line = line_from(d.text, d.caret)
+	Element.call(e, "CARET_CB", line, d.caret - line_start(d.text, line), d.caret)
+end
+
+local function readonly(e, st)
+	return st.data.readonly or yes(attr(e, "READONLY"))
+end
+
+-- Editor::CursorUpOrDown: preserve lastXChosen while moving vertically.
+local function move_vertical(e, st, direction, extend)
+	local d = st.data; local line = line_from(d.text, d.caret)
+	d.last_x = d.last_x or visual_column(d.text, d.caret, d.tab_width)
+	local target = math.max(0, math.min(line_count(d.text) - 1, line + direction))
+	d.caret = position_for_column(d.text, target, d.last_x, d.tab_width)
+	if not extend then d.anchor = d.caret end
+end
+
+local function delete_range(e, st, a, b)
+	if a == b or readonly(e, st) then return false end
+	return emit_action(e, st, "", a, b)
+end
+
+local function clipboard_get()
+	return require("core.imgui.Runtime").clipboard_get()
+end
+local function clipboard_set(s)
+	require("core.imgui.Runtime").clipboard_set(s)
+end
+local function history_message(e, message)
+	require("core.imgui.native.sci").send(e, message)
+end
+
 local function event(e, st, ev, rt)
 	-- iupScintilla: BUTTON_CB and MOTION_CB see the mouse before the editor does, and
 	-- IGNORE keeps it from the editor (CodeView's Ctrl+click and hover use them)
@@ -223,7 +334,7 @@ local function event(e, st, ev, rt)
 			dwell_end(e, st)
 			dwell_arm(e, st, ev.lx, ev.ly)
 		end
-		return ev.type == "move"
+		if ev.type == "move" and not st.data.dragging then return true end
 	elseif ev.type == "leave" then
 		st.data.dwell_inside = false
 		if st.data.dwell_timer then st.data.dwell_timer.run = "NO" end
@@ -232,7 +343,19 @@ local function event(e, st, ev, rt)
 	end
 	if ev.type == "press" or ev.type == "key" or ev.type == "char" then dwell_end(e, st) end
 	if ev.type == "focus" or ev.type == "blur" then return true end
-	if ev.type == "press" then
+	if ev.type == "wheel" then
+		local d = st.data
+		if ev.mods and ev.mods.shift or (ev.dx or 0) ~= 0 then
+			d.x_offset = math.max(0, (d.x_offset or 0) + math.floor((ev.dx or ev.dy or 0) * 3))
+			Element.call(e, "UPDATEHSCROLL_CB")
+		else
+			local delta = ev.dy or 0
+			local lines = math.max(1, math.floor(math.abs(delta) * 3))
+			d.first_line = math.max(0, math.min(line_count(d.text) - 1, (d.first_line or 0) + (delta < 0 and lines or -lines)))
+			Element.call(e, "UPDATEVSCROLL_CB")
+		end
+		return true
+	elseif ev.type == "press" then
 		local f = Fonts.forElement(e); local cw, ch = f:charsize()
 		local line = math.max(0, (st.data.first_line or 0) + math.floor((ev.ly or 0) / f:charsize()))
 		local col = math.max(0, math.floor(((ev.lx or 0) - (st.data.margin_width[0] or 0) - (st.data.margin_width[1] or 0) + (st.data.x_offset or 0)) / cw))
@@ -240,29 +363,98 @@ local function event(e, st, ev, rt)
 		while p < line_end(st.data.text, line) and visual < col do
 			local byte = st.data.text:byte(p + 1)
 			visual = visual + (byte == 9 and (st.data.tab_width - visual % st.data.tab_width) or 1)
-			p = p + (byte and byte >= 192 and (byte < 224 and 2 or byte < 240 and 3 or 4) or 1)
+			p = utf8_next(st.data.text, p)
 		end
-		st.data.caret = math.min(line_end(st.data.text, line), p)
-		st.data.anchor = ev.mods and ev.mods.shift and st.data.anchor or st.data.caret
+		local old = st.data.caret
+		local extend = ev.mods and ev.mods.shift
+		local now = require("core.imgui.Runtime").now()
+		if ev.double then
+			local left, right = p, p
+			while left > 0 and word_char(st.data.text, utf8_prev(st.data.text, left)) do left = utf8_prev(st.data.text, left) end
+			while right < #st.data.text and word_char(st.data.text, right) do right = utf8_next(st.data.text, right) end
+			st.data.anchor, st.data.caret = left, right
+		elseif st.data.last_click and st.data.last_click_line == line and st.data.last_click + 0.45 >= now then
+			st.data.anchor, st.data.caret = line_start(st.data.text, line), line_end(st.data.text, line)
+		else
+			st.data.caret = math.min(line_end(st.data.text, line), p)
+			if not extend then st.data.anchor = st.data.caret end
+		end
+		st.data.last_click = now
+		st.data.last_click_line = line
+		st.data.last_x = visual
+		st.data.dragging = true
+		caret_changed(e, st, old)
 		if rt and rt.capture then rt.capture(e) end
+		return true
+	elseif ev.type == "move" and st.data.dragging then
+		local f = Fonts.forElement(e); local _, ch = f:charsize()
+		local line = math.max(0, (st.data.first_line or 0) + math.floor((ev.ly or 0) / ch))
+		if ev.ly and ev.ly < 0 then st.data.first_line = math.max(0, st.data.first_line - 1)
+		elseif ev.ly and ev.ly > st.h then st.data.first_line = math.min(line_count(st.data.text) - 1, st.data.first_line + 1) end
+		local col = math.max(0, math.floor(((ev.lx or 0) - (st.data.margin_width[0] or 0) - (st.data.margin_width[1] or 0) + (st.data.x_offset or 0)) / f:charsize()))
+		local p, visual = line_start(st.data.text, line), 0
+		while p < line_end(st.data.text, line) and visual < col do
+			local b = st.data.text:byte(p + 1); visual = visual + (b == 9 and st.data.tab_width - visual % st.data.tab_width or 1); p = utf8_next(st.data.text, p)
+		end
+		local old = st.data.caret; st.data.caret = math.min(line_end(st.data.text, line), p); caret_changed(e, st, old)
+		return true
+	elseif ev.type == "release" then
+		st.data.dragging = false
 		return true
 	elseif ev.type == "char" and not st.data.readonly and not yes(attr(e, "READONLY")) then
 		local a, b = math.min(st.data.anchor, st.data.caret), math.max(st.data.anchor, st.data.caret)
-		emit_action(e, st, ev.char, a, b); return true
+		local old = st.data.caret
+		if st.data.overtype and a == b and st.data.caret < #st.data.text then b = utf8_next(st.data.text, st.data.caret) end
+		emit_action(e, st, ev.char, a, b); caret_changed(e, st, old); return true
 	elseif ev.type == "key" then
 		local k = iup.XkeyBase(ev.key); local ctrl = ev.mods and ev.mods.ctrl or iup.isCtrlXkey(ev.key)
 		local a, b = math.min(st.data.anchor, st.data.caret), math.max(st.data.anchor, st.data.caret)
-		if k == iup.K_LEFT then st.data.caret = math.max(0, st.data.caret - 1)
-		elseif k == iup.K_RIGHT then st.data.caret = math.min(#st.data.text, st.data.caret + 1)
-		elseif k == iup.K_HOME then st.data.caret = line_start(st.data.text, line_from(st.data.text, st.data.caret))
-		elseif k == iup.K_END then st.data.caret = line_end(st.data.text, line_from(st.data.text, st.data.caret))
-		elseif k == iup.K_BS and a ~= b then emit_action(e, st, "", a, b)
-		elseif k == iup.K_BS and st.data.caret > 0 then emit_action(e, st, "", st.data.caret - 1, st.data.caret)
-		elseif k == iup.K_DEL then emit_action(e, st, "", a, b == a and math.min(#st.data.text, b + 1) or b)
+		local shift = ev.mods and ev.mods.shift
+		local old = st.data.caret
+		if k == iup.K_LEFT then st.data.caret = ctrl and next_word_start(st.data.text, st.data.caret, -1) or utf8_prev(st.data.text, st.data.caret)
+		elseif k == iup.K_RIGHT then st.data.caret = ctrl and next_word_start(st.data.text, st.data.caret, 1) or utf8_next(st.data.text, st.data.caret)
+		elseif k == iup.K_UP then move_vertical(e, st, -1, shift)
+		elseif k == iup.K_DOWN then move_vertical(e, st, 1, shift)
+		elseif k == iup.K_HOME then st.data.caret = ctrl and 0 or line_start(st.data.text, line_from(st.data.text, st.data.caret))
+		elseif k == iup.K_END then st.data.caret = ctrl and #st.data.text or line_end(st.data.text, line_from(st.data.text, st.data.caret))
+		elseif k == iup.K_PGUP or k == iup.K_PGDN then move_vertical(e, st, (k == iup.K_PGUP and -1 or 1) * math.max(1, (tonumber(attr(e, "VISIBLELINES")) or 4) - 1), shift)
+		elseif k == iup.K_A and ctrl then st.data.anchor, st.data.caret = 0, #st.data.text
+		elseif (k == iup.K_C or k == iup.K_X) and ctrl then
+			if a ~= b then clipboard_set(st.data.text:sub(a + 1, b)) end
+			if k == iup.K_X then delete_range(e, st, a, b) end
+		elseif (k == iup.K_V and ctrl) or (k == iup.K_INS and shift) then
+			if not readonly(e, st) then emit_action(e, st, clipboard_get(), a, b) end
+		elseif (k == iup.K_DEL and shift) or (k == iup.K_X and ctrl) then
+			if a ~= b then clipboard_set(st.data.text:sub(a + 1, b)); delete_range(e, st, a, b) end
+		elseif k == iup.K_INS and ctrl then
+			if a ~= b then clipboard_set(st.data.text:sub(a + 1, b)) end
+		elseif k == iup.K_Z and ctrl and shift then history_message(e, 2011)
+		elseif k == iup.K_Z and ctrl then history_message(e, 2176)
+		elseif k == iup.K_Y and ctrl then history_message(e, 2011)
+		elseif k == iup.K_BS and a ~= b then delete_range(e, st, a, b)
+		elseif k == iup.K_BS and st.data.caret > 0 then
+			local p = ctrl and next_word_start(st.data.text, st.data.caret, -1) or utf8_prev(st.data.text, st.data.caret); delete_range(e, st, p, st.data.caret)
+		elseif k == iup.K_DEL then
+			local p = ctrl and next_word_start(st.data.text, st.data.caret, 1) or utf8_next(st.data.text, st.data.caret); delete_range(e, st, a, b == a and p or b)
+		elseif k == iup.K_TAB then
+			if a ~= b and shift then
+				local start = line_start(st.data.text, line_from(st.data.text, a))
+				local stop = line_end(st.data.text, line_from(st.data.text, b))
+				local block = st.data.text:sub(start + 1, stop)
+				block = block:gsub("\n\t", "\n"):gsub("^\t", "")
+				emit_action(e, st, block, start, stop)
+			elseif a ~= b then
+				local start = line_start(st.data.text, line_from(st.data.text, a))
+				local stop = line_end(st.data.text, line_from(st.data.text, b))
+				local block = "\t" .. st.data.text:sub(start + 1, stop):gsub("\n", "\n\t")
+				emit_action(e, st, block, start, stop)
+			elseif not readonly(e, st) then emit_action(e, st, "\t", a, b) end
+		elseif k == iup.K_INS then st.data.overtype = not st.data.overtype
+		elseif k == iup.K_ESC then st.data.autoc.visible, st.data.calltip = false, nil
 		elseif k == iup.K_CR then emit_action(e, st, "\n", a, b)
 		else return false end
-		if not ev.mods or not ev.mods.shift then st.data.anchor = st.data.caret end
-		Element.call(e, "CARET_CB", line_from(st.data.text, st.data.caret), st.data.caret - line_start(st.data.text, line_from(st.data.text, st.data.caret)))
+		if (not shift) and k ~= iup.K_A and not (k == iup.K_C or k == iup.K_X or k == iup.K_V or k == iup.K_INS) then st.data.anchor = st.data.caret end
+		caret_changed(e, st, old)
 		return true
 	end
 	return false
@@ -295,6 +487,7 @@ Classes.define{
 		st.data.annotations, st.data.annotation_style, st.data.annotation_visible = {}, {}, 0
 		st.data.autoc = { visible = false, items = {}, current = 1, separator = " " }
 		st.data.first_line, st.data.x_offset, st.data.modified = 0, 0, false
+		st.data.undo, st.data.redo, st.data.last_x = {}, {}, nil
 		tokenize(st)
 	end,
 }

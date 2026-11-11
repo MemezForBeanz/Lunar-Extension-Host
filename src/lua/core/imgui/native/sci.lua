@@ -37,6 +37,16 @@ local function utf8_size(b)
 	if b < 240 then return 3 end
 	return 4
 end
+local function utf8_prev(s, p)
+	p = math.max(0, p - 1)
+	while p > 0 and (s:byte(p + 1) or 0) >= 128 and (s:byte(p + 1) or 0) < 192 do p = p - 1 end
+	return p
+end
+local function utf8_next(s, p)
+	local b = s:byte(p + 1)
+	if not b then return #s end
+	return math.min(#s, p + utf8_size(b))
+end
 local function visual_column(el, s, p, tab)
 	local start = line_start(s, line_of(s, p))
 	local col, i = 0, start + 1
@@ -74,11 +84,11 @@ end
 local function word_char(c) return c and c:match("[%w_]") ~= nil end
 local function word_boundary(s, p, right)
 	if right then
-		while p < #s and not word_char(s:sub(p + 1, p + 1)) do p = p + 1 end
-		while p < #s and word_char(s:sub(p + 1, p + 1)) do p = p + 1 end
+		while p < #s and not word_char(s:sub(p + 1, p + 1)) do p = utf8_next(s, p) end
+		while p < #s and word_char(s:sub(p + 1, p + 1)) do p = utf8_next(s, p) end
 	else
-		while p > 0 and not word_char(s:sub(p, p)) do p = p - 1 end
-		while p > 0 and word_char(s:sub(p, p)) do p = p - 1 end
+		while p > 0 and not word_char(s:sub(utf8_prev(s, p) + 1, p)) do p = utf8_prev(s, p) end
+		while p > 0 and word_char(s:sub(utf8_prev(s, p) + 1, p)) do p = utf8_prev(s, p) end
 		if not word_char(s:sub(p + 1, p + 1)) then p = p + 1 end
 	end
 	return p
@@ -104,7 +114,13 @@ function M.send(el, msg, w, l)
 	elseif msg == 2136 then return line_end(text, w) -- GETLINEENDPOSITION
 	elseif msg == 2008 then return d.caret -- GETCURRENTPOS
 	elseif msg == 2009 then return d.anchor -- GETANCHOR
-	elseif msg == 2025 then d.caret, d.anchor = clamp(d, w), clamp(d, w); Element.call(el, "CARET_CB", line_of(text, d.caret), d.caret - line_start(text, line_of(text, d.caret))); return 0
+	elseif msg == 2025 then
+		local next = clamp(d, w)
+		if next ~= d.caret then
+			d.caret, d.anchor = next, next
+			Element.call(el, "CARET_CB", line_of(text, d.caret), d.caret - line_start(text, line_of(text, d.caret)), d.caret)
+		end
+		return 0
 	elseif msg == 2160 then d.anchor, d.caret = clamp(d, w), clamp(d, l); return 0 -- SETSEL
 	elseif msg == 2143 then return math.min(d.anchor, d.caret)
 	elseif msg == 2145 then return math.max(d.anchor, d.caret)
