@@ -512,6 +512,15 @@ local function install_events(tx, f)
 	end
 end
 
+local TR_mod
+local function theme_reactor()
+	if TR_mod == nil then
+		local ok, m = pcall(require, "core.ui.ThemeReactor")
+		TR_mod = ok and m or false
+	end
+	return TR_mod or nil
+end
+
 local function commit_host(tx, f)
 	local D, def = tx.D, f.type
 	if not f.hrec then f.hrec = {} end
@@ -544,6 +553,18 @@ local function commit_host(tx, f)
 	install_events(tx, f)
 	local tok = tx.root._tokens
 	if f.next_tokens then tok[f.host] = f else tok[f.host] = nil end
+	-- Styling ownership: with a role the theme owns the colours (bg/fg are only the look
+	-- without a theme); without one, explicit colours are the component's, and the
+	-- ThemeManager is told to leave them alone.
+	local TR = theme_reactor()
+	if TR and TR.claim then
+		local claims
+		if f.props.role == nil and f.props.variant == nil then
+			if f.attrs.BGCOLOR ~= nil then claims = claims or {}; claims.BGCOLOR = true end
+			if f.attrs.FGCOLOR ~= nil then claims = claims or {}; claims.FGCOLOR = true end
+		end
+		if claims or TR.claimed(f.host) then TR.claim(f.host, claims) end
+	end
 	f.tokens, f.next_tokens = f.next_tokens, nil
 end
 
