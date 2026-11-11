@@ -492,6 +492,7 @@ function M.relayout(el)
 	end
 end
 function M.capture(el) captured = el end
+function M.tipShown() return tip_shown and true or false end -- for scripts/ui_mechanics.lua
 function M.release() captured = nil end
 function M.captured() return captured end
 function M.now() return B and B.now() or os.clock() end
