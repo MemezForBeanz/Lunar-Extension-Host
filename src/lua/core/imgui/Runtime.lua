@@ -490,6 +490,13 @@ function M.release() captured = nil end
 function M.captured() return captured end
 function M.now() return B and B.now() or os.clock() end
 function M.animate() animating = true; need_frame = true end
+-- A frame is wanted at time `t` (M.now() seconds) and not before: a caret blink, a
+-- delayed hover. Cheaper than animate(), which draws every frame until it stops.
+local wake_at
+function M.wakeAt(t)
+	t = tonumber(t)
+	if t and (not wake_at or t < wake_at) then wake_at = t end
+end
 function M.cursor(name) cursor_override = name end
 function M.clipboard_get() return B and B.clipboard_get and B.clipboard_get() or "" end
 function M.clipboard_set(s) if B and B.clipboard_set then B.clipboard_set(s or "") end end
@@ -581,7 +588,7 @@ local function run_timers(now)
 end
 
 local function next_timer_due()
-	local best
+	local best = wake_at
 	for el in pairs(timers) do
 		local st = STATE[el]
 		local d = st and st.data.due
@@ -929,6 +936,7 @@ function M.step(wait)
 	if closed then return CLOSE end
 	local now = M.now()
 	run_timers(now)
+	if wake_at and now >= wake_at then wake_at = nil; need_frame = true end
 	if wait and not need_frame and not animating then
 		local due = next_timer_due()
 		local t = 0.5
@@ -936,6 +944,7 @@ function M.step(wait)
 		local woke
 		if t > 0 then woke = B.wait(t) end
 		run_timers(M.now())
+		if wake_at and M.now() >= wake_at then wake_at = nil; need_frame = true end
 		-- Nothing arrived and nothing changed: the window already shows this frame. (A
 		-- backend whose wait says nothing, like the Null one, always gets the frame.)
 		if woke == false and not need_frame and not animating then return DEFAULT end
@@ -1593,6 +1602,7 @@ function M.init(backend)
 	main_dialog, hovered, captured, focused = nil, nil, nil, nil
 	loop_level, exit_levels = 0, {}
 	need_frame, animating, closed = true, false, false
+	wake_at = nil
 	last_mouse = { -1, -1 }
 	DRAG = nil
 	M._overlay_capture = nil
