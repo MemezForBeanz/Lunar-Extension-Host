@@ -106,3 +106,19 @@ The tour now dumps the IUP build's dialogs too (it records the dialogs the app s
 - Settings sub-pages beyond the first: the probe walks tab strips only.
 - A dialog's RASTERSIZE getter: IUP answers the window size (1400x900), the host the client
   (1384x892); both report the same CLIENTSIZE. Left as is (no app code reads it).
+
+## Functional parity sweep (branch `t3/imgui-functional-parity-sweep`)
+
+Functional gaps of the main interface against the IUP build, closed in this order: scroll
+bars, secondary dialogs, Settings sub-pages, then the shell's behaviour under real input.
+Each entry gives the state, what IUP does, what the host did, the C rule, the fix and the
+spec. New probe: `scripts/ui_scroll.lua <out dir>` (no shell: a dialog with three scroll
+boxes, a multiline and a list) records each build's scroll attributes and, on IUP, the
+native bar geometry Windows reports (`GetScrollBarInfo`), after wheel, arrow, track, thumb
+and content-drag input sent as window messages.
+
+### Scroll bars
+
+| # | element | IUP vs host before | rule | fix | spec |
+|---|---|---|---|---|---|
+| S1 | every IupFlatScrollBox (Settings, page scroll hosts) | bars above the content vs painted under it, and clicks on them went to the content | `iupFlatScrollBarCreate`: the bars are canvases with `ZORDER=TOP`. Commit fefe0ca folded `visibleChildren` (and `defaults`) into a comment, so the internal bars, inserted first, painted and hit-tested below the child | restored `visibleChildren = FlatScrollbar.visible_children` and the defaults | `imgui_scrollbars_spec` "paints and hits the bars above the content" |

@@ -141,7 +141,10 @@ local function scroll_defaults()
 end
 
 local scroll_def = {
-	name = "flatscrollbox", children = 1, clip = true, clipsContent = true, -- iupLayoutMinContent: it scrolls visibleChildren = FlatScrollbar.visible_children, defaults = scroll_defaults(),
+	name = "flatscrollbox", children = 1, clip = true,
+	clipsContent = true, -- iupLayoutMinContent: it scrolls
+	-- the bars are canvases with ZORDER=TOP: painted and hit after the content
+	visibleChildren = FlatScrollbar.visible_children, defaults = scroll_defaults(),
 	natural = scroll_natural, place = scroll_place, event = scroll_event,
 	create = function(e) FlatScrollbar.create(e) end,
 	-- iup_flatscrollbox.c: "set expand to its own expand so it will not depend on children"
