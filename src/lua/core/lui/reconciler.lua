@@ -584,6 +584,20 @@ local function place(tx, parent_handle, f)
 	local desired = collect_hosts(f.children, {})
 	local placed = f.placed or EMPTY
 	if same_list(desired, placed) then f.placed = placed; return end
+	-- first placement (none of them in the parent yet): append in order, exactly what an
+	-- iup constructor does with its children
+	if #placed == 0 then
+		local fresh = true
+		for _, c in ipairs(desired) do if D.parent(c) == parent_handle then fresh = false; break end end
+		if fresh then
+			for _, c in ipairs(desired) do
+				if D.parent(c) then D.move(parent_handle, c, nil) else D.append(parent_handle, c) end
+			end
+			if #desired > 0 then tx.layout[parent_handle] = true end
+			f.placed = desired
+			return
+		end
+	end
 	local managed, want = {}, {}
 	for _, c in ipairs(desired) do managed[c] = true; want[c] = true end
 	for _, c in ipairs(placed) do
