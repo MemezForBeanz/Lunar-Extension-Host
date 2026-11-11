@@ -156,6 +156,16 @@ describe("lui reconciler", function()
 		assert.same({ "head", "r1", "r2", "foot" }, titles(root:widget()))
 	end)
 
+	it("collects children past nil holes anywhere in the constructor", function()
+		local show = false
+		-- a leading hole and several in a row: `#` on this table may well be 0
+		local root = ui.mount(ui.VBox{ nil, show and ui.Text{ "no" } or nil, nil, ui.Text{ "a" }, nil, ui.Text{ "b" }, nil },
+			{ iup = iup })
+		assert.same({ "a", "b" }, titles(root:widget()))
+		local r2 = ui.mount(ui.h(ui.VBox, { gap = 1 }, nil, ui.Text{ "c" }, nil, ui.Text{ "d" }), { iup = iup })
+		assert.same({ "c", "d" }, titles(r2:widget()), "explicit-form varargs with nil")
+	end)
+
 	it("turns bare strings in a container into Text", function()
 		local root = ui.mount(ui.VBox{ "hello", 42 }, { iup = iup })
 		assert.same({ "hello", "42" }, titles(root:widget()))
