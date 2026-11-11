@@ -289,6 +289,10 @@ end
 local function lparam(x, y) return bit.bor(bit.band(x, 0xFFFF), bit.lshift(bit.band(y, 0xFFFF), 16)) end
 
 -- Post a real click at main-window client point (x, y) to whichever window is there.
+local path_of = {}
+-- LUNAR_PROBE_RAW=1: on ImGui, also click flatgrid/flatrows/flatseek/flatsegmented.
+local RAW_CLICKS = os.getenv("LUNAR_PROBE_RAW") == "1"
+local RAW_CLASSES = { flatgrid = true, flatrows = true, flatseek = true, flatsegmented = true }
 local function click(hwnd, x, y)
 	local target, px, py = hwnd, x, y
 	if not IMGUI then
@@ -428,6 +432,8 @@ iup.MainLoop = function()
 					emit("B", tostring(budget.cap), table.concat(parts, ";"))
 				end
 				local list = walk(dlg, class(dlg), {})
+				path_of = {}
+				for _, e in ipairs(list) do path_of[e.h] = e.path end
 				stub(list)
 				queue = {}
 				for _, e in ipairs(list) do
@@ -455,7 +461,11 @@ iup.MainLoop = function()
 					emit("A", e.path, table.concat(av, ";"))
 					-- A disabled control takes no real clicks (a posted one would still reach its window).
 					local active = iup.GetAttribute(e.h, "ACTIVE") ~= "NO"
-					if not NOCLICK and vis and active and e.cb and x and w > 2 and h > 2 and x + w / 2 > 0 and y + h / 2 > 0 and x + w / 2 < WIN_W and y + h / 2 < WIN_H then
+					-- The IUP build cannot see the fork's raw widgets' callbacks (they are C callbacks
+					-- through iupraw), so it never clicks them; skip them here too unless asked, or a
+					-- click on ImGui changes the page and every later click differs.
+					local raw_skip = IMGUI and not RAW_CLICKS and RAW_CLASSES[class(e.h)]
+					if not NOCLICK and not raw_skip and vis and active and e.cb and x and w > 2 and h > 2 and x + w / 2 > 0 and y + h / 2 > 0 and x + w / 2 < WIN_W and y + h / 2 < WIN_H then
 						queue[#queue + 1] = { e = e, x = math.floor(x + w / 2), y = math.floor(y + h / 2) }
 					end
 				end
@@ -474,6 +484,13 @@ iup.MainLoop = function()
 				if LIVE and IMGUI then
 					local R = require("core.imgui.Runtime")
 					q.dialogs, q.overlays = #R.dialogs(), #R.overlays()
+				end
+				if IMGUI then
+					-- which element the host's hit test picks at the click point (H lines)
+					local R = require("core.imgui.Runtime")
+					local ok, hit = pcall(R.hitTest, R.mainDialog(), q.x, q.y)
+					local name = ok and hit and (path_of[hit] or ("<" .. tostring(iup.GetClassName(hit)) .. " not in walk>")) or tostring(hit)
+					if (ok and hit) ~= q.e.h then emit("H", q.e.path, name) end
 				end
 				click(hwnd, q.x, q.y)
 				phase = "collect"
