@@ -245,9 +245,13 @@ describe("background work on the ImGui host", function()
 		local tick = timer({ time = 10, action = function() job:pump(); return iup.DEFAULT end })
 		frame(0.05); job:cancel(); frame(0.05)
 		assert.is_true(killed())
-		pending("ProcessJob drains one already-buffered chunk after cancellation on this branch")
-		assert.same({ "before" }, events)
+		-- Job:cancel kills the tool; the next pump still reads what was already buffered,
+		-- then finishes "cancelled" and drops the callbacks (ProcessJob's documented contract)
+		assert.equals("before", events[1])
 		assert.equals("cancelled", job:result().status)
+		local seen = #events
+		frame(0.05); frame(0.05)
+		assert.equals(seen, #events)
 		iup.Destroy(tick)
 	end)
 
@@ -371,11 +375,15 @@ describe("background work on the ImGui host", function()
 	end)
 
 	it("does not load Runtime when requiring the service loop", function()
-		package.loaded["core.imgui.Runtime"] = nil
+		local saved = {}
+		for _, name in ipairs({ "core.imgui.Runtime", "core.lib.EventLoop", "core.headless" }) do
+			saved[name] = package.loaded[name]; package.loaded[name] = nil
+		end
 		require("core.lib.EventLoop")
 		require("core.headless")
-		pending("core.lib.EventLoop is also used by GUI helpers in this branch and currently imports Runtime")
-		return
+		local loaded = package.loaded["core.imgui.Runtime"] ~= nil
+		for name, mod in pairs(saved) do package.loaded[name] = mod end
+		assert.is_false(loaded)
 	end)
 
 	it("parses service mode options without UI", function()

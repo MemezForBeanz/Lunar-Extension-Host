@@ -373,13 +373,15 @@ local function event(e, st, ev, rt)
 			while left > 0 and word_char(st.data.text, utf8_prev(st.data.text, left)) do left = utf8_prev(st.data.text, left) end
 			while right < #st.data.text and word_char(st.data.text, right) do right = utf8_next(st.data.text, right) end
 			st.data.anchor, st.data.caret = left, right
-		elseif st.data.last_click and st.data.last_click_line == line and st.data.last_click + 0.45 >= now then
+		-- Editor::ButtonDown: a click right after a double click on the same line is the triple
+		elseif st.data.last_double and st.data.last_click_line == line and st.data.last_click + 0.45 >= now then
 			st.data.anchor, st.data.caret = line_start(st.data.text, line), line_end(st.data.text, line)
 		else
 			st.data.caret = math.min(line_end(st.data.text, line), p)
 			if not extend then st.data.anchor = st.data.caret end
 		end
 		st.data.last_click = now
+		st.data.last_double = ev.double and true or false
 		st.data.last_click_line = line
 		st.data.last_x = visual
 		st.data.dragging = true
@@ -404,6 +406,7 @@ local function event(e, st, ev, rt)
 	elseif ev.type == "char" and not st.data.readonly and not yes(attr(e, "READONLY")) then
 		local a, b = math.min(st.data.anchor, st.data.caret), math.max(st.data.anchor, st.data.caret)
 		local old = st.data.caret
+		st.data.last_x = nil
 		if st.data.overtype and a == b and st.data.caret < #st.data.text then b = utf8_next(st.data.text, st.data.caret) end
 		emit_action(e, st, ev.char, a, b); caret_changed(e, st, old); return true
 	elseif ev.type == "key" then
@@ -411,6 +414,8 @@ local function event(e, st, ev, rt)
 		local a, b = math.min(st.data.anchor, st.data.caret), math.max(st.data.anchor, st.data.caret)
 		local shift = ev.mods and ev.mods.shift
 		local old = st.data.caret
+		-- lastXChosen survives only vertical moves (Editor::SetLastXChosen on everything else)
+		if not (k == iup.K_UP or k == iup.K_DOWN or k == iup.K_PGUP or k == iup.K_PGDN) then st.data.last_x = nil end
 		if k == iup.K_LEFT then st.data.caret = ctrl and next_word_start(st.data.text, st.data.caret, -1) or utf8_prev(st.data.text, st.data.caret)
 		elseif k == iup.K_RIGHT then st.data.caret = ctrl and next_word_start(st.data.text, st.data.caret, 1) or utf8_next(st.data.text, st.data.caret)
 		elseif k == iup.K_UP then move_vertical(e, st, -1, shift)

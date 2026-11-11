@@ -115,9 +115,11 @@ function M.send(el, msg, w, l)
 	elseif msg == 2008 then return d.caret -- GETCURRENTPOS
 	elseif msg == 2009 then return d.anchor -- GETANCHOR
 	elseif msg == 2025 then
+		-- SCI_GOTOPOS always drops the selection; CARET_CB only when the caret moved
 		local next = clamp(d, w)
-		if next ~= d.caret then
-			d.caret, d.anchor = next, next
+		local moved = next ~= d.caret
+		d.caret, d.anchor = next, next
+		if moved then
 			Element.call(el, "CARET_CB", line_of(text, d.caret), d.caret - line_start(text, line_of(text, d.caret)), d.caret)
 		end
 		return 0
