@@ -58,10 +58,12 @@ local function shallow_equal(a, b)
 end
 M.shallowEqual = shallow_equal
 
---- `ui.component(fn[, name])`: a callable component, `Card{ title = "x" }`.
-function M.component(fn, name)
+--- `ui.component(fn[, name | { name, model }])`: a callable component, `Card{ title = "x" }`.
+-- `model` is the state model rendering it (default `core.lui.hooks`; see its header).
+function M.component(fn, opts)
 	assert(type(fn) == "function", "ui.component needs a function")
-	return vnode.callable({ kind = "component", render = fn, name = name })
+	if type(opts) ~= "table" then opts = { name = opts } end
+	return vnode.callable({ kind = "component", render = fn, name = opts.name, model = opts.model })
 end
 
 --- `ui.memo(component[, areEqual])`: skip re-rendering while props are shallow-equal.
@@ -186,7 +188,9 @@ end
 
 -- Components -------------------------------------------------------------------------------
 
-local function read_context(tx, ctx)
+local function read_context(tx, inst, ctx)
+	inst.contexts = inst.contexts or {}
+	inst.contexts[ctx] = true
 	local stack = tx.ctx[ctx]
 	if stack and #stack > 0 then return stack[#stack] end
 	return ctx.default
@@ -200,45 +204,19 @@ local function context_changed(tx, inst)
 	return false
 end
 
-local dispatch -- forward
+local request_render -- forward
 
-local function call_component(tx, f, inst, fn)
-	local ctx = {
-		inst = inst, name = inst.name, tx = tx,
-		schedule = dispatch, readContext = function(c) return read_context(tx, c) end,
+-- What a component instance gives its model: context reads for the render in progress,
+-- and a way to ask for another render. The model (core.lui.hooks unless the component
+-- type names another) holds all of the instance's state.
+local function new_instance(tx, t)
+	local inst = { name = name_of(t), root = tx.root, type = t,
+		model = (type(t) == "table" and t.model) or hooks.model }
+	inst.env = {
+		readContext = function(ctx) return read_context(inst.tx, inst, ctx) end,
+		schedule = function() request_render(inst) end,
 	}
-	local old = inst.hooks
-	for pass = 1, 25 do
-		ctx.index, ctx.new, ctx.effects, ctx.consumed, ctx.rerender = 0, {}, {}, {}, false
-		ctx.old = old
-		local prev = hooks.begin(ctx)
-		local ok, out = xpcall(fn, traceback, f.props)
-		hooks.finish(prev)
-		if not ok then
-			error(setmetatable({ component = inst.name, message = out },
-				{ __tostring = function(e) return "lui: error rendering " .. e.component .. ": " .. tostring(e.message) end }), 0)
-		end
-		if old and ctx.index ~= #old then
-			error(string.format("lui: %s rendered %d hooks, %d during the previous render; "
-				.. "hooks must not be called conditionally", inst.name, ctx.index, #old), 0)
-		end
-		if not ctx.rerender then
-			f.pending_hooks, f.pending_effects = ctx.new, ctx.effects
-			for _, c in ipairs(ctx.consumed) do tx.consumed[#tx.consumed + 1] = c end
-			return out
-		end
-		-- set state during its own render: render again with the update applied. On a
-		-- first render the cells live in this pass's hooks, so keep them, from the start.
-		if not inst.hooks then
-			old = {}
-			for i, hk in ipairs(ctx.new) do
-				if hk.kind == "reducer" then old[i] = { kind = "reducer", cell = hk.cell, state = hk.base }
-				elseif hk.kind == "effect" or hk.kind == "layout" then old[i] = { kind = hk.kind, fresh = true }
-				else old[i] = hk end
-			end
-		end
-	end
-	error("lui: " .. inst.name .. " re-rendered 25 times in one render (it sets state unconditionally)", 0)
+	return inst
 end
 
 local function render_component(tx, f, old)
@@ -246,7 +224,7 @@ local function render_component(tx, f, old)
 	local inst = f.inst
 	local fresh = inst == nil
 	if fresh then
-		inst = { name = name_of(t), root = tx.root, type = t }
+		inst = new_instance(tx, t)
 		f.inst = inst
 	end
 	local must = fresh or inst.dirty or context_changed(tx, inst)
@@ -255,28 +233,38 @@ local function render_component(tx, f, old)
 	end
 	if must then
 		local fn = type(t) == "function" and t or t.render
-		f.rendered = normalize(tx, call_component(tx, f, inst, fn))
-		f.rendered_now = true
+		inst.tx = tx
+		local out, w = inst.model.render(inst, fn, f.props, inst.env)
+		inst.tx = nil
+		f.work = w
+		tx.works[#tx.works + 1] = w
+		f.rendered = normalize(tx, out)
 	else
 		f.rendered = old.rendered
 	end
 	f.children = reconcile(tx, f, old and old.children or EMPTY, f.rendered)
 	-- post-order: a child's effects run before its parent's
-	if f.pending_effects then
-		for _, e in ipairs(f.pending_effects) do tx.effects[#tx.effects + 1] = e end
+	if f.work then
+		for _, e in ipairs(f.work.effects or EMPTY) do
+			e.inst = inst
+			tx.effects[#tx.effects + 1] = e
+		end
 	end
 end
 
 -- Error boundaries -----------------------------------------------------------------------
 
 local function mark(tx)
-	return { #tx.effects, #tx.deletions, #tx.consumed, #tx.cloned }
+	return { #tx.effects, #tx.deletions, #tx.works, #tx.cloned }
 end
 
+-- The renders of a subtree that threw are dropped: neither committed nor aborted, so the
+-- updates they consumed stay queued for whoever renders those instances next (nobody,
+-- when the boundary's fallback replaces them).
 local function rollback(tx, m)
 	for i = #tx.effects, m[1] + 1, -1 do tx.effects[i] = nil end
 	for i = #tx.deletions, m[2] + 1, -1 do tx.deletions[i] = nil end
-	for i = #tx.consumed, m[3] + 1, -1 do tx.consumed[i] = nil end
+	for i = #tx.works, m[3] + 1, -1 do tx.works[i] = nil end
 end
 
 local function render_boundary(tx, f, old)
@@ -392,30 +380,16 @@ local function mark_pending(f)
 	end
 end
 
---- Queue an update for the instance owning `cell` (the dispatch of useState/useReducer).
-function dispatch(cell, action)
-	local inst = cell.inst
+--- Ask for `inst` to render again (its model calls this through `env.schedule`). A
+-- no-op once the instance has unmounted.
+function request_render(inst)
 	if inst.unmounted then return end
-	local cur = hooks.current()
-	if cur and cur.inst == inst then
-		cell.queue[#cell.queue + 1] = action
-		cur.rerender = true
-		return
-	end
-	-- setting state to what it already is does nothing (checked only on an empty queue)
-	if cell.basic and #cell.queue == 0 and cell.committed_set then
-		local nextv = action
-		if type(action) == "function" then nextv = action(cell.committed) end
-		if nextv == cell.committed then return end
-	end
-	cell.queue[#cell.queue + 1] = action
 	inst.dirty = true
 	local root = inst.root
 	if root._rendering or not inst.fiber then root._late[inst] = true
 	else mark_pending(inst.fiber) end
 	S.schedule(root)
 end
-M.dispatch = dispatch
 
 -- Commit -------------------------------------------------------------------------------
 
@@ -633,13 +607,8 @@ local function commit_fiber(tx, f, parent)
 		local inst = f.inst
 		inst.fiber = f
 		inst.dirty = false
-		if f.rendered_now then
-			inst.hooks = f.pending_hooks
-			for _, hk in ipairs(inst.hooks) do
-				if hk.kind == "reducer" then hk.cell.committed, hk.cell.committed_set = hk.state, true end
-			end
-		end
-		f.pending_hooks, f.pending_effects, f.rendered_now = nil, nil, nil
+		if f.work then f.work.commit() end
+		f.work = nil
 	elseif k == "boundary" then
 		local inst = f.inst
 		inst.fiber, inst.dirty = f, false
@@ -669,24 +638,17 @@ end
 
 -- Unmount ---------------------------------------------------------------------------------
 
-local function run_cleanup(root, hk)
-	local c = hk.cleanup
-	if c then
-		hk.cleanup = nil
-		local ok, err = xpcall(c, traceback)
-		if not ok then root:_report(err) end
-	end
-end
-
 local function unmount_fiber(tx, f, natives)
 	for _, c in ipairs(f.children or EMPTY) do unmount_fiber(tx, c, natives) end
 	local inst = f.inst
 	if inst and not inst.unmounted then
+		-- from here on its setters and store subscriptions are no-ops
 		inst.unmounted = true
 		inst.fiber = nil
-		-- layout cleanups before passive ones, as React runs them
-		for _, hk in ipairs(inst.hooks or EMPTY) do if hk.kind == "layout" then run_cleanup(tx.root, hk) end end
-		for _, hk in ipairs(inst.hooks or EMPTY) do if hk.kind == "effect" then run_cleanup(tx.root, hk) end end
+		if inst.model then
+			local root = tx.root
+			inst.model.unmount(inst, function(err) root:_report(err) end)
+		end
 	end
 	if f.ref then set_ref(f.ref, nil); f.ref = nil end
 	if f.kind == "native" then natives[#natives + 1] = f.host end
@@ -767,13 +729,15 @@ M.commonAncestors = common_ancestors
 
 local function run_effects(root, list, phase)
 	for _, e in ipairs(list) do
-		if e.phase == phase then run_cleanup(root, e.hook) end
+		if e.phase == phase then
+			local ok, err = xpcall(e.cleanup, traceback)
+			if not ok then root:_report(err) end
+		end
 	end
 	for _, e in ipairs(list) do
 		if e.phase == phase and not e.inst.unmounted then
-			local ok, r = xpcall(e.fn, traceback)
-			if not ok then root:_report(r)
-			elseif type(r) == "function" then e.hook.cleanup = r end
+			local ok, err = xpcall(e.setup, traceback)
+			if not ok then root:_report(err) end
 		end
 	end
 end
@@ -826,7 +790,7 @@ end
 
 local function new_tx(root)
 	return {
-		root = root, D = root._driver, effects = {}, deletions = {}, consumed = {}, cloned = {},
+		root = root, D = root._driver, effects = {}, deletions = {}, works = {}, cloned = {},
 		ctx = {}, ctx_log = {}, ctx_depth = 0, changed = {}, ctx_changed = 0,
 		layout = {}, created = {}, created_list = {}, caught = {}, dead = {}, live_natives = {},
 	}
@@ -859,10 +823,6 @@ function Root:_commit(tx, wip)
 	if rf.host then place(tx, rf.host, rf) else rf.placed = collect_hosts(rf.children, {}) end
 	for _, d in ipairs(tx.dead) do remove_dead(tx, d[1], d[2]) end
 	rf.pending = nil
-	for _, c in ipairs(tx.consumed) do
-		local cell, n = c[1], c[2]
-		for _ = 1, n do table.remove(cell.queue, 1) end
-	end
 	-- one Refresh per tree whose layout changed
 	local targets = common_ancestors(D, tx.layout)
 	self._lastLayout = targets
@@ -900,10 +860,7 @@ function Root:_flushNow()
 	if not ok then
 		-- keep what is on screen; drop the updates that led here so the next flush
 		-- does not throw the same error again
-		for _, c in ipairs(tx.consumed) do
-			local cell, n = c[1], c[2]
-			for _ = 1, n do table.remove(cell.queue, 1) end
-		end
+		for _, w in ipairs(tx.works) do w.abort() end
 		for _, old in ipairs(tx.cloned) do
 			old.pending = nil
 			if old.inst then old.inst.dirty = false end

@@ -229,6 +229,131 @@ describe("lui effects", function()
 	end)
 end)
 
+describe("lui effect scopes and unmounted instances", function()
+	it("tells an effect it was cleaned up, so resumed async work can stop", function()
+		local set_url
+		local resumes, applied = {}, {}
+		local function Loader()
+			local url, s = ui.useState("a")
+			set_url = s
+			local data, set_data = ui.useState("none")
+			ui.useEffect(function(scope)
+				-- a coroutine that "waits for the network" until the spec resumes it
+				local co = coroutine.create(function()
+					coroutine.yield()
+					if not scope.alive() then return end
+					applied[#applied + 1] = url
+					set_data("loaded " .. url)
+				end)
+				coroutine.resume(co)
+				resumes[url] = co
+			end, ui.deps(url))
+			return ui.Text{ data }
+		end
+		local root = mount(Loader)
+		ui.flushSync(function() set_url("b") end) -- the "a" effect is cleaned up
+		ui.flushSync(function() coroutine.resume(resumes.a) end)
+		assert.same({}, applied, "the stale request saw alive() == false")
+		ui.flushSync(function() coroutine.resume(resumes.b) end)
+		assert.same({ "b" }, applied)
+		assert.equal("loaded b", title(root))
+	end)
+
+	it("runs onCleanup callbacks with the effect's cleanup", function()
+		local log = {}
+		local function C()
+			ui.useEffect(function(scope)
+				scope.onCleanup(function() log[#log + 1] = "onCleanup" end)
+				return function() log[#log + 1] = "returned" end
+			end, {})
+			return ui.Text{ "x" }
+		end
+		mount(C):unmount()
+		assert.same({ "onCleanup", "returned" }, log)
+	end)
+
+	it("ignores a setter called after unmount", function()
+		local set
+		local renders = 0
+		local function C() renders = renders + 1; local v, s = ui.useState(1); set = s; return ui.Text{ tostring(v) } end
+		local root = mount(C)
+		root:unmount()
+		assert.has_no.errors(function() ui.flushSync(function() set(2) end) end)
+		assert.equal(1, renders)
+	end)
+
+	it("ignores a store change that arrives after unmount, even mid-notification", function()
+		local store = ui.createStore({ n = 0 })
+		local renders = 0
+		local root
+		-- a listener subscribed first unmounts the component while the store notifies
+		store:subscribe(function() if root then root:unmount() end end)
+		local function C() renders = renders + 1; return ui.Text{ tostring(ui.useStore(store, function(s) return s.n end)) } end
+		root = mount(C)
+		assert.has_no.errors(function() ui.flushSync(function() store:set({ n = 1 }) end) end)
+		assert.equal(1, renders)
+	end)
+end)
+
+describe("lui dependency lists with nil", function()
+	it("compares lists holding nil by their recorded count", function()
+		local H = require("core.lui.hooks")
+		assert.is_false(H.depsChanged(ui.deps(nil, 1), ui.deps(nil, 1)))
+		assert.is_true(H.depsChanged(ui.deps(nil, 1), ui.deps(nil, 2)))
+		assert.is_true(H.depsChanged(ui.deps(nil), ui.deps()), "{ nil } and {} differ")
+		assert.is_true(H.depsChanged(ui.deps(1, nil), ui.deps(1, 2)))
+		assert.is_false(H.depsChanged({ 1, nil, 3 }, { 1, nil, 3 }), "plain lists compare to their largest index")
+		assert.is_true(H.depsChanged({ 1, nil, 3 }, { 1, 2, 3 }))
+	end)
+
+	it("re-runs an effect when a dep goes from a value to nil", function()
+		local runs, set = 0, nil
+		local function C()
+			local v, s = ui.useState("x")
+			set = s
+			ui.useEffect(function() runs = runs + 1 end, ui.deps(v, "fixed"))
+			return ui.Text{ "t" }
+		end
+		mount(C)
+		ui.flushSync(function() set(false) end)
+		ui.flushSync(function() set(nil) end)
+		assert.equal(3, runs)
+	end)
+end)
+
+describe("lui component models", function()
+	it("renders a component with another state model through the same reconciler", function()
+		-- A toy setup-once model: `setup(props, signal)` runs once and returns a render
+		-- function; `signal(v)` makes a value whose `set` asks for another render.
+		local Setup = {}
+		function Setup.render(inst, fn, props, env)
+			if not inst.state then
+				inst.state = {}
+				local function signal(v)
+					local s = { v = v }
+					function s.get() return s.v end
+					function s.set(n) s.v = n; env.schedule() end
+					return s
+				end
+				inst.state.view = fn(props, signal)
+			end
+			return inst.state.view(props), { effects = {}, commit = function() end, abort = function() end }
+		end
+		function Setup.unmount() end
+		local count
+		local Counter = ui.component(function(_, signal)
+			count = signal(0)
+			return function(p) return ui.Text{ p.label .. count.get() } end
+		end, { name = "Counter", model = Setup })
+		local root = mount(Counter{ label = "n=" })
+		assert.equal("n=0", title(root))
+		ui.flushSync(function() count.set(5) end)
+		assert.equal("n=5", title(root))
+		root:update(Counter{ label = "count=" })
+		assert.equal("count=5", title(root))
+	end)
+end)
+
 describe("lui memo hooks and refs", function()
 	it("recomputes useMemo only when deps change, and keeps useCallback stable", function()
 		local computed, set, cbs = 0, nil, {}

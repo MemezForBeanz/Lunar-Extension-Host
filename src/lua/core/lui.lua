@@ -61,6 +61,7 @@ ui.useCallback = hooks.useCallback
 ui.useRef = hooks.useRef
 ui.useContext = hooks.useContext
 ui.useStore = hooks.useStore
+ui.deps = hooks.deps
 
 -- Stores
 ui.createStore = store.createStore
