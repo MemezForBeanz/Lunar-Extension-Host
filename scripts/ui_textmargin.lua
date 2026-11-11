@@ -65,8 +65,16 @@ for i, c in ipairs(CASES) do
 	fields[i] = t
 	rows[#rows + 1] = t
 end
+-- Native drop-down lists (a Win32 combo box on IUP), plain and with the theme's colours,
+-- so the closed control's size and look can be compared too (reported as "combo" rows).
+local combos = {
+	iup.list{ "Movies", "Shows", DROPDOWN = "YES", VALUE = "1", VISIBLECOLUMNS = "24" },
+	iup.list{ "Movies", "Shows", DROPDOWN = "YES", VALUE = "1", VISIBLECOLUMNS = "24",
+		BGCOLOR = "27 29 35", FGCOLOR = "214 217 224" },
+}
+for _, c in ipairs(combos) do rows[#rows + 1] = c end
 rows.MARGIN, rows.GAP = "10x10", "10"
-local dlg = iup.dialog{ iup.vbox(rows), TITLE = "text margins", RASTERSIZE = "400x600",
+local dlg = iup.dialog{ iup.vbox(rows), TITLE = "text margins", RASTERSIZE = "400x720",
 	BGCOLOR = "255 255 255", FONT = "Segoe UI, 10" }
 
 local function hwnd_of()
@@ -130,6 +138,17 @@ local function report()
 		out:write(string.format("%-24s rect %d,%d %dx%d ink x %s..%s y %s..%s (rel %s, %s)\n", c[1], fx, fy, fw, fh,
 			tostring(first), tostring(last), tostring(top), tostring(bottom),
 			first and (first - fx) or "-", top and (top - fy) or "-"))
+	end
+	for i, c in ipairs(combos) do
+		local pos = iup.GetAttribute(c, "POSITION") or "0,0"
+		local size = iup.GetAttribute(c, "RASTERSIZE") or "0x0"
+		local cx, cy = pos:match("(-?%d+),(-?%d+)")
+		local cw, chh = size:match("(%d+)x(%d+)")
+		cx, cy, cw, chh = tonumber(cx), tonumber(cy), tonumber(cw), tonumber(chh)
+		-- the colours at the middle of the field, 3 px inside the left border, and on the border
+		local function at(x, y) local j = (y * w + x) * 4; return string.format("%d %d %d", px[j + 2], px[j + 1], px[j]) end
+		out:write(string.format("combo%d rect %d,%d %dx%d mid %s edge %s border %s\n", i, cx, cy, cw, chh,
+			at(cx + math.floor(cw / 2), cy + math.floor(chh / 2)), at(cx + 3, cy + 3), at(cx, cy + math.floor(chh / 2))))
 	end
 	out:close()
 end
