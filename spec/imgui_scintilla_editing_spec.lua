@@ -1,0 +1,65 @@
+local Runtime = require("core.imgui.Runtime")
+local Null = require("core.imgui.backend.Null")
+local iup = require("core.imgui.iup")
+local Element = require("core.imgui.Element")
+local Classes = require("core.imgui.Classes")
+local sci = require("core.imgui.native.sci")
+
+describe("ImGui scintilla editing keymap", function()
+	local B, c, d
+	local function open(text, opts)
+		B = Null.new(); Runtime.init(B)
+		c = iup.scintilla({ VALUE = text, RASTERSIZE = "400x100", VISIBLELINES = "4" })
+		d = iup.dialog{ iup.vbox{ c }, RASTERSIZE = "500x150" }
+		iup.Show(d); Runtime.frame(); Runtime.frame(); sci.send(c, 2025, opts and opts.pos or #text)
+	end
+	local function key(code, mods)
+		mods = mods or {}
+		B.queue({ events = {{ type = "keydown", code = code, mods = mods }} }); Runtime.frame()
+	end
+	local function chars(text)
+		for ch in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+			B.queue({ events = {{ type = "char", char = ch }} }); Runtime.frame()
+		end
+	end
+	local function finish() iup.Destroy(d) end
+	local function pos() return sci.send(c, 2008) end
+	local function direct(ev) return Classes.get("scintilla").event(c, Element.state(c), ev, Runtime) end
+
+	it("moves left and right by UTF-8 character", function()
+		open("aé€b", { pos = 0 }); key(iup.K_RIGHT); assert.equal(1, pos()); key(iup.K_RIGHT); assert.equal(3, pos()); key(iup.K_RIGHT); assert.equal(6, pos()); finish()
+	end)
+	it("moves home and end", function() open("one\ntwo", { pos = 5 }); key(iup.K_HOME); assert.equal(4, pos()); key(iup.K_END); assert.equal(7, pos()); finish() end)
+	it("moves vertically", function() open("12345\nxy\nlast", { pos = 4 }); key(iup.K_DOWN); assert.equal(8, pos()); key(iup.K_UP); assert.equal(4, pos()); finish() end)
+	it("preserves vertical x", function() open("12345\nx\n12345", { pos = 4 }); key(iup.K_DOWN); key(iup.K_DOWN); assert.equal(12, pos()); finish() end)
+	it("extends selection with shift", function() open("abc", { pos = 0 }); key(iup.K_RIGHT, { shift = true }); key(iup.K_RIGHT, { shift = true }); assert.equal(2, sci.send(c, 2145)); finish() end)
+	it("moves by words with control", function() open("one two", { pos = 0 }); key(iup.K_RIGHT, { ctrl = true }); assert.equal(4, pos()); key(iup.K_LEFT, { ctrl = true }); assert.equal(0, pos()); finish() end)
+	it("moves to document ends with control", function() open("one\ntwo", { pos = 4 }); key(iup.K_HOME, { ctrl = true }); assert.equal(0, pos()); key(iup.K_END, { ctrl = true }); assert.equal(7, pos()); finish() end)
+	it("pages by visible lines", function() open("a\nb\nc\nd\ne", { pos = 0 }); key(iup.K_PGDN); assert.equal(6, pos()); key(iup.K_PGUP); assert.equal(0, pos()); finish() end)
+	it("selects all", function() open("abc"); key(iup.K_A, { ctrl = true }); assert.equal(0, sci.send(c, 2143)); assert.equal(3, sci.send(c, 2145)); finish() end)
+	it("copies selection", function() open("abc", { pos = 0 }); key(iup.K_A, { ctrl = true }); key(iup.K_C, { ctrl = true }); assert.equal("abc", B.clipboard); finish() end)
+	it("cuts selection", function() open("abc", { pos = 0 }); key(iup.K_A, { ctrl = true }); key(iup.K_X, { ctrl = true }); assert.equal("", iup.GetAttribute(c, "VALUE")); assert.equal("abc", B.clipboard); finish() end)
+	it("pastes selection", function() open("x", { pos = 1 }); B.clipboard = "yz"; key(iup.K_V, { ctrl = true }); assert.equal("xyz", iup.GetAttribute(c, "VALUE")); finish() end)
+	it("supports shift delete and insert paste", function() open("abc", { pos = 0 }); key(iup.K_A, { ctrl = true }); key(iup.K_DEL, { shift = true }); assert.equal("", iup.GetAttribute(c, "VALUE")); B.clipboard = "q"; key(iup.K_INS, { shift = true }); assert.equal("q", iup.GetAttribute(c, "VALUE")); finish() end)
+	it("copies with control insert", function() open("abc", { pos = 0 }); key(iup.K_A, { ctrl = true }); key(iup.K_INS, { ctrl = true }); assert.equal("abc", B.clipboard); finish() end)
+	it("undoes and redoes", function() open("", { pos = 0 }); chars("abc"); key(iup.K_Z, { ctrl = true }); assert.equal("ab", iup.GetAttribute(c, "VALUE")); key(iup.K_Y, { ctrl = true }); assert.equal("abc", iup.GetAttribute(c, "VALUE")); finish() end)
+	it("undoes with control shift z", function() open("", { pos = 0 }); chars("a"); key(iup.K_Z, { ctrl = true }); key(iup.K_Z, { ctrl = true, shift = true }); assert.equal("a", iup.GetAttribute(c, "VALUE")); finish() end)
+	it("deletes a word backwards", function() open("one two", { pos = 7 }); key(iup.K_BS, { ctrl = true }); assert.equal("one ", iup.GetAttribute(c, "VALUE")); finish() end)
+	it("deletes a word forwards", function() open("one two", { pos = 0 }); key(iup.K_DEL, { ctrl = true }); assert.equal("two", iup.GetAttribute(c, "VALUE")); finish() end)
+	it("inserts tabs", function() open("", { pos = 0 }); key(iup.K_TAB); assert.equal("\t", iup.GetAttribute(c, "VALUE")); finish() end)
+	it("indents a selected block", function() open("a\nb", { pos = 0 }); key(iup.K_A, { ctrl = true }); key(iup.K_TAB); assert.equal("\ta\n\tb", iup.GetAttribute(c, "VALUE")); finish() end)
+	it("backtabs a selected block", function() open("\ta\n\tb", { pos = 0 }); key(iup.K_A, { ctrl = true }); key(iup.K_TAB, { shift = true }); assert.equal("a\nb", iup.GetAttribute(c, "VALUE")); finish() end)
+	it("toggles overtype", function() open("abc", { pos = 0 }); key(iup.K_INS); chars("x"); assert.equal("xbc", iup.GetAttribute(c, "VALUE")); finish() end)
+	it("cancels autocomplete and calltip", function() open("abc"); sci.sends(c, 2100, 0, "a b"); sci.sends(c, 2200, 0, "tip"); key(iup.K_ESC); assert.equal(0, sci.send(c, 2445)); assert.equal(0, sci.send(c, 2202)); finish() end)
+	it("blocks editing when read-only", function() open("abc", { pos = 1 }); iup.SetAttribute(c, "READONLY", "YES"); chars("x"); key(iup.K_DEL); key(iup.K_V, { ctrl = true }); assert.equal("abc", iup.GetAttribute(c, "VALUE")); finish() end)
+	it("fires caret callback only on changes", function() open("a", { pos = 0 }); local n = 0; c.CARET_CB = function() n = n + 1 end; key(iup.K_LEFT); key(iup.K_RIGHT); key(iup.K_RIGHT); assert.equal(1, n); finish() end)
+	it("scrolls wheel vertically", function() open("1\n2\n3\n4\n5\n6"); direct({ type = "wheel", dy = -1, mods = {} }); assert.equal(3, Element.state(c).data.first_line); finish() end)
+	it("scrolls horizontally with shift wheel", function() open("12345678901234567890"); direct({ type = "wheel", dy = 1, mods = { shift = true } }); assert.equal(3, Element.state(c).data.x_offset); finish() end)
+	it("keeps the caret visible after movement", function() open("a\nb\nc\nd\ne", { pos = 0 }); key(iup.K_DOWN); key(iup.K_DOWN); key(iup.K_DOWN); key(iup.K_DOWN); assert.is_true(Element.state(c).data.first_line > 0); finish() end)
+	it("selects a word on double click", function() open("one two", { pos = 0 }); direct({ type = "press", lx = 2, ly = 2, button = 1, double = true, mods = {} }); assert.equal(3, sci.send(c, 2145) - sci.send(c, 2143)); finish() end)
+	it("selects a line on repeated click", function() open("one\ntwo", { pos = 0 }); B.queue({ events = {{ type = "press", x = 2, y = 2, button = 1 }} }); Runtime.frame(); B.queue({ events = {{ type = "press", x = 2, y = 2, button = 1 }} }); Runtime.frame(); assert.equal("one", iup.GetAttribute(c, "VALUE"):sub(sci.send(c, 2143) + 1, sci.send(c, 2145))); finish() end)
+	it("extends mouse selection with shift", function() open("abc", { pos = 0 }); direct({ type = "press", lx = 2, ly = 2, button = 1, mods = {} }); direct({ type = "press", lx = 8, ly = 2, button = 1, mods = { shift = true } }); assert.equal(3, sci.send(c, 2145)); finish() end)
+	it("drags a selection", function() open("abc", { pos = 0 }); B.queue({ events = {{ type = "press", x = 2, y = 2, button = 1 }, { type = "move", x = 30, y = 2 }, { type = "release", x = 30, y = 2, button = 1 }} }); Runtime.frame(); assert.is_true(sci.send(c, 2145) > sci.send(c, 2143)); finish() end)
+	it("paints selection with the selection background", function() open("abc", { pos = 0 }); key(iup.K_A, { ctrl = true }); Runtime.frame(); local seen = false; for _, call in ipairs(B.lastFrame()) do if call[1] == "rect_filled" then seen = true end end; assert.is_true(seen); finish() end)
+	it("does not split UTF-8 on backspace", function() open("aé", { pos = 3 }); key(iup.K_BS); assert.equal("a", iup.GetAttribute(c, "VALUE")); finish() end)
+end)
