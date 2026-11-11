@@ -74,7 +74,7 @@ function M.iup(iup)
 	function D.userChildren(h)
 		local E = iup._Element
 		if E and E.userChildren then return E.userChildren(h) end
-		if INTERNAL[iup.GetClassName(h)] then return {} end
+		if iup.GetClassName and INTERNAL[iup.GetClassName(h)] then return {} end
 		return D.children(h)
 	end
 

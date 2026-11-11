@@ -560,9 +560,12 @@ review changes).
 - **Clicks**: every control in the status bar fires the same callbacks before and after;
   the only differences are how many repaint `ACTION`s follow, which differ the same way
   between two runs of the old code.
-- **Pixels, before2 vs after2**: 0 differing pixels on 20 of the 24 shots. The other four:
-  the Time Clock page (its clock), one activity shot with 96 px (the spinner), and the
-  same pages differ between two runs of the same code.
+- **Pixels, old code (before2) vs final code (after3)**: 0 differing pixels on 21 of the 24
+  shots. The other three: the Time Clock page (its clock text), and about 100 px on two
+  activity shots, all inside the 14 px spinning activity icon (x 49-62 at the bar's left),
+  which is at a different angle in every run. Two runs of the same code differ on the same
+  pages by the same amounts (after vs after2: the clock page, and 90-445 px on the activity
+  shots).
 - **The first old run** showed the status text drawn in the background colour on every page
   (the old fade stuck at its first frame when the shots were taken). The second run of the
   same old code did not, so it is a timing effect of the fade, not a difference between the
@@ -674,9 +677,3 @@ Stages, each gated on the one before rather than on a date:
 7. **Removal.** `ctx.iup` is removed; the iup driver is replaced by a direct driver over the
    emulator's elements (see the driver contract), and `iup` becomes internal to the host.
 
-## Status
-
-- Done: the framework, specs, the two migrations, the review changes (state-model
-  interface, commit queue, prop vocabulary and validation, ownership, styling ownership),
-  this guide.
-- In progress: the final capture (`after3`) and full suite run.
