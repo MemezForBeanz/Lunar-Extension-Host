@@ -355,6 +355,7 @@ function work(tx, f, old)
 		if not tx.D.isHandle(handle) then error("lui: Native needs `handle`, an iup handle", 0) end
 		f.host = handle
 		f.children = EMPTY
+		tx.live_natives[handle] = true
 	elseif k == "provider" then
 		local ctx = f.type.context
 		local value = f.props.value
@@ -601,7 +602,8 @@ local function place(tx, parent_handle, f)
 	local managed, want = {}, {}
 	for _, c in ipairs(desired) do managed[c] = true; want[c] = true end
 	for _, c in ipairs(placed) do
-		if not want[c] and D.isHandle(c) and D.parent(c) == parent_handle then
+		-- a Native placed elsewhere in this commit is moved there, not detached here
+		if not want[c] and not tx.live_natives[c] and D.isHandle(c) and D.parent(c) == parent_handle then
 			D.detach(c)
 			tx.layout[parent_handle] = true
 		end
@@ -694,13 +696,21 @@ local function unmount_fiber(tx, f, natives)
 	end
 end
 
+--- Unmount a deleted subtree now (cleanups, refs) and queue its widgets for removal after
+-- placement, so that a `Native` the new tree places elsewhere is moved there with
+-- Reparent (keeping its native windows) before its old container is destroyed.
 local function delete(tx, f)
-	local D = tx.D
 	local natives = {}
 	unmount_fiber(tx, f, natives)
-	-- embedded handles belong to someone else: take them out before their container dies
+	tx.dead[#tx.dead + 1] = { f, natives }
+end
+
+local function remove_dead(tx, f, natives)
+	local D = tx.D
+	-- embedded handles belong to someone else: take them out before their container
+	-- dies, unless the new tree placed them somewhere (then they have moved already)
 	for _, n in ipairs(natives) do
-		if D.isHandle(n) and D.parent(n) then
+		if not tx.live_natives[n] and D.isHandle(n) and D.parent(n) then
 			tx.layout[D.parent(n)] = true
 			D.detach(n)
 		end
@@ -818,7 +828,7 @@ local function new_tx(root)
 	return {
 		root = root, D = root._driver, effects = {}, deletions = {}, consumed = {}, cloned = {},
 		ctx = {}, ctx_log = {}, ctx_depth = 0, changed = {}, ctx_changed = 0,
-		layout = {}, created = {}, created_list = {}, caught = {},
+		layout = {}, created = {}, created_list = {}, caught = {}, dead = {}, live_natives = {},
 	}
 end
 
@@ -847,6 +857,7 @@ function Root:_commit(tx, wip)
 	rf.children = wip.children
 	for _, c in ipairs(rf.children) do commit_fiber(tx, c, rf) end
 	if rf.host then place(tx, rf.host, rf) else rf.placed = collect_hosts(rf.children, {}) end
+	for _, d in ipairs(tx.dead) do remove_dead(tx, d[1], d[2]) end
 	rf.pending = nil
 	for _, c in ipairs(tx.consumed) do
 		local cell, n = c[1], c[2]
@@ -958,6 +969,7 @@ function Root:unmount()
 	local tx = new_tx(self)
 	local rf = self._fiber
 	for _, f in ipairs(rf.children) do delete(tx, f) end
+	for _, d in ipairs(tx.dead) do remove_dead(tx, d[1], d[2]) end
 	rf.children, rf.placed = {}, {}
 	if self._opts.layout ~= "manual" then
 		for _, t in ipairs(common_ancestors(tx.D, tx.layout)) do if tx.D.isMapped(t) then tx.D.refresh(t) end end

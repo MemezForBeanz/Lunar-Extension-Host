@@ -39,6 +39,29 @@ describe("lui Native", function()
 		assert.is_true(iup.ihandle(mine))
 	end)
 
+	it("moves a native between parents with Reparent, never detaching it, even when its old box dies", function()
+		local page = iup.flatlabel({ TITLE = "page" })
+		local function view(zone, keep_left)
+			return ui.HBox{
+				(keep_left or zone == "left") and ui.VBox{ key = "left", zone == "left" and ui.Native{ handle = page } } or nil,
+				ui.VBox{ key = "right", zone == "right" and ui.Native{ handle = page } },
+			}
+		end
+		local root = ui.mount(view("left", true), { iup = iup })
+		local right = iup.GetChild(root:widget(), 1)
+		local detached, reparented = 0, 0
+		local raw_detach, raw_reparent = iup.Detach, iup.Reparent
+		iup.Detach = function(h) if h == page then detached = detached + 1 end; return raw_detach(h) end
+		iup.Reparent = function(h, ...) if h == page then reparented = reparented + 1 end; return raw_reparent(h, ...) end
+		root:update(view("right", false)) -- the page moves right and its old box is destroyed
+		iup.Detach, iup.Reparent = raw_detach, raw_reparent
+		assert.equal(right, iup.GetParent(page))
+		assert.is_true(iup.ihandle(page))
+		assert.equal(0, detached)
+		assert.equal(1, reparented)
+		assert.equal(1, iup.GetChildCount(root:widget()))
+	end)
+
 	it("never writes the native's attributes", function()
 		local mine = iup.flatlabel({ TITLE = "keep" })
 		local root = ui.mount(ui.VBox{ ui.Native{ handle = mine, tip = "ignored" } }, { iup = iup })
