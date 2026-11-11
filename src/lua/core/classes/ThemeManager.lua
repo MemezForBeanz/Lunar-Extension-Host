@@ -1138,6 +1138,15 @@ function ThemeManager:_applyElement(ih, rules, cls, role, p)
 	end
 	local inactive = cls == "flatbutton" and self:_isInactive(ih)
 	local attrs = self:_attrsFromRule(cls, r, inactive)
+	-- Colours a component owns (core.lui: explicit colours on a widget with no role) are
+	-- neither written nor captured as originals, so a switch never restores a colour the
+	-- component resolved for an earlier theme.
+	local claimed = ThemeReactor().claimed(ih)
+	if claimed then
+		local copy = {}
+		for k, v in pairs(attrs) do if not claimed[k] then copy[k] = v end end
+		attrs = copy
+	end
 	if not next(attrs) then
 		return
 	end

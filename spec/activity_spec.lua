@@ -330,44 +330,57 @@ describe("ActivityPanel palette items", function()
 end)
 
 describe("StatusBar activity slot", function()
+	-- The bar on the Null backend, with a stand-in for the activity icon that counts spins.
 	local function bar()
+		local T = require("core.lui.test")
+		local StatusIcon = require("core.ui.StatusIcon")
+		local iup, Runtime = T.boot({})
 		local calls = { spin = 0, refresh = 0, glyph = nil }
-		local box, text = { VISIBLE = "NO", FLOATING = "YES" }, {}
 		local spinning = false
-		local icon = {
-			isSpinning = function() return spinning end,
-			startSpin = function() spinning = true; calls.spin = calls.spin + 1 end,
-			stopSpin = function(_, glyph) spinning = false; calls.glyph = glyph end,
-		}
-		local iup = {
-			SetAttribute = function(w, k, v) w[k] = v end,
-			Refresh = function() calls.refresh = calls.refresh + 1 end,
-		}
-		local sb = setmetatable({ _iup = iup, _activity_box = box, _activity_icon = icon,
-			_activity_text = text }, StatusBar)
-		return sb, box, text, calls
+		local raw_new = StatusIcon.new
+		StatusIcon.new = function(i, opts)
+			if opts.state ~= "activity_ok" then return raw_new(i, opts) end
+			local label = iup.label({ TITLE = "" })
+			return {
+				widget = function() return label end,
+				isSpinning = function() return spinning end,
+				startSpin = function() spinning = true; calls.spin = calls.spin + 1 end,
+				stopSpin = function(_, glyph) spinning = false; calls.glyph = glyph end,
+			}
+		end
+		local sb = StatusBar.new({ iup = iup, icon_dir = (os.getenv("LUNAR_REPO") or ".") .. "/assets/Icons" })
+		StatusIcon.new = raw_new
+		iup.Show(iup.dialog({ iup.vbox({ sb:widget() }), RASTERSIZE = "1400x200" }))
+		Runtime.frame()
+		local raw_refresh = iup.Refresh
+		iup.Refresh = function(h) calls.refresh = calls.refresh + 1; return raw_refresh(h) end
+		local box = iup.GetChild(iup.GetChild(sb:widget(), 0), 1)
+		local function attr(h, k) return iup._Element.own(h, k) end
+		return sb, box, iup.GetChild(box, 1), calls, attr, function() iup.Refresh = raw_refresh end
 	end
 
 	it("appears with work, spins once, and only lays out when it comes or goes", function()
-		local sb, box, text, calls = bar()
+		local sb, box, text, calls, attr, done = bar()
 		sb:setActivity({ state = "running", text = "Build 1 of 3", tip = "a" })
 		sb:setActivity({ state = "running", text = "Build 2 of 3", tip = "a" })
-		assert.equals("YES", box.VISIBLE)
-		assert.equals("NO", box.FLOATING)
-		assert.equals("Build 2 of 3", text.TITLE)
+		assert.equals("YES", attr(box, "VISIBLE"))
+		assert.equals("NO", attr(box, "FLOATING"))
+		assert.equals("Build 2 of 3", attr(text, "TITLE"))
 		assert.equals(1, calls.spin)
 		assert.equals(1, calls.refresh)
 		sb:setActivity(nil)
-		assert.equals("NO", box.VISIBLE)
-		assert.equals("YES", box.FLOATING)
+		assert.equals("NO", attr(box, "VISIBLE"))
+		assert.equals("YES", attr(box, "FLOATING"))
 		assert.equals(2, calls.refresh)
+		done()
 	end)
 
 	it("settles on the state's glyph and keeps an ampersand literal", function()
-		local sb, _, text, calls = bar()
+		local sb, _, text, calls, attr, done = bar()
 		sb:setActivity({ state = "failed", text = "Upload & scan failed" })
 		assert.equals("activity_failed", calls.glyph)
-		assert.equals("Upload && scan failed", text.TITLE)
+		assert.equals("Upload && scan failed", attr(text, "TITLE"))
+		done()
 	end)
 end)
 

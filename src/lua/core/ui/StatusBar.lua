@@ -4,10 +4,18 @@
 -- Extensions reach it through `HostAPI` (`setStatus`, `setUpdateState`,
 -- `addStatusElement`, `activity`); the host builds it once.
 --
+-- The widget tree is a `core.lui` component driven by one store: each method below
+-- writes the store and flushes, so a call takes effect before it returns, as it did when
+-- the methods wrote attributes by hand. Three things stay imperative, through refs:
+-- the status fade (an animated colour the theme also owns), the Settings button's
+-- pressed colour (the theme pass writes the same attribute), and the two icon spinners
+-- (`core.ui.StatusIcon` widgets embedded with `ui.Native`).
+--
 -- @classmod core.ui.StatusBar
 
 local L = require("core.lib.CarbonLayout")
 local StatusIcon = require("core.ui.StatusIcon")
+local ui = require("core.lui")
 
 local StatusBar = {}
 StatusBar.__index = StatusBar
@@ -40,163 +48,220 @@ function StatusBar.parse_rgb(value)
 	return tonumber(r), tonumber(g), tonumber(b)
 end
 
+-- Components --------------------------------------------------------------------------
+-- Each reads only its slice of the store, so a status message renders the status line
+-- and nothing else. `p.bar` is the StatusBar: callbacks and refs live there.
+
+local function call(fn) if fn then fn() end end
+
+local Settings = ui.memo(function(p)
+	local bar = p.bar
+	return ui.Button{ ref = bar._refs.settings, tooltip = "Settings (Ctrl+,)", focusable = true, size = { 48, 28 },
+		padding = 0, role = "statusbar_button", onClick = function() call(bar._on_settings) end }
+end, nil)
+
+local Activity = ui.memo(function(p)
+	local bar = p.bar
+	local a = ui.useStore(bar._store, function(s) return s.activity end)
+	return ui.HBox{ ref = bar._refs.activity_box, align = "center", gap = L.px(1), hidden = not a.shown,
+		ui.Native{ handle = bar._activity_icon:widget() },
+		ui.Button{ a.text, ref = bar._refs.activity_text, width = ui.useStore(bar._store, function(s) return s.activity_w end),
+			align = "left", valign = "center", ellipsis = true, focusable = false, padding = { 4, 0 },
+			role = "statusbar_button", tooltip = a.tip, onClick = function() call(bar._on_activity) end },
+	}
+end)
+
+local StatusLine = ui.memo(function(p)
+	local bar = p.bar
+	local text = ui.useStore(bar._store, function(s) return s.status end)
+	-- The literals are the Classic (no-override) look; every real theme restyles the bar
+	-- through the statusbar/statusbar_text roles. The width is a floor, not a size: long
+	-- text ends in an ellipsis, it doesn't widen the window.
+	return ui.Label{ text, ref = bar._refs.label, grow = "x", width = 40, ellipsis = true,
+		font = "Segoe UI, 9", fg = "60 60 60", role = "statusbar_text" }
+end)
+
+local CommandField = ui.memo(function(p)
+	local bar = p.bar
+	local w = ui.useStore(bar._store, function(s) return s.field_w end)
+	local function command() call(bar._on_command) end
+	return ui.Frame{ ref = bar._refs.field, title = "", size = { w, 24 }, grow = false, role = "commandbar",
+		ui.HBox{ padding = { 2, 1 }, gap = 4, align = "center", grow = "x",
+			ui.Button{ "Search or run a command", ref = bar._refs.command, focusable = true, imagePosition = "left",
+				align = "left", valign = "center", spacing = 8, grow = "x", role = "commandbar_text", onClick = command },
+			ui.Button{ "Ctrl+P", focusable = false, role = "keycap", onClick = command },
+		},
+	}
+end)
+
+local Logo = ui.memo(function(p)
+	local bar = p.bar
+	local logo = ui.useStore(bar._store, function(s) return s.logo end)
+	return ui.HBox{ ref = bar._refs.logo_box, hidden = not logo.shown, align = "center", padding = { 6, 0 },
+		-- the image stays while hidden: a mapped image label must stay an image label
+		ui.Image{ ref = bar._refs.logo, tooltip = bar._logo_tip, padding = { 6, 0 }, align = "center", valign = "center",
+			image = logo.image },
+	}
+end)
+
+local Focus = ui.memo(function(p)
+	local bar = p.bar
+	local pane = ui.useStore(bar._store, function(s) return s.pane end)
+	return ui.Button{ ref = bar._refs.focus, tooltip = pane.tip, focusable = true, size = { 32, 28 },
+		role = "statusbar_button", enabled = pane.split, onClick = function() call(bar._on_focus) end }
+end)
+
+local function Bar(p)
+	local bar = p.bar
+	local revealed = ui.useStore(bar._store, function(s) return s.revealed end)
+	local reveal = revealed and {
+		hidden = revealed == 0, height = revealed, minSize = { 1, revealed }, maxSize = { 65535, revealed },
+	} or { height = StatusBar.HEIGHT }
+	return ui.HBox{ uniform = true, height = reveal.height, hidden = reveal.hidden,
+		minSize = reveal.minSize, maxSize = reveal.maxSize,
+		bg = "240 240 240", role = "statusbar", padding = 0, gap = 0, align = "center", grow = "x",
+		ui.HBox{ grow = "x", align = "center", gap = 0,
+			Settings{ bar = bar }, Activity{ bar = bar }, StatusLine{ bar = bar } },
+		ui.HBox{ grow = "x", align = "center", ui.Spacer{}, CommandField{ bar = bar }, ui.Spacer{} },
+		ui.HBox{ grow = "x", align = "center", gap = L.px(2), padding = { 8, 0 },
+			ui.Spacer{},
+			bar._has_logo and Logo{ bar = bar },
+			-- extensions append their status elements here (HostAPI's status_box)
+			ui.HBox{ ref = bar._refs.ext_box, gap = L.px(2), align = "center" },
+			Focus{ bar = bar },
+		},
+	}
+end
+
+-- The class ------------------------------------------------------------------------------
+
 --- @tparam table opts
 -- @tparam table opts.iup
 -- @tparam string opts.icon_dir the rasterized Carbon icons (assets/Icons)
 function StatusBar.new(opts)
 	local iup = opts.iup
-	local self = setmetatable({ _iup = iup }, StatusBar)
-	-- The literals are the Classic (no-override) look; every real theme
-	-- restyles the bar through the statusbar/statusbar_text roles instead of
-	-- the hardcoded gray this bar carried for years.
-	self._label = iup.label({
-		TITLE = "",
-		EXPAND = "HORIZONTAL",
-		-- A floor, not a size: long text ends in an ellipsis, it doesn't widen the window.
-		RASTERSIZE = "40x",
-		ELLIPSIS = "YES",
-		FONT = "Segoe UI, 9",
-		FGCOLOR = "60 60 60",
-		THEMEROLE = "statusbar_text",
-	})
+	local self = setmetatable({ _iup = iup, _has_logo = opts.has_logo and true or false,
+		_logo_tip = opts.logo_tip, _refs = {} }, StatusBar)
+	for _, name in ipairs({ "settings", "activity_box", "activity_text", "label", "field", "command",
+		"logo_box", "logo", "ext_box", "focus" }) do
+		self._refs[name] = {}
+	end
 	-- Registered with HostAPI by core.ui.UpdateCheck for every installation.
 	self._update_icon = StatusIcon.new(iup, {
 		dir = opts.icon_dir, size = 16, state = "upd_complete", tip = StatusBar.UPDATE_STATES.current.tip,
 	})
-	self._ext_box = iup.hbox({ GAP = L.gap(2), ALIGNMENT = "ACENTER" })
-	if opts.has_logo then
+	local seed_name
+	if self._has_logo then
 		-- Seed IMAGE before Map even when the startup theme has no logo variant.
-		self._logo = iup.label({
-			TIP = opts.logo_tip, PADDING = "6x0", ALIGNMENT = "ACENTER:ACENTER" })
 		self._logo_seed = iup.imagergba({ width = 1, height = 1, pixels = { 0, 0, 0, 0 } })
 		logo_seed_seq = logo_seed_seq + 1
-		local seed_name = "LunarStatusLogoSeed_" .. logo_seed_seq
+		seed_name = "LunarStatusLogoSeed_" .. logo_seed_seq
 		iup.SetHandle(seed_name, self._logo_seed)
-		iup.SetAttribute(self._logo, "IMAGE", seed_name)
-		self._logo_box = iup.hbox({ self._logo, FLOATING = "YES", VISIBLE = "NO",
-			ALIGNMENT = "ACENTER", MARGIN = "6x0" })
 	end
-
 	-- Background work, in place of a word that said nothing. Empty until there is some.
-	-- Sixteen pixels of icon and one line of text, so it fits the bar however slim.
 	-- The state matters even though nothing shows yet: IUP fixes a label as image or text
 	-- when it maps, and one mapped without an image never draws one.
 	self._activity_icon = StatusIcon.new(iup, { dir = opts.icon_dir, size = 16, state = "activity_ok" })
-	self._activity_text = iup.flatbutton({
-		TITLE = "",
-		RASTERSIZE = StatusBar.ACTIVITY_WIDTH .. "x",
-		ALIGNMENT = "ALEFT:ACENTER",
-		TEXTELLIPSIS = "YES",
-		CANFOCUS = "NO",
-		PADDING = "4x0",
-		THEMEROLE = "statusbar_button",
-	})
 	local bar = self
-	function self._activity_text:flat_action()
-		if bar._on_activity then bar._on_activity() end
-		return iup.DEFAULT
-	end
 	local activity_glyph = self._activity_icon:widget()
 	function activity_glyph:button_cb(button, pressed)
 		if button == iup.BUTTON1 and pressed == 0 and bar._on_activity then bar._on_activity() end
 		return iup.DEFAULT
 	end
-	self._activity_box = iup.hbox({
-		activity_glyph, self._activity_text,
-		ALIGNMENT = "ACENTER", GAP = L.gap(1), FLOATING = "YES", VISIBLE = "NO",
-	})
 
-	self._settings = iup.flatbutton({ TIP = "Settings (Ctrl+,)", CANFOCUS = "YES", RASTERSIZE = "48x28",
-		PADDING = "0x0", THEMEROLE = "statusbar_button" })
-	self._command = iup.flatbutton({ TITLE = "Search or run a command", CANFOCUS = "YES",
-		IMAGEPOSITION = "LEFT", ALIGNMENT = "ALEFT:ACENTER", SPACING = "8", EXPAND = "HORIZONTAL",
-		THEMEROLE = "commandbar_text" })
-	self._keycap = iup.flatbutton({ TITLE = "Ctrl+P", CANFOCUS = "NO", THEMEROLE = "keycap" })
-	self._field = iup.flatframe({ iup.hbox({ self._command, self._keycap,
-		MARGIN = "2x1", GAP = "4", ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" }),
-		TITLE = "", RASTERSIZE = "320x24", EXPAND = "NO", THEMEROLE = "commandbar" })
-	self._focus = iup.flatbutton({ TIP = "Focus active pane / restore split (Esc to restore)",
-		CANFOCUS = "YES", RASTERSIZE = "32x28", THEMEROLE = "statusbar_button", ACTIVE = "NO" })
-	if opts.bind_icon then
-		opts.bind_icon(self._settings, "settings")
-		opts.bind_icon(self._command, "search")
-		opts.bind_icon(self._focus, "view")
-	end
-	function self._settings:flat_action() if bar._on_settings then bar._on_settings() end; return iup.DEFAULT end
-	local function command() if bar._on_command then bar._on_command() end; return iup.DEFAULT end
-	self._command.flat_action, self._keycap.flat_action = command, command
-	function self._focus:flat_action() if bar._on_focus then bar._on_focus() end; return iup.DEFAULT end
-	local right = { iup.fill({}) }
-	if self._logo_box then right[#right + 1] = self._logo_box end
-	right[#right + 1], right[#right + 2] = self._ext_box, self._focus
-	right.EXPAND, right.ALIGNMENT, right.GAP, right.MARGIN = "HORIZONTAL", "ACENTER", L.gap(2), "8x0"
-	self._widget = iup.hbox({
-		iup.hbox({ self._settings, self._activity_box, self._label,
-			EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER", GAP = "0" }),
-		iup.hbox({ iup.fill({}), self._field, iup.fill({}), EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER" }),
-		iup.hbox(right),
-		HOMOGENEOUS = "YES", RASTERSIZE = "x" .. StatusBar.HEIGHT,
-		BGCOLOR = "240 240 240", THEMEROLE = "statusbar", MARGIN = "0x0", GAP = "0",
-		ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL",
+	self._store = ui.createStore({
+		status = "",
+		activity = { shown = false, text = "" },
+		activity_w = StatusBar.ACTIVITY_WIDTH,
+		field_w = 320,
+		logo = { shown = false, image = seed_name },
+		pane = { split = false, tip = "Focus active pane / restore split (Esc to restore)" },
+		revealed = nil,
 	})
+	-- Layout stays the caller's, as before: main.lua lays the window out after fit() and
+	-- setReveal(); the bar refreshes only where it always did (see setActivity, setLogo).
+	self._root = ui.mount(Bar, { iup = iup, props = { bar = self }, layout = "manual", theme = false })
+	self._widget = self._root:widget()
+	self._label = self._refs.label.current
+	if opts.bind_icon then
+		opts.bind_icon(self._refs.settings.current, "settings")
+		opts.bind_icon(self._refs.command.current, "search")
+		opts.bind_icon(self._refs.focus.current, "view")
+	end
 	return self
+end
+
+-- Write the store and render before returning. False when the render failed (a widget
+-- destroyed under the bar); the failure is reported once by the root.
+function StatusBar:_set(changes)
+	if self._store:set(changes) then return self._root:flush() end
+	return true
 end
 
 --- The bar itself.
 function StatusBar:widget() return self._widget end
-function StatusBar:commandWidget() return self._field end
+function StatusBar:commandWidget() return self._refs.field.current end
 function StatusBar:onCommand(fn) self._on_command = fn end
 function StatusBar:onSettings(fn) self._on_settings = fn end
 --- Show the gear pressed while Settings is the page on screen.
+-- Written straight to the widget on every call: the theme pass restyles the same
+-- attribute, so it is not state this bar can diff against.
 -- @tparam boolean selected
 -- @tparam[opt] table colors the `statusbar_button`-style `{ bg, pressed }`
 function StatusBar:setSettingsActive(selected, colors)
 	colors = colors or {}
-	self._iup.SetAttribute(self._settings, "BGCOLOR", selected and colors.pressed or colors.bg)
+	self._iup.SetAttribute(self._refs.settings.current, "BGCOLOR", selected and colors.pressed or colors.bg)
 end
 function StatusBar:onFocus(fn) self._on_focus = fn end
 function StatusBar:setPaneState(split, focused)
-	self._iup.SetAttribute(self._focus, "ACTIVE", split and "YES" or "NO")
-	self._iup.SetAttribute(self._focus, "TIP", focused and "Restore split (Esc)" or "Focus active pane")
+	self:_set({ pane = { split = split and true or false,
+		tip = focused and "Restore split (Esc)" or "Focus active pane" } })
 end
-function StatusBar:fit(width)
-	self._width = width
-	self:_showLogo()
-	self._iup.SetAttribute(self._field, "RASTERSIZE", math.max(160, math.min(480, math.floor(width / 3) - 16)) .. "x24")
-	self._iup.SetAttribute(self._activity_text, "RASTERSIZE", (width < 1100 and 80 or StatusBar.ACTIVITY_WIDTH) .. "x")
-end
-
--- Returns whether the layout changed; image-only swaps need only a repaint.
-function StatusBar:_showLogo()
-	if not self._logo_box then return false end
-	local shown = self._logo_handle ~= nil and (not self._width or self._width >= 1000)
-	if shown == (self._logo_shown or false) then return false end
-	self._logo_shown = shown
-	self._iup.SetAttribute(self._logo_box, "FLOATING", shown and "NO" or "YES")
-	self._iup.SetAttribute(self._logo_box, "VISIBLE", shown and "YES" or "NO")
+-- A store field holding a table is replaced on each write; skip writes that change nothing.
+local function same(a, b)
+	for k, v in pairs(a) do if b[k] ~= v then return false end end
+	for k in pairs(b) do if a[k] == nil then return false end end
 	return true
 end
 
+function StatusBar:fit(width)
+	self._width = width
+	local changes = {
+		field_w = math.max(160, math.min(480, math.floor(width / 3) - 16)),
+		activity_w = width < 1100 and 80 or StatusBar.ACTIVITY_WIDTH,
+	}
+	local logo = self:_logoState()
+	if not same(logo, self._store:get().logo) then changes.logo = logo end
+	self:_set(changes)
+end
+
+function StatusBar:_logoState()
+	local cur = self._store:get().logo
+	local shown = self._has_logo and self._logo_handle ~= nil and (not self._width or self._width >= 1000)
+	return { shown = shown, image = self._logo_handle or cur.image }
+end
+
 function StatusBar:setLogo(handle)
-	if not self._logo or self._logo_handle == handle then return end
+	if not self._has_logo or self._logo_handle == handle then return end
 	local iup = self._iup
 	local image = handle and iup.GetHandle(handle)
 	local size = image and (tostring(iup.GetAttribute(image, "WIDTH")) .. "x"
 		.. tostring(iup.GetAttribute(image, "HEIGHT"))) or nil
 	local resized = size ~= self._logo_size
 	self._logo_handle, self._logo_size = handle, size
-	-- Keep the seed image while hidden: a mapped image label must stay an image label.
-	if handle then iup.SetAttribute(self._logo, "IMAGE", handle) end
-	local changed = self:_showLogo()
-	if changed or resized then iup.Refresh(self._logo_box) else iup.Update(self._logo) end
+	local before = self._store:get().logo
+	local logo = self:_logoState()
+	self:_set({ logo = logo })
+	if logo.shown ~= before.shown or resized then iup.Refresh(self._refs.logo_box.current)
+	else iup.Update(self._refs.logo.current) end
 end
 
 --- Set what a click on the activity slot does.
 function StatusBar:onActivity(fn) self._on_activity = fn end
 --- Where the activity panel opens from: the bar's left end, which nothing pushes along.
-function StatusBar:activityAnchor() return self._settings end
+function StatusBar:activityAnchor() return self._refs.settings.current end
 --- The box extension status elements go in (HostAPI's `status_box`).
-function StatusBar:extBox() return self._ext_box end
+function StatusBar:extBox() return self._refs.ext_box.current end
 --- The update indicator (a `core.ui.StatusIcon`).
 function StatusBar:updateIcon() return self._update_icon end
 
@@ -211,7 +276,7 @@ function StatusBar:setActivity(view)
 	local key = view and (view.state .. "|" .. view.text .. "|" .. tostring(view.tip)) or ""
 	if key == self._activity_key then return end
 	self._activity_key = key
-	local iup, box, icon, text = self._iup, self._activity_box, self._activity_icon, self._activity_text
+	local icon = self._activity_icon
 	-- A status bar that throws would surface as an error in whichever tool reported.
 	pcall(function()
 		if view and view.state == "running" then
@@ -221,18 +286,15 @@ function StatusBar:setActivity(view)
 		else
 			icon:stopSpin()
 		end
+		local cur = self._store:get().activity
+		local shown = view ~= nil
+		local next_view = { shown = shown, text = cur.text, tip = cur.tip }
 		if view then
 			-- A flat button reads & as a mnemonic.
-			iup.SetAttribute(text, "TITLE", (view.text:gsub("&", "&&")))
-			iup.SetAttribute(text, "TIP", view.tip or "")
+			next_view.text, next_view.tip = (view.text:gsub("&", "&&")), view.tip or ""
 		end
-		local shown = view ~= nil
-		if shown ~= (self._activity_shown or false) then
-			self._activity_shown = shown
-			iup.SetAttribute(box, "FLOATING", shown and "NO" or "YES")
-			iup.SetAttribute(box, "VISIBLE", shown and "YES" or "NO")
-			iup.Refresh(box)
-		end
+		self:_set({ activity = next_view })
+		if shown ~= cur.shown then self._iup.Refresh(self._refs.activity_box.current) end
 	end)
 end
 
@@ -248,7 +310,8 @@ end
 function StatusBar:setStatus(msg)
 	local iup, label = self._iup, self._label
 	if not label then return end
-	if not pcall(iup.SetAttribute, label, "TITLE", tostring(msg)) then
+	local ok, rendered = pcall(self._set, self, { status = tostring(msg) })
+	if not (ok and rendered) then
 		-- A dead label must never turn status updates into repeated error dialogs.
 		self._label = nil
 		return
@@ -310,13 +373,8 @@ end
 --- Occupy a fraction of the bar's height without changing any content state.
 function StatusBar:setReveal(progress)
 	local height = math.floor(StatusBar.HEIGHT * progress + 0.5)
-	local iup, widget = self._iup, self._widget
 	self._revealed = height
-	iup.SetAttribute(widget, "FLOATING", height == 0 and "YES" or "NO")
-	iup.SetAttribute(widget, "VISIBLE", height == 0 and "NO" or "YES")
-	iup.SetAttribute(widget, "RASTERSIZE", "x" .. height)
-	iup.SetAttribute(widget, "MINSIZE", "1x" .. height)
-	iup.SetAttribute(widget, "MAXSIZE", "65535x" .. height)
+	self:_set({ revealed = height })
 end
 
 --- How tall the bar is right now, for whatever shares the window's height with it. A
