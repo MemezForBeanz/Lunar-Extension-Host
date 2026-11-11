@@ -72,9 +72,15 @@ local function event(e, st, ev, rt)
 		if r == iup.CLOSE then ev.result = r end
 		return true
 	elseif ev.type == "wheel" then
+		-- winCanvasMsgProc WM_MOUSEWHEEL: WHEEL_CB takes it; without one a canvas with a
+		-- vertical bar scrolls, and any other lets DefWindowProc pass it to the parent.
+		if not Element.hasCallback(e, "WHEEL_CB") then
+			local sb = tostring(attr(e, "SCROLLBAR") or "NO"):upper()
+			return sb == "YES" or sb == "VERTICAL"
+		end
 		local r = call_result(e, "WHEEL_CB", ev.dy or ev.delta or 0, x, y, status)
 		if r == iup.CLOSE then ev.result = r end
-		return r ~= iup.IGNORE
+		return true
 	elseif ev.type == "enter" then return true -- the runtime fires ENTERWINDOW_CB for every element
 	elseif ev.type == "leave" then return true
 	elseif ev.type == "key" then

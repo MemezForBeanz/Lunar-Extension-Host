@@ -200,3 +200,25 @@ describe("imgui scroll bars: Windows 11 look", function()
 		assert.is_true(has(bx + 8, st.y + 33, bx + 10, st.y + 34)) -- its bottom end, 17 px on
 	end)
 end)
+
+describe("imgui scroll bars: the wheel over a canvas", function()
+	-- winCanvasMsgProc WM_MOUSEWHEEL: a canvas with no WHEEL_CB and no vertical bar breaks to
+	-- DefWindowProc, which forwards the wheel to the parent window. The host's canvas kept it.
+	it("reaches the scroll box around a canvas without WHEEL_CB", function()
+		local iup, R, B, Element = host()
+		local cv = iup.canvas({ RASTERSIZE = "200x900", EXPAND = "NO" })
+		local box = iup.scrollbox({ iup.vbox({ cv }), SCROLLBAR = "VERTICAL" })
+		local d = iup.dialog({ box, RASTERSIZE = "300x300", MARGIN = "0x0" })
+		iup.Show(d); R.frame()
+		local st = Element.state(cv)
+		local mx, my = st.x + 5, st.y + 50
+		B.queue({ mx = mx, my = my }); R.frame()
+		B.queue({ mx = mx, my = my, wheel = -1 }); R.frame()
+		assert.near(30, tonumber(iup.GetAttribute(box, "POSY")), 1e-6)
+		local got
+		cv.wheel_cb = function(_, delta) got = delta end
+		B.queue({ mx = mx, my = my, wheel = -1 }); R.frame()
+		assert.equal(-1, got)
+		assert.near(30, tonumber(iup.GetAttribute(box, "POSY")), 1e-6)
+	end)
+end)
