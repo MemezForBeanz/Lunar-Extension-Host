@@ -207,10 +207,13 @@ local function titles(strip)
 end
 local function clipboard()
 	if IMGUI then return require("core.imgui.Runtime").clipboard_get() end
-	local s = iup.GetGlobal("CLIPBOARD") -- not an IUP global; use the clipboard element
-	local cb = iup.clipboard and iup.clipboard() or nil
-	if cb then local v = iup.GetAttribute(cb, "TEXT"); iup.Destroy(cb); return v end
-	return s
+	local ok, v = pcall(function()
+		local cb = iup.clipboard({})
+		local text = iup.GetAttribute(cb, "TEXT")
+		iup.Destroy(cb)
+		return text
+	end)
+	return ok and v or ("error: " .. tostring(v))
 end
 local function tooltip_visible()
 	if IMGUI then
@@ -424,8 +427,19 @@ step(1, function()
 end)
 step(12, function() say("10 tooltip shown after ~1.5 s", tostring(tooltip_visible())) end)
 
+-- 10b. Menu bar keys: F10, then Esc; Alt+F (no menu bar letters in Lunar's custom bar?)
+step(1, function() popups = {}; key(0x79, {}) end)
+step(5, function() say("10b after F10: menus", #popups, popups[1] or "", "focus", label(iup.GetFocus())); key(0x1B, {}) end)
+step(3, function() popups = {}; key(0x46, { alt = true }) end)
+step(5, function() say("10b after Alt+F: menus", #popups, popups[1] or "", "focus", label(iup.GetFocus())) end)
+
 -- 11. Window states
-step(1, function() user32.PostMessageA(main_hwnd, 0x0112, 0xF030, 0) end) -- SC_MAXIMIZE
+step(1, function()
+	say("11 before: RASTERSIZE", iup.GetAttribute(dlg, "RASTERSIZE"), "MAXSIZE", tostring(iup.GetAttribute(dlg, "MAXSIZE")),
+		"MINSIZE", tostring(iup.GetAttribute(dlg, "MINSIZE")), "SCREENSIZE", tostring(iup.GetGlobal("SCREENSIZE")),
+		"FULLSIZE", tostring(iup.GetGlobal("FULLSIZE")))
+	user32.PostMessageA(main_hwnd, 0x0112, 0xF030, 0) -- SC_MAXIMIZE
+end)
 step(8, function()
 	local rc = ffi.new("MC_RECT"); user32.GetClientRect(main_hwnd, rc)
 	say("11 maximized", user32.IsZoomed(main_hwnd), "client", rc.right, rc.bottom, "dlg", tostring(iup.GetAttribute(dlg, "MAXIMIZED")))
