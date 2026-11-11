@@ -12,6 +12,13 @@ local function pair(v)
 	return tonumber(a), tonumber(b)
 end
 local function user_child(e) return FlatScrollbar.user_child(e) end
+-- IupRefresh lays out at once; this host defers it to Runtime.layoutNow, so anything that
+-- reads or moves the scroll range lays a pending dialog out first (the Log Parser sets
+-- VALUE, refreshes, then SYNCFROMCHILD against the new YMAX).
+local function fresh(e)
+	local R = package.loaded["core.imgui.Runtime"]
+	if R and R.layoutNow then R.layoutNow(e) end
+end
 
 -- Lunar fork (patch 0001, iup_flatscrollbox.c): NATIVETEXTSCROLL lets the flat bars drive a
 -- native multiline text child's own line scroll. iFlatScrollBoxNativeTextMode: the box has
@@ -69,6 +76,7 @@ local function scroll_to_child(e, st, child)
 end
 
 local function scroll_set(e, st, value, handle)
+	fresh(e)
 	local name = tostring(value or ""):upper()
 	if name == "TOP" then set_pos(e, st, 0, 0)
 	elseif name == "BOTTOM" then set_pos(e, st, st.data.posx, (st.data.ymax or 0) - (st.data.dy or 0))
@@ -197,19 +205,20 @@ local scroll_def = {
 	-- iup_flatscrollbox.c: "set expand to its own expand so it will not depend on children"
 	childrenExpand = function(el, st) return st.expand end,
 	get = {
-		POSX = function(e, s) return s.data.posx or 0 end, POSY = function(e, s) return s.data.posy or 0 end,
-		DX = function(e, s) return s.data.dx or 0 end, DY = function(e, s) return s.data.dy or 0 end,
-		XMAX = function(e, s) return s.data.xmax or 0 end, YMAX = function(e, s) return s.data.ymax or 0 end,
+		POSX = function(e, s) fresh(e); return s.data.posx or 0 end, POSY = function(e, s) fresh(e); return s.data.posy or 0 end,
+		DX = function(e, s) fresh(e); return s.data.dx or 0 end, DY = function(e, s) fresh(e); return s.data.dy or 0 end,
+		XMAX = function(e, s) fresh(e); return s.data.xmax or 0 end, YMAX = function(e, s) fresh(e); return s.data.ymax or 0 end,
 	},
 	set = {
 		SCROLLTO = scroll_set,
 		SCROLLTOCHILD = scroll_set,
 		SCROLLTOCHILD_HANDLE = scroll_set,
-		POSX = function(e, s, v) set_pos(e, s, v, s.data.posy) return false end,
-		POSY = function(e, s, v) set_pos(e, s, s.data.posx, v) return false end,
+		POSX = function(e, s, v) fresh(e); set_pos(e, s, v, s.data.posy) return false end,
+		POSY = function(e, s, v) fresh(e); set_pos(e, s, s.data.posx, v) return false end,
 		-- iFlatScrollBoxSetSyncFromChildAttrib: POSY follows the text's first visible line
 		-- after the application moved it (SCROLLTO to a failure line).
 		SYNCFROMCHILD = function(e, s)
+			fresh(e)
 			local text = native_text_child(e)
 			if text then
 				local liney = s.data.native_liney or native_line_height(text)

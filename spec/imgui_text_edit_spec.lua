@@ -313,6 +313,19 @@ describe("native text on the ImGui host: NATIVETEXTSCROLL hosting", function()
 		assert.equal("28", iup.GetAttribute(t, "FIRSTVISIBLELINE"))
 	end)
 
+	it("lays a pending dialog out before SYNCFROMCHILD or a range read (IupRefresh is synchronous)", function()
+		local t, box, ch = hosted(10)
+		local lines = {}
+		for i = 1, 300 do lines[i] = "row " .. i end
+		iup.SetAttribute(t, "VALUE", table.concat(lines, "\n"))
+		iup.Refresh(box)
+		-- no frame: the Log Parser reads the new range and jumps in the same callback
+		assert.equal(tostring(300 * ch), iup.GetAttribute(box, "YMAX"))
+		iup.SetAttribute(t, "SCROLLTO", "200:1")
+		iup.SetAttribute(box, "SYNCFROMCHILD", "1")
+		assert.equal(tostring(199 * ch), iup.GetAttribute(box, "POSY"))
+	end)
+
 	it("ignores SCROLLTO on a single-line text (EM_LINESCROLL is multiline only)", function()
 		local t = iup.text{ VALUE = "abc", RASTERSIZE = "100x20" }
 		show(t, 200, 60)
