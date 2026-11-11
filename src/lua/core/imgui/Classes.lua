@@ -36,6 +36,8 @@
 --       draw = function(el, st, dc, rt) end,       -- before children
 --       drawAfter = function(el, st, dc, rt) end,  -- after children (borders, scrollbars)
 --       clip = true,                               -- children are clipped to the rect
+--       clipRect = function(el, st) return x, y, w, h end, -- where children are clipped
+--                               -- and hit (a native control keeps its scroll bars apart)
 --       event = function(el, st, ev, rt) return consumed end,
 --       focusable = true | function(el, st) end,
 --       hit = function(el, st, x, y) return inside end,

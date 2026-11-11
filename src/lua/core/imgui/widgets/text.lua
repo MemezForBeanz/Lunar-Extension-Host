@@ -116,7 +116,12 @@ local function caret_cb(e, st)
 end
 local function set_value(e, st, value)
 	st.data.text = tostring(value or "")
-	st.data.caret, st.data.anchor = #st.data.text, #st.data.text
+	if M.isMulti and M.isMulti(e, st) then
+		-- SetWindowText: the EDIT starts over at the top with the caret at 0 (measured)
+		st.data.caret, st.data.anchor, st.data.top_line, st.data.scroll_x = 0, 0, 0, 0
+	else
+		st.data.caret, st.data.anchor = #st.data.text, #st.data.text
+	end
 	return false
 end
 -- iTextComputeNaturalSizeMethod: one line is tmHeight tall and VISIBLECOLUMNS/10 of
@@ -241,37 +246,512 @@ local function event(e, st, ev, rt)
 	end
 	return false
 end
+-- The multiline EDIT (iupwin_text.c maps a multiline to an EDIT with ES_MULTILINE,
+-- ES_AUTOVSCROLL, ES_AUTOHSCROLL unless WORDWRAP, and WS_VSCROLL/WS_HSCROLL from SCROLLBAR).
+-- What the EDIT does was measured on the IUP build (scripts/ui_scroll.lua): the format rect
+-- is the client less 1 px each side (EM_GETRECT 1,1,w-1,...) cut to whole lines; a line is
+-- tmHeight; the vertical bar ranges over the lines with the visible lines as its page, the
+-- horizontal one over the widest line with the format width as its page; both stay shown,
+-- disabled, while nothing scrolls; the wheel scrolls 3 lines a notch (SPI_GETWHEELSCROLLLINES),
+-- an arrow 1, the track a page less one line; EM_SCROLLCARET brings the caret's line into
+-- view at the top or bottom edge.
+local Win = require("core.imgui.widgets.winscrollbar")
+local WHEEL_LINES = 3 -- SPI_GETWHEELSCROLLLINES default
+local HSCROLL_FRACTION = 3 -- the EDIT jumps a third of the width when the caret leaves the view
+
+local function is_multi(e, st) return st.classname == "multiline" or yes(attr(e, "MULTILINE")) end
+M.isMulti = is_multi
+
+--- The text as lines: { s = offset of the first byte (0-based), t = text }. Appending keeps
+-- the lines already split (a growing log is not split again).
+local function lines_of(st)
+	local text = st.data.text
+	local cache = st.data.lines
+	if cache and st.data.lines_src == text then return cache end
+	local out, from = {}, 0
+	local old = st.data.lines_src
+	if cache and old and #old > 0 and #text > #old and text:sub(1, #old) == old then
+		-- keep every line but the last one (which may have grown)
+		for i = 1, #cache - 1 do out[i] = cache[i] end
+		from = cache[#cache].s
+		st.data.text_w_upto = math.min(st.data.text_w_upto or 0, #cache - 1)
+	else
+		st.data.text_w, st.data.text_w_upto = 0, 0
+	end
+	local pos = from
+	local p = from + 1
+	while true do
+		local nl = text:find("\n", p, true)
+		if not nl then out[#out + 1] = { s = pos, t = text:sub(p) }; break end
+		out[#out + 1] = { s = pos, t = text:sub(p, nl - 1) }
+		pos = nl
+		p = nl + 1
+	end
+	st.data.lines, st.data.lines_src = out, text
+	return out
+end
+M.lines = lines_of
+
+local function line_of(lines, p)
+	local lo, hi = 1, #lines
+	while lo < hi do
+		local mid = math.floor((lo + hi + 1) / 2)
+		if lines[mid].s <= p then lo = mid else hi = mid - 1 end
+	end
+	return lo
+end
+
+--- The widest line in pixels (the horizontal range), measured once per line.
+local function text_width(e, st, font)
+	local lines = lines_of(st)
+	local w = st.data.text_w or 0
+	for i = (st.data.text_w_upto or 0) + 1, #lines do
+		local lw = font:measure(lines[i].t)
+		if lw > w then w = lw end
+	end
+	st.data.text_w, st.data.text_w_upto = w, #lines
+	return w
+end
+
+--- Client rect, format rect and line metrics (dialog coordinates), plus which bars exist.
+local function metrics(e, st)
+	local font = Fonts.forElement(e)
+	local cw, lh = font:charsize()
+	local border = yes(attr(e, "BORDER")) and 2 or 0 -- WS_EX_CLIENTEDGE
+	local sb = tostring(attr(e, "SCROLLBAR") or "YES"):upper()
+	local sbv = sb == "YES" or sb == "VERTICAL"
+	-- winTextMapMethod: WORDWRAP removes the horizontal bar
+	local sbh = (sb == "YES" or sb == "HORIZONTAL") and not yes(attr(e, "WORDWRAP"))
+	local cx, cy = st.x + border, st.y + border
+	local cwid, chei = st.w - 2 * border, st.h - 2 * border
+	if sbv then cwid = cwid - Win.SIZE end
+	if sbh then chei = chei - Win.SIZE end
+	local pad = pair(attr(e, "PADDING")) -- EM_SETMARGINS, horizontal only
+	local vlc = math.max(0, math.floor((chei - 2) / math.max(1, lh)))
+	local m = {
+		font = font, cw = cw, lh = lh, border = border, sbh = sbh, sbv = sbv,
+		cx = cx, cy = cy, cwid = math.max(0, cwid), chei = math.max(0, chei),
+		fx = cx + 1 + pad, fy = cy + 1, fw = math.max(0, cwid - 2 - 2 * pad), fh = vlc * lh, vlc = vlc,
+	}
+	-- for scripts/ui_scroll.lua: the format rect in client coordinates, as EM_GETRECT
+	st.data.metrics = { x = 1 + pad, y = 1, w = m.fw, h = m.fh, lh = lh }
+	return m
+end
+
+local function max_top(st, m) return math.max(0, #lines_of(st) - math.max(1, m.vlc)) end
+
+local function clamp_view(e, st, m)
+	st.data.top_line = math.max(0, math.min(max_top(st, m), st.data.top_line or 0))
+	local tw = text_width(e, st, m.font)
+	st.data.scroll_x = math.max(0, math.min(math.max(0, tw - m.fw), st.data.scroll_x or 0))
+end
+
+--- EM_SCROLLCARET (EDIT_EM_ScrollCaret): the caret's line to the nearest edge, and a third
+-- of the width past the caret when it left the view sideways.
+local function scroll_to(e, st, p)
+	if not is_multi(e, st) then return end
+	local m = metrics(e, st)
+	local lines = lines_of(st)
+	local li = line_of(lines, p) - 1
+	local vlc = math.max(1, m.vlc)
+	local top = st.data.top_line or 0
+	if li < top then top = li elseif li >= top + vlc then top = li - vlc + 1 end
+	st.data.top_line = top
+	local line = lines[li + 1]
+	local x = m.font:measure(line.t:sub(1, p - line.s))
+	local sx = st.data.scroll_x or 0
+	if x < sx then sx = x - math.floor(m.fw / HSCROLL_FRACTION)
+	elseif x > sx + m.fw then sx = x - math.floor((HSCROLL_FRACTION - 1) * m.fw / HSCROLL_FRACTION) end
+	st.data.scroll_x = sx
+	clamp_view(e, st, m)
+	Element.hooks.invalidate(e, "paint", "POS")
+end
+function M.scrollCaret(e, st) scroll_to(e, st, st.data.caret or 0) end
+M.scrollTo = scroll_to
+
+local text_owner = {
+	range = function(e, vertical)
+		local st = Element.state(e)
+		local m = metrics(e, st)
+		if vertical then return #lines_of(st), math.max(1, m.vlc), st.data.top_line or 0 end
+		return text_width(e, st, m.font), m.fw, st.data.scroll_x or 0
+	end,
+	-- EDIT_WM_VScroll / HScroll: a line, or a page less one line (vertical); a character
+	-- width, or the format width (horizontal: not measured)
+	step = function(e, vertical, part, pos, page)
+		local st = Element.state(e)
+		if vertical then
+			local pg = math.max(1, page - 1)
+			if part == "linedown" then return pos + 1 elseif part == "lineup" then return pos - 1
+			elseif part == "pagedown" then return pos + pg elseif part == "pageup" then return pos - pg end
+		else
+			local cw = metrics(e, st).cw
+			if part == "linedown" then return pos + cw elseif part == "lineup" then return pos - cw
+			elseif part == "pagedown" then return pos + page elseif part == "pageup" then return pos - page end
+		end
+	end,
+	scroll = function(e, vertical, pos)
+		local st = Element.state(e)
+		if vertical then st.data.top_line = math.floor(pos + 0.5) else st.data.scroll_x = math.floor(pos + 0.5) end
+		clamp_view(e, st, metrics(e, st))
+		Element.hooks.invalidate(e, "paint", "POS")
+	end,
+}
+
+--- The bars of this frame (shown while SCROLLBAR asks for them; no thumb when disabled).
+local function ml_bars(e, st, m)
+	local lines = lines_of(st)
+	local tw = text_width(e, st, m.font)
+	Win.set(e,
+		m.sbv and { x = m.cx + m.cwid, y = m.cy, w = Win.SIZE, h = m.chei, max = #lines, page = math.max(1, m.vlc), pos = st.data.top_line or 0 } or nil,
+		m.sbh and { x = m.cx, y = m.cy + m.chei, w = m.cwid, h = Win.SIZE, max = tw, page = m.fw, pos = st.data.scroll_x or 0 } or nil)
+end
+
+--- The character offset at dialog point (x, y): the line under it, the nearest boundary.
+local function offset_at(e, st, m, x, y)
+	local lines = lines_of(st)
+	local li = (st.data.top_line or 0) + math.floor((y - m.fy) / math.max(1, m.lh))
+	li = math.max(0, math.min(#lines - 1, li))
+	local line = lines[li + 1]
+	local px = x - m.fx + (st.data.scroll_x or 0)
+	if px <= 0 then return line.s end
+	local t, best, prev_w, i = line.t, #line.t, 0, 1
+	while i <= #t do
+		local _, nxt = utf8_char(t, i)
+		local w = m.font:measure(t:sub(1, nxt - 1))
+		if px < (prev_w + w) / 2 then best = i - 1; break end
+		prev_w, i = w, nxt
+	end
+	return line.s + best
+end
+
+local function ml_draw(e, st, dc, rt)
+	local m = metrics(e, st)
+	clamp_view(e, st, m)
+	local bg = attr(e, "BGCOLOR")
+	if bg then dc:fill(st.x, st.y, st.w, st.h, bg) end
+	local focused = rt and rt.focused and rt.focused() == e
+	local lines = lines_of(st)
+	local fg = attr(e, "FGCOLOR")
+	local value = st.data.text
+	local password = yes(attr(e, "PASSWORD"))
+	dc:clip_push(m.cx, m.cy, m.cwid, m.chei)
+	if value == "" and attr(e, "CUEBANNER") and not focused then
+		dc:text(attr(e, "CUEBANNER"), m.fx, m.fy, m.fw, m.lh, attr(e, "PLACEHOLDERCOLOR") or fg, m.font, { clip = true })
+	end
+	local a, b = sorted_selection(st)
+	local top = st.data.top_line or 0
+	local x0 = m.fx - (st.data.scroll_x or 0)
+	-- the partly visible line under the last full one is drawn too, clipped by the client
+	local last = math.min(#lines, top + math.max(1, m.vlc) + 1)
+	for li = top + 1, last do
+		local line = lines[li]
+		local y = m.fy + (li - 1 - top) * m.lh
+		local t = password and line.t:gsub("[%z\1-\127\194-\244][\128-\191]*", "*") or line.t
+		local ls, le = line.s, line.s + #line.t
+		if a ~= b and b > ls and a <= le then
+			local sa, sb = math.max(a, ls) - ls, math.min(b, le) - ls
+			local sx = x0 + m.font:measure(line.t:sub(1, sa))
+			local sw = m.font:measure(line.t:sub(sa + 1, sb))
+			if b > le then sw = sw + m.cw end -- the selected line break
+			dc:fill(sx, y, math.max(1, sw), m.lh, attr(e, "SELECTIONCOLOR") or "100 140 220 100")
+		end
+		if t ~= "" then dc:text(t, x0, y, math.max(0, m.font:measure(t) + 1), m.lh, fg, m.font, { clip = true }) end
+	end
+	if focused then
+		local li = line_of(lines, st.data.caret or 0)
+		if li - 1 >= top and li - 1 < top + math.max(1, m.vlc) + 1 then
+			local line = lines[li]
+			local cx = x0 + m.font:measure(line.t:sub(1, (st.data.caret or 0) - line.s))
+			local y = m.fy + (li - 1 - top) * m.lh
+			dc:line(cx, y, cx, y + m.lh, attr(e, "CARETCOLOR") or fg, 1)
+		end
+		if rt and rt.animate then rt.animate() end
+	end
+	dc:clip_pop()
+	ml_bars(e, st, m)
+	Win.tick(e, text_owner, rt)
+	Win.draw(e, st, dc)
+	if m.border > 0 then
+		dc:rect(st.x, st.y, st.w, st.h, focused and (attr(e, "FOCUSCOLOR") or attr(e, "BORDERCOLOR")) or attr(e, "BORDERCOLOR"), { thickness = 1 })
+	end
+end
+
+--- Moves of the caret a multiline adds: Up/Down keep the column's x, PgUp/PgDn a page,
+-- Ctrl+Home/End the ends of the text, Home/End the line's.
+local function ml_move(e, st, base, ctrl)
+	local m = metrics(e, st)
+	local lines = lines_of(st)
+	local caret = st.data.caret or 0
+	local li = line_of(lines, caret)
+	local line = lines[li]
+	local goal = st.data.goal_x or m.font:measure(line.t:sub(1, caret - line.s))
+	local function to_line(n)
+		n = math.max(1, math.min(#lines, n))
+		local l = lines[n]
+		local p = offset_at(e, st, m, m.fx - (st.data.scroll_x or 0) + goal, m.fy + (n - 1 - (st.data.top_line or 0)) * m.lh)
+		return math.max(l.s, math.min(l.s + #l.t, p)), true
+	end
+	if base == iup.K_UP then return to_line(li - 1)
+	elseif base == iup.K_DOWN then return to_line(li + 1)
+	elseif base == iup.K_PGUP then st.data.top_line = (st.data.top_line or 0) - math.max(1, m.vlc); return to_line(li - math.max(1, m.vlc))
+	elseif base == iup.K_PGDN then st.data.top_line = (st.data.top_line or 0) + math.max(1, m.vlc); return to_line(li + math.max(1, m.vlc))
+	elseif base == iup.K_HOME then return ctrl and 0 or line.s
+	elseif base == iup.K_END then return ctrl and #st.data.text or line.s + #line.t
+	end
+	return nil
+end
+
+local function ml_event(e, st, ev, rt, single_event)
+	local t = ev.type
+	if t == "wheel" then
+		-- EDIT WM_MOUSEWHEEL: SPI_GETWHEELSCROLLLINES lines per notch, the rest kept for the
+		-- next one; the EDIT keeps the wheel
+		if ev.mods and (ev.mods.ctrl or ev.mods.shift) then return false end
+		local m = metrics(e, st)
+		local lines = math.min(#lines_of(st), WHEEL_LINES)
+		local delta = (ev.dy or 0) * 120
+		local rem = st.data.wheel_rem or 0
+		if rem ~= 0 and (rem > 0) ~= (delta > 0) then rem = 0 end
+		delta = delta + rem
+		local n = lines * delta / 120
+		n = n >= 0 and math.floor(n) or -math.floor(-n)
+		st.data.wheel_rem = delta - n * 120 / math.max(1, lines)
+		st.data.top_line = (st.data.top_line or 0) - n
+		clamp_view(e, st, m)
+		Element.hooks.invalidate(e, "paint", "POS")
+		return true
+	end
+	if t == "press" and ev.button == 1 and Win.press(e, text_owner, ev.x, ev.y, rt) then return true end
+	if t == "move" and Win.move(e, text_owner, ev.x, ev.y, rt) then return true end
+	if t == "release" and ev.button == 1 and Win.release(e, text_owner, ev.x, ev.y, rt) then return true end
+	if t == "leave" then Win.leave(e, rt); return true end
+	if t == "press" or (t == "move" and st.data.captured) then
+		local m = metrics(e, st)
+		local p = offset_at(e, st, m, ev.x, ev.y)
+		st.data.caret = p
+		if t == "press" then st.data.anchor = ev.mods and ev.mods.shift and st.data.anchor or p; st.data.captured = true
+			if rt and rt.capture then rt.capture(e) end
+		end
+		st.data.goal_x = nil
+		scroll_to(e, st, p)
+		caret_cb(e, st)
+		return true
+	end
+	if t == "key" then
+		local k = ev.key
+		local ctrl = (ev.mods and ev.mods.ctrl) or iup.isCtrlXkey(k)
+		local shift = (ev.mods and ev.mods.shift) or iup.isShiftXkey(k)
+		local base = iup.XkeyBase(k)
+		if base == iup.K_CR and not ctrl then
+			-- ES_WANTRETURN: Enter is a line break (Ctrl+Enter is the dialog's DEFAULTENTER)
+			local a, b = sorted_selection(st)
+			replace(e, st, a, b, "\n", rt); st.data.goal_x = nil; scroll_to(e, st, st.data.caret); caret_cb(e, st)
+			return true
+		elseif base == iup.K_TAB and not ctrl then
+			-- iupKeyProcessNavigation: Tab is a character in a multiline, Ctrl+Tab moves on
+			local a, b = sorted_selection(st)
+			replace(e, st, a, b, "\t", rt); scroll_to(e, st, st.data.caret); caret_cb(e, st)
+			return true
+		elseif base == iup.K_TAB and ctrl then
+			if rt and rt.nextField then rt.nextField(e, shift and -1 or 1) end
+			return true
+		elseif base == iup.K_CR and ctrl then
+			if rt and rt.activateDefault then rt.activateDefault(e, "DEFAULTENTER") end
+			return true
+		end
+		local p = ml_move(e, st, base, ctrl)
+		if p then
+			local keep_goal = base == iup.K_UP or base == iup.K_DOWN or base == iup.K_PGUP or base == iup.K_PGDN
+			if keep_goal and not st.data.goal_x then
+				local lines = lines_of(st)
+				local line = lines[line_of(lines, st.data.caret or 0)]
+				st.data.goal_x = metrics(e, st).font:measure(line.t:sub(1, (st.data.caret or 0) - line.s))
+			elseif not keep_goal then st.data.goal_x = nil end
+			st.data.caret = p
+			if not shift then st.data.anchor = p end
+			scroll_to(e, st, p)
+			caret_cb(e, st)
+			if rt and rt.redraw then rt.redraw(e) end
+			return true
+		end
+		local r = single_event(e, st, ev, rt)
+		st.data.goal_x = nil
+		scroll_to(e, st, st.data.caret or 0)
+		return r
+	end
+	local r = single_event(e, st, ev, rt)
+	if t == "char" then st.data.goal_x = nil; scroll_to(e, st, st.data.caret or 0) end
+	return r
+end
+
+local function draw_any(e, st, dc, rt)
+	if is_multi(e, st) then return ml_draw(e, st, dc, rt) end
+	return draw(e, st, dc, rt)
+end
+local function event_any(e, st, ev, rt)
+	if is_multi(e, st) then return ml_event(e, st, ev, rt, event) end
+	return event(e, st, ev, rt)
+end
+
+--- iupStrToIntInt: "a<sep>b", "a" alone or "<sep>b" alone; nil where a value is missing.
+local function int_pair(v, sep)
+	local s = tostring(v or "")
+	local i = s:find(sep, 1, true)
+	if not i then return tonumber(s:match("^%s*(-?%d+)")), nil end
+	return tonumber(s:sub(1, i - 1):match("^%s*(-?%d+)")), tonumber(s:sub(i + 1):match("^%s*(-?%d+)"))
+end
+--- winTextSetLinColToPosition: line and column from 1, clamped to the text.
+local function lincol_to_pos(st, lin, col)
+	local lines = lines_of(st)
+	local l = lines[math.max(1, math.min(#lines, lin))]
+	return l.s + math.max(0, math.min(#l.t, col - 1))
+end
+M.lineOf = line_of
+--- winTextScrollTo: EM_LINESCROLL(col, lin - first visible line) on a plain EDIT.
+function M.lineScroll(e, st, lin0, cols)
+	local m = metrics(e, st)
+	st.data.top_line = lin0
+	st.data.scroll_x = (st.data.scroll_x or 0) + cols * m.cw
+	clamp_view(e, st, m)
+	Element.hooks.invalidate(e, "paint", "POS")
+end
+
 local common = {
-	children = 0, focusable = true, natural = text_natural, draw = draw, event = event,
+	children = 0, focusable = true, natural = text_natural, draw = draw_any, event = event_any,
 	-- IUP registers BORDER, PADDING ("0x0"), VISIBLECOLUMNS ("5"), VISIBLELINES and the TXT colours (attrs.lua)
 	defaults = { CURSOR = "IBEAM" },
 	set = {
 		VALUE = set_value,
-		APPEND = function(e, st, v) replace(e, st, #st.data.text, #st.data.text, v); return false end,
-		INSERT = function(e, st, v) replace(e, st, st.data.caret, st.data.caret, v); return false end,
+		-- winTextSetAppendAttrib: EM_REPLACESEL at the end (it ignores ES_READONLY), after a
+		-- line break when the multiline has text and APPENDNEWLINE (default YES), with the
+		-- callbacks disabled; the caret ends after it.
+		APPEND = function(e, st, v)
+			local ins = tostring(v or "")
+			local multiline = st.classname == "multiline" or yes(attr(e, "MULTILINE"))
+			if multiline and #st.data.text > 0 and attr(e, "APPENDNEWLINE") ~= "NO" then ins = "\n" .. ins end
+			st.data.text = st.data.text .. ins
+			st.data.caret, st.data.anchor = #st.data.text, #st.data.text
+			if M.scrollCaret then M.scrollCaret(e, st) end
+			Element.hooks.invalidate(e, "paint", "VALUE")
+			return false
+		end,
+		-- winTextSetInsertAttrib: EM_REPLACESEL over the selection, callbacks disabled
+		INSERT = function(e, st, v)
+			local a, b = sorted_selection(st)
+			local ins = tostring(v or "")
+			st.data.text = st.data.text:sub(1, a) .. ins .. st.data.text:sub(b + 1)
+			st.data.caret, st.data.anchor = a + #ins, a + #ins
+			if M.scrollCaret then M.scrollCaret(e, st) end
+			Element.hooks.invalidate(e, "paint", "VALUE")
+			return false
+		end,
 		DELETERANGE = function(e, st, v)
 			local a, b = tostring(v or ""):match("^(%d+)%s*[,;:]%s*(%d+)$")
 			if a then replace(e, st, tonumber(a), tonumber(b), "") end
 			return false
 		end,
-		CARETPOS = function(e, st, v) st.data.caret = clamp(st, tonumber(v) or 0); st.data.anchor = st.data.caret; return false end,
+		-- winTextSetCaretPosAttrib: EM_SETSEL, then EM_SCROLLCARET
+		CARETPOS = function(e, st, v) st.data.caret = clamp(st, tonumber(v) or 0); st.data.anchor = st.data.caret; M.scrollCaret(e, st); return false end,
+		-- winTextSetSelectionPosAttrib: NONE, ALL or "start:end" (from 0)
 		SELECTIONPOS = function(e, st, v)
-			local a, b = tostring(v or ""):match("^(%d+)%s*[,;:]%s*(%d+)$")
-			if a then st.data.anchor, st.data.caret = clamp(st, tonumber(a)), clamp(st, tonumber(b)) end
+			if st.data.text == nil then return true end -- applied at create, as IUP does at map
+			local s = tostring(v or "NONE"):upper()
+			if s == "NONE" then st.data.anchor = st.data.caret
+			elseif s == "ALL" then st.data.anchor, st.data.caret = 0, #st.data.text
+			else
+				local a, b = int_pair(v, ":")
+				if a and b and a >= 0 and b >= 0 then st.data.anchor, st.data.caret = clamp(st, a), clamp(st, b) end
+			end
 			return false
 		end,
-		SCROLLTOPOS = function(e, st, v) st.data.scroll_y = tonumber(v) or 0; return false end,
-		SCROLLTO = function(e, st, v) st.data.scroll_x = tonumber(v) or 0; return false end,
+		-- winTextSetSelectionAttrib: NONE, ALL, "lin,col:lin,col" on a multiline, "start:end" on
+		-- one line (all from 1)
+		SELECTION = function(e, st, v)
+			if st.data.text == nil then return true end -- applied at create, as IUP does at map
+			local s = tostring(v or "NONE"):upper()
+			if s == "NONE" then st.data.anchor = st.data.caret
+			elseif s == "ALL" then st.data.anchor, st.data.caret = 0, #st.data.text
+			elseif M.isMulti(e, st) then
+				local l1, c1, l2, c2 = tostring(v):match("^%s*(-?%d+)%s*,%s*(-?%d+)%s*:%s*(-?%d+)%s*,%s*(-?%d+)")
+				l1, c1, l2, c2 = tonumber(l1), tonumber(c1), tonumber(l2), tonumber(c2)
+				if l1 and l1 >= 1 and c1 >= 1 and l2 >= 1 and c2 >= 1 then
+					st.data.anchor, st.data.caret = lincol_to_pos(st, l1, c1), lincol_to_pos(st, l2, c2)
+				end
+			else
+				local a, b = int_pair(v, ":")
+				if a and b and a >= 1 and b >= 1 then st.data.anchor, st.data.caret = clamp(st, a - 1), clamp(st, b - 1) end
+			end
+			return false
+		end,
+		-- winTextSetCaretAttrib: "lin,col" on a multiline (permissive), "col" on one line, from
+		-- 1; then EM_SCROLLCARET
+		CARET = function(e, st, v)
+			if st.data.text == nil then return true end -- applied at create, as IUP does at map
+			if v == nil then return false end
+			if M.isMulti(e, st) then
+				local lin, col = int_pair(v, ",")
+				st.data.caret = lincol_to_pos(st, math.max(1, lin or 1), math.max(1, col or 1))
+			else
+				st.data.caret = clamp(st, math.max(1, tonumber(tostring(v):match("^%s*(-?%d+)")) or 1) - 1)
+			end
+			st.data.anchor = st.data.caret
+			M.scrollCaret(e, st)
+			return false
+		end,
+		-- winTextSetScrollToAttrib / SetScrollToPosAttrib -> winTextScrollTo: EM_LINESCROLL makes
+		-- the line the first one shown (as far as the text allows) and scrolls col characters
+		SCROLLTOPOS = function(e, st, v)
+			if M.isMulti(e, st) then
+				local p = clamp(st, tonumber(v) or 0)
+				local lines = M.lines(st)
+				local li = M.lineOf(lines, p)
+				M.lineScroll(e, st, li - 1, p - lines[li].s)
+			else st.data.scroll_y = tonumber(v) or 0 end
+			return false
+		end,
+		SCROLLTO = function(e, st, v)
+			if M.isMulti(e, st) then
+				local lin, col = int_pair(v, ",")
+				M.lineScroll(e, st, math.max(1, lin or 1) - 1, math.max(1, col or 1) - 1)
+			else st.data.scroll_x = tonumber(v) or 0 end
+			return false
+		end,
 	},
 	get = {
 		VALUE = function(e, st) return st.data.text or "" end,
 		COUNT = function(e, st) return #st.data.text end,
-		CARET = function(e, st) return tostring(st.data.caret or 0) end,
-		CARETPos = function() end,
+		-- winTextGetCaretAttrib: "lin,col" on a multiline, "col" on one line, from 1
+		CARET = function(e, st)
+			local p = st.data.caret or 0
+			if M.isMulti(e, st) then
+				local lines = M.lines(st)
+				local li = M.lineOf(lines, p)
+				return li .. "," .. (p - lines[li].s + 1)
+			end
+			return tostring(p + 1)
+		end,
 		CARETPOS = function(e, st) return tostring(st.data.caret or 0) end,
-		SELECTIONPOS = function(e, st) local a, b = sorted_selection(st); return a .. ":" .. b end,
-		SELECTION = function(e, st) local a, b = sorted_selection(st); return a ~= b and "YES" or "NO" end,
-		SELECTEDTEXT = function(e, st) local a, b = sorted_selection(st); return st.data.text:sub(a + 1, b) end,
+		-- winTextSetPaddingAttrib keeps the horizontal part only (vert_padding = 0), and
+		-- iTextGetPaddingAttrib answers both
+		PADDING = function(e, st)
+			local h = pair(Element.own(e, "PADDING") or "0x0")
+			return string.format("%dx0", h)
+		end,
+		-- winTextGetSelectionPosAttrib / SelectionAttrib / SelectedTextAttrib: NULL without a
+		-- selection
+		SELECTIONPOS = function(e, st) local a, b = sorted_selection(st); if a == b then return nil end; return a .. ":" .. b end,
+		SELECTION = function(e, st)
+			local a, b = sorted_selection(st)
+			if a == b then return nil end
+			if M.isMulti(e, st) then
+				local lines = M.lines(st)
+				local la, lb = M.lineOf(lines, a), M.lineOf(lines, b)
+				return string.format("%d,%d:%d,%d", la, a - lines[la].s + 1, lb, b - lines[lb].s + 1)
+			end
+			return (a + 1) .. ":" .. (b + 1)
+		end,
+		SELECTEDTEXT = function(e, st) local a, b = sorted_selection(st); if a == b then return nil end; return st.data.text:sub(a + 1, b) end,
 		LINECOUNT = function(e, st) return select(2, st.data.text:gsub("\n", "\n")) + 1 end,
 		LINEVALUE = function(e, st) local n = tonumber(Element.own(e, "LINE") or 1) or 1; local lines = {}; for x in (st.data.text .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = x end; return lines[n] or "" end,
 	},
@@ -280,7 +760,14 @@ local common = {
 local function create(e, st)
 	st.data.text = st.data.text or tostring(Element.own(e, "VALUE") or "")
 	st.data.caret, st.data.anchor = #st.data.text, #st.data.text
+	if is_multi(e, st) then st.data.caret, st.data.anchor = 0, 0 end
 	st.data.captured = false
+	-- attributes set before the control existed (iupAttribUpdate at map)
+	local class = st.class
+	for _, name in ipairs({ "CARET", "SELECTION", "SELECTIONPOS" }) do
+		local v = Element.own(e, name)
+		if v ~= nil and class.set and class.set[name] then class.set[name](e, st, v) end
+	end
 end
 common.create = create
 Classes.define(setmetatable({ name = "text", defaults = common.defaults }, { __index = common }))

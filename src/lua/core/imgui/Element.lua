@@ -101,6 +101,12 @@ function M.new(classname, init)
 		data = {},                         -- per-class scratch (scroll offsets, hover...)
 	}
 	STATE[el] = st
+	-- Not ported on purpose: IupCreate (iup_object.c) also applies the DEFAULTTHEME global's
+	-- theme to every new element. Lunar's flatframe class rule (TITLEPADDING=12x4,
+	-- TITLELINE=NO, for cards) then reaches a secondary dialog's frame only when the dialog
+	-- is built after the startup re-theme set DEFAULTTHEME: the IUP build's command palette
+	-- shows an 8 px band above its search row in some runs and not in others, and the
+	-- floating prompt (POSITION 18,14) only lines up without it. See the audit, D1.
 	if init then
 		-- Attributes first, then children, so a child appended to a box sees the box's
 		-- attributes the way IUP's C constructors set them before IupAppend.
@@ -250,7 +256,8 @@ local function apply_theme(el, theme, depth)
 	if not ts or depth > 8 then return end
 	local st = STATE[el]
 	for name, v in pairs(ts.attrs) do
-		if not M.isInternal(name) and not name:match("^IUP%u") then
+		-- iupClassObjectAttribCanCopy: only attributes the element's class registers
+		if not M.isInternal(name) and not name:match("^IUP%u") and M.registration(st.class, name) then
 			local h = ts.handles[name]
 			M.setAttribute(el, name, h or v)
 		end
@@ -261,6 +268,8 @@ local function apply_theme(el, theme, depth)
 		if sh then apply_theme(el, sh, depth + 1) end
 	end
 end
+
+function M.applyTheme(el, theme) apply_theme(el, theme, 0) end
 
 local function theme_setter(el, st, value, handle)
 	local theme = handle or (value and named[value])

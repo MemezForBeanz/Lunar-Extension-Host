@@ -15,7 +15,9 @@ describe("ImGui text controls", function()
 		local st = Element.state(t)
 		local r = rt()
 		Classes.get("text").event(t, st, { type = "key", key = iup.K_cA, mods = { ctrl = true } }, r)
-		assert.equal("YES", iup.GetAttribute(t, "SELECTION"))
+		-- winTextGetSelectionAttrib: "start:end" from 1 (the host counts bytes; IUP's EDIT
+		-- counts UTF-16 units and would answer 1:6 here)
+		assert.equal("1:7", iup.GetAttribute(t, "SELECTION"))
 		Classes.get("text").event(t, st, { type = "char", char = "世界" }, r)
 		assert.equal("世界", iup.GetAttribute(t, "VALUE"))
 	end)
@@ -37,5 +39,16 @@ describe("ImGui text controls", function()
 		assert.equal("abc", iup.GetAttribute(t, "VALUE"))
 		Classes.get("text").event(t, st, { type = "key", key = iup.K_cZ, mods = { ctrl = true } }, r)
 		assert.equal("", iup.GetAttribute(t, "VALUE"))
+	end)
+end)
+
+describe("imgui text: PADDING", function()
+	-- winTextSetPaddingAttrib sets vert_padding to 0 and iTextGetPaddingAttrib returns both:
+	-- the IUP build answers 4x0 for the theme's 4x2 (ui_probe A lines, every Settings
+	-- section); the host answered 4x2.
+	it("keeps only the horizontal padding", function()
+		local iup = require("core.imgui.iup")
+		local t = iup.text({ PADDING = "4x2" })
+		assert.equal("4x0", iup.GetAttribute(t, "PADDING"))
 	end)
 end)

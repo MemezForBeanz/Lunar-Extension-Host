@@ -106,3 +106,102 @@ The tour now dumps the IUP build's dialogs too (it records the dialogs the app s
 - Settings sub-pages beyond the first: the probe walks tab strips only.
 - A dialog's RASTERSIZE getter: IUP answers the window size (1400x900), the host the client
   (1384x892); both report the same CLIENTSIZE. Left as is (no app code reads it).
+
+## Functional parity sweep (branch `t3/imgui-functional-parity-sweep`)
+
+Functional gaps of the main interface against the IUP build, closed in this order: scroll
+bars, secondary dialogs, Settings sub-pages, then the shell's behaviour under real input.
+Each entry gives the state, what IUP does, what the host did, the C rule, the fix and the
+spec. New probe: `scripts/ui_scroll.lua <out dir>` (no shell: a dialog with three scroll
+boxes, a multiline and a list) records each build's scroll attributes and, on IUP, the
+native bar geometry Windows reports (`GetScrollBarInfo`), after wheel, arrow, track, thumb
+and content-drag input sent as window messages.
+
+### Scroll bars
+
+| # | element | IUP vs host before | rule | fix | spec |
+|---|---|---|---|---|---|
+| S1 | every IupFlatScrollBox (Settings, page scroll hosts) | bars above the content vs painted under it, and clicks on them went to the content | `iupFlatScrollBarCreate`: the bars are canvases with `ZORDER=TOP`. Commit fefe0ca folded `visibleChildren` (and `defaults`) into a comment, so the internal bars, inserted first, painted and hit-tested below the child | restored `visibleChildren = FlatScrollbar.visible_children` and the defaults | `imgui_scrollbars_spec` "paints and hits the bars above the content" |
+| S2 | IupScrollBox (the media server page; `scripts/ui_scroll.lua` boxes A-E) | 17 px Windows bars with wheel, arrows, track, thumb and content drag vs no bars and 24 px wheel steps | `iup_scrollbox.c` over `iupwin_canvas.c`: SCROLLBAR (default YES) decides the bars, XAUTOHIDE/YAUTOHIDE show one while DX/DY < XMAX/YMAX, the bars are non-client (the child is clipped to and hit in the client rect), a line is a tenth of the page (LINEX/LINEY from the hash table), the wheel sends one SB_LINEUP/DOWN per whole notch and is consumed whenever there is a vertical bar, `SCROLL_CB` is `iScrollBoxScroll_CB` (LAYOUTDRAG) unless the application sets one, POSX/POSY setters move only the thumb, button 1 on the box drags the content | `widgets/winscrollbar.lua` (geometry as GetScrollBarInfo reports it: arrows 17 or half the bar, thumb MulDiv(track, page, range) at least 8, MulDiv position; tracking with auto-repeat) and a native `scrollbox` class; `class.clipRect` in Runtime | `imgui_scrollbars_spec` "IupScrollBox" (8 cases) |
+| S3 | every dialog's first frame | a scroll box at its own size vs at its child's natural size until the next layout | `iupDialogShowXY`, then the new window's WM_SIZE -> `winDialogResize` -> `IupRefresh`: the first layout is computed twice, and `iScrollBoxComputeNaturalSizeMethod` uses the child's size only while the box has none | `layout_dialog` runs `Layout.run` twice the first time | `imgui_scrollbars_spec` "lays a new dialog out twice" |
+| S4 | native bars | look | captured: track #F0F0F0, white line on the content side, 2 px #858585 thumb on columns 8-9 with #989898 ends, an 8 px thumb painted 17 px long, no arrows at rest | `winscrollbar.draw` | `imgui_scrollbars_spec` "Windows 11 look" |
+| S5 | IupCanvas without WHEEL_CB (inside a scroll box) | wheel scrolls the box vs swallowed by the canvas | `winCanvasMsgProc` WM_MOUSEWHEEL: WHEEL_CB, else a vertical bar scrolls, else DefWindowProc forwards to the parent | canvas `event` returns false then | `imgui_scrollbars_spec` "the wheel over a canvas" |
+| S6 | multiline APPEND/INSERT (Build Queue output log: READONLY, APPEND per line) | text appended on a new line vs nothing appended to a READONLY control, no line break, ACTION/VALUECHANGED_CB fired | `winTextSetAppendAttrib`/`SetInsertAttrib`: EM_REPLACESEL ignores ES_READONLY, "
+
+" first when the multiline has text and APPENDNEWLINE (default YES), callbacks disabled, caret after the text | APPEND/INSERT write the text directly | `imgui_multiline_spec` "APPEND and INSERT" |
+| S7 | multiline IupText (Feedback draft, Log Parser and Black Duck logs, Build Queue output) | the EDIT's own view: bars from SCROLLBAR (horizontal dropped by WORDWRAP), shown disabled while nothing scrolls; wheel 3 lines a notch; arrow 1 line, track a page less one; EM_SCROLLCARET on CARETPOS/APPEND/typing; caret by line and column on click; Up/Down/PgUp/PgDn/Ctrl+Home/End; Enter a line break and Tab a character (Ctrl+Enter DEFAULTENTER, Ctrl+Tab next field); VALUE resets to the top with the caret at 0 vs no bars, no scrolling at all (long text was unreachable), clicks placed the caret by column on the first line only, Enter ran DEFAULTENTER and Tab left the control | `iupwin_text.c` (ES_MULTILINE, ES_AUTOVSCROLL, ES_AUTOHSCROLL unless WORDWRAP, WS_VSCROLL/WS_HSCROLL), `iupKeyProcessNavigation`, and the EDIT as measured: EM_GETRECT 1,1,w-1,whole lines, 15 px lines, nPage = visible lines, nMax = lines - 1 | line-based multiline view in `widgets/text.lua` over `winscrollbar` (an `owner.step` hook gives the EDIT's steps); Runtime exports `activateDefault` | `imgui_multiline_spec` "the EDIT's view", "Enter and Tab" |
+| S8 | a disabled native bar | grey arrows at both ends vs nothing | captured: #A4A4A4 triangles, 8 px wide and 6 deep, 6 px (5 horizontally) from the ends; the thumb-less enabled bar of box E draws none | `winscrollbar` draws them when the page holds the range | covered by the S7 capture comparison (8 and 16 of 1683 px differ, antialiasing) |
+
+Result (`ui_scroll.lua`, both builds at the same 884x481 client): every DX/DY/XMAX/YMAX, box,
+child and bar rectangle and thumb position matches after wheel, arrow, track, SCROLLTO,
+POSY, content drag and resize; the bars' pixels match exactly (0 of 16,000 px differ above
+24, box D's painted thumb included after S4). Left: POSX/POSY differ in the 8th decimal
+(IUP quantises to INT_MAX scroll units), and box E (30 px tall: no track) where Windows
+reports an 8 px thumb it does not paint and the host reports none. Not measurable through
+posted messages: the system bar's hover look (it widens under the real pointer; the host's
+hover look is an approximation), its auto-repeat timing (Wine's 200/50 ms used), and thumb
+dragging (the system's tracking loop ignores posted moves; the host's follows Windows'
+MulDiv rule, covered by the spec). The bars are the system's light ones in the dark theme
+too, as on the IUP build.
+
+Multiline (`ui_scroll.lua`, the 200x120 multiline and a two-line one): first visible line,
+caret, both bars and thumbs match after the wheel, the arrow, the track, CARETPOS=0 and APPEND,
+except the horizontal thumb, 1 px longer on the host (the EDIT's text width, its range, comes
+out 1-2 px wider than the host's GDI measure of the longest line) and its line step (IUP 21,
+host 20 after one arrow click). Not measured: the EDIT's horizontal page step and the third
+of the width it jumps when the caret leaves the view (Wine's EDIT_EM_ScrollCaret rule used);
+WORDWRAP still draws wrapped text but scrolls by logical lines. The single-line EDIT is
+unchanged (its horizontal scrolling to the caret is not ported). A non-dropdown `iup.list`
+is still drawn as a flat list (IUP: a LISTBOX with its border and Windows bar); nothing in
+the app or the org packs uses one.
+
+### Behaviour under real input (`scripts/ui_mechanics.lua`)
+
+The script (rewritten: the old one cleared `package.preload`, so theme discovery failed and
+it exited before its first step, and it dragged in the root strip, whose tab bar is hidden:
+`IupConvertXYToPos` is -1 along it on both builds, which is why its reorder check never
+changed anything) posts mouse messages to the window under the point (or to the window
+holding the capture, as a real pointer would: on IUP the drag's layered overlay window is
+otherwise under it), keys to the focused window with `SetKeyboardState` for the modifiers,
+and records the shell's state. Both builds run this worktree's Lua.
+
+| # | behaviour | IUP | host | status |
+|---|---|---|---|---|
+| B1 | drag the second title-bar tab onto the first tab's left edge | order becomes Microchip, HPE, Settings | same | matches |
+| B2 | drag a tab onto the middle of another | the two merge into one group | same | matches |
+| B3 | right-click a title-bar tab | menu: Move to Left Toolbar, Hide tab bar, Rename Group..., Ungroup, New Group... | same items | matches (menus are recorded, not shown) |
+| B4 | Ctrl+B twice, Ctrl+\` twice, Ctrl+, | rail toggles, terminal toggles, Settings shown | same | matches |
+| B5 | Ctrl+P, type "toggle side", Enter; Ctrl+P, Esc | 2 matches, Enter runs Toggle Sidebar; Esc closes | same | matches |
+| B6 | click the Settings search field, Tab x6, Shift+Tab x2 | dropbutton, 3 toggles, dropbutton, toggle; back | same sequence | matches |
+| B7 | text entry: type, Home, Shift+End, Ctrl+C, End, Ctrl+V, Ctrl+Left, Ctrl+Z | hello world; selection 0:11; pasted twice; Left x3 + BS -> caret 18; Ctrl+Left -> 17; Ctrl+Z undoes | same | matches (second run, after the script's clipboard read was fixed) |
+| B8 | SELECTION / SELECTIONPOS / SELECTEDTEXT / CARET / SCROLLTO on a text (the Log Parser opens a log with CARET "ln:1", SELECTION "ln,1:ln,col", SCROLLTO "ln:1") | `iupwin_text.c`: NULL without a selection; SELECTION "lin,col:lin,col" (multiline) or "start:end" from 1; CARET "lin,col" / "col" from 1 with EM_SCROLLCARET; SCROLLTO puts the line first (EM_LINESCROLL); NONE/ALL; set before map, applied at map | SELECTION answered YES/NO, SELECTIONPOS "c:c" with no selection, CARET and SELECTION setters missing (the log line was never selected; NameDialog's SELECTION=ALL ignored), SCROLLTO only brought the line into view | fixed (`widgets/text.lua`), `imgui_multiline_spec` "CARET, SELECTION and SCROLLTO". Positions stay in bytes on the host (IUP counts UTF-16 units: differs for non-ASCII text) |
+| B9 | drag the pane sash 120 px | `iSplitMotion_CB` reads `CURSORPOS` (the real cursor), not the message: posted moves cannot drive it on a private desktop | follows the pointer (500 -> 408, the main pane 121 px narrower) | not measurable on IUP |
+| B10 | double-click the sash | no handler in `iup_split.c` or the app | nothing | matches by source |
+| B11 | pane focus and restore (`PaneGrid:toggleFocus`/`restoreFocus`) | VALUE 0, then back | same | matches |
+| B12 | focus at start and after a secondary dialog closes | the IUP build reports the dialog itself: the window on a private desktop is never activated, so `IupNextField` and WM_ACTIVATE's focus restore cannot take effect | first focusable control (`iDialogAfterShow` -> `IupNextField`), restored after the palette | IUP side not measurable here; the host follows the C |
+| B13 | tooltip after resting 1.5 s | the native tooltip never shows for posted moves | | not measurable |
+| B14 | F10, then Esc; Alt+F | no menu opens, the focus stays | same | matches (Lunar's bar has no keyboard mnemonics on either build) |
+| B15 | SC_MAXIMIZE, SC_RESTORE, SC_MINIMIZE, SC_RESTORE | IsZoomed/IsIconic go 1, 0, 1, 0 | same | states match. The sizes do not compare: on the private desktop the IUP window stays 1384x884 when maximised and restores to 960x540, the host's fills 1920x1080; not established which work area each sees there |
+| B16 | WM_NCHITTEST 1 px inside the client's top-left corner | `winframe_wrap.c` `hit_test`: HTTOP across the whole 5 px top band | HTTOPLEFT/HTTOPRIGHT within 10 px of each end (`lunarimgui.cpp` `hit_test`) | differs; left as is: the host only adds a diagonal grip where the IUP build resizes vertically (top, sides, bottom and caption codes match) |
+| B17 | the terminal after Ctrl+\` | the input does not take the focus; typed text goes nowhere, Enter reaches the page's DEFAULTENTER ("No tools selected") | same | matches (both builds; an app behaviour, not the host's) |
+
+### Secondary dialogs (`scripts/ui_tour.lua`, now with A lines: FONT, PADDING, SIZE, RASTERSIZE, THEMEROLE, CHARSIZE, NATURALSIZE, BORDER, BGCOLOR and the flatframe title/frame attributes; `LUNAR_TOUR_TRACE=<NAME>` logs every write of one attribute with a traceback)
+
+| # | dialog | IUP vs host | cause (evidence) | status |
+|---|---|---|---|---|
+| D1 | command palette (Open Lunar Address, Load Org Pack, Run Task: the same palette) | search row 8 px lower on IUP in some runs (separator 51 vs 43), not in others (43 vs 43) | the IUP build's palette frame carries TITLEPADDING=12x4 and TITLELINE=NO in the runs with the band (DECOROFFSET 3x11), the defaults in the others (3x3). The trace shows them written by `ThemeManager:_newNativeUser` into the theme's `IUPFLATFRAME` sub-theme (the card rule: `titlealign`, `titlepad = "12x4"`), which `IupCreate` copies onto every new flatframe through the DEFAULTTHEME global (`iup_object.c`), so it depends on whether the palette is first built before or after the startup re-theme sets DEFAULTTHEME. With TITLE="" the 2 x 4 padding is an empty 8 px title band; the palette's floating prompt (POSITION 18,14) only lines up with the field without it | an IUP-build bug (timing-dependent theme leak); the host stays without the band. DEFAULTTHEME-at-creation was ported and measured (it puts the band on the host every time, and on the folder dialog's path frame too), then left out on purpose (comment in `Element.new`). Kept: NTHEME/THEME copy only the attributes the class registers (`iupClassObjectAttribCanCopy`), `imgui_theme_spec` |
+| D2 | folder dialog, Feedback, Run Delta Explorer, New Tab Group / Open Lunar Address fields | IUP's EDITs and labels taller (20 vs 17), the path EDIT 14 vs 17, the toolbar's icon buttons 38x32 vs 48x32, the split at 281 vs 229 | IUP's natural sizes do not match its own current attributes: the folder dialog's status label reports FONT "Segoe UI, 10", CHARSIZE 7x17 and NATURALSIZE 249x20 (a 20 px line is the 11 pt font it was built with); the path EDIT is 14 px, Consolas 9, the font its constructor gives it, though its FONT now reads "Segoe UI, 10". The theme pass changes FONT/PADDING after the dialog's layout and nothing calls IupRefresh, and IUP does not re-layout on a FONT change. The host re-lays out on a size-affecting attribute (`Element.LAYOUT_ATTRS`) | an IUP-build bug (stale layout after a late theme pass); the host's sizes follow the attributes both builds report. Not changed |
+| D3 | New Tab Group | the tour could not open it on IUP (`ModalMotion.lua:136: attempt to index local 'dlg' (a nil value)` in the tour's popup wrapper) | | not measured on IUP |
+
+### Settings sections (`LUNAR_PROBE_SETTINGS=1`)
+
+`scripts/ui_probe.lua` now walks every Settings section (each nav button's own `flat_action`,
+recorded as pages "Settings / <section>"): Appearance, Background, Build Queue, iLO Redfish,
+Scan Chain, Black Duck, Language servers. Run on both builds at 1400x900 in `lunar_dark` and
+`lunar_light`, rectangles only (`LUNAR_PROBE_NOCLICK=1`), `ui_probe_diff` tolerance 2:
+
+| # | finding | status |
+|---|---|---|
+| G1 | no element rectangle differs by more than 2 px in any section, in either theme | matches |
+| G2 | every text answered PADDING 4x2 on the host and 4x0 on IUP (`winTextSetPaddingAttrib` keeps the horizontal part only; the layout already ignored the vertical one) | fixed: the text class's PADDING getter; `imgui_text_spec` "PADDING" |
+| G3 | the status bar's first flat button's BGCOLOR and a status label's FGCOLOR (dark theme) | the status bar (network-dependent, out of scope as before) |
