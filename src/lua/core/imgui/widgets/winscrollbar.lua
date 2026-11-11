@@ -27,6 +27,7 @@ M.MIN_THUMB = 8   -- measured: a page of 120 in 30000 gives an 8 px thumb
 -- the values Wine and ReactOS use for the system bar.
 M.FIRST_DELAY, M.REPEAT_DELAY = 0.2, 0.05
 M.TRACK, M.EDGE, M.THUMB, M.THUMB_END = "240 240 240", "255 255 255", "133 133 133", "152 152 152"
+M.DISABLED = "164 164 164" -- the arrows of a disabled bar
 
 -- IUP's scroll operations (iupcbs.h IUP_SBUP...)
 M.OPS = {
@@ -111,7 +112,10 @@ function M.process(e, owner, vertical, part, trackpos)
 	-- "wheel can call this function when scroll bar is empty"
 	if page >= max then return false end
 	local line = tonumber(Element.own(e, vertical and "LINEY" or "LINEX")) or page / 10
-	if part == "linedown" then pos = pos + line
+	if owner.step and part ~= "track" and part ~= "position" then
+		pos = owner.step(e, vertical, part, pos, page)
+		if not pos then return false end
+	elseif part == "linedown" then pos = pos + line
 	elseif part == "lineup" then pos = pos - line
 	elseif part == "pagedown" then pos = pos + page
 	elseif part == "pageup" then pos = pos - page
@@ -235,24 +239,32 @@ local function draw_bar(dc, bar, hot)
 	if bar.vertical then dc:fill(bar.x, bar.y, 1, bar.h, M.EDGE) else dc:fill(bar.x, bar.y, bar.w, 1, M.EDGE) end
 	local thick = bar.vertical and bar.w or bar.h
 	local mid = math.floor(thick / 2) -- 8 for 17: the thumb's columns 8 and 9
-	if hot then
-		-- approximation of the widened bar (see the module header)
-		local a, half = g.arrow, 4
-		local function tri(cx, cy, dir)
-			local p
-			if bar.vertical then
-				p = dir < 0 and { cx - half, cy + 2, cx + half, cy + 2, cx, cy - 2 } or { cx - half, cy - 2, cx + half, cy - 2, cx, cy + 2 }
-			else
-				p = dir < 0 and { cx + 2, cy - half, cx + 2, cy + half, cx - 2, cy } or { cx - 2, cy - half, cx - 2, cy + half, cx + 2, cy }
-			end
-			dc:poly(p, M.THUMB, { filled = true })
-		end
+	-- The arrow glyphs, as captured on a disabled bar (a multiline whose text fits): an 8 px
+	-- wide, 6 px deep triangle, its point 6 px (vertical) or 5 px (horizontal) in from the
+	-- bar's end, centred on the thumb's line.
+	local function arrows(color)
+		local function tri(p) dc:poly(p, color, { filled = true }) end
 		if bar.vertical then
-			tri(bar.x + mid + 0.5, bar.y + a / 2, -1); tri(bar.x + mid + 0.5, bar.y + bar.h - a / 2, 1)
-			if g.thumb then dc:fill(bar.x + mid - 3, bar.y + g.thumb_top, 8, g.thumb, M.THUMB, { radius = 4 }) end
+			local cx, y0, y1 = bar.x + mid + 1, bar.y, bar.y + bar.h
+			tri({ cx - 4, y0 + 12, cx + 4, y0 + 12, cx + 1, y0 + 6, cx - 1, y0 + 6 })
+			tri({ cx - 4, y1 - 11, cx + 4, y1 - 11, cx + 1, y1 - 5, cx - 1, y1 - 5 })
 		else
-			tri(bar.x + a / 2, bar.y + mid + 0.5, -1); tri(bar.x + bar.w - a / 2, bar.y + mid + 0.5, 1)
-			if g.thumb then dc:fill(bar.x + g.thumb_top, bar.y + mid - 3, g.thumb, 8, M.THUMB, { radius = 4 }) end
+			local cy, x0, x1 = bar.y + mid + 1, bar.x, bar.x + bar.w
+			tri({ x0 + 11, cy - 4, x0 + 11, cy + 4, x0 + 5, cy + 1, x0 + 5, cy - 1 })
+			tri({ x1 - 11, cy - 4, x1 - 11, cy + 4, x1 - 5, cy + 1, x1 - 5, cy - 1 })
+		end
+	end
+	if (bar.page or 0) >= (bar.max or 0) then
+		-- disabled: the arrows in grey, no thumb
+		arrows(M.DISABLED)
+		return
+	end
+	if hot then
+		-- approximation of the widened bar (see the module header): arrows and an 8 px thumb
+		arrows(M.THUMB)
+		if g.thumb then
+			if bar.vertical then dc:fill(bar.x + mid - 3, bar.y + g.thumb_top, 8, g.thumb, M.THUMB, { radius = 4 })
+			else dc:fill(bar.x + g.thumb_top, bar.y + mid - 3, g.thumb, 8, M.THUMB, { radius = 4 }) end
 		end
 		return
 	end

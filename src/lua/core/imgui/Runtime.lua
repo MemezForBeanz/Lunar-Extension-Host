@@ -1040,6 +1040,7 @@ local function modal_top()
 	return nil
 end
 
+M.activateDefault = function(el, name) local d = dialog_of(el) or el; return activate_default(d, name) end
 local function key_event(code)
 	-- An open overlay (dropdown, menu) sees keys first.
 	for i = #overlays, 1, -1 do
