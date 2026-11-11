@@ -52,7 +52,7 @@ uint32_t GetLastError(void);
 ]]
 local user32, gdi32 = ffi.load("user32"), ffi.load("gdi32")
 
-local rect, target
+local rect, target, bar_rect, ml_report
 local dlg, main_hwnd
 local function hwnd_of(h)
 	if IMGUI then return ffi.cast("void*", ffi.cast("uintptr_t", tonumber(require("core.imgui.Runtime").backend().window("hwnd")))) end
@@ -168,6 +168,40 @@ local function bar_info(box, vertical)
 end
 
 local boxes, names = {}, {}
+-- the bar rect in main-client coordinates (both builds), from bar_info's text
+function bar_rect(h, vertical)
+	local x, y, w, hh = tostring(bar_info(h, vertical)):match("bar (%-?%d+),(%-?%d+) (%d+)x(%d+)")
+	return { x = tonumber(x) or 0, y = tonumber(y) or 0, w = tonumber(w) or 0, h = tonumber(hh) or 0 }
+end
+-- the first visible line of a multiline: EM_GETFIRSTVISIBLELINE on IUP, the port's top line
+local function top_line(h)
+	if IMGUI then
+		local st = require("core.imgui.Element").state(h)
+		return st.data.top_line or 0
+	end
+	return tonumber(user32.SendMessageA(hwnd_of(h), 0x00CE, 0, 0))
+end
+-- the EDIT's format rect and line height (EM_GETRECT, EM_POSFROMCHAR); the port's on the host
+local function edit_metrics(h)
+	if IMGUI then
+		local st = require("core.imgui.Element").state(h)
+		local m = st.data.metrics
+		return m and string.format("rect %d,%d,%d,%d lh %d", m.x, m.y, m.x + m.w, m.y + m.h, m.lh) or "nometrics"
+	end
+	local hw = hwnd_of(h)
+	local rc = ffi.new("SC_RECT[1]")
+	user32.SendMessageA(hw, 0x00B2, 0, ffi.cast("intptr_t", ffi.cast("void*", rc)))
+	local top = tonumber(user32.SendMessageA(hw, 0x00CE, 0, 0))
+	local i0 = tonumber(user32.SendMessageA(hw, 0x00BB, top, 0))
+	local i1 = tonumber(user32.SendMessageA(hw, 0x00BB, top + 1, 0))
+	local p0 = tonumber(user32.SendMessageA(hw, 0x00D6, i0, 0))
+	local p1 = tonumber(user32.SendMessageA(hw, 0x00D6, i1, 0))
+	return string.format("rect %d,%d,%d,%d lh %d", rc[0].left, rc[0].top, rc[0].right, rc[0].bottom, bit.rshift(p1, 16) - bit.rshift(p0, 16))
+end
+function ml_report(label)
+	say(label, "metrics", edit_metrics(ml))
+	say(label, "top", top_line(ml), "caret", iup.GetAttribute(ml, "CARETPOS"), "vbar", bar_info(ml, true), "hbar", bar_info(ml, false))
+end
 local cbs = {}
 local function report(label)
 	for i, box in ipairs(boxes) do
@@ -200,16 +234,22 @@ local wide = iup.vbox{ iup.hbox{ iup.flatbutton{ TITLE = "wide", RASTERSIZE = "5
 local b = iup.scrollbox{ wide, RASTERSIZE = "260x300" }
 -- box C: holds everything (no bar shown)
 local c = iup.scrollbox{ column(3, "few"), RASTERSIZE = "260x300" }
-boxes, names = { a, b, c }, { "A", "B", "C" }
+-- box D: a huge child (minimum thumb); box E: shorter than two arrow buttons
+local dd = iup.scrollbox{ iup.vbox{ iup.flatbutton{ TITLE = "huge", RASTERSIZE = "100x30000" } }, SCROLLBAR = "VERTICAL", RASTERSIZE = "130x120", EXPAND = "NO" }
+local ee = iup.scrollbox{ iup.vbox{ iup.flatbutton{ TITLE = "e", RASTERSIZE = "60x300" } }, SCROLLBAR = "VERTICAL", RASTERSIZE = "100x30", EXPAND = "NO" }
+boxes, names = { a, b, c, dd, ee }, { "A", "B", "C", "D", "E" }
 for i, box in ipairs(boxes) do
 	local n = names[i]
 	box.layoutupdate_cb = function() cbs[#cbs + 1] = n .. ":LAYOUTUPDATE" end
 end
-local ml = iup.text{ MULTILINE = "YES", RASTERSIZE = "200x120", VALUE = (string.rep("line of text that is long enough to wrap or scroll\n", 30)) }
+ml = iup.text{ MULTILINE = "YES", RASTERSIZE = "200x120", VALUE = (string.rep("line of text that is long enough to wrap or scroll\n", 30)) }
 local list = iup.list{ RASTERSIZE = "200x120" }
+ml2 = iup.text{ MULTILINE = "YES", RASTERSIZE = "120x120", VALUE = "two\nlines" }
 for i = 1, 40 do list[tostring(i)] = "list item " .. i end
-dlg = iup.dialog{ iup.vbox{ iup.hbox{ a, b, c, GAP = "10" }, iup.hbox{ ml, list, GAP = "10" }, MARGIN = "10x10", GAP = "10" },
+dlg = iup.dialog{ iup.vbox{ iup.hbox{ a, b, c, GAP = "10" }, iup.hbox{ ml, list, dd, ee, ml2, GAP = "10" }, MARGIN = "10x10", GAP = "10" },
 	TITLE = "scroll probe", RASTERSIZE = "900x520", BGCOLOR = "240 240 240" }
+-- IUP's RASTERSIZE is the window, the host's the client: give the host IUP's client
+if IMGUI then dlg.rastersize = os.getenv("LUNAR_SCROLL_CLIENT") or "884x481" end
 
 local step = 0
 local shot = 0
@@ -261,6 +301,24 @@ local seq = {
 	function() iup.SetAttribute(a, "RASTERSIZE", "260x480"); iup.Refresh(dlg) end,
 	function() report("tall") end,
 	function() snap("end") end,
+	-- a multiline: the EDIT's own bars and scrolling
+	function() iup.SetAttribute(a, "RASTERSIZE", "260x300"); iup.Refresh(dlg) end,
+	function() ml_report("ml-start"); say("ml2", "vbar", bar_info(ml2, true), "hbar", bar_info(ml2, false)) end,
+	function() local x, y, w, h = rect(ml); mouse("move", x + 50, y + 40); mouse("wheel", x + 50, y + 40) end,
+	function() ml_report("ml-wheel1") end,
+	function() local x, y, w, h = rect(ml); local i = bar_rect(ml, true); local hw = hwnd_of(ml)
+		mouse("down", i.x + 8, i.y + i.h - 8, 7, hw); mouse("up", i.x + 8, i.y + i.h - 8, 7, hw) end,
+	function() ml_report("ml-linedown") end,
+	function() local i = bar_rect(ml, true); local hw = hwnd_of(ml)
+		mouse("down", i.x + 8, i.y + i.h - 20, 7, hw); mouse("up", i.x + 8, i.y + i.h - 20, 7, hw) end,
+	function() ml_report("ml-pagedown") end,
+	function() iup.SetAttribute(ml, "CARETPOS", "0") end,
+	function() ml_report("ml-caret0") end,
+	function() iup.SetAttribute(ml, "APPEND", "appended line") end,
+	function() ml_report("ml-append") end,
+	function() local i = bar_rect(ml, false); local hw = hwnd_of(ml)
+		mouse("down", i.x + i.w - 8, i.y + 8, 6, hw); mouse("up", i.x + i.w - 8, i.y + 8, 6, hw) end,
+	function() ml_report("ml-hlinedown"); snap("ml") end,
 }
 
 local real = iup.MainLoop
@@ -271,7 +329,7 @@ local function run()
 		local ok, err = pcall(function()
 			if step == 4 then
 				main_hwnd = hwnd_of(dlg)
-				if IMGUI then local B = require("core.imgui.Runtime").backend(); B.window("pos", 0, 0); B.window("size", 900, 520) end
+				say("clientsize", iup.GetAttribute(dlg, "CLIENTSIZE"))
 			elseif step > 6 then
 				local f = seq[step - 6]
 				if f then f() else out:close(); os.exit(0) end

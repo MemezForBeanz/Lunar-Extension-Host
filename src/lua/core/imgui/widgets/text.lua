@@ -127,7 +127,7 @@ local function pos_from_point(e, st, lx, ly)
 	local lines = lines_of(text)
 	local li = 1
 	if is_multiline(e, st) then
-		li = math.floor((ly - fy + (st.data.scroll_y or 0)) / math.max(1, ch)) + 1
+		li = math.floor((ly - fy + scroll_y_of(e, st)) / math.max(1, ch)) + 1
 		li = math.max(1, math.min(#lines, li))
 	end
 	local a, b = lines[li][1], lines[li][2]
@@ -170,25 +170,28 @@ local function word_at(s, p)
 end
 -- EM_LINESCROLL: the first visible line, clamped so the last line can reach the bottom
 -- (Wine's EDIT_EM_LineScroll: never past line_count - visible lines).
+-- The multiline's vertical scroll is st.data.top_line (0-based first visible line), shared
+-- with the EDIT view below (M.mlVisibleLines is its format rect in whole lines).
+local function scroll_y_of(e, st)
+	if not is_multiline(e, st) then return 0 end
+	local _, ch = Fonts.forElement(e):charsize()
+	return (st.data.top_line or 0) * ch
+end
 local function line_scroll_to(e, st, first)
 	if not is_multiline(e, st) then return end
-	local _, ch = Fonts.forElement(e):charsize()
-	ch = math.max(1, ch)
-	local _, _, _, fh = frame(e, st)
 	local lines = #lines_of(st.data.text or "")
-	local visible = math.max(1, math.floor(fh / ch))
+	local visible = math.max(1, M.mlVisibleLines(e, st))
 	first = math.max(0, math.min(math.floor(first), math.max(0, lines - visible)))
-	st.data.scroll_y = first * ch
+	st.data.top_line = first
 	Element.hooks.invalidate(e, "paint", "SCROLL")
 end
 local function first_visible(e, st)
-	local _, ch = Fonts.forElement(e):charsize()
-	return math.floor((st.data.scroll_y or 0) / math.max(1, ch))
+	return st.data.top_line or 0
 end
 -- winTextSetScrollToAttrib: "lin,col" on a multiline (1-based, iupStrToIntInt with ','
 -- so "12:1" reads as line 12), then winTextScrollTo's EM_LINESCROLL. A single-line
 -- EDIT ignores EM_LINESCROLL.
-local function scroll_to(e, st, v)
+local function scroll_to_lincol(e, st, v)
 	if not is_multiline(e, st) then return end
 	local lin = tonumber(tostring(v or ""):match("^%s*(-?%d+)")) or 1
 	line_scroll_to(e, st, math.max(1, lin) - 1)
@@ -255,22 +258,19 @@ end
 -- After the caret moved: CARET_CB, EM_SCROLLCARET, and the blink restarts shown.
 local function moved(e, st, rt)
 	scroll_caret(e, st)
-	if is_multiline(e, st) then
-		-- EDIT_EM_ScrollCaret (multiline): scroll the fewest lines that show the caret's line
-		local _, ch = Fonts.forElement(e):charsize()
-		local _, _, _, fh = frame(e, st)
-		local line = select(2, (st.data.text or ""):sub(1, st.data.caret or 0):gsub("\n", "\n"))
-		local top, sy = line * ch, st.data.scroll_y or 0
-		if top < sy then sy = top
-		elseif top + ch > sy + fh then sy = math.max(0, top + ch - fh) end
-		st.data.scroll_y = sy
-	end
+	-- EDIT_EM_ScrollCaret (multiline): the fewest lines that show the caret's line
+	if is_multiline(e, st) and M.scrollCaret then M.scrollCaret(e, st) end
 	st.data.caret_moved = rt and rt.now and rt.now() or nil
 	caret_cb(e, st)
 end
 local function set_value(e, st, value)
 	st.data.text = tostring(value or "")
-	st.data.caret, st.data.anchor = #st.data.text, #st.data.text
+	if M.isMulti and M.isMulti(e, st) then
+		-- SetWindowText: the EDIT starts over at the top with the caret at 0 (measured)
+		st.data.caret, st.data.anchor, st.data.top_line, st.data.scroll_x = 0, 0, 0, 0
+	else
+		st.data.caret, st.data.anchor = #st.data.text, #st.data.text
+	end
 	return false
 end
 -- iTextComputeNaturalSizeMethod: one line is tmHeight tall and VISIBLECOLUMNS/10 of
@@ -305,7 +305,7 @@ local function draw(e, st, dc, rt)
 	if bg then dc:fill(st.x, st.y, st.w, st.h, bg, { radius = tonumber(attr(e, "CORNERRADIUS")) or 0 }) end
 	local focused = rt and rt.focused and rt.focused() == e
 	local value = st.data.text
-	local sx, sy = st.data.scroll_x or 0, st.data.scroll_y or 0
+	local sx, sy = st.data.scroll_x or 0, scroll_y_of(e, st)
 	dc:clip_push(st.x + bw, st.y + bw, math.max(0, st.w - bw * 2), math.max(0, st.h - bw * 2))
 	if value == "" and attr(e, "CUEBANNER") then
 		-- EM_SETCUEBANNER: the cue shows until text is typed (fDrawFocused = TRUE in IUP)
@@ -375,23 +375,6 @@ local function event(e, st, ev, rt)
 	elseif ev.type == "move" and st.data.captured then
 		st.data.caret = pos_from_point(e, st, ev.lx or ev.x or 0, ev.ly or ev.y or 0)
 		moved(e, st, rt); return true
-	elseif ev.type == "wheel" and is_multiline(e, st) and st.data.flat_host and Element.state(st.data.flat_host) then
-		-- Lunar fork WM_MOUSEWHEEL: POSY -= (delta / WHEEL_DELTA) * 3 * liney on the host
-		local host = st.data.flat_host
-		local liney = st.data.flat_liney or 1
-		local posy = tonumber(Element.getAttribute(host, "POSY")) or 0
-		Element.setAttribute(host, "POSY", tostring(posy - (tonumber(ev.dy) or 0) * 3 * liney))
-		return true
-	elseif ev.type == "wheel" and is_multiline(e, st) then
-		-- WM_MOUSEWHEEL: SPI_GETWHEELSCROLLLINES (3) lines a notch
-		local _, ch = Fonts.forElement(e):charsize()
-		local lines = #lines_of(text)
-		local _, _, _, fh = frame(e, st)
-		local max_y = math.max(0, lines * ch - fh)
-		local dy = tonumber(ev.dy) or 0
-		st.data.scroll_y = math.max(0, math.min(max_y, (st.data.scroll_y or 0) - dy * 3 * ch))
-		if rt and rt.redraw then rt.redraw(e) end
-		return max_y > 0
 	elseif ev.type == "release" then
 		st.data.captured = false
 		if rt and rt.release then rt.release() end
@@ -432,7 +415,7 @@ local function event(e, st, ev, rt)
 			local cx = font:measure(shown_sub(e, st, ln[1], st.data.caret)) - (st.data.scroll_x or 0) + (fx - st.x)
 			local target = li + (base == iup.K_UP and -1 or 1)
 			if target >= 1 and target <= #lines then
-				st.data.caret = pos_from_point(e, st, cx, (fy - st.y) + (target - 1) * ch - (st.data.scroll_y or 0) + 1)
+				st.data.caret = pos_from_point(e, st, cx, (fy - st.y) + (target - 1) * ch - scroll_y_of(e, st) + 1)
 			end
 		elseif base == iup.K_HOME and ctrl then st.data.caret = 0
 		elseif base == iup.K_END and ctrl then st.data.caret = #text
@@ -451,20 +434,410 @@ local function event(e, st, ev, rt)
 	end
 	return false
 end
+-- The multiline EDIT (iupwin_text.c maps a multiline to an EDIT with ES_MULTILINE,
+-- ES_AUTOVSCROLL, ES_AUTOHSCROLL unless WORDWRAP, and WS_VSCROLL/WS_HSCROLL from SCROLLBAR).
+-- What the EDIT does was measured on the IUP build (scripts/ui_scroll.lua): the format rect
+-- is the client less 1 px each side (EM_GETRECT 1,1,w-1,...) cut to whole lines; a line is
+-- tmHeight; the vertical bar ranges over the lines with the visible lines as its page, the
+-- horizontal one over the widest line with the format width as its page; both stay shown,
+-- disabled, while nothing scrolls; the wheel scrolls 3 lines a notch (SPI_GETWHEELSCROLLLINES),
+-- an arrow 1, the track a page less one line; EM_SCROLLCARET brings the caret's line into
+-- view at the top or bottom edge.
+local Win = require("core.imgui.widgets.winscrollbar")
+local WHEEL_LINES = 3 -- SPI_GETWHEELSCROLLLINES default
+local HSCROLL_FRACTION = 3 -- the EDIT jumps a third of the width when the caret leaves the view
+
+local function is_multi(e, st) return st.classname == "multiline" or yes(attr(e, "MULTILINE")) end
+M.isMulti = is_multi
+
+--- The text as lines: { s = offset of the first byte (0-based), t = text }. Appending keeps
+-- the lines already split (a growing log is not split again).
+local function lines_of(st)
+	local text = st.data.text
+	local cache = st.data.lines
+	if cache and st.data.lines_src == text then return cache end
+	local out, from = {}, 0
+	local old = st.data.lines_src
+	if cache and old and #old > 0 and #text > #old and text:sub(1, #old) == old then
+		-- keep every line but the last one (which may have grown)
+		for i = 1, #cache - 1 do out[i] = cache[i] end
+		from = cache[#cache].s
+		st.data.text_w_upto = math.min(st.data.text_w_upto or 0, #cache - 1)
+	else
+		st.data.text_w, st.data.text_w_upto = 0, 0
+	end
+	local pos = from
+	local p = from + 1
+	while true do
+		local nl = text:find("\n", p, true)
+		if not nl then out[#out + 1] = { s = pos, t = text:sub(p) }; break end
+		out[#out + 1] = { s = pos, t = text:sub(p, nl - 1) }
+		pos = nl
+		p = nl + 1
+	end
+	st.data.lines, st.data.lines_src = out, text
+	return out
+end
+M.lines = lines_of
+
+local function line_of(lines, p)
+	local lo, hi = 1, #lines
+	while lo < hi do
+		local mid = math.floor((lo + hi + 1) / 2)
+		if lines[mid].s <= p then lo = mid else hi = mid - 1 end
+	end
+	return lo
+end
+
+--- The widest line in pixels (the horizontal range), measured once per line.
+local function text_width(e, st, font)
+	local lines = lines_of(st)
+	local w = st.data.text_w or 0
+	for i = (st.data.text_w_upto or 0) + 1, #lines do
+		local lw = font:measure(lines[i].t)
+		if lw > w then w = lw end
+	end
+	st.data.text_w, st.data.text_w_upto = w, #lines
+	return w
+end
+
+--- Client rect, format rect and line metrics (dialog coordinates), plus which bars exist.
+local function metrics(e, st)
+	local font = Fonts.forElement(e)
+	local cw, lh = font:charsize()
+	local border = yes(attr(e, "BORDER")) and 2 or 0 -- WS_EX_CLIENTEDGE
+	local sb = tostring(attr(e, "SCROLLBAR") or "YES"):upper()
+	local sbv = sb == "YES" or sb == "VERTICAL"
+	-- winTextMapMethod: WORDWRAP removes the horizontal bar
+	local sbh = (sb == "YES" or sb == "HORIZONTAL") and not yes(attr(e, "WORDWRAP"))
+	local cx, cy = st.x + border, st.y + border
+	local cwid, chei = st.w - 2 * border, st.h - 2 * border
+	if sbv then cwid = cwid - Win.SIZE end
+	if sbh then chei = chei - Win.SIZE end
+	local pad = pair(attr(e, "PADDING")) -- EM_SETMARGINS, horizontal only
+	local vlc = math.max(0, math.floor((chei - 2) / math.max(1, lh)))
+	local m = {
+		font = font, cw = cw, lh = lh, border = border, sbh = sbh, sbv = sbv,
+		cx = cx, cy = cy, cwid = math.max(0, cwid), chei = math.max(0, chei),
+		fx = cx + 1 + pad, fy = cy + 1, fw = math.max(0, cwid - 2 - 2 * pad), fh = vlc * lh, vlc = vlc,
+	}
+	-- for scripts/ui_scroll.lua: the format rect in client coordinates, as EM_GETRECT
+	st.data.metrics = { x = 1 + pad, y = 1, w = m.fw, h = m.fh, lh = lh }
+	return m
+end
+
+local function max_top(st, m) return math.max(0, #lines_of(st) - math.max(1, m.vlc)) end
+function M.mlVisibleLines(e, st) return metrics(e, st).vlc end
+
+local function clamp_view(e, st, m)
+	st.data.top_line = math.max(0, math.min(max_top(st, m), st.data.top_line or 0))
+	local tw = text_width(e, st, m.font)
+	st.data.scroll_x = math.max(0, math.min(math.max(0, tw - m.fw), st.data.scroll_x or 0))
+end
+
+--- EM_SCROLLCARET (EDIT_EM_ScrollCaret): the caret's line to the nearest edge, and a third
+-- of the width past the caret when it left the view sideways.
+local function scroll_to(e, st, p)
+	if not is_multi(e, st) then return end
+	local m = metrics(e, st)
+	local lines = lines_of(st)
+	local li = line_of(lines, p) - 1
+	local vlc = math.max(1, m.vlc)
+	local top = st.data.top_line or 0
+	if li < top then top = li elseif li >= top + vlc then top = li - vlc + 1 end
+	st.data.top_line = top
+	local line = lines[li + 1]
+	local x = m.font:measure(line.t:sub(1, p - line.s))
+	local sx = st.data.scroll_x or 0
+	if x < sx then sx = x - math.floor(m.fw / HSCROLL_FRACTION)
+	elseif x > sx + m.fw then sx = x - math.floor((HSCROLL_FRACTION - 1) * m.fw / HSCROLL_FRACTION) end
+	st.data.scroll_x = sx
+	clamp_view(e, st, m)
+	Element.hooks.invalidate(e, "paint", "POS")
+end
+function M.scrollCaret(e, st) scroll_to(e, st, st.data.caret or 0) end
+M.scrollTo = scroll_to
+
+local text_owner = {
+	range = function(e, vertical)
+		local st = Element.state(e)
+		local m = metrics(e, st)
+		if vertical then return #lines_of(st), math.max(1, m.vlc), st.data.top_line or 0 end
+		return text_width(e, st, m.font), m.fw, st.data.scroll_x or 0
+	end,
+	-- EDIT_WM_VScroll / HScroll: a line, or a page less one line (vertical); a character
+	-- width, or the format width (horizontal: not measured)
+	step = function(e, vertical, part, pos, page)
+		local st = Element.state(e)
+		if vertical then
+			local pg = math.max(1, page - 1)
+			if part == "linedown" then return pos + 1 elseif part == "lineup" then return pos - 1
+			elseif part == "pagedown" then return pos + pg elseif part == "pageup" then return pos - pg end
+		else
+			local cw = metrics(e, st).cw
+			if part == "linedown" then return pos + cw elseif part == "lineup" then return pos - cw
+			elseif part == "pagedown" then return pos + page elseif part == "pageup" then return pos - page end
+		end
+	end,
+	scroll = function(e, vertical, pos)
+		local st = Element.state(e)
+		if vertical then st.data.top_line = math.floor(pos + 0.5) else st.data.scroll_x = math.floor(pos + 0.5) end
+		clamp_view(e, st, metrics(e, st))
+		Element.hooks.invalidate(e, "paint", "POS")
+	end,
+}
+
+--- The bars of this frame (shown while SCROLLBAR asks for them; no thumb when disabled).
+local function ml_bars(e, st, m)
+	local lines = lines_of(st)
+	local tw = text_width(e, st, m.font)
+	Win.set(e,
+		m.sbv and { x = m.cx + m.cwid, y = m.cy, w = Win.SIZE, h = m.chei, max = #lines, page = math.max(1, m.vlc), pos = st.data.top_line or 0 } or nil,
+		m.sbh and { x = m.cx, y = m.cy + m.chei, w = m.cwid, h = Win.SIZE, max = tw, page = m.fw, pos = st.data.scroll_x or 0 } or nil)
+end
+
+--- The character offset at dialog point (x, y): the line under it, the nearest boundary.
+local function offset_at(e, st, m, x, y)
+	local lines = lines_of(st)
+	local li = (st.data.top_line or 0) + math.floor((y - m.fy) / math.max(1, m.lh))
+	li = math.max(0, math.min(#lines - 1, li))
+	local line = lines[li + 1]
+	local px = x - m.fx + (st.data.scroll_x or 0)
+	if px <= 0 then return line.s end
+	local t, best, prev_w, i = line.t, #line.t, 0, 1
+	while i <= #t do
+		local _, nxt = utf8_char(t, i)
+		local w = m.font:measure(t:sub(1, nxt - 1))
+		if px < (prev_w + w) / 2 then best = i - 1; break end
+		prev_w, i = w, nxt
+	end
+	return line.s + best
+end
+
+local function ml_draw(e, st, dc, rt)
+	local m = metrics(e, st)
+	clamp_view(e, st, m)
+	local bg = attr(e, "BGCOLOR")
+	if bg then dc:fill(st.x, st.y, st.w, st.h, bg) end
+	local focused = rt and rt.focused and rt.focused() == e
+	local lines = lines_of(st)
+	local fg = attr(e, "FGCOLOR")
+	local value = st.data.text
+	local password = yes(attr(e, "PASSWORD"))
+	dc:clip_push(m.cx, m.cy, m.cwid, m.chei)
+	if value == "" and attr(e, "CUEBANNER") and not focused then
+		dc:text(attr(e, "CUEBANNER"), m.fx, m.fy, m.fw, m.lh, attr(e, "PLACEHOLDERCOLOR") or fg, m.font, { clip = true })
+	end
+	local a, b = sorted_selection(st)
+	local top = st.data.top_line or 0
+	local x0 = m.fx - (st.data.scroll_x or 0)
+	-- the partly visible line under the last full one is drawn too, clipped by the client
+	local last = math.min(#lines, top + math.max(1, m.vlc) + 1)
+	for li = top + 1, last do
+		local line = lines[li]
+		local y = m.fy + (li - 1 - top) * m.lh
+		local t = password and line.t:gsub("[%z\1-\127\194-\244][\128-\191]*", "*") or line.t
+		local ls, le = line.s, line.s + #line.t
+		if a ~= b and b > ls and a <= le then
+			local sa, sb = math.max(a, ls) - ls, math.min(b, le) - ls
+			local sx = x0 + m.font:measure(line.t:sub(1, sa))
+			local sw = m.font:measure(line.t:sub(sa + 1, sb))
+			if b > le then sw = sw + m.cw end -- the selected line break
+			dc:fill(sx, y, math.max(1, sw), m.lh, attr(e, "SELECTIONCOLOR") or "100 140 220 100")
+		end
+		if t ~= "" then dc:text(t, x0, y, math.max(0, m.font:measure(t) + 1), m.lh, fg, m.font, { clip = true }) end
+	end
+	local now = rt and rt.now and rt.now() or 0
+	local since = now - (st.data.caret_moved or now)
+	local phase = math.floor(since / 0.53)
+	if focused and not yes(attr(e, "READONLY")) then
+		local li = line_of(lines, st.data.caret or 0)
+		if phase % 2 == 0 and li - 1 >= top and li - 1 < top + math.max(1, m.vlc) + 1 then
+			local line = lines[li]
+			local cx = x0 + m.font:measure(line.t:sub(1, (st.data.caret or 0) - line.s))
+			local y = m.fy + (li - 1 - top) * m.lh
+			dc:line(cx, y, cx, y + m.lh, attr(e, "CARETCOLOR") or fg, 1)
+		end
+		if rt and rt.wakeAt then rt.wakeAt((st.data.caret_moved or now) + (phase + 1) * 0.53)
+		elseif rt and rt.animate then rt.animate() end
+	end
+	dc:clip_pop()
+	ml_bars(e, st, m)
+	Win.tick(e, text_owner, rt)
+	Win.draw(e, st, dc)
+	if m.border > 0 then
+		dc:rect(st.x, st.y, st.w, st.h, focused and (attr(e, "FOCUSCOLOR") or attr(e, "BORDERCOLOR")) or attr(e, "BORDERCOLOR"), { thickness = 1 })
+	end
+end
+
+--- Moves of the caret a multiline adds: Up/Down keep the column's x, PgUp/PgDn a page,
+-- Ctrl+Home/End the ends of the text, Home/End the line's.
+local function ml_move(e, st, base, ctrl)
+	local m = metrics(e, st)
+	local lines = lines_of(st)
+	local caret = st.data.caret or 0
+	local li = line_of(lines, caret)
+	local line = lines[li]
+	-- Wine EDIT_MoveDown_ML / MoveUp_ML: the x of the caret where it is now (the EDIT keeps
+	-- no goal column, so Down through a short line lands at that line's x afterwards)
+	local goal = m.font:measure(line.t:sub(1, caret - line.s))
+	local function to_line(n)
+		n = math.max(1, math.min(#lines, n))
+		local l = lines[n]
+		local p = offset_at(e, st, m, m.fx - (st.data.scroll_x or 0) + goal, m.fy + (n - 1 - (st.data.top_line or 0)) * m.lh)
+		return math.max(l.s, math.min(l.s + #l.t, p)), true
+	end
+	if base == iup.K_UP then return to_line(li - 1)
+	elseif base == iup.K_DOWN then return to_line(li + 1)
+	elseif base == iup.K_PGUP then st.data.top_line = (st.data.top_line or 0) - math.max(1, m.vlc); return to_line(li - math.max(1, m.vlc))
+	elseif base == iup.K_PGDN then st.data.top_line = (st.data.top_line or 0) + math.max(1, m.vlc); return to_line(li + math.max(1, m.vlc))
+	elseif base == iup.K_HOME then return ctrl and 0 or line.s
+	elseif base == iup.K_END then return ctrl and #st.data.text or line.s + #line.t
+	end
+	return nil
+end
+
+local function ml_event(e, st, ev, rt, single_event)
+	local t = ev.type
+	if t == "wheel" and st.data.flat_host and Element.state(st.data.flat_host) then
+		-- Lunar fork (patch 0001) WM_MOUSEWHEEL on a NATIVETEXTSCROLL-hosted EDIT:
+		-- POSY -= (delta / WHEEL_DELTA) * 3 * liney on the flat box, which scrolls the EDIT
+		if ev.mods and (ev.mods.ctrl or ev.mods.shift) then return false end
+		local host = st.data.flat_host
+		local liney = st.data.flat_liney or 1
+		local posy = tonumber(Element.getAttribute(host, "POSY")) or 0
+		Element.setAttribute(host, "POSY", tostring(posy - (tonumber(ev.dy) or 0) * 3 * liney))
+		return true
+	end
+	if t == "wheel" then
+		-- EDIT WM_MOUSEWHEEL: SPI_GETWHEELSCROLLLINES lines per notch, the rest kept for the
+		-- next one; the EDIT keeps the wheel
+		if ev.mods and (ev.mods.ctrl or ev.mods.shift) then return false end
+		local m = metrics(e, st)
+		local lines = math.min(#lines_of(st), WHEEL_LINES)
+		local delta = (ev.dy or 0) * 120
+		local rem = st.data.wheel_rem or 0
+		if rem ~= 0 and (rem > 0) ~= (delta > 0) then rem = 0 end
+		delta = delta + rem
+		local n = lines * delta / 120
+		n = n >= 0 and math.floor(n) or -math.floor(-n)
+		st.data.wheel_rem = delta - n * 120 / math.max(1, lines)
+		st.data.top_line = (st.data.top_line or 0) - n
+		clamp_view(e, st, m)
+		Element.hooks.invalidate(e, "paint", "POS")
+		return true
+	end
+	if t == "press" and ev.button == 1 and Win.press(e, text_owner, ev.x, ev.y, rt) then return true end
+	if t == "move" and Win.move(e, text_owner, ev.x, ev.y, rt) then return true end
+	if t == "release" and ev.button == 1 and Win.release(e, text_owner, ev.x, ev.y, rt) then return true end
+	if t == "leave" then Win.leave(e, rt); return true end
+	if t == "press" or (t == "move" and st.data.captured) then
+		local m = metrics(e, st)
+		local p = offset_at(e, st, m, ev.x, ev.y)
+		st.data.caret = p
+		if t == "press" then st.data.anchor = ev.mods and ev.mods.shift and st.data.anchor or p; st.data.captured = true
+			if ev.double then st.data.anchor, st.data.caret = word_at(st.data.text, p) end
+			if rt and rt.capture then rt.capture(e) end
+		end
+		st.data.caret_moved = rt and rt.now and rt.now() or nil
+		st.data.goal_x = nil
+		scroll_to(e, st, p)
+		caret_cb(e, st)
+		return true
+	end
+	if t == "key" then
+		local k = ev.key
+		local ctrl = (ev.mods and ev.mods.ctrl) or iup.isCtrlXkey(k)
+		local shift = (ev.mods and ev.mods.shift) or iup.isShiftXkey(k)
+		local base = iup.XkeyBase(k)
+		if base == iup.K_CR and not ctrl then
+			-- ES_WANTRETURN: Enter is a line break (Ctrl+Enter is the dialog's DEFAULTENTER)
+			local a, b = sorted_selection(st)
+			replace(e, st, a, b, "\n", rt); st.data.goal_x = nil; scroll_to(e, st, st.data.caret); caret_cb(e, st)
+			return true
+		elseif base == iup.K_TAB and not ctrl then
+			-- iupKeyProcessNavigation: Tab is a character in a multiline, Ctrl+Tab moves on
+			local a, b = sorted_selection(st)
+			replace(e, st, a, b, "\t", rt); scroll_to(e, st, st.data.caret); caret_cb(e, st)
+			return true
+		elseif base == iup.K_TAB and ctrl then
+			if rt and rt.nextField then rt.nextField(e, shift and -1 or 1) end
+			return true
+		elseif base == iup.K_CR and ctrl then
+			if rt and rt.activateDefault then rt.activateDefault(e, "DEFAULTENTER") end
+			return true
+		end
+		local p = ml_move(e, st, base, ctrl)
+		if p then
+			local keep_goal = base == iup.K_UP or base == iup.K_DOWN or base == iup.K_PGUP or base == iup.K_PGDN
+			if keep_goal and not st.data.goal_x then
+				local lines = lines_of(st)
+				local line = lines[line_of(lines, st.data.caret or 0)]
+				st.data.goal_x = metrics(e, st).font:measure(line.t:sub(1, (st.data.caret or 0) - line.s))
+			elseif not keep_goal then st.data.goal_x = nil end
+			st.data.caret = p
+			if not shift then st.data.anchor = p end
+			st.data.caret_moved = rt and rt.now and rt.now() or nil
+			scroll_to(e, st, p)
+			caret_cb(e, st)
+			if rt and rt.redraw then rt.redraw(e) end
+			return true
+		end
+		local r = single_event(e, st, ev, rt)
+		st.data.goal_x = nil
+		scroll_to(e, st, st.data.caret or 0)
+		return r
+	end
+	local r = single_event(e, st, ev, rt)
+	if t == "char" then st.data.goal_x = nil; scroll_to(e, st, st.data.caret or 0) end
+	return r
+end
+
+local function draw_any(e, st, dc, rt)
+	if is_multi(e, st) and not yes(attr(e, "WORDWRAP")) then return ml_draw(e, st, dc, rt) end
+	return draw(e, st, dc, rt)
+end
+local function event_any(e, st, ev, rt)
+	if is_multi(e, st) then return ml_event(e, st, ev, rt, event) end
+	return event(e, st, ev, rt)
+end
+
 local common = {
-	children = 0, focusable = true, natural = text_natural, draw = draw, event = event,
+	children = 0, focusable = true, natural = text_natural, draw = draw_any, event = event_any,
 	-- IUP registers BORDER, PADDING ("0x0"), VISIBLECOLUMNS ("5"), VISIBLELINES and the TXT colours (attrs.lua)
 	defaults = { CURSOR = "IBEAM" },
 	set = {
 		VALUE = set_value,
-		APPEND = function(e, st, v) replace(e, st, #st.data.text, #st.data.text, v); return false end,
-		INSERT = function(e, st, v) replace(e, st, st.data.caret, st.data.caret, v); return false end,
+		-- winTextSetAppendAttrib: EM_REPLACESEL at the end (it ignores ES_READONLY), after a
+		-- line break when the multiline has text and APPENDNEWLINE (default YES), with the
+		-- callbacks disabled; the caret ends after it.
+		APPEND = function(e, st, v)
+			local ins = tostring(v or "")
+			local multiline = st.classname == "multiline" or yes(attr(e, "MULTILINE"))
+			if multiline and #st.data.text > 0 and attr(e, "APPENDNEWLINE") ~= "NO" then ins = "\n" .. ins end
+			st.data.text = st.data.text .. ins
+			st.data.caret, st.data.anchor = #st.data.text, #st.data.text
+			if M.scrollCaret then M.scrollCaret(e, st) end
+			Element.hooks.invalidate(e, "paint", "VALUE")
+			return false
+		end,
+		-- winTextSetInsertAttrib: EM_REPLACESEL over the selection, callbacks disabled
+		INSERT = function(e, st, v)
+			local a, b = sorted_selection(st)
+			local ins = tostring(v or "")
+			st.data.text = st.data.text:sub(1, a) .. ins .. st.data.text:sub(b + 1)
+			st.data.caret, st.data.anchor = a + #ins, a + #ins
+			if M.scrollCaret then M.scrollCaret(e, st) end
+			Element.hooks.invalidate(e, "paint", "VALUE")
+			return false
+		end,
 		DELETERANGE = function(e, st, v)
 			local a, b = tostring(v or ""):match("^(%d+)%s*[,;:]%s*(%d+)$")
 			if a then replace(e, st, tonumber(a), tonumber(b), "") end
 			return false
 		end,
-		CARETPOS = function(e, st, v) st.data.caret = clamp(st, tonumber(v) or 0); st.data.anchor = st.data.caret; return false end,
+		-- winTextSetCaretPosAttrib: EM_SETSEL, then EM_SCROLLCARET
+		CARETPOS = function(e, st, v) st.data.caret = clamp(st, tonumber(v) or 0); st.data.anchor = st.data.caret; M.scrollCaret(e, st); return false end,
 		SELECTIONPOS = function(e, st, v)
 			local a, b = tostring(v or ""):match("^(%d+)%s*[,;:]%s*(%d+)$")
 			if a then st.data.anchor, st.data.caret = clamp(st, tonumber(a)), clamp(st, tonumber(b)) end
@@ -477,8 +850,7 @@ local common = {
 			line_scroll_to(e, st, line)
 			return false
 		end,
-		SCROLLTO = function(e, st, v) scroll_to(e, st, v); return false end,
-		-- Lunar fork (patch 0001, iupwin_text.c): 1-based first visible line of a multiline
+		SCROLLTO = function(e, st, v) scroll_to_lincol(e, st, v); return false end,
 		-- winTextSetCaretAttrib: "lin,col" on a multiline (iupStrToIntInt with ',', so "12:1"
 		-- is line 12), the column on a single line, then EM_SCROLLCARET
 		CARET = function(e, st, v)
@@ -558,6 +930,7 @@ local common = {
 local function create(e, st)
 	st.data.text = st.data.text or tostring(Element.own(e, "VALUE") or "")
 	st.data.caret, st.data.anchor = #st.data.text, #st.data.text
+	if is_multi(e, st) then st.data.caret, st.data.anchor = 0, 0 end
 	st.data.captured = false
 end
 common.create = create

@@ -122,3 +122,35 @@ and content-drag input sent as window messages.
 | # | element | IUP vs host before | rule | fix | spec |
 |---|---|---|---|---|---|
 | S1 | every IupFlatScrollBox (Settings, page scroll hosts) | bars above the content vs painted under it, and clicks on them went to the content | `iupFlatScrollBarCreate`: the bars are canvases with `ZORDER=TOP`. Commit fefe0ca folded `visibleChildren` (and `defaults`) into a comment, so the internal bars, inserted first, painted and hit-tested below the child | restored `visibleChildren = FlatScrollbar.visible_children` and the defaults | `imgui_scrollbars_spec` "paints and hits the bars above the content" |
+| S2 | IupScrollBox (the media server page; `scripts/ui_scroll.lua` boxes A-E) | 17 px Windows bars with wheel, arrows, track, thumb and content drag vs no bars and 24 px wheel steps | `iup_scrollbox.c` over `iupwin_canvas.c`: SCROLLBAR (default YES) decides the bars, XAUTOHIDE/YAUTOHIDE show one while DX/DY < XMAX/YMAX, the bars are non-client (the child is clipped to and hit in the client rect), a line is a tenth of the page (LINEX/LINEY from the hash table), the wheel sends one SB_LINEUP/DOWN per whole notch and is consumed whenever there is a vertical bar, `SCROLL_CB` is `iScrollBoxScroll_CB` (LAYOUTDRAG) unless the application sets one, POSX/POSY setters move only the thumb, button 1 on the box drags the content | `widgets/winscrollbar.lua` (geometry as GetScrollBarInfo reports it: arrows 17 or half the bar, thumb MulDiv(track, page, range) at least 8, MulDiv position; tracking with auto-repeat) and a native `scrollbox` class; `class.clipRect` in Runtime | `imgui_scrollbars_spec` "IupScrollBox" (8 cases) |
+| S3 | every dialog's first frame | a scroll box at its own size vs at its child's natural size until the next layout | `iupDialogShowXY`, then the new window's WM_SIZE -> `winDialogResize` -> `IupRefresh`: the first layout is computed twice, and `iScrollBoxComputeNaturalSizeMethod` uses the child's size only while the box has none | `layout_dialog` runs `Layout.run` twice the first time | `imgui_scrollbars_spec` "lays a new dialog out twice" |
+| S4 | native bars | look | captured: track #F0F0F0, white line on the content side, 2 px #858585 thumb on columns 8-9 with #989898 ends, an 8 px thumb painted 17 px long, no arrows at rest | `winscrollbar.draw` | `imgui_scrollbars_spec` "Windows 11 look" |
+| S5 | IupCanvas without WHEEL_CB (inside a scroll box) | wheel scrolls the box vs swallowed by the canvas | `winCanvasMsgProc` WM_MOUSEWHEEL: WHEEL_CB, else a vertical bar scrolls, else DefWindowProc forwards to the parent | canvas `event` returns false then | `imgui_scrollbars_spec` "the wheel over a canvas" |
+| S6 | multiline APPEND/INSERT (Build Queue output log: READONLY, APPEND per line) | text appended on a new line vs nothing appended to a READONLY control, no line break, ACTION/VALUECHANGED_CB fired | `winTextSetAppendAttrib`/`SetInsertAttrib`: EM_REPLACESEL ignores ES_READONLY, "
+
+" first when the multiline has text and APPENDNEWLINE (default YES), callbacks disabled, caret after the text | APPEND/INSERT write the text directly | `imgui_multiline_spec` "APPEND and INSERT" |
+| S7 | multiline IupText (Feedback draft, Log Parser and Black Duck logs, Build Queue output) | the EDIT's own view: bars from SCROLLBAR (horizontal dropped by WORDWRAP), shown disabled while nothing scrolls; wheel 3 lines a notch; arrow 1 line, track a page less one; EM_SCROLLCARET on CARETPOS/APPEND/typing; caret by line and column on click; Up/Down/PgUp/PgDn/Ctrl+Home/End; Enter a line break and Tab a character (Ctrl+Enter DEFAULTENTER, Ctrl+Tab next field); VALUE resets to the top with the caret at 0 vs no bars, no scrolling at all (long text was unreachable), clicks placed the caret by column on the first line only, Enter ran DEFAULTENTER and Tab left the control | `iupwin_text.c` (ES_MULTILINE, ES_AUTOVSCROLL, ES_AUTOHSCROLL unless WORDWRAP, WS_VSCROLL/WS_HSCROLL), `iupKeyProcessNavigation`, and the EDIT as measured: EM_GETRECT 1,1,w-1,whole lines, 15 px lines, nPage = visible lines, nMax = lines - 1 | line-based multiline view in `widgets/text.lua` over `winscrollbar` (an `owner.step` hook gives the EDIT's steps); Runtime exports `activateDefault` | `imgui_multiline_spec` "the EDIT's view", "Enter and Tab" |
+| S8 | a disabled native bar | grey arrows at both ends vs nothing | captured: #A4A4A4 triangles, 8 px wide and 6 deep, 6 px (5 horizontally) from the ends; the thumb-less enabled bar of box E draws none | `winscrollbar` draws them when the page holds the range | covered by the S7 capture comparison (8 and 16 of 1683 px differ, antialiasing) |
+
+Result (`ui_scroll.lua`, both builds at the same 884x481 client): every DX/DY/XMAX/YMAX, box,
+child and bar rectangle and thumb position matches after wheel, arrow, track, SCROLLTO,
+POSY, content drag and resize; the bars' pixels match exactly (0 of 16,000 px differ above
+24, box D's painted thumb included after S4). Left: POSX/POSY differ in the 8th decimal
+(IUP quantises to INT_MAX scroll units), and box E (30 px tall: no track) where Windows
+reports an 8 px thumb it does not paint and the host reports none. Not measurable through
+posted messages: the system bar's hover look (it widens under the real pointer; the host's
+hover look is an approximation), its auto-repeat timing (Wine's 200/50 ms used), and thumb
+dragging (the system's tracking loop ignores posted moves; the host's follows Windows'
+MulDiv rule, covered by the spec). The bars are the system's light ones in the dark theme
+too, as on the IUP build.
+
+Multiline (`ui_scroll.lua`, the 200x120 multiline and a two-line one): first visible line,
+caret, both bars and thumbs match after the wheel, the arrow, the track, CARETPOS=0 and APPEND,
+except the horizontal thumb, 1 px longer on the host (the EDIT's text width, its range, comes
+out 1-2 px wider than the host's GDI measure of the longest line) and its line step (IUP 21,
+host 20 after one arrow click). Not measured: the EDIT's horizontal page step and the third
+of the width it jumps when the caret leaves the view (Wine's EDIT_EM_ScrollCaret rule used);
+WORDWRAP still draws wrapped text but scrolls by logical lines. The single-line EDIT is
+unchanged (its horizontal scrolling to the caret is not ported). A non-dropdown `iup.list`
+is still drawn as a flat list (IUP: a LISTBOX with its border and Windows bar); nothing in
+the app or the org packs uses one.
