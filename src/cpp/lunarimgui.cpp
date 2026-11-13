@@ -999,13 +999,17 @@ bool restore_renderer(bool reset) {
     release_renderer_gpu();
     char want[32] = "";
     GetEnvironmentVariableA("LUNAR_RENDERER", want, sizeof(want));
-    g.renderer_requested = want[0] ? want : "auto";
+    /* Unset: WARP, with the GPU only if WARP cannot start. A GPU driver costs about
+       30 MiB of private memory more than WARP, which keeps the host's footprint near
+       IUP's (docs/imgui-port.md, Performance); "auto" is hardware-first. */
+    g.renderer_requested = want[0] ? want : "default";
     std::string requested = lower(g.renderer_requested);
+    bool default_warp = requested == "default";
     bool force_warp = requested == "warp";
     bool force_hardware = requested == "hardware" || requested == "gpu";
     /* A removed hardware adapter should not be retried forever: reset directly onto
        WARP, while an initial auto selection remains hardware-first. */
-    bool first_hardware = !force_warp && (!reset || force_hardware);
+    bool first_hardware = !force_warp && !default_warp && (!reset || force_hardware);
     if (reset && was_hardware && !first_hardware) {
         ++g.renderer_fallbacks;
         g.fallback_reason = "hardware_device_recreated_on_warp";
@@ -1016,6 +1020,11 @@ bool restore_renderer(bool reset) {
         g.renderer_fallbacks++;
         g.renderer_status = "hardware_failed_using_warp";
         ok = create_device(D3D_DRIVER_TYPE_WARP);
+    } else if (!ok && default_warp && !reset) {
+        g.fallback_reason = "warp_creation_failed: " + g.renderer_error;
+        g.renderer_fallbacks++;
+        g.renderer_status = "warp_failed_using_hardware";
+        ok = create_device(D3D_DRIVER_TYPE_HARDWARE);
     } else if (!ok && force_warp) {
         g.renderer_status = "warp_failed";
     }

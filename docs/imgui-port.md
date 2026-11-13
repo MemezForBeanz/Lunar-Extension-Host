@@ -236,8 +236,12 @@ leaving, or keys typed between clicks reach the widgets in order and at the righ
 
 Rendering is Direct3D 11 on WARP, the software rasterizer that ships with Windows: the
 flat UI costs about 4 ms of CPU per full-window frame and no GPU driver is loaded (the
-OpenGL driver alone was ~40 MB of private memory). `LUNAR_RENDERER=hardware` uses the
-GPU instead, and `LUNAR_VSYNC=0` presents without waiting (frame timing).
+OpenGL driver alone was ~40 MB of private memory). Measured with all ten extensions,
+idle: 49 MiB private on WARP, 81 MiB on the GPU, 44 MiB for IUP. WARP is the default
+(the GPU only if WARP cannot start); `LUNAR_RENDERER=hardware` uses the GPU, `auto` is
+hardware-first with WARP as the fallback, and `LUNAR_VSYNC=0` presents without waiting
+(frame timing). Device flags that stop the driver's worker threads bring WARP below IUP
+(36 MiB) but make a full-window repaint ten times slower, so they are not used.
 
 Text is measured the way IUP's Windows driver measures it: a GDI font made with
 `CreateFont(-MulDiv(pt, dpi, 72), ..., bold ? FW_BOLD : FW_NORMAL, ...)` from the face
