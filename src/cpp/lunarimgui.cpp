@@ -1004,6 +1004,12 @@ bool restore_renderer(bool reset) {
        IUP's (docs/imgui-port.md, Performance); "auto" is hardware-first. */
     g.renderer_requested = want[0] ? want : "default";
     std::string requested = lower(g.renderer_requested);
+    /* WARP rasterizes on the CPU's cores; on a low-power machine (two logical processors
+       or fewer) that would starve the app, so the default takes the GPU there. */
+    if (requested == "default" && GetActiveProcessorCount(ALL_PROCESSOR_GROUPS) <= 2) {
+        requested = "auto";
+        g.fallback_reason = "low_power_cpu_prefers_hardware";
+    }
     bool default_warp = requested == "default";
     bool force_warp = requested == "warp";
     bool force_hardware = requested == "hardware" || requested == "gpu";
