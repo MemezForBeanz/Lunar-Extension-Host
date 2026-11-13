@@ -1664,6 +1664,9 @@ end
 
 function M.frame()
 	if closed then return end
+	-- No window yet (dialogs only mapped, or none shown): IupLoopStep still runs timers and
+	-- messages, which step() did before calling here, but there is nothing to draw.
+	if B.alive and not B.alive() then return end
 	local input = B.frame_begin()
 	local dpi = tonumber(input.scale) and input.scale > 0 and math.floor(96 * input.scale + 0.5)
 	if dpi and dpi ~= Fonts.dpi then

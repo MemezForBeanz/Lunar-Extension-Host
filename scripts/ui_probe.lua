@@ -233,6 +233,8 @@ local function dialog_shot(d)
 	emit("S", string.format("dialog-%02d.bmp", shot_n), tostring(iup.GetAttribute(d, "TITLE")))
 end
 local errors = {}
+-- Set when the shell launchers could not be stubbed: LIVE clicks are then refused.
+local SHELL_UNSTUBBED = false
 if LIVE then
 	iup.Alarm = function() return 2 end
 	iup.GetText = function() return nil end
@@ -242,6 +244,33 @@ if LIVE then
 		local desktop = require("core.lib.desktop")
 		for _, k in ipairs({ "open", "openUrl", "reveal", "openFolder" }) do
 			if desktop[k] then desktop[k] = function() return true end end
+		end
+	end)
+	-- Nothing a click hands to the OS shell may run: a browser, an explorer window or an
+	-- elevated process opens on the user's own desktop, outside the probe's hidden one
+	-- (the Time Clock page's "Open website" did). Each launch is recorded as an O line.
+	local function open_stub(target) emit("O", "open", tostring(target)); return true end
+	local function elevate_stub(argv)
+		emit("O", "elevate", type(argv) == "table" and table.concat(argv, " ") or tostring(argv)); return true
+	end
+	local okp, platform = pcall(require, "core.platform")
+	pcall(function()
+		local os_backend = require(platform.is_windows and "core.platform.win32" or "core.platform.posix")
+		for _, t in ipairs({ platform, os_backend }) do
+			if t.open then t.open = open_stub end
+			if t.elevate then t.elevate = elevate_stub end
+		end
+	end)
+	-- Fail safe, checked by identity (calling the real launcher to test it would launch):
+	-- without the stub in place no click may run real callbacks.
+	if not (okp and platform.open == open_stub) then
+		emit("W", "probe: core.platform.open could not be stubbed; clicks are off")
+		SHELL_UNSTUBBED = true
+	end
+	pcall(function()
+		local Service = require("core.lib.Service")
+		for _, k in ipairs({ "start", "stop", "install", "uninstall" }) do
+			if Service[k] then Service[k] = function() emit("O", "service." .. k, ""); return true end end
 		end
 	end)
 	if IMGUI then
@@ -354,7 +383,7 @@ local WIN_W, WIN_H = SIZE:match("^(%d+)x(%d+)$")
 WIN_W, WIN_H = tonumber(WIN_W) or 1400, tonumber(WIN_H) or 900
 local SETUP = {}
 for item in (os.getenv("LUNAR_PROBE_SETUP") or ""):gmatch("[^,]+") do SETUP[#SETUP + 1] = item end
-local NOCLICK = os.getenv("LUNAR_PROBE_NOCLICK") == "1"
+local NOCLICK = os.getenv("LUNAR_PROBE_NOCLICK") == "1" or SHELL_UNSTUBBED
 local PAGES = os.getenv("LUNAR_PROBE_PAGES")
 
 -- One setup step (see the header); returns false when it could not be applied.
