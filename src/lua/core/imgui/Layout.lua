@@ -30,7 +30,32 @@ local band, bor = bit.band, bit.bor
 local M = {}
 
 local STATE = Element.STATE
-local floor, max, min = math.floor, math.max, math.min
+local floor, max = math.floor, math.max
+local stats = { measured = 0, measure_hits = 0, placed = 0, place_hits = 0, runs = 0 }
+function M.stats(reset)
+	local out = {}; for k,v in pairs(stats) do out[k] = v; if reset then stats[k] = 0 end end
+	return out
+end
+
+-- Natural sizes depend on descendants; inherited FONT/EXPAND changes also affect
+-- descendants. Keep placement independently dirty, since geometry may change
+-- without changing a subtree's natural size.
+function M.invalidate(el, inherited)
+	local function down(e)
+		local s = STATE[e]; if not s then return end
+		s.data.natural_dirty, s.data.place_dirty = true, true
+		s.data.min_w, s.data.min_h = nil, nil
+		for _,c in ipairs(s.children) do down(c) end
+	end
+	if inherited then down(el) end
+	while el do
+		local s = STATE[el]; if not s then break end
+		s.data.natural_dirty, s.data.place_dirty = true, true
+		s.data.min_w, s.data.min_h = nil, nil
+		el = s.parent
+	end
+end
+Element.invalidateLayout = M.invalidate
 
 -- iup_object.h
 local H0, H1, W0, W1, HFREE, WFREE = 0x01, 0x02, 0x04, 0x08, 0x10, 0x20
@@ -237,6 +262,12 @@ function L.minContent(el, horizontal) return M.minContent(el, horizontal) end
 local function compute(el)
 	local st = STATE[el]
 	if not st then return 0, 0 end
+	if st.data.natural_cached and not st.data.natural_dirty then
+		stats.measure_hits = stats.measure_hits + 1
+		st.nat_w, st.nat_h, st.expand = st.data.base_nw, st.data.base_nh, st.data.base_expand
+		return st.nat_w, st.nat_h
+	end
+	stats.measured = stats.measured + 1
 	local class = st.class
 	local uw, uh = user_size(el, st)
 	local nw, nh = uw, uh
@@ -283,6 +314,9 @@ local function compute(el)
 	end
 	nw, nh = apply_minmax(st, nw, nh)
 	st.nat_w, st.nat_h = nw, nh
+	st.data.natural_cached, st.data.natural_dirty = true, false
+	st.data.base_nw, st.data.base_nh, st.data.base_expand = nw, nh, st.expand
+	st.data.min_w, st.data.min_h = nil, nil
 	return nw, nh
 end
 M.compute = compute
@@ -292,6 +326,15 @@ M.compute = compute
 --- Lay out an element's children inside its (already set) rect.
 function M.placeChildren(el, st)
 	if #st.children == 0 then return end
+	local d = st.data
+	if not d.place_dirty and d.place_x == st.x and d.place_y == st.y
+		and d.place_w == st.w and d.place_h == st.h and d.place_shrink == shrink_flag then
+		stats.place_hits = stats.place_hits + 1
+		return
+	end
+	stats.placed = stats.placed + 1
+	d.place_dirty = false
+	d.place_x, d.place_y, d.place_w, d.place_h, d.place_shrink = st.x, st.y, st.w, st.h, shrink_flag
 	local class = st.class
 	if class.place then
 		class.place(el, st, L)
@@ -323,7 +366,7 @@ function M.placeFloating(el, st, parent_st)
 end
 
 --- iupLayoutMinContent (patch 0008): what a subtree cannot give up along one axis.
-function M.minContent(el, horizontal)
+local function min_content(el, horizontal)
 	local st = STATE[el]
 	if not st then return 0 end
 	local natural = horizontal and (st.nat_w or 0) or (st.nat_h or 0)
@@ -360,11 +403,32 @@ function M.minContent(el, horizontal)
 	local mw, mh = apply_minmax(st, w, w)
 	return horizontal and mw or mh
 end
+function M.minContent(el, horizontal)
+	local s = STATE[el]; if not s then return 0 end
+	local d = s.data
+	if d.min_nw ~= s.nat_w or d.min_nh ~= s.nat_h or d.min_expand ~= s.expand then
+		d.min_w, d.min_h = nil, nil
+		d.min_nw, d.min_nh, d.min_expand = s.nat_w, s.nat_h, s.expand
+	end
+	local key = horizontal and "min_w" or "min_h"
+	if d[key] == nil then d[key] = min_content(el, horizontal) end
+	return d[key]
+end
 
 --- Lay out a dialog in a client area of (w, h).
+local function font_environment(el)
+	local s = STATE[el]; if not s then return end
+	local generation = Fonts.generation and Fonts.generation() or 0
+	if s.data.font_generation ~= generation or s.data.font_dpi ~= Fonts.dpi or s.data.font_backend ~= Fonts.backend then
+		M.invalidate(el, true)
+		s.data.font_generation, s.data.font_dpi, s.data.font_backend = generation, Fonts.dpi, Fonts.backend
+	end
+end
 function M.run(dialog, w, h)
 	local st = STATE[dialog]
 	if not st then return end
+	stats.runs = stats.runs + 1
+	font_environment(dialog)
 	shrink_flag = Element.getAttribute(dialog, "SHRINK") == "YES"
 	compute(dialog)
 	st.x, st.y = 0, 0
@@ -375,11 +439,19 @@ end
 
 --- An element's natural size, computing its subtree.
 function M.natural(el)
-	return compute(el)
+	local st = STATE[el]
+	local oldw, oldh, olde = st and st.nat_w, st and st.nat_h, st and st.expand
+	font_environment(el)
+	local w,h = compute(el)
+	-- An explicit intrinsic-size query can undo a parent's NORMALIZESIZE override.
+	-- Make that parent reapply its normalization before a later placement/resize.
+	if st and st.parent and (oldw~=w or oldh~=h or olde~=st.expand) then M.invalidate(st.parent) end
+	return w,h
 end
 
 --- Lay out any subtree in a rect (used by tests and by overlays that host a tree).
 function M.layout(el, x, y, w, h)
+	font_environment(el)
 	compute(el)
 	L.place(el, x, y, w, h)
 end

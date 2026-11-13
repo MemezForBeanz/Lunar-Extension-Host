@@ -6,6 +6,7 @@
 
 int luaopen_subprocess(lua_State *L);
 int luaopen_process(lua_State *L);
+int luaopen_native_resolver(lua_State *L);
 int luaopen_winredraw(lua_State *L);
 int luaopen_winframe(lua_State *L);
 
@@ -152,6 +153,7 @@ void host_pre_iup_open(void)
 
 void host_preload_modules(lua_State *L, host_preload_fn preload)
 {
+    preload(L, "native_resolver", luaopen_native_resolver);
     preload(L, "subprocess",   luaopen_subprocess);
     preload(L, "process",      luaopen_process);
     preload(L, "winredraw",    luaopen_winredraw);

@@ -1360,6 +1360,11 @@ host:addMenuItem("Window Diagnostics...", function()
 		return (ok and v) and tostring(v) or "(nil)"
 	end
 	local ok_rep, report = pcall(function() return tab_transition:report() end)
+	local renderer
+	if rawget(iup, "_IMGUI") then
+		local ok, info = pcall(function() return require("lunarimgui").renderer() end)
+		if ok then renderer = info end
+	end
 	iup.Message("Window Diagnostics", Diagnostics.window_report({
 		fullsize = iup.GetGlobal("FULLSIZE"),
 		screensize = iup.GetGlobal("SCREENSIZE"),
@@ -1385,6 +1390,7 @@ host:addMenuItem("Window Diagnostics...", function()
 			shell_bands = shell_budget.bands,
 		},
 		transition = ok_rep and report or tostring(report),
+		renderer = renderer,
 		native = NativeStatus.lines(NATIVE, theme_mgr:fastPaths()),
 	}))
 end, "help")

@@ -148,6 +148,11 @@ iup.MainLoop = function()
  result.lua_to_ready_ms = (now()-entered)*1000
  result.ready_cpu_ms = cpu()*1000
  result.ready_memory = memory()
+ if R then
+  local b=R.backend(); result.renderer=b.renderer and b.renderer() or nil
+  local native=require('core.imgui.NativeLayout')
+  result.native_layout=native.available and native.enabled
+ end
  if #tabs > 0 then tabs[#tabs+1]={title='Settings',widget=assert(host._host_tabs.settings)} end
  result.tab_titles = {}
  for _,t in ipairs(tabs) do result.tab_titles[#result.tab_titles+1]=t.title end
@@ -187,6 +192,11 @@ iup.MainLoop = function()
     end,#tabs*10)
    end
    result.after_memory = memory()
+   if R then
+    result.layout_stats=require('core.imgui.Layout').stats()
+    result.native_layout_stats=require('core.imgui.NativeLayout').stats()
+    result.font_cache=require('core.imgui.Fonts').measure_cache_stats()
+   end
    if R and os.getenv('LUNAR_BENCH_PROFILE') == '1' then
     local prof=require('jit.p')
     local Layout=require('core.imgui.Layout')

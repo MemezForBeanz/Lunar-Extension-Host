@@ -117,7 +117,7 @@ end
 function M.paintGenNow() return paint_gen end
 function M.frameNo() return frame_no end
 
-Element.hooks.invalidate = function(el, kind, name, changed)
+Element.hooks.invalidate = function(el, kind, name, changed, layout_invalidated)
 	if kind ~= "layout" then
 		-- IUP repaints for a visual attribute, not for the canvas draw state (DRAWCOLOR,
 		-- DRAWSTYLE... set inside a paint callback) or internal storage.
@@ -126,7 +126,10 @@ Element.hooks.invalidate = function(el, kind, name, changed)
 	-- A later canvas may change an earlier canvas or its ancestor during ACTION.
 	-- Stamp that change for the next frame, but repeated writes of the same stored
 	-- value while drawing must not keep the event loop awake indefinitely.
-	if in_paint and changed == false then return end
+	if changed == false then return end
+	if not layout_invalidated and Element.invalidateLayout then
+		Element.invalidateLayout(el, name == "FONT" or name == "EXPAND" or name == "CHILD")
+	end
 	stamp(el)
 	need_frame = true
 	if kind ~= "layout" or in_layout then return end
@@ -516,6 +519,7 @@ function M.redraw(el)
 end
 function M.relayout(el)
 	need_frame = true
+	if el and Element.invalidateLayout then Element.invalidateLayout(el) end
 	if el then
 		local _, dst = dialog_of(el)
 		if dst then dst.data.layout_dirty = true end
@@ -1168,7 +1172,16 @@ local pending_closes = {}
 
 local function ensure_window(d, st)
 	if not dialog_windows or st.data.win == false then return false end
-	if st.data.win then return true end
+	if st.data.win then
+		-- A device reset may restore the main surface but fail a popup swap chain.
+		-- Hide/destroy that window and retain the logical dialog as a drawn panel.
+		if B.window("popup_ready", st.data.win) == false then
+			B.window("popup_close", st.data.win)
+			st.data.win = false
+			return false
+		end
+		return true
+	end
 	if not (B.alive and B.alive()) then return false end
 	local function a(n) return Element.getAttribute(d, n) end
 	local yes = Element.isTrue
@@ -1564,6 +1577,7 @@ local function layout_dialog(d, w, h)
 		-- child's only while it has no size yet: iScrollBoxComputeNaturalSizeMethod).
 		if ok and not st.data.laid_out then
 			st.data.laid_out = true
+			Layout.invalidate(d, true)
 			ok, err = xpcall(Layout.run, debug.traceback, d, w, h)
 		end
 		in_layout = false
@@ -1649,6 +1663,14 @@ end
 function M.frame()
 	if closed then return end
 	local input = B.frame_begin()
+	local dpi = tonumber(input.scale) and input.scale > 0 and math.floor(96 * input.scale + 0.5)
+	if dpi and dpi ~= Fonts.dpi then
+		Fonts.dpi = dpi; Fonts.reset()
+		for _,d in ipairs(dialogs) do
+			local st = STATE[d]
+			if st then st.data.layout_dirty = true; stamp(d) end
+		end
+	end
 	frame_no = frame_no + 1
 	frame_input = input
 	need_frame = false

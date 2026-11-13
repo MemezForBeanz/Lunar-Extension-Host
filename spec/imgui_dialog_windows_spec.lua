@@ -31,6 +31,21 @@ describe("secondary dialogs as native windows", function()
 		local id, p = next(B.popups)
 		return id, p
 	end
+	it("retains the logical dialog as a panel if its swap chain cannot be restored", function()
+		local dlg=secondary()
+		iup.Show(dlg); R.frame()
+		local id=only_popup()
+		local window=B.window
+		B.window=function(op,...)
+			if op=="popup_ready" and select(1,...)==id then return false end
+			return window(op,...)
+		end
+		R.frame()
+		assert.is_false(Element.state(dlg).data.win)
+		assert.is_nil(B.popups[id])
+		assert.equal(2,#R.dialogs())
+		R.frame()
+	end)
 	-- the surface each text was drawn on in the last frame
 	local function text_surfaces()
 		local out, surface = {}, 0

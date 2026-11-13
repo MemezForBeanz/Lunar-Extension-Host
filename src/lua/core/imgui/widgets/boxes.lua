@@ -14,6 +14,7 @@
 local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
 local Layout = require("core.imgui.Layout")
+local NativeLayout = require("core.imgui.NativeLayout")
 local bit = require("bit")
 local band = bit.band
 
@@ -71,6 +72,10 @@ local function box_natural(vertical)
 			ec = expand_children == "YES" and E.BOTH or expand_children == "HORIZONTAL" and E.WIDTH
 				or expand_children == "VERTICAL" and E.HEIGHT or nil
 		end
+		d.homogeneous = own(st, "HOMOGENEOUS") == "YES"
+		local native_w, native_h, native_e = NativeLayout.natural(st, L, vertical,
+			NORMALIZE[(own(st, "NORMALIZESIZE") or ""):upper()], ec)
+		if native_w then return native_w, native_h, native_e end
 		local count, maxw, maxh = 0, 0, 0
 		local children_expand = 0
 		for _, c in ipairs(st.children) do
@@ -125,6 +130,7 @@ local function box_place(vertical)
 	local ONE = vertical and E.H1 or E.W1
 	local ZERO = vertical and E.H0 or E.W0
 	return function(el, st, L)
+		if NativeLayout.place(st, L, vertical, Layout) then return end
 		local d = st.data
 		local mx, my, g = d.mx or 0, d.my or 0, d.gap or 0
 		local current = vertical and st.h or st.w

@@ -30,6 +30,14 @@ M.named = named
 --- Hooks the runtime installs: invalidate(el, what) is called after any change that
 -- needs a new layout ("layout") or only a repaint ("paint").
 M.hooks = { invalidate = function() end, destroyed = function() end }
+local function invalidate(el, kind, name, changed)
+	local draw_state = type(name) == "string" and (name:sub(1,4) == "DRAW" or name:sub(1,4) == "_IUP")
+	local paint_only = type(name) == "string" and (name:match("COLOR$") or name == "TIP" or name == "CURSOR")
+	if changed ~= false and not draw_state and not paint_only and M.invalidateLayout then
+		M.invalidateLayout(el, name == "FONT" or name == "EXPAND")
+	end
+	M.hooks.invalidate(el, kind, name, changed, true)
+end
 
 local function upper(name) return string.upper(name) end
 
@@ -207,7 +215,7 @@ function M.setAttribute(el, name, value)
 		if keep == false then
 			-- Command/non-storing setters cannot compare against st.attrs: repeating
 			-- the same input can still change their private state (APPEND, INSERT...).
-			M.hooks.invalidate(el, LAYOUT_ATTRS[name] and "layout" or "paint", name)
+			invalidate(el, LAYOUT_ATTRS[name] and "layout" or "paint", name)
 			return
 		end
 	end
@@ -218,7 +226,10 @@ function M.setAttribute(el, name, value)
 		st.handles[name] = nil
 		st.attrs[name] = value
 	end
-	M.hooks.invalidate(el, LAYOUT_ATTRS[name] and "layout" or "paint", name, changed)
+	-- Setters may change private state even when the stored value compares equal
+	-- (e.g. VALUE resets an editor's view/caret). Only plain stored writes are pure.
+	if setter or common then changed = nil end
+	invalidate(el, LAYOUT_ATTRS[name] and "layout" or "paint", name, changed)
 	if M.SETTERS[name] and M.inherits(class, name) then M.notifyChildren(el, st, name, value, handle) end
 end
 
@@ -421,8 +432,9 @@ function M.append(parent, child, ref_index)
 	local list = ps.children
 	if ref_index then table.insert(list, ref_index, child) else list[#list + 1] = child end
 	cs.parent = parent
+	if M.invalidateLayout then M.invalidateLayout(child, true) end
 	if ps.class.childAdded then ps.class.childAdded(parent, ps, child, ref_index or #list) end
-	M.hooks.invalidate(parent, "layout", "CHILD")
+	invalidate(parent, "layout", "CHILD")
 	return parent
 end
 
@@ -451,7 +463,8 @@ function M.appendInternal(parent, child, first)
 	if first then table.insert(ps.children, 1, child) else ps.children[#ps.children + 1] = child end
 	cs.parent = parent
 	cs.internal = true
-	M.hooks.invalidate(parent, "layout", "CHILD")
+	if M.invalidateLayout then M.invalidateLayout(child, true) end
+	invalidate(parent, "layout", "CHILD")
 	return child
 end
 
@@ -480,7 +493,8 @@ function M.detach(child)
 		end
 	end
 	cs.parent = nil
-	M.hooks.invalidate(parent, "layout", "CHILD")
+	if M.invalidateLayout then M.invalidateLayout(child, true) end
+	invalidate(parent, "layout", "CHILD")
 end
 
 function M.childPos(parent, child)

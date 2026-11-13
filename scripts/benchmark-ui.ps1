@@ -1,6 +1,8 @@
 param([int]$Runs = 5, [string]$OutputDir = 'build/ui-benchmark', [switch]$Profile, [switch]$Uncapped,
  [switch]$IdleOnly, [int]$IdleMs = 2000, [int]$WarmupMs = 2000, [switch]$SkipNetworkProbes,
- [string]$OrgPacksDir = 'C:\Users\Hayden MSI\.t3\worktrees\lunar-orgpacks-imgui-1')
+ [string]$OrgPacksDir = 'C:\Users\Hayden MSI\.t3\worktrees\lunar-orgpacks-imgui-1',
+ [ValidateSet('warp','auto','hardware')][string]$Renderer='warp',
+ [ValidateSet('auto','lua','native')][string]$Layout='auto')
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $out = [IO.Path]::GetFullPath((Join-Path $repo $OutputDir))
@@ -22,7 +24,7 @@ public static class LunarBench {
  [DllImport("kernel32")] public static extern bool CloseHandle(IntPtr h);
 }
 '@
-$envNames = @('APPDATA','LUNAR_PROFILE','LUNAR_PROFILE_DIR','LUNAR_DEV_EXTENSIONS','LUNAR_CAPTURE_CLIENT','LUNAR_BENCH_LAUNCH_QPC','LUNAR_BENCH_MODE','LUNAR_BENCH_PROFILE','LUNAR_RENDERER','LUNAR_GLYPHS','LUNAR_VSYNC','LUNAR_BENCH_IDLE_ONLY','LUNAR_BENCH_IDLE_MS','LUNAR_BENCH_WARMUP_MS','LUNAR_BENCH_SKIP_PROBES')
+$envNames = @('APPDATA','LUNAR_PROFILE','LUNAR_PROFILE_DIR','LUNAR_DEV_EXTENSIONS','LUNAR_CAPTURE_CLIENT','LUNAR_BENCH_LAUNCH_QPC','LUNAR_BENCH_MODE','LUNAR_BENCH_PROFILE','LUNAR_RENDERER','LUNAR_GLYPHS','LUNAR_VSYNC','LUNAR_BENCH_IDLE_ONLY','LUNAR_BENCH_IDLE_MS','LUNAR_BENCH_WARMUP_MS','LUNAR_BENCH_SKIP_PROBES','LUNAR_LAYOUT')
 $saved = @{}
 foreach ($name in $envNames) { $saved[$name]=[Environment]::GetEnvironmentVariable($name) }
 $desktopName = 'LunarBenchmark' + [Guid]::NewGuid().ToString('N')
@@ -31,7 +33,7 @@ if ($desktop -eq [IntPtr]::Zero) { throw 'CreateDesktop failed' }
 $records = @()
 try {
  $env:LUNAR_CAPTURE_CLIENT='1'; $env:LUNAR_DEV_EXTENSIONS='0'
- $env:LUNAR_RENDERER='warp'; $env:LUNAR_GLYPHS='gdi'
+ $env:LUNAR_RENDERER=$Renderer; $env:LUNAR_GLYPHS='gdi'; $env:LUNAR_LAYOUT=$Layout
  $env:LUNAR_VSYNC = $(if ($Uncapped) {'0'} else {'1'})
  $env:LUNAR_BENCH_PROFILE = $(if ($Profile) {'1'} else {'0'})
  $env:LUNAR_BENCH_IDLE_ONLY = $(if ($IdleOnly) {'1'} else {'0'})
@@ -75,7 +77,7 @@ try {
  }
  $records | ConvertTo-Json | Set-Content "$out/index.json" -Encoding utf8
  $system = Get-CimInstance Win32_ComputerSystem
- [pscustomobject]@{date=(Get-Date).ToString('o');commit=(git -C $repo rev-parse HEAD);packsCommit=(git -C $packs rev-parse HEAD);logicalCpus=$system.NumberOfLogicalProcessors;memoryGB=[math]::Round($system.TotalPhysicalMemory/1GB,1);cpu=(Get-CimInstance Win32_Processor).Name;os=[Environment]::OSVersion.ToString();renderer='WARP';runs=$Runs;profile=$Profile.IsPresent;uncapped=$Uncapped.IsPresent} | ConvertTo-Json | Set-Content "$out/machine.json"
+ [pscustomobject]@{date=(Get-Date).ToString('o');commit=(git -C $repo rev-parse HEAD);packsCommit=(git -C $packs rev-parse HEAD);logicalCpus=$system.NumberOfLogicalProcessors;memoryGB=[math]::Round($system.TotalPhysicalMemory/1GB,1);cpu=(Get-CimInstance Win32_Processor).Name;os=[Environment]::OSVersion.ToString();renderer=$Renderer;layout=$Layout;runs=$Runs;profile=$Profile.IsPresent;uncapped=$Uncapped.IsPresent} | ConvertTo-Json | Set-Content "$out/machine.json"
 } finally {
  [void][LunarBench]::CloseDesktop($desktop)
  foreach ($name in $envNames) { [Environment]::SetEnvironmentVariable($name,$saved[$name]) }

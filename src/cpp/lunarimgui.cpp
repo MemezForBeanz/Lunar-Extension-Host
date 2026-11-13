@@ -1,4 +1,5 @@
-/*** The native backend of the ImGui host: one Win32 window, Direct3D 11 (WARP by default), Dear ImGui's
+/*** The native backend of the ImGui host: one Win32 window, Direct3D 11 (hardware by default with a
+ * robust WARP fallback), Dear ImGui's
  * draw lists, fonts and textures, exposed to Lua as `lunarimgui`.
  *
  * Lunar paints everything itself (core.imgui.Runtime walks the widget tree and calls
@@ -41,6 +42,7 @@
 #include <vector>
 #include <unordered_map>
 #include <algorithm>
+#include <utility>
 #include <chrono>
 #include <cmath>
 #include <cfloat>
@@ -107,12 +109,15 @@ struct VideoChild { HWND hwnd = nullptr; HBRUSH brush = nullptr; bool seen = fal
 
 struct State {
     HWND hwnd = nullptr;
-    /* Direct3D 11. WARP (Windows' software rasterizer) by default: the GPU driver a
-     * hardware device loads costs tens of MB of working set, which a desktop tool's
-     * flat 2D UI does not need. LUNAR_RENDERER=hardware picks the GPU. */
+    /* Direct3D 11. Auto selects hardware first and falls back to WARP. */
     ID3D11Device *device = nullptr; ID3D11DeviceContext *ctx = nullptr;
     IDXGISwapChain *swap = nullptr; ID3D11RenderTargetView *rtv = nullptr;
-    int sc_w = 0, sc_h = 0; bool warp = true;
+    int sc_w = 0, sc_h = 0; bool warp = false;
+    std::string renderer_requested = "auto", renderer = "uninitialized", renderer_status = "not_open";
+    std::string renderer_error; HRESULT device_reason = S_OK;
+    std::string adapter_description, fallback_reason;
+    int renderer_resets = 0, renderer_fallbacks = 0;
+    bool resetting = false;
     bool alive = false, close = false, resized = false;
     bool custom_frame = false, fullscreen = false, nc_tracking = false;
     HWND tracked = nullptr;   /* the window TrackMouseEvent watches (main or a dialog window) */
@@ -124,7 +129,8 @@ struct State {
     std::vector<KeyEvent> keys; std::vector<std::string> chars; std::vector<std::string> files;
     int pressed[3] = {}, released[3] = {}, dbl[3] = {}; bool down[3] = {};
     float wheel_x = 0, wheel_y = 0; int mx = -1, my = -1;
-    std::unordered_map<int, ID3D11ShaderResourceView*> textures; int next_texture = 1;
+    struct Texture { ID3D11ShaderResourceView *srv = nullptr; int w = 0, h = 0; std::vector<unsigned char> pixels; };
+    std::unordered_map<int, Texture> textures; int next_texture = 1;
     std::vector<Face> faces;
     std::unordered_map<std::string, int> face_by_path;
     std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
@@ -793,6 +799,14 @@ bool create_target() {
 }
 
 bool create_device(D3D_DRIVER_TYPE driver) {
+#ifdef LUNAR_DEV_BUILD
+    // Deterministic integration fault injection, absent from packaged builds.
+    char test_failure[16] = "";
+    GetEnvironmentVariableA("LUNAR_TEST_DEVICE_FAILURE", test_failure, sizeof(test_failure));
+    if (!_stricmp(test_failure,"all") || (!_stricmp(test_failure,"hardware") && driver==D3D_DRIVER_TYPE_HARDWARE)) {
+        g.renderer_error = "injected_device_creation_failure"; return false;
+    }
+#endif
     DXGI_SWAP_CHAIN_DESC sd = {};
     sd.BufferCount = 2;
     sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -806,41 +820,220 @@ bool create_device(D3D_DRIVER_TYPE driver) {
     HRESULT hr = D3D11CreateDeviceAndSwapChain(nullptr, driver, nullptr, 0, levels, 3, D3D11_SDK_VERSION,
         &sd, &g.swap, &g.device, &got, &g.ctx);
     if (FAILED(hr)) {   /* before Windows 10: the blit model */
+        if (g.swap) { g.swap->Release(); g.swap = nullptr; }
+        if (g.ctx) { g.ctx->Release(); g.ctx = nullptr; }
+        if (g.device) { g.device->Release(); g.device = nullptr; }
         sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD; sd.BufferCount = 1;
         hr = D3D11CreateDeviceAndSwapChain(nullptr, driver, nullptr, 0, levels, 3, D3D11_SDK_VERSION,
             &sd, &g.swap, &g.device, &got, &g.ctx);
     }
-    if (FAILED(hr)) return false;
+    if (FAILED(hr)) {
+        char error[32]; sprintf_s(error, "0x%08lX", (unsigned long)hr);
+        g.renderer_error = error;
+        if (g.swap) { g.swap->Release(); g.swap = nullptr; }
+        if (g.ctx) { g.ctx->Release(); g.ctx = nullptr; }
+        if (g.device) { g.device->Release(); g.device = nullptr; }
+        return false;
+    }
     /* Alt+Enter is the app's to handle, not DXGI's */
     IDXGIFactory *factory = nullptr;
     if (SUCCEEDED(g.swap->GetParent(__uuidof(IDXGIFactory), (void**)&factory)) && factory) {
         factory->MakeWindowAssociation(g.hwnd, DXGI_MWA_NO_ALT_ENTER); factory->Release();
     }
     g.warp = driver == D3D_DRIVER_TYPE_WARP;
-    return create_target();
+    if (!create_target()) {
+        g.renderer_error = "render_target_creation_failed";
+        if (g.swap) { g.swap->Release(); g.swap = nullptr; }
+        if (g.ctx) { g.ctx->Release(); g.ctx = nullptr; }
+        if (g.device) { g.device->Release(); g.device = nullptr; }
+        return false;
+    }
+    g.renderer = g.warp ? "warp" : "hardware";
+    IDXGIDevice *dxgi_device = nullptr; IDXGIAdapter *adapter = nullptr;
+    if (SUCCEEDED(g.device->QueryInterface(__uuidof(IDXGIDevice),(void**)&dxgi_device)) && dxgi_device) {
+        if (SUCCEEDED(dxgi_device->GetAdapter(&adapter)) && adapter) {
+            DXGI_ADAPTER_DESC desc = {};
+            if (SUCCEEDED(adapter->GetDesc(&desc))) g.adapter_description = utf8(desc.Description);
+            adapter->Release();
+        }
+        dxgi_device->Release();
+    }
+    return true;
 }
 
-void ensure_context() {
-    if (g.device) return;
+bool popup_swap_create(Popup *p);
+void popup_hide(Popup *p);
+std::string lower(std::string s);
+
+void release_renderer_gpu() {
+    if (g.ctx) { g.ctx->ClearState(); g.ctx->Flush(); }
+    for (Popup *p : popups) {
+        if (p->rtv) { p->rtv->Release(); p->rtv = nullptr; }
+        if (p->swap) { p->swap->Release(); p->swap = nullptr; }
+        p->sc_w = p->sc_h = 0;
+    }
+    release_target();
+    for (auto &t : g.textures) {
+        if (t.second.srv) { t.second.srv->Release(); t.second.srv = nullptr; }
+    }
+    if (ImGui::GetCurrentContext() && ImGui::GetIO().BackendRendererUserData)
+        ImGui_ImplDX11_Shutdown();
+    // DX11 shutdown destroys viewport platform data too. Recreate the Win32
+    // backend with it, otherwise GetWindowDpiScale dereferences a cleared viewport.
+    if (ImGui::GetCurrentContext() && ImGui::GetIO().BackendPlatformUserData)
+        ImGui_ImplWin32_Shutdown();
+    if (g.swap) { g.swap->Release(); g.swap = nullptr; }
+    if (g.ctx) { g.ctx->Release(); g.ctx = nullptr; }
+    if (g.device) { g.device->Release(); g.device = nullptr; }
+}
+
+bool restore_textures() {
+    for (auto &entry : g.textures) {
+        State::Texture &t = entry.second;
+        if (t.pixels.empty()) continue;
+        D3D11_TEXTURE2D_DESC d = {};
+        d.Width = (UINT)t.w; d.Height = (UINT)t.h; d.MipLevels = 1; d.ArraySize = 1;
+        d.Format = DXGI_FORMAT_R8G8B8A8_UNORM; d.SampleDesc.Count = 1;
+        d.Usage = D3D11_USAGE_DEFAULT; d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        D3D11_SUBRESOURCE_DATA init = {};
+        init.pSysMem = t.pixels.data(); init.SysMemPitch = (UINT)t.w * 4;
+        ID3D11Texture2D *texture = nullptr;
+        if (FAILED(g.device->CreateTexture2D(&d, &init, &texture)) || !texture) return false;
+        HRESULT hr = g.device->CreateShaderResourceView(texture, nullptr, &t.srv);
+        texture->Release();
+        if (FAILED(hr) || !t.srv) return false;
+    }
+    return true;
+}
+
+bool initialize_renderer_backends() {
+    if (!ImGui::GetCurrentContext()) return false;
+    if (!ImGui::GetIO().BackendPlatformUserData && !ImGui_ImplWin32_Init(g.hwnd)) {
+        g.renderer_error = "win32_backend_init_failed"; return false;
+    }
+#ifdef LUNAR_DEV_BUILD
+    char test_failure[32] = "";
+    GetEnvironmentVariableA("LUNAR_TEST_DEVICE_FAILURE", test_failure, sizeof(test_failure));
+    if (!g.warp && !_stricmp(test_failure,"hardware_pipeline")) {
+        g.renderer_error = "injected_hardware_pipeline_failure"; return false;
+    }
+#endif
+    if (!ImGui_ImplDX11_Init(g.device,g.ctx) || !ImGui_ImplDX11_CreateDeviceObjects()) {
+        g.renderer_error = "imgui_device_objects_failed"; return false;
+    }
+    if (!restore_textures()) { g.renderer_error = "texture_restore_failed"; return false; }
+    return true;
+}
+
+bool restore_renderer(bool reset) {
+    if (!g.hwnd || g.resetting) return false;
+    g.resetting = true;
+    bool was_hardware = g.device && !g.warp;
+    g.renderer_status = reset ? "resetting" : "initializing";
+    if (reset) {
+        g.renderer_resets++;
+        g.renderer_status = "resetting";
+    }
+    release_renderer_gpu();
     char want[32] = "";
     GetEnvironmentVariableA("LUNAR_RENDERER", want, sizeof(want));
-    bool hardware = !_stricmp(want, "hardware") || !_stricmp(want, "gpu");
-    if (!create_device(hardware ? D3D_DRIVER_TYPE_HARDWARE : D3D_DRIVER_TYPE_WARP))
-        create_device(hardware ? D3D_DRIVER_TYPE_WARP : D3D_DRIVER_TYPE_HARDWARE);
+    g.renderer_requested = want[0] ? want : "auto";
+    std::string requested = lower(g.renderer_requested);
+    bool force_warp = requested == "warp";
+    bool force_hardware = requested == "hardware" || requested == "gpu";
+    /* A removed hardware adapter should not be retried forever: reset directly onto
+       WARP, while an initial auto selection remains hardware-first. */
+    bool first_hardware = !force_warp && (!reset || force_hardware);
+    if (reset && was_hardware && !first_hardware) {
+        ++g.renderer_fallbacks;
+        g.fallback_reason = "hardware_device_recreated_on_warp";
+    }
+    bool ok = create_device(first_hardware ? D3D_DRIVER_TYPE_HARDWARE : D3D_DRIVER_TYPE_WARP);
+    if (!ok && first_hardware) {
+        g.fallback_reason = "hardware_creation_failed: " + g.renderer_error;
+        g.renderer_fallbacks++;
+        g.renderer_status = "hardware_failed_using_warp";
+        ok = create_device(D3D_DRIVER_TYPE_WARP);
+    } else if (!ok && force_warp) {
+        g.renderer_status = "warp_failed";
+    }
+    if (!ok) {
+        g.renderer_status = "unavailable";
+        g.resetting = false;
+        return false;
+    }
+    if (!initialize_renderer_backends()) {
+        bool retry_warp = !g.warp;
+        g.fallback_reason = "hardware_initialization_failed: " + g.renderer_error;
+        release_renderer_gpu();
+        if (retry_warp) {
+            ++g.renderer_fallbacks;
+            ok = create_device(D3D_DRIVER_TYPE_WARP) && initialize_renderer_backends();
+        } else ok = false;
+        if (!ok) {
+            release_renderer_gpu(); g.renderer_status="unavailable"; g.resetting=false; return false;
+        }
+    }
+    for (Popup *p : popups) if (p->hwnd && !popup_swap_create(p)) {
+        popup_hide(p);
+        g.renderer_error = "popup_swap_chain_restore_failed";
+        g.renderer_status = "partial";
+    }
+    if (g.renderer_status == "resetting" || g.renderer_status == "initializing" || g.renderer_status == "not_open" ||
+        g.renderer_status == "hardware_failed_using_warp")
+        g.renderer_status = g.warp ? "ready_warp" : "ready_hardware";
+    g.device_reason = S_OK;
+    g.resetting = false;
+    return true;
+}
+
+bool popup_swap_create(Popup *p) {
+    if (!p || !p->hwnd || !g.device) return false;
+    IDXGIDevice *dxgi = nullptr; IDXGIAdapter *adapter = nullptr; IDXGIFactory *factory = nullptr;
+    IDXGISwapChain *swap = nullptr;
+    bool ok = SUCCEEDED(g.device->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgi)) && dxgi &&
+        SUCCEEDED(dxgi->GetAdapter(&adapter)) && adapter &&
+        SUCCEEDED(adapter->GetParent(__uuidof(IDXGIFactory), (void**)&factory)) && factory;
+    if (ok) {
+        DXGI_SWAP_CHAIN_DESC sd = {};
+        sd.BufferCount = 2; sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; sd.OutputWindow = p->hwnd;
+        sd.SampleDesc.Count = 1; sd.Windowed = TRUE; sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+        if (FAILED(factory->CreateSwapChain(g.device, &sd, &swap))) {
+            sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD; sd.BufferCount = 1;
+            if (FAILED(factory->CreateSwapChain(g.device, &sd, &swap))) swap = nullptr;
+        }
+        if (swap) factory->MakeWindowAssociation(p->hwnd, DXGI_MWA_NO_ALT_ENTER);
+    }
+    if (factory) factory->Release();
+    if (adapter) adapter->Release();
+    if (dxgi) dxgi->Release();
+    p->swap = swap;
+    return p->swap != nullptr;
+}
+
+bool ensure_context() {
+    if (g.device) return ImGui::GetIO().BackendRendererUserData != nullptr;
     ensure_imgui();
-    ImGui_ImplWin32_Init(g.hwnd);
-    if (g.device) ImGui_ImplDX11_Init(g.device, g.ctx);
+    if (!ImGui::GetIO().BackendPlatformUserData && !ImGui_ImplWin32_Init(g.hwnd)) return false;
+    if (!restore_renderer(false)) return false;
+    return true; // restore_renderer initialized the backend against the new device
 }
 
 /* The swap chain follows the client size before each present. */
-void fit_target() {
+bool fit_target() {
     RECT r; GetClientRect(g.hwnd, &r);
     int w = std::max(1, (int)r.right), h = std::max(1, (int)r.bottom);
-    if (w == g.sc_w && h == g.sc_h && g.rtv) return;
+    if (w == g.sc_w && h == g.sc_h && g.rtv) return true;
     release_target();
     g.ctx->OMSetRenderTargets(0, nullptr, nullptr);
-    g.swap->ResizeBuffers(0, (UINT)w, (UINT)h, DXGI_FORMAT_UNKNOWN, 0);
-    create_target();
+    HRESULT hr = g.swap->ResizeBuffers(0, (UINT)w, (UINT)h, DXGI_FORMAT_UNKNOWN, 0);
+    if (FAILED(hr)) {
+        g.device_reason = g.device->GetDeviceRemovedReason();
+        if (FAILED(g.device_reason)) g.renderer_status = "device_lost";
+        return false;
+    }
+    return create_target();
 }
 
 /* A dialog's RASTERSIZE is its whole window under IUP (iupdrvDialogGetDecoration takes the
@@ -1138,7 +1331,12 @@ int l_open(lua_State *L) {
     BOOL dark = TRUE; DwmSetWindowAttribute(g.hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &dark, sizeof(dark));
     if (g.custom_frame) SetWindowPos(g.hwnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
     g.alive = true;
-    ensure_context();
+    if (!ensure_context()) {
+        std::string error = g.renderer_error.empty() ? "renderer_unavailable" : g.renderer_error;
+        release_renderer_gpu();
+        DestroyWindow(g.hwnd); g.hwnd = nullptr; g.alive = false;
+        lua_pushboolean(L, 0); lua_pushstring(L, error.c_str()); return 2;
+    }
     if (!hidden) ShowWindow(g.hwnd, maximized ? SW_SHOWMAXIMIZED : SW_SHOW);
     g.ready = true;
     lua_pushboolean(L, 1);
@@ -1154,9 +1352,12 @@ int l_close(lua_State *L) {
     }
     g.video_children.clear();
     if (g.paint_ref != LUA_NOREF) { luaL_unref(L, LUA_REGISTRYINDEX, g.paint_ref); g.paint_ref = LUA_NOREF; }
-    for (auto &t : g.textures) if (t.second) t.second->Release();
+    for (auto &t : g.textures) if (t.second.srv) t.second.srv->Release();
     g.textures.clear();
-    if (g.device && ImGui::GetCurrentContext()) { ImGui_ImplDX11_Shutdown(); ImGui_ImplWin32_Shutdown(); }
+    if (ImGui::GetCurrentContext()) {
+        if (ImGui::GetIO().BackendRendererUserData) ImGui_ImplDX11_Shutdown();
+        if (ImGui::GetIO().BackendPlatformUserData) ImGui_ImplWin32_Shutdown();
+    }
     release_target();
     if (g.swap) { g.swap->Release(); g.swap = nullptr; }
     if (g.ctx) { g.ctx->Release(); g.ctx = nullptr; }
@@ -1179,6 +1380,41 @@ int l_wait(lua_State *L) {
     /* true when a message woke the wait, false when it timed out */
     DWORD r = MsgWaitForMultipleObjectsEx(0, nullptr, ms, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
     lua_pushboolean(L, r == WAIT_OBJECT_0);
+    return 1;
+}
+
+bool renderer_ready() {
+    if (!g.device) return false;
+    HRESULT reason = g.device->GetDeviceRemovedReason();
+    if (SUCCEEDED(reason)) return true;
+    g.device_reason = reason;
+    char error[32]; sprintf_s(error, "0x%08lX", (unsigned long)reason);
+    g.renderer_error = error;
+    g.renderer_status = "device_lost";
+    return restore_renderer(true);
+}
+
+int l_renderer(lua_State *L) {
+    lua_newtable(L);
+    lua_pushstring(L, g.renderer_requested.c_str()); lua_setfield(L, -2, "requested");
+    lua_pushstring(L, g.device ? g.renderer.c_str() : "unavailable"); lua_setfield(L, -2, "active");
+    lua_pushstring(L, g.adapter_description.c_str()); lua_setfield(L, -2, "adapter");
+    lua_pushstring(L, g.fallback_reason.c_str()); lua_setfield(L, -2, "fallback_reason");
+    lua_pushstring(L, g.renderer_status.c_str()); lua_setfield(L, -2, "status");
+    lua_pushstring(L, g.renderer_error.c_str()); lua_setfield(L, -2, "error");
+    lua_pushinteger(L, g.renderer_fallbacks); lua_setfield(L, -2, "fallbacks");
+    lua_pushinteger(L, g.renderer_resets); lua_setfield(L, -2, "resets");
+    lua_pushboolean(L, g.device_reason != S_OK); lua_setfield(L, -2, "device_lost");
+    lua_pushinteger(L, (lua_Integer)(long long)g.device_reason); lua_setfield(L, -2, "device_reason");
+    lua_pushboolean(L, g.device && g.rtv && ImGui::GetCurrentContext() &&
+        ImGui::GetIO().BackendRendererUserData && ImGui::GetIO().BackendPlatformUserData);
+    lua_setfield(L, -2, "ready");
+    return 1;
+}
+
+int l_renderer_reset(lua_State *L) {
+    if (g.frame_open || g.in_callback) return luaL_error(L, "renderer reset must occur between frames");
+    lua_pushboolean(L, restore_renderer(true));
     return 1;
 }
 
@@ -1205,6 +1441,7 @@ int l_frame_begin(lua_State *L) {
         MSG m;
         while (PeekMessageW(&m, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&m); DispatchMessageW(&m); }
     }
+    if (!renderer_ready()) return luaL_error(L, "renderer unavailable: %s", g.renderer_error.c_str());
     RECT r; GetClientRect(g.hwnd, &r);
     int w = r.right, h = r.bottom;
     bool minimized = IsIconic(g.hwnd) || w <= 0 || h <= 0;
@@ -1292,7 +1529,11 @@ void popup_render(Popup *p) {
     g.ctx->ClearRenderTargetView(p->rtv, black);
     if (dd.CmdLists.Size > 0) ImGui_ImplDX11_RenderDrawData(&dd);
     if (g.shot.pending && g.shot.popup == p->id) write_shot(p->swap, p->hwnd);
-    p->swap->Present(0, 0);
+    HRESULT hr = p->swap->Present(0, 0);
+    if (FAILED(hr)) {
+        g.device_reason = g.device->GetDeviceRemovedReason();
+        if (FAILED(g.device_reason)) g.renderer_status = "device_lost";
+    }
     /* shown once it has a frame to show (IupShow activates it) */
     if (!p->shown) { ShowWindow(p->hwnd, SW_SHOW); p->shown = true; }
 }
@@ -1383,27 +1624,11 @@ Popup *popup_create(lua_State *L, int t) {
     /* what Windows made of it (an overlapped window gains its caption), for the frame maths */
     style = (DWORD)GetWindowLongW(h, GWL_STYLE) & ~WS_VISIBLE; ex = (DWORD)GetWindowLongW(h, GWL_EXSTYLE);
     if (flag("dropfiles")) DragAcceptFiles(h, TRUE);
-    IDXGIDevice *dxgi = nullptr; IDXGIAdapter *adapter = nullptr; IDXGIFactory *factory = nullptr;
-    IDXGISwapChain *swap = nullptr;
-    if (SUCCEEDED(g.device->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgi)) && dxgi &&
-        SUCCEEDED(dxgi->GetAdapter(&adapter)) && adapter &&
-        SUCCEEDED(adapter->GetParent(__uuidof(IDXGIFactory), (void**)&factory)) && factory) {
-        DXGI_SWAP_CHAIN_DESC sd = {};
-        sd.BufferCount = 2; sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; sd.OutputWindow = h;
-        sd.SampleDesc.Count = 1; sd.Windowed = TRUE; sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-        if (FAILED(factory->CreateSwapChain(g.device, &sd, &swap))) {
-            sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD; sd.BufferCount = 1;
-            if (FAILED(factory->CreateSwapChain(g.device, &sd, &swap))) swap = nullptr;
-        }
-        if (swap) factory->MakeWindowAssociation(h, DXGI_MWA_NO_ALT_ENTER);
-    }
-    if (factory) factory->Release();
-    if (adapter) adapter->Release();
-    if (dxgi) dxgi->Release();
-    if (!swap) { DestroyWindow(h); return nullptr; }
+    Popup candidate;
+    candidate.hwnd = h;
+    if (!popup_swap_create(&candidate)) { DestroyWindow(h); return nullptr; }
     Popup *p = new Popup;
-    p->id = next_popup++; p->hwnd = h; p->style = style; p->ex = ex; p->swap = swap; p->title = title;
+    p->id = next_popup++; p->hwnd = h; p->style = style; p->ex = ex; p->swap = candidate.swap; p->title = title;
     popups.push_back(p);
     return p;
 }
@@ -1413,7 +1638,13 @@ int l_frame_end(lua_State *) {
     g.frame_open = false;
     video_frame_end();
     ImGui::Render();
-    fit_target();
+    if (!fit_target()) {
+        renderer_ready();
+        // The current draw lists can refer to SRVs from the old device. Submit
+        // nothing until a fresh frame has rebuilt those references.
+        PostMessageW(g.hwnd, WM_NULL, 0, 0);
+        return 0;
+    }
     const float black[4] = {0, 0, 0, 1};
     g.ctx->OMSetRenderTargets(1, &g.rtv, nullptr);
     g.ctx->ClearRenderTargetView(g.rtv, black);
@@ -1423,7 +1654,17 @@ int l_frame_end(lua_State *) {
     /* LUNAR_VSYNC=0 presents at once (frame timing in scripts/imgui_perf.lua) */
     static int vsync = -1;
     if (vsync < 0) { char v[8] = ""; GetEnvironmentVariableA("LUNAR_VSYNC", v, sizeof(v)); vsync = v[0] == '0' ? 0 : 1; }
-    g.swap->Present((UINT)vsync, 0);
+    HRESULT hr = g.swap->Present((UINT)vsync, 0);
+    if (FAILED(hr)) {
+        g.device_reason = g.device->GetDeviceRemovedReason();
+        if (FAILED(g.device_reason)) {
+            g.renderer_status = "device_lost";
+            char error[32]; sprintf_s(error, "0x%08lX", (unsigned long)g.device_reason);
+            g.renderer_error = error;
+            restore_renderer(true);
+            PostMessageW(g.hwnd, WM_NULL, 0, 0);
+        }
+    }
     return 0;
 }
 
@@ -1584,21 +1825,24 @@ int l_texture(lua_State *L) {
     texture->Release();
     if (FAILED(hr) || !tex) { lua_pushnil(L); return 1; }
     int id = g.next_texture++;
-    g.textures[id] = tex;
+    State::Texture stored; stored.srv = tex; stored.w = w; stored.h = h;
+    stored.pixels.assign(p, p + (size_t)w * h * 4);
+    g.textures[id] = std::move(stored);
     lua_pushinteger(L, id);
     return 1;
 }
 
 int l_texture_free(lua_State *L) {
     auto it = g.textures.find((int)luaL_checkinteger(L, 1));
-    if (it != g.textures.end()) { if (it->second) it->second->Release(); g.textures.erase(it); }
+    if (it != g.textures.end()) { if (it->second.srv) it->second.srv->Release(); g.textures.erase(it); }
     return 0;
 }
 
 int l_image(lua_State *L) {
     auto it = g.textures.find((int)luaL_checkinteger(L, 1));
     if (it == g.textures.end()) return 0;
-    draw()->AddImage(ImTextureRef((ImTextureID)(intptr_t)it->second),
+    if (!it->second.srv) return 0;
+    draw()->AddImage(ImTextureRef((ImTextureID)(intptr_t)it->second.srv),
         ImVec2((float)luaL_checknumber(L, 2), (float)luaL_checknumber(L, 3)),
         ImVec2((float)luaL_checknumber(L, 4), (float)luaL_checknumber(L, 5)),
         ImVec2((float)luaL_optnumber(L, 6, 0), (float)luaL_optnumber(L, 7, 0)),
@@ -1758,6 +2002,10 @@ int l_window(lua_State *L) {
         Popup *p = popup_create(L, 2);
         if (!p) return 0;
         lua_pushinteger(L, p->id); return 1;
+    }
+    if (is("popup_ready")) {
+        Popup *p = popup_by_id((int)luaL_checkinteger(L, 2));
+        lua_pushboolean(L, p && p->swap && IsWindow(p->hwnd)); return 1;
     }
     if (is("popup_place")) {
         /* id, x, y, w, h (the client, main-client coordinates), visible, modal, title */
@@ -2028,7 +2276,8 @@ LUNAR_FFI int lunar_ui_image(ImDrawList *dl, int tex, float x1, float y1, float 
                              float u1, float v1, float u2, float v2, uint32_t col) {
     auto it = g.textures.find(tex);
     if (it == g.textures.end()) return 0;
-    dl->AddImage(ImTextureRef((ImTextureID)(intptr_t)it->second), ImVec2(x1, y1), ImVec2(x2, y2), ImVec2(u1, v1), ImVec2(u2, v2), col);
+    if (!it->second.srv) return 0;
+    dl->AddImage(ImTextureRef((ImTextureID)(intptr_t)it->second.srv), ImVec2(x1, y1), ImVec2(x2, y2), ImVec2(u1, v1), ImVec2(u2, v2), col);
     return 1;
 }
 /* ---- pixels from a provider (iupdrvDrawBits) ------------------------------------------
@@ -2064,19 +2313,21 @@ LUNAR_FFI int lunar_ui_texture_bits(const unsigned char *bgra, int w, int h, int
     texture->Release();
     if (FAILED(hr) || !tex) return 0;
     int id = g.next_texture++;
-    g.textures[id] = tex;
+    State::Texture stored; stored.srv = tex; stored.w = w; stored.h = h; stored.pixels = std::move(rgba);
+    g.textures[id] = std::move(stored);
     return id;
 }
 LUNAR_FFI void lunar_ui_texture_free(int id) {
     auto it = g.textures.find(id);
-    if (it != g.textures.end()) { if (it->second) it->second->Release(); g.textures.erase(it); }
+    if (it != g.textures.end()) { if (it->second.srv) it->second.srv->Release(); g.textures.erase(it); }
 }
 /* An image with rounded corners: what the grid's corner tiles (grid_draw_corners) paint. */
 LUNAR_FFI int lunar_ui_image_rounded(ImDrawList *dl, int tex, float x1, float y1, float x2, float y2,
                                      uint32_t col, float rounding) {
     auto it = g.textures.find(tex);
     if (it == g.textures.end()) return 0;
-    dl->AddImageRounded(ImTextureRef((ImTextureID)(intptr_t)it->second), ImVec2(x1, y1), ImVec2(x2, y2),
+    if (!it->second.srv) return 0;
+    dl->AddImageRounded(ImTextureRef((ImTextureID)(intptr_t)it->second.srv), ImVec2(x1, y1), ImVec2(x2, y2),
         ImVec2(0, 0), ImVec2(1, 1), col, rounding);
     return 1;
 }
@@ -2143,6 +2394,7 @@ int l_font_private(lua_State *L) {
 
 const luaL_Reg api[] = {
     {"open", l_open}, {"close", l_close}, {"alive", l_alive}, {"now", l_now}, {"wait", l_wait},
+    {"renderer", l_renderer}, {"renderer_reset", l_renderer_reset},
     {"set_paint_callback", l_set_paint_callback},
     {"frame_begin", l_frame_begin}, {"frame_end", l_frame_end},
     {"rect", l_rect}, {"rect_filled", l_rect_filled}, {"rect_gradient", l_rect_gradient},

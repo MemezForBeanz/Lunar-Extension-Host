@@ -8,7 +8,7 @@ do
 	local here = debug.getinfo(1, "S").source:gsub("^@", ""):gsub("\\", "/")
 	local root = here:match("^(.*)/scripts/[^/]+$")
 	if root and root ~= "" then
-		LUNAR_SOURCE_DIR = root
+		rawset(_G, "LUNAR_SOURCE_DIR", root)
 		local mine = root .. "/src/lua/?.lua;" .. root .. "/src/lua/?/init.lua"
 		table.insert(package.loaders, 2, function(name)
 			local file = package.searchpath(name, mine)
@@ -17,7 +17,13 @@ do
 		end)
 		for name in pairs(package.preload) do
 			local f = io.open(root .. "/src/lua/" .. name:gsub("%.", "/") .. ".lua", "r")
-			if f then f:close(); package.preload[name] = nil end
+			if f then
+				f:close()
+				-- Theme discovery enumerates preload names. Keep those registrations
+				-- while replacing their implementation with this checkout's source.
+				local path=root .. "/src/lua/" .. name:gsub("%.", "/") .. ".lua"
+				package.preload[name]=function(...) return assert(loadfile(path))(...) end
+			end
 		end
 	end
 end
@@ -31,7 +37,6 @@ if IMGUI then
 	R.warn = function(m) say("WARN", (tostring(m):gsub("\n", " | "):sub(1, 900))); pcall(rw, m) end
 	require("core.imgui.Element").hooks.error = function(el, name, e) say("CBERR", name, (tostring(e):gsub("\n", " | "):sub(1, 900))) end
 end
-local real_message = iup.Message
 iup.Message = function(t, m) say("MESSAGE", tostring(t), (tostring(m):gsub("\n", " | "))) end
 ffi.cdef[[
 typedef struct { long x, y; } MC_POINT;
@@ -91,7 +96,7 @@ iup.MainLoop = function()
 		step = step + 1
 		local ok, err = pcall(function()
 			if step == 30 then
-				shell = LUNAR_DEV_SHELL
+				shell = rawget(_G, "LUNAR_DEV_SHELL")
 				dlg = iup.GetDialog(shell.groups():rootStrip())
 				main_hwnd = hwnd_of(dlg)
 				if IMGUI then local B = require("core.imgui.Runtime").backend(); B.window("restore"); B.window("pos", 0, 0); B.window("size", 1400, 900)
@@ -150,7 +155,6 @@ iup.MainLoop = function()
 				if images[#images] ~= img then images[#images + 1] = img end
 			elseif step == 61 then
 				say("mode tip after:", tostring(iup.GetAttribute(mode_btn, "TIP")), "distinct images during the turn:", #images)
-				local tm = shell.host and shell.host._theme_mgr
 				-- tab drag: the second title-bar tab onto the first one's place
 				local count = tonumber(iup.GetAttribute(tabs, "COUNT")) or 0
 				local before = {}
@@ -189,7 +193,7 @@ iup.MainLoop = function()
 						end
 					end
 				end
-				local x, y, w, h = rect(tabs)
+				local x, y, w = rect(tabs)
 				shell._drag = { x = x, y = y + 14, w = w }
 				post("move", x + 150, y + 14); post("down", x + 150, y + 14)
 			elseif step >= 62 and step <= 70 then

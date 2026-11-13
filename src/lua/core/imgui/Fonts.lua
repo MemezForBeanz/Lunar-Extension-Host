@@ -26,11 +26,67 @@ Font.__index = Font
 local by_string = {}
 local face_ids = {}     -- "face|b|i" -> backend font id (or false)
 local count = 0
+local backend_generation = 0
+local observed_backend = M.backend
+local observed_dpi = M.dpi
 
-function M.reset()
+local MEASURE_CACHE_MAX_ENTRIES = 256
+local MEASURE_CACHE_MAX_BYTES = 256 * 1024
+local measure_cache = {}
+local measure_head, measure_tail, measure_entries = nil, nil, 0
+local measure_cache_bytes = 0
+local measure_hits = 0
+local measure_misses = 0
+
+local function clear_measure_cache()
+	measure_cache = {}
+	measure_head, measure_tail, measure_entries = nil, nil, 0
+	measure_cache_bytes = 0
+	measure_hits = 0
+	measure_misses = 0
+end
+
+local function invalidate_fonts()
+	backend_generation = backend_generation + 1
 	by_string = {}
 	face_ids = {}
 	count = 0
+	clear_measure_cache()
+end
+
+local function observe_environment()
+	if observed_backend ~= M.backend or observed_dpi ~= M.dpi then
+		observed_backend, observed_dpi = M.backend, M.dpi
+		invalidate_fonts()
+	end
+end
+
+function M.reset()
+	observed_backend, observed_dpi = M.backend, M.dpi
+	invalidate_fonts()
+end
+function M.generation() observe_environment(); return backend_generation end
+
+function M.measure_cache_stats()
+	return {
+		hits = measure_hits,
+		misses = measure_misses,
+		entries = measure_entries,
+		bytes = measure_cache_bytes,
+		max_entries = MEASURE_CACHE_MAX_ENTRIES,
+		max_bytes = MEASURE_CACHE_MAX_BYTES,
+	}
+end
+
+local function unlink_measure(entry)
+	if entry.prev then entry.prev.next = entry.next else measure_head = entry.next end
+	if entry.next then entry.next.prev = entry.prev else measure_tail = entry.prev end
+	entry.prev, entry.next = nil, nil
+end
+local function touch_measure(entry)
+	entry.prev, entry.next = measure_tail, nil
+	if measure_tail then measure_tail.next = entry else measure_head = entry end
+	measure_tail = entry
 end
 
 -- iFontFindStyleName's table: a trailing word that starts one of these names is a style
@@ -126,6 +182,7 @@ end
 
 --- Make a font file's faces findable by the names it carries (family, full name).
 function M.register(path)
+	observe_environment()
 	local B = M.backend
 	local names = B and B.font_names and B.font_names(path)
 	if not names then return false end
@@ -145,8 +202,7 @@ function M.register(path)
 	-- "HPE Graphik Medium": the full name works as a face of its own, regular style
 	add(names[4], "regular")
 	if names[1] and names[1] ~= family then add(names[1], style_key(bold, italic)) end
-	face_ids = {}
-	by_string = {}
+	invalidate_fonts()
 	return true
 end
 
@@ -175,6 +231,7 @@ end
 
 --- A font object for an IUP font string.
 function M.get(s)
+	observe_environment()
 	s = s or Element.globals.DEFAULTFONT or M.fallback
 	local f = by_string[s]
 	if f then return f end
@@ -191,6 +248,7 @@ function M.get(s)
 	f = setmetatable({
 		str = s, face = p.face, bold = p.bold, italic = p.italic,
 		underline = p.underline, strikeout = p.strikeout, pt = p.size, px = px,
+		_generation = backend_generation,
 	}, Font)
 	if p.written and p.written ~= p.face and (registered_path(p.written, p.bold, p.italic)
 		or (M.backend and M.backend.font_find and M.backend.font_find(p.written, p.bold, p.italic))) then
@@ -202,7 +260,10 @@ function M.get(s)
 	local B = M.backend
 	if B and B.gdi_font and p.face then f.gid = B.gdi_font(p.face, p.bold, p.italic) end
 	count = count + 1
-	if count > 2048 then M.reset() end
+	if count > 2048 then
+		M.reset()
+		f._generation = backend_generation
+	end
 	by_string[s] = f
 	return f
 end
@@ -214,22 +275,63 @@ end
 
 --- Measure `text` (multi-line aware). `wrap` is a wrap width in pixels or nil.
 function Font:measure(text, wrap)
+	observe_environment()
+	if self._generation ~= backend_generation then
+		return M.get(self.str):measure(text, wrap)
+	end
 	text = text or ""
 	local B = M.backend
+	local wrap_key = wrap or 0
+	local by_wrap = measure_cache[self]
+	if by_wrap and by_wrap[wrap_key] then
+		local entry = by_wrap[wrap_key][text]
+		if entry then
+			measure_hits = measure_hits + 1
+			unlink_measure(entry); touch_measure(entry)
+			return entry.w, entry.h
+		end
+	end
+	measure_misses = measure_misses + 1
+	local w, h
 	if text == "" then
-		local _, h = self:charsize()
-		return 0, h
+		h = select(2, self:charsize())
+		w = 0
+	elseif self.gid and B.gdi_text_size then
+		w, h = B.gdi_text_size(self.gid, self.px, text, wrap_key)
 	end
-	if self.gid and B.gdi_text_size then
-		local w, h = B.gdi_text_size(self.gid, self.px, text, wrap or 0)
-		if w then return w, h end
+	if not w then
+		w, h = B.text_size(self.id, self.px, text, wrap_key)
+		w, h = math.ceil(w), math.ceil(h)
 	end
-	local w, h = B.text_size(self.id, self.px, text, wrap or 0)
-	return math.ceil(w), math.ceil(h)
+
+	local entry_bytes = #text + 64
+	if entry_bytes <= MEASURE_CACHE_MAX_BYTES then
+		by_wrap = by_wrap or {}
+		measure_cache[self] = by_wrap
+		by_wrap[wrap_key] = by_wrap[wrap_key] or {}
+		local entry = { font = self, wrap = wrap_key, text = text, w = w, h = h, bytes = entry_bytes }
+		by_wrap[wrap_key][text] = entry
+		touch_measure(entry); measure_entries = measure_entries + 1
+		measure_cache_bytes = measure_cache_bytes + entry_bytes
+		while measure_entries > MEASURE_CACHE_MAX_ENTRIES or measure_cache_bytes > MEASURE_CACHE_MAX_BYTES do
+			local oldest = measure_head
+			unlink_measure(oldest); measure_entries = measure_entries - 1
+			local old_wrap = measure_cache[oldest.font] and measure_cache[oldest.font][oldest.wrap]
+			if old_wrap then
+				old_wrap[oldest.text] = nil
+				if next(old_wrap) == nil then measure_cache[oldest.font][oldest.wrap] = nil end
+				if next(measure_cache[oldest.font]) == nil then measure_cache[oldest.font] = nil end
+			end
+			measure_cache_bytes = measure_cache_bytes - oldest.bytes
+		end
+	end
+	return w, h
 end
 
 --- IUP character size: average width and line height in pixels.
 function Font:charsize()
+	observe_environment()
+	if self._generation ~= backend_generation then return M.get(self.str):charsize() end
 	if self._cw then return self._cw, self._ch end
 	local B = M.backend
 	local ascent, descent, line_h, avg
@@ -242,6 +344,8 @@ function Font:charsize()
 end
 
 function Font:ascent()
+	observe_environment()
+	if self._generation ~= backend_generation then return M.get(self.str):ascent() end
 	self:charsize()
 	return self._ascent
 end

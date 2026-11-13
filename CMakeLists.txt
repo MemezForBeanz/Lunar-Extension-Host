@@ -174,6 +174,7 @@ endif()
 add_executable(LunarCLI
     src/c/core/main_cli.c
     ${CLI_PLATFORM_SOURCES}
+    src/c/libs/native_resolver.c
     src/c/libs/logscan.c
     src/c/libs/compositor/blend.c
     src/c/libs/compositor/compositor_lua.c
@@ -380,6 +381,8 @@ add_executable(Lunar WIN32
     src/c/libs/imagecodec.c
     src/cpp/lunarimgui.cpp
     src/cpp/lunarimgui_gdifont.cpp
+    src/cpp/lunar_layout.cpp
+    src/c/libs/native_resolver.c
     vendor/imgui/imgui.cpp
     vendor/imgui/imgui_draw.cpp
     vendor/imgui/imgui_tables.cpp
@@ -432,6 +435,7 @@ add_custom_target(iup_fork ALL
 
 add_executable(Lunar WIN32
     src/c/core/main.c
+    src/c/libs/native_resolver.c
     src/c/platform/win32/host.c
     src/c/libs/subprocess_wrap.c
     src/c/platform/win32/process.c
@@ -594,6 +598,7 @@ add_custom_target(lunar_exports DEPENDS ${LUNAR_DYNAMIC_LIST} ${LUNAR_UNDEFINED_
 add_executable(Lunar
     src/c/core/main.c
     src/c/platform/posix/host.c
+    src/c/libs/native_resolver.c
     src/c/platform/posix/process.c
     src/c/libs/logscan.c
     src/c/libs/compositor/blend.c

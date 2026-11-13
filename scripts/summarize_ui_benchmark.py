@@ -68,6 +68,8 @@ def main():
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     primary, inventory = summarize(args.primary)
+    counts={len(g['runs']) for g in primary.values()}
+    repeats=str(next(iter(counts))) if len(counts)==1 else 'varying'
     data = {'primary': primary, 'extensions': inventory}
     if args.uncapped:
         data['uncapped'] = summarize(args.uncapped)[0]
@@ -102,7 +104,7 @@ def main():
         return metric['median'] if metric else None
     labels = ['iup-none','imgui-none','iup-all','imgui-all']
     md = ['# IUP and ImGui UI benchmark', '',
-          'Medians of five fresh-process runs per configuration. Lower is better. '
+          f'Medians of {repeats} fresh-process runs per configuration. Lower is better. '
           'CPU time sums every thread in the app process; it excludes child processes. '
           'Idle CPU is a percentage of one logical core, not Task Manager’s whole-machine percentage.', '',
           '| Metric | IUP core | ImGui core | IUP all packs | ImGui all packs |',
@@ -133,9 +135,9 @@ def main():
             idle=data['settled_idle'][config]
             md.append(f"| {config} | {idle['cpu_ms']:.3f} | {idle['cpu_ms']/idle['duration_s']/10:.3f} | {idle.get('frames','N/A')} |")
     md += ['', '## Reproduce', '', '```powershell',
-           'scripts/benchmark-ui.ps1 -Runs 5 -OutputDir build/ui-benchmark-default',
-           'scripts/benchmark-ui.ps1 -Runs 3 -Uncapped -OutputDir build/ui-benchmark-uncapped',
-           'scripts/benchmark-ui.ps1 -Runs 1 -Uncapped -Profile -OutputDir build/ui-benchmark-profile',
+           'scripts/benchmark-ui.ps1 -Runs 3 -Renderer auto -OutputDir build/ui-benchmark-default',
+           'scripts/benchmark-ui.ps1 -Runs 3 -Renderer auto -Uncapped -OutputDir build/ui-benchmark-uncapped',
+           'scripts/benchmark-ui.ps1 -Runs 1 -Renderer auto -Uncapped -Profile -OutputDir build/ui-benchmark-profile',
            '```', '', 'All packs: '+', '.join(inventory)+'.',
            'Project/media extensions are not enabled; they are not org-pack extensions. Core runs disable every extension and org-profile selection.',
            'Raw results retain every timing sample. `runs.csv` contains per-run means; `pages.csv` contains per-page mean, median, p95 and CPU time.', '']
@@ -162,7 +164,7 @@ def main():
 #lunar-benchmark .imgui {background:var(--chart-2)}
 #lunar-benchmark b {font-variant-numeric:tabular-nums;text-align:right;font-weight:400}
 #lunar-benchmark .note {color:var(--muted-foreground);font-size:12px;margin:16px 0}
-</style><div id="lunar-benchmark" role="figure" aria-label="IUP and ImGui benchmark comparison: five runs per configuration, lower is better"><div class="plots">'''+''.join(panels)+'''</div><div class="note">Medians of five runs · 1400×900 · ImGui uses WARP · CPU sums all app threads · lower is better</div></div>'''
+</style><div id="lunar-benchmark" role="figure" aria-label="IUP and ImGui benchmark comparison, lower is better"><div class="plots">'''+''.join(panels)+f'''</div><div class="note">Medians of {repeats} runs · 1400×900 · CPU sums all app threads · lower is better</div></div>'''
     (args.out/'comparison.html').write_text(fragment,encoding='utf-8')
     print('\n'.join(md[:18]).encode('ascii', 'replace').decode('ascii'))
 
