@@ -104,12 +104,40 @@ reason to differ still can. The defaults live in `MotionTokens.ROLES`.
 | `toast_exit` | 240 ms, exit, expressive | Notification leaving |
 | `progress_advance` | 150 ms, standard, productive | A progress bar moving between values |
 | `status_change` | 110 ms, standard, productive | Status-line text cross-fade |
+| `tab_indicator` | dynamic, standard, productive | The selected tab's line sliding to the new tab (ImGui host) |
+| `tab_select` | 110 ms, standard, productive | A tab's text and fill cross-fading as it is selected or left (ImGui host) |
+| `hover` | 70 ms, standard, productive | Hover fill and text easing in and out (ImGui host) |
 
-### Two moments deliberately left un-animated
+### Motion inside widgets (the ImGui host)
+
+On the IUP build every effect above is a picture laid over the real widgets, because
+IUP's controls draw themselves in one repaint and offer no way to draw a state on its
+way to another. The ImGui host draws every control itself, every frame, so a control
+can ease the values it draws: `core.imgui.motion` hands a widget the value on the way
+to its target (`number`, `pair` for two values on one clock, `color`, which also fades
+to and from nothing). The control's state, attributes and callbacks change at once, as
+on IUP; only the picture moves.
+
+It uses the same roles, durations and curves, and the host's `MotionDirector`
+attaches itself, so the user's motion setting, the OS's reduced-motion request, the
+duration scale and the theme's role overrides apply to widgets too: with motion off a
+widget draws its target at once. A value seen for the first time is drawn as is, so
+nothing animates into place when a control appears.
+
+The tab strip (`core.imgui.widgets.flattabs`) is the first user: the selected tab's
+line is one indicator that slides and stretches to the new tab (`tab_indicator`; a
+tab that merely moved, as on a resize, takes it along at once), the old and new tabs'
+text and fill cross-fade (`tab_select`), and hover eases in and out (`hover`). All of
+it plays alongside the page push (`tab_transition`). `spec/imgui_motion_spec.lua`
+covers the module and the strip; `scripts/ui_tabmotion.lua` clicks through the real
+app's tabs and, with `LUNAR_TABMOTION_SHOTS=1`, saves every frame of a switch.
+
+### Two moments left un-animated on the IUP build
 
 Carbon's own worked example for *semantic consistency* is that a dropdown opening
-should share the accordion's motion, and `fast_01` exists for hover. Neither is
-implemented here, and that is a decision rather than an omission.
+should share the accordion's motion, and `fast_01` exists for hover. On the IUP build
+neither is implemented, and that is a decision rather than an omission (the ImGui
+host eases hover in its own controls, above).
 
 **Menus and dropdowns** are not surfaces this app owns: `core.ui.ContextMenu` shows
 a real Win32 popup menu and `IupDropButton` shows its drop child internally.

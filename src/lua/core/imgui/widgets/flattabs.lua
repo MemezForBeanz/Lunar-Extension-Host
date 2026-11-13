@@ -6,6 +6,7 @@ local Fonts = require("core.imgui.Fonts")
 local Draw = require("core.imgui.Draw")
 local Layout = require("core.imgui.Layout")
 local iup = require("core.imgui.iup")
+local motion = require("core.imgui.motion")
 
 local M = {}
 local CLOSE_SIZE, CLOSE_GAP, CLOSE_BORDER = 13, 12, 8
@@ -278,11 +279,20 @@ local function draw(el, st, dc)
 	dc:fill(stripx, stripy, stripw, striph, attr(el, "TABSBACKCOLOR") or bg)
 	local current_child = current(el)
 	local offset = 0
+	-- Motion (core.imgui.motion): a tab's colours ease to their new state, at the
+	-- hover token when the pointer caused it and at the selection token when the
+	-- selection did; the selected tab's line is one indicator that slides there.
+	local was_selected = st.data.was_selected
+	if not was_selected then was_selected = setmetatable({}, { __mode = "k" }); st.data.was_selected = was_selected end
+	local indicator
 	for i, child in ipairs(pages(el)) do
 		if visibleAt(el, i - 1) then
 			local x, y, w, h = tabRect(el, st, i - 1, offset)
 			local selected = child == current_child
 			local hovered = st.data.hover == i - 1
+			local cid = Element.state(child) and Element.state(child).id or i
+			local role = (was_selected[child] ~= nil and was_selected[child] ~= selected) and "tab_select" or "hover"
+			was_selected[child] = selected
 			-- iFlatTabsRedraw_CB: the current tab in BGCOLOR/FORECOLOR (TABSSELCOLOR on side
 			-- strips only); the others in TABBACKCOLORn/TABSFORECOLOR, HIGHCOLOR on hover.
 			local color, fill
@@ -297,6 +307,8 @@ local function draw(el, st, dc)
 					fill = Element.own(el, "TABHIGHCOLOR" .. (i - 1)) or attr(el, "TABSHIGHCOLOR") or fill
 				end
 			end
+			fill = motion.color(st, "fill" .. cid, fill, role)
+			color = motion.color(st, "fg" .. cid, color or attr(el, "FGCOLOR"), role)
 			if fill then
 				local radius = integer(attr(el, "CORNERRADIUS"), 0)
 				if t == "LEFT" then
@@ -309,10 +321,7 @@ local function draw(el, st, dc)
 				end
 			end
 			drawTabContent(el, st, dc, i - 1, x, y, w, h, color or attr(el, "FGCOLOR"))
-			if selected and attr(el, "TABSACTIVELINE") then
-				if t == "TOP" then dc:fill(x + 8, y + h - 2, math.max(0, w - 16), 2, attr(el, "TABSACTIVELINE"))
-				elseif t == "LEFT" then dc:fill(x + 7, y + 8, 2, math.max(0, h - 16), attr(el, "TABSACTIVELINE")) end
-			end
+			if selected and attr(el, "TABSACTIVELINE") then indicator = { x, y, w, h, child } end
 			if yes(attr(el, "SHOWCLOSE")) then
 				local cx, cy = x + w - CLOSE_GAP - CLOSE_SIZE, y + (h - CLOSE_SIZE) / 2
 				if not horizontal(el) then cx, cy = x + (w - CLOSE_SIZE) / 2, y + h - CLOSE_GAP - CLOSE_SIZE end
@@ -327,6 +336,19 @@ local function draw(el, st, dc)
 			offset = offset + (horizontal(el) and w or h)
 		end
 	end
+	-- The selected tab's line: slides and stretches from the old tab to the new one
+	-- (role tab_indicator); a tab that only moved (a resize) takes it along at once.
+	if indicator then
+		local x, y, w, h, sel = indicator[1], indicator[2], indicator[3], indicator[4], indicator[5]
+		local line = attr(el, "TABSACTIVELINE")
+		if t == "TOP" then
+			local lx, lw = motion.pair(st, "indicator", x + 8, math.max(0, w - 16), "tab_indicator", { ident = sel })
+			dc:fill(lx, y + h - 2, lw, 2, line)
+		elseif t == "LEFT" then
+			local ly, lh = motion.pair(st, "indicator", y + 8, math.max(0, h - 16), "tab_indicator", { ident = sel })
+			dc:fill(x + 7, ly, 2, lh, line)
+		end
+	end
 	local extra_count = integer(attr(el, "EXTRABUTTONS"), 0)
 	local extra_used = 0
 	for id = 1, extra_count do
@@ -339,6 +361,7 @@ local function draw(el, st, dc)
 		local selected = yes(attr(el, "EXTRAVALUE" .. id))
 		local fill = selected and (attr(el, "TABSSELCOLOR") or attr(el, "BGCOLOR"))
 			or (st.data.extraHover == id and (attr(el, "EXTRAHIGHCOLOR" .. id) or attr(el, "HLCOLOR")))
+		fill = motion.color(st, "extra" .. id, fill or nil, "hover")
 		if active and fill then dc:fill(x, y, w, h, fill, { radius = integer(attr(el, "CORNERRADIUS"), 0) }) end
 		local iw, ih = Draw.imageSize(image)
 		if image then dc:image(image, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih, {}) end

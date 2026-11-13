@@ -99,6 +99,13 @@ function MotionDirector:initialize(opts)
 	-- Per-role motion supplied by the active theme, merged over the Carbon
 	-- defaults in `core.lib.MotionTokens.ROLES`. Empty until a theme is applied.
 	self._roles = opts.roles or {}
+
+	-- On the ImGui host, widgets ease their own drawing (hover, the tab indicator) with
+	-- core.imgui.motion; it takes this director's settings and theme roles, so the
+	-- whole app moves, or stops moving, together.
+	if opts.widgets ~= false and package.loaded["core.imgui.Runtime"] then
+		pcall(function() require("core.imgui.motion").attach(self) end)
+	end
 end
 
 -- =======================================================================

@@ -399,6 +399,34 @@ M.ROLES = {
 		curve    = "standard",
 		style    = "productive",
 	},
+
+	-- The selected tab's indicator line sliding from the old tab to the new one. It
+	-- moves with the page push (`tab_transition`) and tells the same story at the
+	-- top of the page: where the selection went. Its duration follows the distance
+	-- (no `duration`: MotionTokens.duration), so the next tab and the far end of a
+	-- long strip feel equally brisk. Drawn by the widget itself (core.imgui.motion),
+	-- so only the ImGui host has it.
+	tab_indicator = {
+		curve = "standard",
+		style = "productive",
+	},
+
+	-- A tab's colours changing as it is selected or left: the text and fill cross-fade
+	-- at the fade token while the indicator slides.
+	tab_select = {
+		duration = M.DURATION.fast_02,
+		curve    = "standard",
+		style    = "productive",
+	},
+
+	-- Hover feedback on a control (fill and text colour easing in and out): Carbon's
+	-- button token. Fast enough never to be waited on, slow enough that moving the
+	-- pointer across a strip reads as light following it rather than flicker.
+	hover = {
+		duration = M.DURATION.fast_01,
+		curve    = "standard",
+		style    = "productive",
+	},
 }
 
 -- Two Carbon moments are deliberately absent, and it is worth recording why so
@@ -411,13 +439,12 @@ M.ROLES = {
 -- Animating either means owner-drawing menus, which costs their keyboard handling
 -- and screen-reader behaviour to buy 150 ms of movement. Not a trade worth making.
 --
--- **Hover.** `fast_01` is Carbon's button/toggle token, but IUP's flat controls
--- apply `HLCOLOR` themselves the instant the pointer enters. Tweening it would mean
--- clearing that and driving `BGCOLOR` from `ENTERWINDOW_CB`, fighting the control's
--- own state on every widget in the app for a 70 ms transition -- which is close to
--- the threshold of perception anyway. Carbon's fourth review question is "is your
--- motion frequently noticed? If so, consider removing it"; this one would be
--- noticed only when it broke.
+-- **Hover, on the IUP host.** `fast_01` is Carbon's button/toggle token, but IUP's
+-- flat controls apply `HLCOLOR` themselves the instant the pointer enters. Tweening
+-- it there would mean clearing that and driving `BGCOLOR` from `ENTERWINDOW_CB`,
+-- fighting the control's own state on every widget in the app. The ImGui host draws
+-- its controls itself, so there each widget eases its own hover (role `hover`,
+-- through core.imgui.motion); the IUP build keeps instant hover.
 
 --- Carbon's recommended order for content entering a view.
 --
