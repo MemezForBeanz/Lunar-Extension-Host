@@ -26,8 +26,11 @@ M.MIN_THUMB = 8   -- measured: a page of 120 in 30000 gives an 8 px thumb
 -- Auto-repeat of a held arrow or track: not measurable through posted messages; these are
 -- the values Wine and ReactOS use for the system bar.
 M.FIRST_DELAY, M.REPEAT_DELAY = 0.2, 0.05
-M.TRACK, M.EDGE, M.THUMB, M.THUMB_END = "240 240 240", "255 255 255", "133 133 133", "152 152 152"
-M.DISABLED = "164 164 164" -- the arrows of a disabled bar
+-- Colours: core.imgui.syscolors (Windows' light bar under the classic theme, the theme's
+-- surfaces otherwise). These name the light values, for reference and tests.
+local Sys = require("core.imgui.syscolors")
+M.TRACK, M.EDGE, M.THUMB, M.THUMB_END = Sys.LIGHT.scroll_track, Sys.LIGHT.scroll_edge, Sys.LIGHT.scroll_thumb, Sys.LIGHT.scroll_thumb_end
+M.DISABLED = Sys.LIGHT.scroll_disabled -- the arrows of a disabled bar
 
 -- IUP's scroll operations (iupcbs.h IUP_SBUP...)
 M.OPS = {
@@ -235,8 +238,9 @@ end
 
 local function draw_bar(dc, bar, hot)
 	local g = M.geometry(bar)
-	dc:fill(bar.x, bar.y, bar.w, bar.h, M.TRACK)
-	if bar.vertical then dc:fill(bar.x, bar.y, 1, bar.h, M.EDGE) else dc:fill(bar.x, bar.y, bar.w, 1, M.EDGE) end
+	local S = Sys.current
+	dc:fill(bar.x, bar.y, bar.w, bar.h, S.scroll_track)
+	if bar.vertical then dc:fill(bar.x, bar.y, 1, bar.h, S.scroll_edge) else dc:fill(bar.x, bar.y, bar.w, 1, S.scroll_edge) end
 	local thick = bar.vertical and bar.w or bar.h
 	local mid = math.floor(thick / 2) -- 8 for 17: the thumb's columns 8 and 9
 	-- The arrow glyphs, as captured on a disabled bar (a multiline whose text fits): an 8 px
@@ -256,15 +260,15 @@ local function draw_bar(dc, bar, hot)
 	end
 	if (bar.page or 0) >= (bar.max or 0) then
 		-- disabled: the arrows in grey, no thumb
-		arrows(M.DISABLED)
+		arrows(S.scroll_disabled)
 		return
 	end
 	if hot then
 		-- approximation of the widened bar (see the module header): arrows and an 8 px thumb
-		arrows(M.THUMB)
+		arrows(S.scroll_thumb)
 		if g.thumb then
-			if bar.vertical then dc:fill(bar.x + mid - 3, bar.y + g.thumb_top, 8, g.thumb, M.THUMB, { radius = 4 })
-			else dc:fill(bar.x + g.thumb_top, bar.y + mid - 3, g.thumb, 8, M.THUMB, { radius = 4 }) end
+			if bar.vertical then dc:fill(bar.x + mid - 3, bar.y + g.thumb_top, 8, g.thumb, S.scroll_thumb, { radius = 4 })
+			else dc:fill(bar.x + g.thumb_top, bar.y + mid - 3, g.thumb, 8, S.scroll_thumb, { radius = 4 }) end
 		end
 		return
 	end
@@ -276,14 +280,14 @@ local function draw_bar(dc, bar, hot)
 	g = { thumb = len, thumb_top = math.max(g.arrow, top) }
 	if bar.vertical then
 		local x, y = bar.x + mid, bar.y + g.thumb_top
-		dc:fill(x, y, 2, 1, M.THUMB_END)
-		if g.thumb > 2 then dc:fill(x, y + 1, 2, g.thumb - 2, M.THUMB) end
-		dc:fill(x, y + g.thumb - 1, 2, 1, M.THUMB_END)
+		dc:fill(x, y, 2, 1, S.scroll_thumb_end)
+		if g.thumb > 2 then dc:fill(x, y + 1, 2, g.thumb - 2, S.scroll_thumb) end
+		dc:fill(x, y + g.thumb - 1, 2, 1, S.scroll_thumb_end)
 	else
 		local x, y = bar.x + g.thumb_top, bar.y + mid
-		dc:fill(x, y, 1, 2, M.THUMB_END)
-		if g.thumb > 2 then dc:fill(x + 1, y, g.thumb - 2, 2, M.THUMB) end
-		dc:fill(x + g.thumb - 1, y, 1, 2, M.THUMB_END)
+		dc:fill(x, y, 1, 2, S.scroll_thumb_end)
+		if g.thumb > 2 then dc:fill(x + 1, y, g.thumb - 2, 2, S.scroll_thumb) end
+		dc:fill(x + g.thumb - 1, y, 1, 2, S.scroll_thumb_end)
 	end
 end
 
@@ -295,7 +299,7 @@ function M.draw(e, st, dc)
 	local active = d.wsb_track or d.wsb_hot
 	if wsb.v then draw_bar(dc, wsb.v, active and active.vertical == true) end
 	if wsb.h then draw_bar(dc, wsb.h, active and active.vertical == false) end
-	if wsb.v and wsb.h then dc:fill(wsb.v.x, wsb.h.y, wsb.v.w, wsb.h.h, M.TRACK) end
+	if wsb.v and wsb.h then dc:fill(wsb.v.x, wsb.h.y, wsb.v.w, wsb.h.h, Sys.current.scroll_track) end
 end
 
 --- What GetScrollBarInfo reports on the IUP build, for scripts/ui_scroll.lua: the bar rect

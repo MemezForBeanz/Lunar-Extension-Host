@@ -609,7 +609,7 @@ Classes.define({
 	draw = function(el, st, dc)
 		local bg = Element.getAttribute(el, "BGCOLOR")
 		local fg = Element.getAttribute(el, "FGCOLOR") or "0 0 0"
-		local color = Element.getAttribute(el, "FRAMECOLOR") or "160 160 160"
+		local color = Element.getAttribute(el, "FRAMECOLOR") or require("core.imgui.syscolors").current.frame
 		local title = Element.getAttribute(el, "TITLE")
 		local top = st.data.top or 2
 		local y = st.y + (title and title ~= "" and math.floor(top / 2) or 0)

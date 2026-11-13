@@ -1658,6 +1658,15 @@ function ThemeManager:_paintTheme(theme, opts)
 	self._current = theme_id
 
 	ThemePalette.set(theme:isClassic() and nil or theme:palette())
+	-- On the ImGui host the native controls' system colours (scroll bars, a combo box's
+	-- edges and button, a frame's groove) are drawn by the host, so they follow the
+	-- theme instead of staying Windows' light grey (core.imgui.syscolors). The classic
+	-- theme keeps Windows' own; the IUP build's native parts stay the system's.
+	if package.loaded["core.imgui.Runtime"] then
+		pcall(function()
+			require("core.imgui.syscolors").fromPalette(not theme:isClassic() and theme:palette() or nil)
+		end)
+	end
 	self:_applyMotion(theme)
 
 	self:_repaintRoot(theme)

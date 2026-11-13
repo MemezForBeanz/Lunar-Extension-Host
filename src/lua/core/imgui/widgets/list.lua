@@ -38,8 +38,10 @@ local function dropdown_natural(e, st, L)
 	end
 	return w + 8 + 3 + SB, math.max(SB, ch + 8)
 end
-local C = { shadow = "160 160 160", dkshadow = "105 105 105", light = "227 227 227", highlight = "255 255 255",
-	face = "240 240 240", text = "0 0 0", sel = "0 120 215", seltext = "255 255 255", border = "100 100 100" }
+-- The combo box's system colours (core.imgui.syscolors): Windows' light ones under the
+-- classic theme, the theme's own otherwise. Looked up at draw time.
+local Sys = require("core.imgui.syscolors")
+local C = setmetatable({}, { __index = function(_, k) return Sys.current[k] end })
 -- DrawEdge: the outer then the inner line of a two-colour bevel.
 local function bevel(dc, x, y, w, h, tl_out, br_out, tl_in, br_in)
 	dc:fill(x, y, w, 1, tl_out); dc:fill(x, y, 1, h, tl_out)
@@ -55,9 +57,9 @@ local function dropdown_draw(e, st, dc, rt)
 	local x, y, w, h = dropdown_box(e, st)
 	local font = Fonts.forElement(e)
 	local _, ch = font:charsize()
-	local bg = Element.getAttribute(e, "BGCOLOR") or C.highlight
+	local bg = Element.getAttribute(e, "BGCOLOR") or C.window
 	local fg = Element.getAttribute(e, "FGCOLOR") or C.text
-	if not Element.isTrue(Element.getAttribute(e, "ACTIVE") or "YES") then fg = "109 109 109" end
+	if not Element.isTrue(Element.getAttribute(e, "ACTIVE") or "YES") then fg = C.grayed end
 	-- EDGE_SUNKEN
 	bevel(dc, x, y, w, h, C.shadow, C.highlight, C.dkshadow, C.light)
 	dc:fill(x + 2, y + 2, w - 4, h - 4, bg)
@@ -113,7 +115,7 @@ local function open_popup(e, st, rt)
 	st.data.popup = rt.overlay({ owner = e, x = x, y = y + h, w = w, h = rows * ch + 2, top = 0,
 		draw = function(dc, o)
 			local list = items(e)
-			local bg = Element.getAttribute(e, "BGCOLOR") or C.highlight
+			local bg = Element.getAttribute(e, "BGCOLOR") or C.window
 			local fg = Element.getAttribute(e, "FGCOLOR") or C.text
 			dc:fill(o.x, o.y, o.w, o.h, bg)
 			dc:rect(o.x, o.y, o.w, o.h, C.border, { thickness = 1 })
