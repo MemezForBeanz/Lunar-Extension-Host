@@ -1453,7 +1453,18 @@ int l_open(lua_State *L) {
         DestroyWindow(g.hwnd); g.hwnd = nullptr; g.alive = false;
         lua_pushboolean(L, 0); lua_pushstring(L, error.c_str()); return 2;
     }
-    if (!hidden) ShowWindow(g.hwnd, maximized ? SW_SHOWMAXIMIZED : SW_SHOW);
+    if (!hidden) {
+        /* The launcher's request wins, as for IUP's first ShowWindow: a process started
+           hidden or minimized (STARTUPINFO, e.g. Start-Process -WindowStyle Hidden) stays so. */
+        int cmd = maximized ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
+        STARTUPINFOW si = {}; si.cb = sizeof(si); GetStartupInfoW(&si);
+        if (si.dwFlags & STARTF_USESHOWWINDOW) {
+            WORD w = si.wShowWindow;
+            if (w == SW_HIDE || w == SW_MINIMIZE || w == SW_SHOWMINIMIZED || w == SW_SHOWMINNOACTIVE || w == SW_FORCEMINIMIZE)
+                cmd = w;
+        }
+        ShowWindow(g.hwnd, cmd);
+    }
     g.ready = true;
     lua_pushboolean(L, 1);
     return 1;
