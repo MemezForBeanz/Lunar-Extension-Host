@@ -259,7 +259,8 @@ function M.build(p)
         palette_rows = { bg = layer1, fg = p.text, secondary = p.textMuted, font = p.font,
             border = layer1, borderwidth = 0, scrollbg = layer1,
             selbg = selected, seltext = p.text, selalpha = "0" },
-        settingspanel = { bg = layer1 },
+        -- the frame takes the theme's line colour, not IUP's default grey (FRAMECOLOR)
+        settingspanel = { bg = layer1, border = p.border },
         -- Collapsible section header in the Settings tab. Carbon's accordion
         -- header is a full-width button that reads as a heading at rest and only
         -- reveals itself as interactive on hover, so it carries no border and no

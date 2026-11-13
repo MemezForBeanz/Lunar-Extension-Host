@@ -255,7 +255,8 @@ function M.build(p)
         },
         settingslabel       = { fg = p.text,      font = p.font },
         settingslabel_muted = { fg = p.textMuted, font = p.font },
-        settingspanel = { bg = p.surface },
+        -- the frame takes the theme's line colour, not IUP's default grey (FRAMECOLOR)
+        settingspanel = { bg = p.surface, border = p.border },
         -- Collapsible section header in the Settings tab: a borderless full-width
         -- button that reads as a heading until hovered.
         settingsheader = {
