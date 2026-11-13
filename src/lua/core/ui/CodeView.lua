@@ -42,6 +42,7 @@ local function native()
 end
 
 local CodeView = {}
+local UTF16 = require("core.imgui.utf16")
 CodeView.__index = CodeView
 
 --- Is the real code view (Scintilla) in this build?
@@ -836,7 +837,7 @@ function CodeView:scrollToEnd()
 		self._iup.Refresh(self._plain_scroll)
 		self._iup.SetAttribute(self._plain_scroll, "POSY", self._iup.GetAttribute(self._plain_scroll, "YMAX") or "0")
 	else
-		self._iup.SetAttribute(self._control, "SCROLLTOPOS", tostring(#self._text))
+		self._iup.SetAttribute(self._control, "SCROLLTOPOS", tostring(UTF16.length(self._text)))
 		self:_syncPlainScroll()
 	end
 end
