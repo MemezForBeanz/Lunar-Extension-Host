@@ -1,0 +1,12 @@
+{
+    "sourceCommit":  "fbfb980f45031e080904abb6ac8ac9d859f63f84",
+    "orgPacksCommit":  "6e17cc457f3662e045b4bc2d68aebca2dca3377c",
+    "buildType":  "RelWithDebInfo",
+    "compiler":  "MinGW GCC",
+    "iupBinary":  "FCC54D4714D85C89DC9C24EB9D4B28C734569AC1DE17CC142F7F0C61B3B67CFF",
+    "imguiBinary":  "00CEE315463BE9F6E8B07AB26A7FD7627E3DF500A4F1BA379DD5BD8BCFAD9B9B",
+    "defaultRunsPerCase":  5,
+    "uncappedRunsPerCase":  3,
+    "client":  "1400x900",
+    "notes":  "Scripts changed only for diagnostic instrumentation and idle timer configuration after repeated measurements; no application source or org-pack changes."
+}

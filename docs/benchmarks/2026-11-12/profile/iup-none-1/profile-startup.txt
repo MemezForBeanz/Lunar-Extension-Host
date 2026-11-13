@@ -1,0 +1,18 @@
+29%  iuplua.lua:8 < fn
+  -- 100%  iuplua.lua:9
+14%  iuplua.lua:8 < @0x7ff7e67eb770
+  -- 100%  iuplua.lua:9
+14%  [string]:_repaintRoot < [string]:_paintTheme
+  -- 100%  [string]:1586
+ 7%  [string]:70 < pcall
+  -- 100%  [string]:75
+ 7%  [string]:12 < fn
+  -- 100%  [string]:32
+ 7%  ui_benchmark.lua:232 < pcall
+  -- 100%  ui_benchmark.lua:233
+ 7%  [string]:pack_color < [string]:490
+  -- 100%  [string]:315
+ 7%  [string]:_applyElement < [string]:fn
+  -- 100%  [string]:1181
+ 7%  [string]:_configure < [string]:410
+  -- 100%  [string]:635

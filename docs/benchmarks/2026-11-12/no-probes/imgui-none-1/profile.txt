@@ -1,0 +1,5 @@
+89%  ui_benchmark.lua:frame_end < [string]:frame
+  -- 100%  ui_benchmark.lua:198
+ 3%  [string]:sized < [string]:rules
+  -- 50%  [string]:51
+  -- 50%  [string]:52

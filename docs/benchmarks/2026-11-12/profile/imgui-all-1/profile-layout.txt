@@ -1,0 +1,24 @@
+14%  [string]:12 < xpcall
+  -- 100%  [string]:32
+14%  [string]:place < [string]:placeChildren
+  -- 100%  [string]:178
+ 7%  [string]:registered_default < [string]:attr
+  -- 100%  [string]:309
+ 7%  [string]:user_size < [string]:compute
+  -- 100%  [string]:77
+ 7%  [string]:container_expand < [string]:compute
+  -- 100%  [string]:132
+ 7%  [string]:size < [string]:natural
+  -- 100%  [string]:47
+ 7%  [string]:_color < [string]:rect
+  -- 100%  [string]:58
+ 7%  [string]:compute < [string]:compute
+  -- 100%  [string]:249
+ 7%  [string]:gdi_text_size < [string]:measure
+  -- 100%  [string]:229
+ 7%  [string]:num < [string]:sync
+  -- 100%  [string]:11
+ 7%  [string]:intint < [string]:natural
+  -- 100%  [string]:42
+ 7%  [string]:split_lines < [string]:textSize
+  -- 100%  [string]:164

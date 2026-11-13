@@ -1,0 +1,4 @@
+80%  [string]:connect < [string]:probeTcp
+  -- 100%  [string]:561
+ 9%  iuplua.lua:8 < fn
+  -- 100%  iuplua.lua:9

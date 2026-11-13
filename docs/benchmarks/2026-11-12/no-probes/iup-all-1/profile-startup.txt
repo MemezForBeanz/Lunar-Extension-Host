@@ -1,0 +1,14 @@
+44%  iuplua.lua:8 < fn
+  -- 100%  iuplua.lua:9
+14%  [string]:_applyElement < [string]:fn
+  -- 100%  [string]:1181
+ 6%  ui_benchmark.lua:236 < pcall
+  -- 100%  ui_benchmark.lua:237
+ 3%  [string]:_restoreElement < [string]:fn
+  -- 100%  [string]:1200
+ 3%  [string]:_repaintRoot < [string]:_paintTheme
+  -- 100%  [string]:1586
+ 3%  [string]:exists < [string]:onPath
+  -- 100%  [string]:22
+ 3%  iuplua.lua:8 < @0x7ff7e67eb770
+  -- 100%  iuplua.lua:9
