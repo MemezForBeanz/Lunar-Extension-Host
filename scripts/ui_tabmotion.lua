@@ -12,7 +12,8 @@ do
 	ROOT = here:match("^(.*)/scripts/[^/]+$")
 	if ROOT and ROOT ~= "" then
 		local mine = ROOT .. "/src/lua/?.lua;" .. ROOT .. "/src/lua/?/init.lua"
-		table.insert(package.loaders, 2, function(name)
+		-- first, ahead of the preload searcher: an exe embeds its own checkout's core modules
+		table.insert(package.loaders, 1, function(name)
 			local file = package.searchpath(name, mine)
 			if not file then return nil end
 			return assert(loadfile(file))
@@ -104,8 +105,17 @@ local queue, qi, phase, wait, q_busy = {}, 1, "boot", 0, nil
 if IMGUI and os.getenv("LUNAR_TABMOTION_SHOTS") == "1" then
 	local R = require("core.imgui.Runtime")
 	local frame, shots = R.frame, 0
+	-- the snapshot transition (IUP-style) or the strip's own live one (ImGui flattabs)
+	local function busy()
+		if transition and transition:busy() then return true end
+		local ok, FT = pcall(require, "core.imgui.widgets.flattabs")
+		local q = queue and queue[qi]
+		-- the first page-strip switch (iLO Redfish), not the group strip's
+		if not (q and q.name == (os.getenv("LUNAR_TABMOTION_TAB") or "iLO Redfish")) then return false end
+		return ok and type(FT) == "table" and FT.pageTransition and FT.pageTransition(q.strip) ~= nil
+	end
 	R.frame = function(...)
-		if transition and transition:busy() and shots < 24 then
+		if busy() and shots < 24 then
 			shots = shots + 1
 			R.backend().screenshot(string.format("%s/tabmotion-%02d.bmp", out_dir, shots))
 		end
@@ -136,7 +146,14 @@ iup.MainLoop = function()
 				phase, wait = "check", 0
 			elseif phase == "check" then
 				wait = wait + 1
-				if wait == 2 then q_busy = transition and transition:busy() end
+				if wait == 2 then
+					q_busy = transition and transition:busy()
+					local ok, FT = pcall(require, "core.imgui.widgets.flattabs")
+					if not q_busy and ok and type(FT) == "table" and FT.pageTransition then
+						local live = FT.pageTransition(queue[qi].strip)
+						q_busy = live and ("live " .. tostring(live.name)) or q_busy
+					end
+				end
 
 				if wait < 20 then return end -- 600 ms: the transition (240 ms) finishes
 				local q = queue[qi]

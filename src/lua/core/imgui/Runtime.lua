@@ -1545,10 +1545,17 @@ local function paint(el, d)
 		if not ok then warn(err) end
 	end
 	local kids = children_shown(el, st)
-	if #kids > 0 then
+	if #kids > 0 or class.paintChildren then
 		if class.clipRect then d:clip_push(class.clipRect(el, st))
 		elseif class.clip then d:clip_push(st.x, st.y, st.w, st.h) end
-		for i = 1, #kids do paint(kids[i], d) end
+		-- A class may paint its children itself (a tab strip moving two pages during a
+		-- transition); it gets the shown children and the painters.
+		if class.paintChildren then
+			local ok, err = xpcall(class.paintChildren, debug.traceback, el, st, d, kids, M)
+			if not ok then warn(err); for i = 1, #kids do paint(kids[i], d) end end
+		else
+			for i = 1, #kids do paint(kids[i], d) end
+		end
 		if class.clip or class.clipRect then d:clip_pop() end
 	end
 	if not culled and class.drawAfter then
@@ -1557,6 +1564,20 @@ local function paint(el, d)
 	end
 end
 M.paint = paint
+
+--- Paint an element although it is not shown itself (VISIBLE=NO): a page leaving during
+-- a transition is still drawn, live, until it has gone. Its own descendants' visibility
+-- is honoured as usual.
+function M.paintHidden(el, d)
+	local st = STATE[el]
+	if not st then return end
+	local attrs = st.attrs
+	local saved = attrs.VISIBLE
+	attrs.VISIBLE = "YES"
+	local ok, err = xpcall(paint, debug.traceback, el, d)
+	attrs.VISIBLE = saved
+	if not ok then warn(err) end
+end
 
 -- winDialogResize: a new client size reaches RESIZE_CB first, so the callback can set
 -- sizes the layout then honours; IGNORE keeps the old layout.

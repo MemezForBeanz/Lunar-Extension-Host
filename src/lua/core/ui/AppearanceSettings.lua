@@ -28,6 +28,16 @@ function M.speed_index(scale)
 	return best
 end
 
+--- Tab transition choices: "Theme default", then every kind core.lib.PageTransitions
+-- knows (the built-in ones and those extensions registered), as `{ labels, values }`.
+function M.transition_choices()
+	local labels, values = { "Theme default" }, { "theme" }
+	for _, k in ipairs(require("core.lib.PageTransitions").list()) do
+		labels[#labels + 1], values[#values + 1] = k.label, k.name
+	end
+	return labels, values
+end
+
 --- Build the section and register it with the host.
 -- @tparam table opts
 -- @tparam table opts.iup the IUP binding
@@ -81,6 +91,27 @@ function M.register(opts)
 	})
 	local speed = speed_dd.widget
 	manage(speed, "motion_scale")
+
+	-- The tab transition: the theme's, or one the user picks (core.lib.PageTransitions).
+	-- Listed when the section is built; an extension loaded later adds its kind to the
+	-- theme's choice and to `motion_tab_transition` set by hand.
+	local t_labels, t_values = M.transition_choices()
+	local t_index = 1
+	for i, v in ipairs(t_values) do if v == (settings:get("motion_tab_transition") or "theme") then t_index = i end end
+	local transition_dd = FlatDropdown.new(iup, {
+		items = t_labels,
+		value = t_index,
+		width = 180,
+		font = "Segoe UI, 11",
+		name = "appearance_tab_transition",
+		on_change = function(index)
+			local kind = t_values[index]
+			if kind and set_and_save("motion_tab_transition", kind) then
+				motion:configure({ page_transition = kind })
+			end
+		end,
+	})
+	manage(transition_dd.widget, "motion_tab_transition")
 
 	local entries = {
 		{
@@ -143,6 +174,13 @@ function M.register(opts)
 		label = "Motion speed",
 		description = "Scales the duration of every animation.",
 		widget = speed,
+	}
+	entries[#entries + 1] = {
+		label = "Tab transition",
+		description = "How a page gives way to the next when you switch tabs: Push moves both "
+			.. "sideways, Fade cross-fades, Rise lifts the new page in, Slide over lays it on "
+			.. "top of the old one. Theme default uses the theme's choice.",
+		widget = transition_dd.widget,
 	}
 	entries[#entries + 1] = {
 		label = "Follow system motion setting",

@@ -448,6 +448,7 @@ local motion_director = MotionDirector:new({
 	scale = tonumber(settings_mgr:get("motion_scale")) or 1.0,
 	respect_system = settings_mgr:get("motion_respect_system") ~= false,
 })
+motion_director:configure({ page_transition = settings_mgr:get("motion_tab_transition") or "theme" })
 host:setMotionDirector(motion_director)
 status_bar:setMotion(motion_director)
 

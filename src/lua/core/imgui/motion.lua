@@ -214,6 +214,28 @@ function M.color(st, key, target, spec)
 	return a.v
 end
 
+--- The tab page transition to play (core.lib.PageTransitions): kind, spec and name,
+-- from the director (the user's choice, then the theme's), or the default kind.
+function M.pageTransition()
+	local PT = require("core.lib.PageTransitions")
+	if director and director.pageTransition then
+		local ok, def, spec, name = pcall(director.pageTransition, director)
+		if ok and def then return def, spec, name end
+	end
+	if not M.enabled() then return PT.resolve(nil, "none") end
+	return PT.resolve(nil, nil)
+end
+
+--- The easing function and the duration in seconds of a spec (or role name), for a
+-- widget that runs its own progress (a page transition).
+function M.timing(spec, distance)
+	local s = type(spec) == "table" and spec or role(spec)
+	return ease_fn(s), seconds(s, distance or 0)
+end
+
+M.now = now
+M.keepGoing = keep_going
+
 --- Is anything of this element still on the way?
 function M.busy(st)
 	local t = st.data.motion

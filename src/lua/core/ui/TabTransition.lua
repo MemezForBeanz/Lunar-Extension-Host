@@ -80,6 +80,7 @@ local class = require("middleclass")
 
 local ThemePalette = require("core.classes.Theme")
 local Compositor = require("core.lib.Compositor")
+local PageTransitions = require("core.lib.PageTransitions")
 
 local TabTransition = class("TabTransition")
 
@@ -385,6 +386,15 @@ function TabTransition:around(fn)
 	return ok, err
 end
 
+-- Does `strip` play page transitions itself, with the live pages? (The ImGui host's tab
+-- strip does; there this module only switches, so the two never play at once.)
+local function draws_own(self, strip)
+	local iup = self._iup
+	if not (iup and strip and iup.GetAttribute) then return false end
+	local ok, v = pcall(iup.GetAttribute, strip, "PAGETRANSITIONDRAW")
+	return ok and v == "LIVE"
+end
+
 function TabTransition:_ready()
 	if self:suspended() then
 		self:_declined("tree surgery in progress")
@@ -419,7 +429,7 @@ end
 -- @tparam ihandle strip the `iup.flattabs` about to change page
 -- @usage transition:arm(strip)   -- from FLAT_BUTTON_CB, before the switch
 function TabTransition:arm(strip)
-	if not strip or not self:_ready() then return end
+	if not strip or draws_own(self, strip) or not self:_ready() then return end
 
 	-- A click arriving mid-transition supersedes it rather than queueing.
 	if self._active then self:settle() end
@@ -474,6 +484,7 @@ end
 -- @treturn boolean true when a transition was scheduled
 -- @usage transition:commit(strip)   -- from TABCHANGE_CB, after the switch
 function TabTransition:commit(strip)
+	if draws_own(self, strip) then return true end
 	local armed = self._armed
 	self._armed = nil
 	if not armed then
@@ -572,6 +583,10 @@ function TabTransition:run(strip, to_pos, switch)
 		if switch then pcall(switch) end
 	end
 
+	if strip and draws_own(self, strip) then
+		do_switch()
+		return true
+	end
 	if not strip or not self:_ready() then
 		do_switch()
 		return false
@@ -614,31 +629,32 @@ function TabTransition:_frame(st)
 	local r = st.rect
 	local clip = { x = r.x, y = r.y, w = r.w, h = r.h }
 
-	-- Outgoing page: the opaque base, drifting in the direction of travel.
-	local from_x = st.dir * st.travel * st.lead * t
-
-	-- Incoming page: arrives from the side the new tab sits on, and settles at
-	-- zero. At full travel with the fade off, this sits exactly one page width
-	-- from the outgoing page at every instant -- the rigid Carbon pair.
-	local to_x = -st.dir * st.travel * (1 - t)
-
+	-- The kind (core.lib.PageTransitions) places both pages. For `push`: the outgoing
+	-- page is the opaque base drifting in the direction of travel; the incoming one
+	-- arrives from the side the new tab sits on and settles at zero -- at full travel
+	-- with the fade off, exactly one page width from the outgoing page at every
+	-- instant, the rigid Carbon pair.
+	local out, inn = st.kind.frame(t, st.ctx)
+	local from_x, to_x = tonumber(out.dx) or 0, tonumber(inn.dx) or 0
 	st.from_x, st.to_x = from_x, to_x
 
-	local alpha = 1
-	if st.fade then
-		alpha = t / FADE_SPAN
-		if alpha > 1 then alpha = 1 end
-		if alpha < 0 then alpha = 0 end
+	local function clamp(a) a = tonumber(a) or 1; if a > 1 then return 1 elseif a < 0 then return 0 end return a end
+	local sprites = {
+		{ kind = "fill", x = r.x, y = r.y, w = r.w, h = r.h, color = st.backdrop, alpha = 1, clip = clip },
+		{ kind = "image", snap = st.from_snap, x = r.x + round(from_x), y = r.y + round(tonumber(out.dy) or 0),
+			alpha = clamp(out.alpha), clip = clip },
+	}
+	if (tonumber(out.dim) or 0) > 0 then
+		sprites[#sprites + 1] = { kind = "fill", x = r.x + round(from_x), y = r.y, w = r.w, h = r.h,
+			color = 0, alpha = clamp(out.dim), clip = clip }
 	end
+	sprites[#sprites + 1] = { kind = "image", snap = st.to_snap, x = r.x + round(to_x),
+		y = r.y + round(tonumber(inn.dy) or 0), alpha = clamp(inn.alpha), clip = clip }
 
 	self._compositor:set(GROUP, {
 		z = Compositor.Z_TAB,
 		regions = {},
-		sprites = {
-			{ kind = "fill", x = r.x, y = r.y, w = r.w, h = r.h, color = st.backdrop, alpha = 1, clip = clip },
-			{ kind = "image", snap = st.from_snap, x = r.x + round(from_x), y = r.y, alpha = 1, clip = clip },
-			{ kind = "image", snap = st.to_snap, x = r.x + round(to_x), y = r.y, alpha = alpha, clip = clip },
-		},
+		sprites = sprites,
 	})
 end
 
@@ -678,29 +694,26 @@ function TabTransition:_play(strip, from_snap, to_page, from_pos, to_pos, from_r
 	local forward = (tonumber(to_pos) or 0) > (tonumber(from_pos) or 0)
 	local dir = forward and -1 or 1
 
-	local motion = self._director:role(ROLE)
+	-- The kind and its spec: the user's choice, else the theme's (`tab_transition`
+	-- role, `kind` field), else push (core.lib.PageTransitions). A director without
+	-- pageTransition() (an older one, or a test's) gets push under its role.
+	local kind, motion, kind_name
+	local d = self._director
+	if d.pageTransition then kind, motion, kind_name = d:pageTransition()
+	else kind, motion, kind_name = PageTransitions.resolve(d:role(ROLE), nil) end
+	if not kind or not kind.frame then
+		self:_declined("tab transition is " .. tostring(kind_name or "none"))
+		from_snap:release()
+		to_snap:release()
+		return false
+	end
 
-	-- `travel` is a fraction of the page width; 1 restores the literal full-width
-	-- push. Clamped so a theme cannot ask for a slide longer than the page (which
-	-- would tear the pair apart) or shorter than perception (see MIN_TRAVEL).
-	local frac = tonumber(motion.travel) or 1
-	if frac > 1 then frac = 1 end
-	local travel = w * frac
-
-	-- The pixel cap is what holds the apparent SPEED constant across window sizes:
-	-- a fraction alone crosses four times the distance on a 4K page as on a laptop
-	-- in the same 240 ms. Skipped at full travel, where the rigid pair has to cover
-	-- exactly one page width or it tears open.
-	local cap = tonumber(motion.max_travel)
-	if cap and frac < 1 and travel > cap then travel = cap end
-
-	if travel < MIN_TRAVEL then travel = math.min(MIN_TRAVEL, w) end
-
-	-- The fade is what lets a partial slide complete the handover, so the two are
-	-- not independent: without it the outgoing page has to clear the frame itself,
-	-- which is only true at full travel.
-	local fade = (motion.fade ~= false) and (frac < 1)
-	local lead = fade and OUTGOING_LEAD or 1
+	-- `travel` is a fraction of the page width (1 restores the literal full-width
+	-- push), capped at `max_travel` px so the apparent SPEED is the same on any
+	-- window, at least MIN_TRAVEL; the fade lets a partial slide complete the
+	-- handover. PageTransitions.geometry holds those rules.
+	local ctx = PageTransitions.context(motion, w, h, forward)
+	local travel, fade, lead = ctx.travel, ctx.fade, ctx.lead
 
 	-- Behind both pages: only ever visible in the few pixels the damped outgoing
 	-- page has vacated before the incoming page is fully opaque, but without it the
@@ -708,6 +721,8 @@ function TabTransition:_play(strip, from_snap, to_page, from_pos, to_pos, from_r
 	local backdrop = rgb(ThemePalette.color("bg", "255 255 255"))
 
 	local st = {
+		kind      = kind,
+		ctx       = ctx,
 		from_snap = from_snap,
 		to_snap   = to_snap,
 		rect      = rect,
@@ -728,8 +743,8 @@ function TabTransition:_play(strip, from_snap, to_page, from_pos, to_pos, from_r
 	self._active = st
 
 	self:_count("played")
-	self._last_geometry = string.format("page %dx%d, travel %d, fade %s",
-		w, h, math.floor(travel), tostring(fade))
+	self._last_geometry = string.format("page %dx%d, travel %d, fade %s, kind %s",
+		w, h, math.floor(travel), tostring(fade), tostring(kind_name))
 
 	-- The first frame goes up before the animation's first tick, with the
 	-- outgoing page exactly where it was: the switch has already happened behind
@@ -750,8 +765,11 @@ function TabTransition:_play(strip, from_snap, to_page, from_pos, to_pos, from_r
 		-- transition without this module knowing. `distance` is deliberately NOT
 		-- passed: the role carries a fixed duration precisely because deriving it
 		-- from the page width is what produced the unwatchable speed on large
-		-- displays.
+		-- displays. A kind other than push brings its own timing.
 		role     = ROLE,
+		duration = kind_name ~= "push" and motion.duration or nil,
+		curve    = kind_name ~= "push" and motion.curve or nil,
+		style    = kind_name ~= "push" and motion.style or nil,
 		tag      = TAG,
 		target   = strip,
 		from     = 0,

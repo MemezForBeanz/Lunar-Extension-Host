@@ -73,7 +73,7 @@ describe("AppearanceSettings", function()
 	it("registers the Appearance section with theme and motion rows", function()
 		local s = setup()
 		assert.are.equal("Appearance", s.section.name)
-		assert.are.equal(5, #s.section.entries)
+		assert.are.equal(6, #s.section.entries)
 		assert.are.equal("dropdown", s.w.Theme.kind)
 		assert.are.equal("ON", s.w["Interface motion"].VALUE)   -- unset means on
 	end)
@@ -100,6 +100,23 @@ describe("AppearanceSettings", function()
 		assert.are.equal(AppearanceSettings.SPEEDS[2], btn.TITLE)
 	end)
 
+	it("applies a tab transition choice, listing every kind", function()
+		local s = setup()
+		local btn = s.w["Tab transition"]
+		assert.are.equal("dropbutton", btn.kind)
+		local labels, values = AppearanceSettings.transition_choices()
+		assert.are.equal("theme", values[1])
+		local fade
+		for i, v in ipairs(values) do if v == "fade" then fade = i end end
+		local list = drop_list(btn)
+		assert.are.equal("1", list.VALUE) -- unset: the theme's
+		list.VALUE = tostring(fade)
+		list:valuechanged_cb()
+		assert.are.equal("fade", s.store.motion_tab_transition)
+		assert.are.same({ { page_transition = "fade" } }, s.configured)
+		assert.are.equal(labels[fade], btn.TITLE)
+	end)
+
 	it("greys out a locked setting and changes nothing when it is toggled", function()
 		local s = setup({ locked = { motion_enabled = true, theme = true }, org_name = "Acme" })
 		local t = s.w["Interface motion"]
@@ -118,7 +135,7 @@ describe("AppearanceSettings", function()
 			setEnabled = function(_, on) calls[#calls + 1] = on; return true end,
 		}
 		local s = setup({ system_theme = st })
-		assert.are.equal(6, #s.section.entries)
+		assert.are.equal(7, #s.section.entries)
 		assert.are.equal("Match system theme", s.section.entries[3].label)
 		local t = s.w["Match system theme"]
 		assert.are.equal("OFF", t.VALUE)

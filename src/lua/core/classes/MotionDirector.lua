@@ -131,6 +131,9 @@ function MotionDirector:configure(cfg)
 		local s = tonumber(cfg.scale)
 		if s and s > 0 then self._scale = s end
 	end
+	-- The user's tab transition (a core.lib.PageTransitions kind, or "theme" for the
+	-- theme's own): Appearance settings.
+	if cfg.page_transition ~= nil then self._page_transition = tostring(cfg.page_transition) end
 
 	if not self:enabled() then
 		self:finishAll()
@@ -187,6 +190,20 @@ end
 -- @usage local m = director:role("tab_transition"); local px = width * m.travel
 function MotionDirector:role(name)
 	return Tokens.role(name, self._roles)
+end
+
+--- The tab page transition to play: the kind (core.lib.PageTransitions), its spec (the
+-- kind's timing under the theme's `tab_transition` fields) and its name. The user's
+-- choice (configure{ page_transition = }) wins over the theme's; with motion off the
+-- kind is `none`.
+-- @treturn table def, table spec, string name
+function MotionDirector:pageTransition()
+	local PT = require("core.lib.PageTransitions")
+	if not self:enabled() then
+		local def, spec = PT.resolve(nil, "none")
+		return def, spec, "none"
+	end
+	return PT.resolve(self._roles and self._roles.tab_transition, self._page_transition)
 end
 
 --- Number of animations currently running. Mainly for tests and diagnostics.

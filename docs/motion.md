@@ -132,6 +132,57 @@ it plays alongside the page push (`tab_transition`). `spec/imgui_motion_spec.lua
 covers the module and the strip; `scripts/ui_tabmotion.lua` clicks through the real
 app's tabs and, with `LUNAR_TABMOTION_SHOTS=1`, saves every frame of a switch.
 
+### Tab transitions: kinds, themes, settings and extensions
+
+Carbon has no rule for tabs. What it does say decides the design: productive motion
+for a repeated task, expressive motion for "opening a new page", **continuity** through
+what stays put across the change (here the tab strip, whose indicator slides to the
+new tab), duration that grows sub-linearly with distance, and exit easing only for what
+leaves for good. A tab switch is a repeated task, so the default stays productive.
+
+What the two pages do is a **kind** in `core.lib.PageTransitions`: pure geometry that
+turns eased progress into each page's offset, opacity and dimming, plus the kind's own
+duration, curve and style. The same kinds drive both hosts: the IUP build moves
+snapshots of the pages (`core.ui.TabTransition`); the ImGui host's tab strip draws the
+**live** pages (`core.imgui.widgets.flattabs`), so a spinner or a log keeps updating
+through the transition and nothing is captured.
+
+| Kind | What it does | Timing |
+| --- | --- | --- |
+| `push` (default) | Both pages move the way the new tab's position implies, the old one half as far; the new one fades in over it | 240 ms, standard, productive |
+| `fade` | No movement: the new page fades in over the old one | 110 ms, standard, productive |
+| `rise` | The new page rises 16 px into place and fades in; the old one fades away in place | 240 ms, entrance, expressive |
+| `slide` | The new page slides in over the old one, which stays and dims | 240 ms, standard, productive |
+| `none` | Instant | |
+
+Who chooses, highest first: the user (Appearance > Tab transition, saved as
+`motion_tab_transition`; "Theme default" defers), then the theme
+(`tab_transition = { kind = "rise" }` in `Theme:motion()`; the theme's other
+`tab_transition` fields tune that kind), then `push`. With motion off, or the OS asking
+for reduced motion, the switch is instant. A strip opts out with `PAGETRANSITION=NO`.
+
+An extension adds a kind (host API 5). It is listed in Appearance settings, a theme can
+name it, and it is removed when the extension unloads:
+
+```lua
+self:registerPageTransition("drop", {
+    label = "Drop in",
+    role  = { duration = 240, curve = "entrance", style = "expressive" },
+    -- t: eased progress 0..1; ctx: dir (-1 forward, 1 back), w, h, travel, fade...
+    frame = function(t, ctx)
+        return { alpha = 1 - t },                    -- the outgoing page
+               { dy = -24 * (1 - t), alpha = t }     -- the incoming page
+    end,
+})
+```
+
+Each page is drawn as an opaque sheet (the incoming one over the outgoing one), both
+clipped to the page rectangle; `dim` darkens a page. `spec/page_transitions_spec.lua`
+covers the kinds, the choice order, the extension API, the live strip and the snapshot
+path standing down for it; `scripts/ui_tabmotion.lua` plays them in the real app on
+either build (`LUNAR_TABMOTION_SHOTS=1` saves the frames; seed
+`"motion_tab_transition"` in settings to pick a kind).
+
 ### Two moments left un-animated on the IUP build
 
 Carbon's own worked example for *semantic consistency* is that a dropdown opening

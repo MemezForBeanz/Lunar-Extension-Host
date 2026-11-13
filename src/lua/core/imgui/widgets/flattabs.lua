@@ -7,6 +7,8 @@ local Draw = require("core.imgui.Draw")
 local Layout = require("core.imgui.Layout")
 local iup = require("core.imgui.iup")
 local motion = require("core.imgui.motion")
+local PageTransitions = require("core.lib.PageTransitions")
+local Color = require("core.imgui.Color")
 
 local M = {}
 local CLOSE_SIZE, CLOSE_GAP, CLOSE_BORDER = 13, 12, 8
@@ -82,8 +84,39 @@ local function setCurrent(el, child, notify)
 	st.handles.VALUE = child
 	if old then Element.setAttribute(old, "VISIBLE", "NO") end
 	if child then Element.setAttribute(child, "VISIBLE", "YES") end
+	M.beginPageTransition(el, st, old, child, newpos > oldpos)
 	return iup.DEFAULT
 end
+
+-- Page transitions, drawn live (core.lib.PageTransitions): the strip paints the leaving
+-- page and the arriving one, moved and faded by the kind, for the transition's length;
+-- the switch itself (VALUE, callbacks, hit testing) has already happened. Only on a strip
+-- that shows its tabs, that was on screen the frame before (nothing animates into place
+-- as a dialog first appears), and without PAGETRANSITION=NO.
+function M.beginPageTransition(el, st, from, to, forward)
+	st.data.page_tr = nil
+	if not (from and to) or not yes(attr(el, "SHOWTABS")) then return end
+	if tostring(attr(el, "PAGETRANSITION") or "YES"):upper() == "NO" then return end
+	local R = package.loaded["core.imgui.Runtime"]
+	if not (R and R.frameNo and st.data.painted_frame and st.data.painted_frame >= R.frameNo() - 1) then return end
+	local def, spec, name = motion.pageTransition()
+	if not def or name == "none" or not def.frame then return end
+	local ease, dur = motion.timing(spec)
+	if dur <= 0 then return end
+	st.data.page_tr = { from = from, to = to, forward = forward, def = def, spec = spec,
+		ease = ease, dur = dur, t0 = motion.now(), name = name }
+	motion.keepGoing()
+end
+
+--- The page transition running on a strip, or nil: `{ from, to, name, progress }`.
+function M.pageTransition(el)
+	local st = Element.state(el)
+	local tr = st and st.data.page_tr
+	if not tr then return nil end
+	return { from = tr.from, to = tr.to, name = tr.name, progress = math.min(1, (motion.now() - tr.t0) / tr.dur) }
+end
+
+local function round(v) return v >= 0 and math.floor(v + 0.5) or -math.floor(-v + 0.5) end
 local function firstVisible(el, start, direction)
 	local ps = pages(el)
 	local i = start or 1
@@ -265,6 +298,8 @@ local function drawTabContent(el, st, dc, pos, x, y, w, h, color)
 end
 
 local function draw(el, st, dc)
+	local R = package.loaded["core.imgui.Runtime"]
+	st.data.painted_frame = R and R.frameNo and R.frameNo() or nil
 	local bg = attr(el, "BGCOLOR")
 	if bg then dc:fill(st.x, st.y, st.w, st.h, bg, { radius = integer(attr(el, "CORNERRADIUS"), 0) }) end
 	if not yes(attr(el, "SHOWTABS")) then
@@ -405,6 +440,51 @@ local function place_pages(native)
 	end
 end
 local place = place_pages(false)
+
+-- The pages: the current one, or both during a page transition.
+local function paintChildren(el, st, d, kids, R)
+	local tr = st.data.page_tr
+	if tr and (tr.to ~= current(el) or not Element.state(tr.from) or not Element.state(tr.to)) then
+		st.data.page_tr, tr = nil, nil
+	end
+	local p = tr and (motion.now() - tr.t0) / tr.dur
+	if not tr or p >= 1 then
+		st.data.page_tr = nil
+		for i = 1, #kids do R.paint(kids[i], d) end
+		return
+	end
+	local x, y, w, h = clientRect(el, st)
+	local ctx = PageTransitions.context(tr.spec, w, h, tr.forward)
+	local ok, out, inn = pcall(tr.def.frame, tr.ease(p < 0 and 0 or p), ctx)
+	if not ok or type(out) ~= "table" or type(inn) ~= "table" then
+		st.data.page_tr = nil
+		for i = 1, #kids do R.paint(kids[i], d) end
+		return
+	end
+	d:clip_push(x, y, w, h)
+	local base = attr(el, "BGCOLOR") or Element.globals.DLGBGCOLOR or "0 0 0"
+	if tr.def.backdrop ~= false then d:fill(x, y, w, h, base) end
+	local function page(child, t, leaving)
+		local alpha = tonumber(t.alpha) or 1
+		if alpha <= 0 then return end
+		local dx, dy = round(tonumber(t.dx) or 0), round(tonumber(t.dy) or 0)
+		d:offset_push(dx, dy)
+		d:alpha_push(alpha > 1 and 1 or alpha)
+		-- A page draws over the strip's background, so it has none of its own: give it
+		-- one here, moving and fading with it, so the arriving page covers the leaving one
+		-- as a solid sheet (the IUP build's snapshots are opaque the same way).
+		d:fill(x, y, w, h, Element.getAttribute(child, "BGCOLOR") or base)
+		if leaving then R.paintHidden(child, d) else R.paint(child, d) end
+		d:alpha_pop()
+		d:offset_pop()
+		local dim = tonumber(t.dim) or 0
+		if dim > 0 then d:fill(x + dx, y + dy, w, h, Color.pack(0, 0, 0, 255 * math.min(1, dim))) end
+	end
+	page(tr.from, out, true)
+	page(tr.to, inn, false)
+	d:clip_pop()
+	motion.keepGoing()
+end
 local function visibleChildren(el)
 	local c = current(el)
 	return c and { c } or {}
@@ -550,6 +630,7 @@ end
 
 local def = {
 	name = "flattabs", children = -1, clip = true, focusable = true, xyToPos = xyToPos,
+	paintChildren = paintChildren,
 	clipsContent = true, -- iupLayoutMinContent: a page compresses away entirely
 	defaults = {
 		SHOWTABS = "YES", TABTYPE = "TOP", SHOWLINES = "YES", TABSLINECOLOR = "160 160 160",
@@ -566,7 +647,10 @@ local def = {
 		FLAT_BUTTON_CB = true, FLAT_MOTION_CB = true, FLAT_LEAVEWINDOW_CB = true,
 		FLAT_GETFOCUS_CB = true, FLAT_KILLFOCUS_CB = true, EXTRABUTTON_CB = true,
 	},
-	get = { VALUE = classGetValue, VALUEPOS = classGetValuePos, VALUE_HANDLE = classGetValueHandle, COUNT = classGetCount,
+	-- PAGETRANSITIONDRAW: "LIVE", the strip plays page transitions with the live pages
+	-- (core.ui.TabTransition stands down for it)
+	get = { PAGETRANSITIONDRAW = function() return "LIVE" end,
+		VALUE = classGetValue, VALUEPOS = classGetValuePos, VALUE_HANDLE = classGetValueHandle, COUNT = classGetCount,
 		-- iFlatTabsGetClientSizeAttrib: the page area, without the tab band (TabOrder takes
 		-- the band's height as RASTERSIZE minus this)
 		CLIENTSIZE = function(el, st)
