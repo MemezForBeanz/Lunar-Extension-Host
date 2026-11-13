@@ -69,7 +69,7 @@ describe("imgui flatlist port (iup_flatlist.c)", function()
 	end)
 
 	it("line height is the tallest item's icon size (image, text and padding), at least the char height", function()
-		local list = iup.flatlist{ "a", "b", BORDER = "NO", PADDING = "2x2" }
+		local list = iup.flatlist{ "a", "b", BORDER = "NO", PADDING = "2x2", FOCUSFEEDBACK = "NO" }
 		local st = placed(list, 100, 100)
 		local _, ch = Fonts.get(iup.GetAttribute(list, "FONT")):charsize()
 		local _, th = Draw.measureText(Fonts.get(iup.GetAttribute(list, "FONT")), "a")
@@ -83,6 +83,10 @@ describe("imgui flatlist port (iup_flatlist.c)", function()
 		iup.SetAttribute(list, "SPACING", "3")
 		st = placed(list, 100, 100)
 		assert.are.equal("37", iup.GetAttribute(list, "LINEY"))
+		-- FOCUSFEEDBACK (the default) and CANFOCUS leave 2 px around each item for the focus rect
+		iup.SetAttribute(list, "FOCUSFEEDBACK", "YES")
+		st = placed(list, 100, 100)
+		assert.are.equal(38, st.data.line_height)
 	end)
 
 	it("natural size: VISIBLELINES rows, the native frame (+2) and BORDERWIDTH", function()

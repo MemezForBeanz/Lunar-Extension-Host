@@ -119,11 +119,11 @@ end
 
 --- iupFlatDrawGetIconSize for one item, cached until the item, the font or the
 -- spacing attributes change (the C measures again each time, with the same result).
-local function item_size(e, item, hp, vp, pos, isp, fontkey)
-	local key = fontkey .. "|" .. hp .. "|" .. vp .. "|" .. pos .. "|" .. isp
+local function item_size(e, item, hp, vp, pos, isp, fontkey, focus_room)
+	local key = fontkey .. "|" .. hp .. "|" .. vp .. "|" .. pos .. "|" .. isp .. "|" .. tostring(focus_room)
 	if item._key ~= key then
 		local font = item_font(e, item)
-		item._w, item._h = FlatDraw.iconSize(e, pos, isp, hp, vp, item.image, item.title, font)
+		item._w, item._h = FlatDraw.iconSize(e, pos, isp, hp, vp, item.image, item.title, font, focus_room)
 		item._key = key
 	end
 	return item._w, item._h
@@ -137,9 +137,12 @@ local function calc_item_max_size(e, items)
 	local hp, vp = padding(e)
 	local pos, isp = img_position(e), icon_spacing(e)
 	local fontkey = tostring(attr(e, "FONT"))
+	-- iupFlatDrawGetIconSize leaves room for focus feedback (2 px each side) on an
+	-- interactive class with CANFOCUS and FOCUSFEEDBACK
+	local focus_room = yes(attr(e, "CANFOCUS") or "YES") and yes(attr(e, "FOCUSFEEDBACK"))
 	for i = 1, #items do
 		local item = items[i]
-		local w, h = item_size(e, item, hp, vp, pos, isp, fontkey .. "|" .. tostring(item.font))
+		local w, h = item_size(e, item, hp, vp, pos, isp, fontkey .. "|" .. tostring(item.font), focus_room)
 		if w > max_w then max_w = w end
 		if h > max_h then max_h = h end
 	end

@@ -55,13 +55,13 @@ describe("imgui flatlist", function()
 		local list = iup.flatlist{"a"}
 		-- BORDER=NO: no WS_BORDER frame, so the client area starts at the control's corner
 		iup.SetAttributes(list, "BORDER=NO,ITEMMARKERCOLOR=1 2 3,HLCOLOR=4 5 6,HLCOLORALPHA=128,FOCUSFEEDBACK=YES")
-		local st = Element.state(list); st.x, st.y, st.w, st.h = 0, 0, 80, 20
+		local st = Element.state(list); st.x, st.y, st.w, st.h = 0, 0, 80, 40 -- taller than a row (with its focus room), so VALUE does not scroll
 		local cls = Classes.get("flatlist")
 		cls.place(list, st, { font = require("core.imgui.Fonts").forElement, charsize = function() return 5, 10 end })
 		iup.SetAttribute(list, "VALUE", "1")
 		cls.event(list, st, { type = "focus" }, { redraw = function() end })
 		local backend = Null.new()
-		local dc = require("core.imgui.Draw").new(backend); dc:begin(100, 40)
+		local dc = require("core.imgui.Draw").new(backend); dc:begin(100, 60)
 		cls.draw(list, st, dc, {})
 		backend:frame_end()
 		local marker, overlay, focus
