@@ -20,6 +20,29 @@ local DC = {}
 DC.__index = DC
 M.DC = DC
 
+-- Recordings can outlive both an image mutation and the upload cache entry.
+-- Retain only the texture IDs they actually reference, releasing them on explicit
+-- snapshot release or GC. This also makes byte-budget eviction safe mid-frame.
+local function retain_recording(rec, B, op, id)
+	if (op ~= "image" and op ~= "image_rounded") or not B.texture_retain then return end
+	local pins = rec._textures
+	if not pins then
+		pins = {}; rec._textures = pins
+		local token = newproxy(true)
+		getmetatable(token).__gc = function()
+			for tex in pairs(pins) do pcall(B.texture_free, tex); pins[tex] = nil end
+		end
+		rec._texture_guard = token
+	end
+	if not pins[id] and B.texture_retain(id) then pins[id] = B end
+end
+
+function M.releaseRecording(rec)
+	if not rec then return end
+	for id,B in pairs(rec._textures or {}) do B.texture_free(id); rec._textures[id] = nil end
+	rec._texture_guard, rec._textures = nil, nil
+end
+
 --- A new draw context over `backend`.
 function M.new(backend)
 	return setmetatable({
@@ -63,6 +86,7 @@ end
 function DC:_emit(op, ...)
 	local rec = self.rec
 	if rec then
+		retain_recording(rec, self.B, op, ...)
 		rec[#rec + 1] = { op, ... }
 		if not self.rec_draw then return end
 	end
@@ -167,20 +191,10 @@ end
 
 -- One line's width. With GDI available it is GDI's (GetTextExtentPoint32 with the font IUP
 -- would have made), so natural sizes, wrap points and ellipses fall where IUP put them.
--- Widths are cached per font: a page repaints the same labels every frame.
-local MEASURE_CACHE_LIMIT = 4096
 local function measure(font, s)
 	if s == "" then return 0 end
-	local cache = font._widths
-	if not cache then cache = {}; font._widths, font._nwidths = cache, 0 end
-	local w = cache[s]
-	if w then return w end
-	local B = Fonts.backend
-	if font.gid and B.gdi_text_size then w = B.gdi_text_size(font.gid, font.px, s, 0) end
-	if not w then w = B.text_size(font.id, font.px, s, 0) end
-	if font._nwidths >= MEASURE_CACHE_LIMIT then cache = {}; font._widths, font._nwidths = cache, 0 end
-	cache[s], font._nwidths = w, font._nwidths + 1
-	return w
+	local width = font:measure(s)
+	return width
 end
 
 --- Word-wrap `text` to `width` the way IUP's DT_WORDBREAK does: break at spaces, and
@@ -326,12 +340,18 @@ function M.texture(img, B)
 	if not st then return nil end
 	local d = st.data
 	if d.tex and d.tex_backend == B then return d.tex, d.w, d.h end
+	if d.tex and d.tex_backend and d.tex_backend.texture_free then
+		d.tex_backend.texture_free(d.tex)
+	end
+	d.tex, d.tex_backend = nil, nil
 	local w = tonumber(Element.getAttribute(img, "WIDTH")) or d.w
 	local h = tonumber(Element.getAttribute(img, "HEIGHT")) or d.h
 	local pixels = d.pixels
 	if not (w and h and pixels and B.texture) then return nil end
-	d.tex, d.w, d.h, d.tex_backend = B.texture(pixels, w, h), w, h, B
-	return d.tex, w, h
+	local tex = B.texture(pixels, w, h)
+	if not tex then return nil end
+	d.tex, d.w, d.h, d.tex_backend = tex, w, h, B
+	return tex, w, h
 end
 
 function M.imageSize(img)
@@ -367,7 +387,19 @@ end
 -- the address, the geometry and a sample of the pixels themselves.
 
 local bits_cache = setmetatable({}, { __mode = "k" })   -- backend -> { map, order }
-local BITS_KEEP = 384
+local BITS_KEEP, BITS_BYTES = 384, 8 * 1024 * 1024
+
+function M.clearBitsCache(B)
+	local cache = bits_cache[B]
+	if not cache then return end
+	for _,entry in pairs(cache.map) do if B.texture_free then B.texture_free(entry.tex) end end
+	bits_cache[B] = nil
+end
+
+function M.bitsCacheStats(B)
+	local c = bits_cache[B]
+	return {entries=c and c.count or 0,bytes=c and c.bytes or 0,max_bytes=BITS_BYTES,max_entries=BITS_KEEP}
+end
 
 local okffi, ffi = pcall(require, "ffi")
 local function fingerprint(ptr, w, h, stride)
@@ -392,20 +424,30 @@ function M.bitsTexture(B, ptr, w, h, stride)
 	if not (B and B.texture_bits and ptr and w and h and w > 0 and h > 0) then return nil end
 	stride = stride and stride > 0 and stride or w * 4
 	local cache = bits_cache[B]
-	if not cache then cache = { map = {}, order = {} }; bits_cache[B] = cache end
+	if not cache then cache = { map = {}, count = 0, bytes = 0 }; bits_cache[B] = cache end
 	local key = fingerprint(ptr, w, h, stride) .. "@" .. w .. "x" .. h .. "/" .. stride
-	local tex = cache.map[key]
-	if tex then return tex end
-	tex = B.texture_bits(ptr, w, h, stride, true)
+	local function unlink(entry)
+		if entry.prev then entry.prev.next = entry.next else cache.first = entry.next end
+		if entry.next then entry.next.prev = entry.prev else cache.last = entry.prev end
+	end
+	local function recent(entry)
+		entry.prev, entry.next = nil, cache.first
+		if cache.first then cache.first.prev = entry else cache.last = entry end
+		cache.first = entry
+	end
+	local entry = cache.map[key]
+	if entry then unlink(entry); recent(entry); return entry.tex end
+	local tex = B.texture_bits(ptr, w, h, stride, true)
 	if not tex then return nil end
-	cache.map[key] = tex
-	local order = cache.order
-	order[#order + 1] = key
-	if #order > BITS_KEEP then
-		local old = table.remove(order, 1)
-		local id = cache.map[old]
-		cache.map[old] = nil
-		if id and B.texture_free then B.texture_free(id) end
+	entry = {tex=tex,key=key,bytes=w*h*4+#key+128}
+	cache.map[key] = entry; recent(entry)
+	cache.count, cache.bytes = cache.count+1, cache.bytes+entry.bytes
+	-- Keep the newly requested texture until the caller can record/use it. A single
+	-- oversized live image is permitted; unrelated older uploads are evicted.
+	while cache.count > 1 and (cache.count > BITS_KEEP or cache.bytes > BITS_BYTES) do
+		local old = cache.last; unlink(old);cache.map[old.key] = nil
+		cache.count, cache.bytes = cache.count-1, cache.bytes-old.bytes
+		if B.texture_free then B.texture_free(old.tex) end
 	end
 	return tex
 end
@@ -527,10 +569,14 @@ local COLOR_ARG = { rect_filled = 5, rect = 5, line = 5, circle = 4, text = 5, p
 function DC:replay(list, dx, dy, alpha)
 	dx, dy, alpha = dx or 0, dy or 0, alpha or 1
 	alpha = alpha * self.alpha
-	local B = self.B
+	local args = {}
 	for _, cmd in ipairs(list) do
 		local op = cmd[1]
-		local args = { unpack(cmd, 2) }
+		if dx == 0 and dy == 0 and alpha == 1 then
+			self:_emit(op, unpack(cmd, 2))
+		else
+		for i = #cmd, #args do args[i] = nil end
+		for i = 2, #cmd do args[i-1] = cmd[i] end
 		local xs, ys = XS[op], YS[op]
 		if xs then
 			for _, i in ipairs(xs) do args[i] = args[i] + dx end
@@ -547,11 +593,7 @@ function DC:replay(list, dx, dy, alpha)
 				for i = 5, 8 do args[i] = Color.alpha(args[i], alpha) end
 			end
 		end
-		local rec = self.rec
-		if rec then rec[#rec + 1] = { op, unpack(args) } end
-		if not rec or self.rec_draw then
-			local fn = B[op]
-			if fn then fn(unpack(args)) end
+		self:_emit(op, unpack(args))
 		end
 	end
 end

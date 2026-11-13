@@ -139,6 +139,17 @@ int main(int argc, char **argv)
     lua_State *L = luaL_newstate();
     if (!L) { fatal("Failed to create Lua VM."); return 1; }
     luaL_openlibs(L);
+    /* The Lua-owned UI allocates more temporary draw/layout state than IUP's
+     * native widgets. Start incremental GC sooner instead of growing to twice
+     * the live heap. No forced collections or working-set trimming. */
+    int gc_pause = 120;
+    const char *gc_env = getenv("LUNAR_GC_PAUSE");
+    if (gc_env && *gc_env) {
+        char *end = NULL; long parsed = strtol(gc_env, &end, 10);
+        if (end && !*end && parsed >= 100 && parsed <= 400) gc_pause = (int)parsed;
+    }
+    lua_gc(L, LUA_GCSETPAUSE, gc_pause);
+    lua_pushinteger(L, gc_pause); lua_setglobal(L, "LUNAR_GC_PAUSE");
     host_set_exe_dir_global(L);
     host_set_exe_path_globals(L);
 #ifdef LUNAR_DEV_BUILD

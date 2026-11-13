@@ -25,6 +25,7 @@ local launched = tonumber(os.getenv('LUNAR_BENCH_LAUNCH_QPC')) or entered
 local outdir = assert(arg[1], 'output directory required')
 local mode = os.getenv('LUNAR_BENCH_MODE') or 'all'
 local result = { mode = mode, errors = {}, pages = {}, extensions = {}, extension_registration = {} }
+result.gc_pause = rawget(_G,'LUNAR_GC_PAUSE')
 local startup_profiler
 local function cpu()
  local a,b,k,u = ffi.new('BenchTime'),ffi.new('BenchTime'),ffi.new('BenchTime'),ffi.new('BenchTime')
@@ -41,6 +42,11 @@ end
 local function save()
  local f = assert(io.open(outdir .. '/result.json','w'))
  f:write(require('cjson').encode(result)); f:close()
+end
+local function gc_diagnostic()
+ if os.getenv('LUNAR_BENCH_GC_DIAGNOSTIC') == '1' then
+  collectgarbage('collect'); result.post_gc_memory=memory()
+ end
 end
 local function error_record(s) result.errors[#result.errors+1] = tostring(s); save() end
 local iup = require('iup')
@@ -150,6 +156,7 @@ iup.MainLoop = function()
  result.ready_memory = memory()
  if R then
   local b=R.backend(); result.renderer=b.renderer and b.renderer() or nil
+  result.ready_native_memory=b.memory_stats and b.memory_stats() or nil
   local native=require('core.imgui.NativeLayout')
   result.native_layout=native.available and native.enabled
  end
@@ -173,7 +180,32 @@ iup.MainLoop = function()
     frames=result.backend == 'imgui' and frame_count-idle_frames or nil, memory=memory()}
    save()
    if os.getenv('LUNAR_BENCH_IDLE_ONLY') == '1' then
-    result.idle_only=true; result.complete=true; save(); iup.ExitLoop(); return
+    result.idle_only=true; gc_diagnostic()
+    -- LUNAR_BENCH_HEAP=1 (ImGui): what the element tree holds of the Lua heap. Each
+    -- per-element part is dropped in turn and the collected drop recorded (destructive,
+    -- so it runs last).
+    if R and os.getenv('LUNAR_BENCH_HEAP') == '1' then
+     local Element=require('core.imgui.Element')
+     local function kb() collectgarbage('collect'); collectgarbage('collect'); return collectgarbage('count') end
+     local heap={elements=0,by_class={},keys={},data_keys={},attr_count=0}
+     for _,st in pairs(Element.STATE) do
+      heap.elements=heap.elements+1
+      heap.by_class[st.classname]=(heap.by_class[st.classname] or 0)+1
+      for k in pairs(st) do heap.keys[k]=(heap.keys[k] or 0)+1 end
+      for k in pairs(st.data or {}) do heap.data_keys[k]=(heap.data_keys[k] or 0)+1 end
+      for _ in pairs(st.attrs or {}) do heap.attr_count=heap.attr_count+1 end
+     end
+     heap.total_kb=kb()
+     heap.drop_kb={}
+     for _,part in ipairs({'data','attrs','cbs','handles','ids','luavals','children'}) do
+      local before=kb()
+      for _,st in pairs(Element.STATE) do st[part]=nil end
+      heap.drop_kb[part]=before-kb()
+     end
+     result.heap=heap
+     result.complete=true; save(); os.exit(0) -- the tree is gone: no further frame may run
+    end
+    result.complete=true; save(); iup.ExitLoop(); return
    end
    -- Startup/idle keep the shipping motion setting. Microbenchmarks measure
    -- completed state changes, with animations disabled identically on both hosts.
@@ -192,7 +224,63 @@ iup.MainLoop = function()
     end,#tabs*10)
    end
    result.after_memory = memory()
+   -- LUNAR_BENCH_GARBAGE=1: Lua bytes allocated per repaint, relayout and tab switch,
+   -- with the collector stopped (what the frame loop leaves for the GC to clear).
+   if os.getenv('LUNAR_BENCH_GARBAGE') == '1' then
+    local function garbage(fn,n)
+     collectgarbage('collect'); collectgarbage('stop')
+     local a=collectgarbage('count')
+     for i=1,n do fn(i) end
+     local b=collectgarbage('count')
+     collectgarbage('restart'); collectgarbage('collect')
+     return (b-a)/n
+    end
+    result.garbage_kb={repaint=garbage(repaint,40),relayout=garbage(relayout,15)}
+    if #tabs > 0 then
+     result.garbage_kb.switch=garbage(function(i) focus(tabs[(i-1)%#tabs+1]) end,#tabs*4)
+    end
+    result.post_collect_memory=memory()
+    -- where a repaint's garbage comes from: bytes inside each class's draw/drawAfter/
+    -- natural and Layout.run (inclusive), over 20 repaints with the collector stopped
+    if R then
+     local Classes=require('core.imgui.Classes')
+     local Element=require('core.imgui.Element')
+     local Layout=require('core.imgui.Layout')
+     local by={}
+     local function wrap(t,k,label)
+      local f=t[k]; if type(f)~='function' then return end
+      t[k]=function(...)
+       local a=collectgarbage('count')
+       local r1,r2,r3,r4=f(...)
+       by[label]=(by[label] or 0)+collectgarbage('count')-a
+       return r1,r2,r3,r4
+      end
+      return function() t[k]=f end
+     end
+     local undo={}
+     for name in pairs(Classes.MODULES) do
+      local c=Classes.get(name)
+      if c then for _,k in ipairs({'draw','drawAfter','natural'}) do
+       local u=wrap(c,k,name..'.'..k); if u then undo[#undo+1]=u end
+      end end
+     end
+     undo[#undo+1]=wrap(Layout,'run','Layout.run')
+     undo[#undo+1]=wrap(Element,'getAttribute','Element.getAttribute')
+     collectgarbage('collect'); collectgarbage('stop')
+     local a=collectgarbage('count')
+     for _=1,20 do repaint() end
+     local total=collectgarbage('count')-a
+     collectgarbage('restart')
+     for _,u in ipairs(undo) do u() end
+     local list={}
+     for k,v in pairs(by) do list[#list+1]={k,v/20} end
+     table.sort(list,function(x,y) return x[2]>y[2] end)
+     result.garbage_sites={total_kb=total/20,top={}}
+     for i=1,math.min(30,#list) do result.garbage_sites.top[i]=list[i][1]..'='..string.format('%.1f',list[i][2]) end
+    end
+   end
    if R then
+    local b=R.backend(); result.after_native_memory=b.memory_stats and b.memory_stats() or nil
     result.layout_stats=require('core.imgui.Layout').stats()
     result.native_layout_stats=require('core.imgui.NativeLayout').stats()
     result.font_cache=require('core.imgui.Fonts').measure_cache_stats()
@@ -227,7 +315,7 @@ iup.MainLoop = function()
     result.profile_breakdown=timing
     B.frame_begin,B.frame_end,Layout.run=begin,finish,lay
    end
-   result.complete=true; save()
+   gc_diagnostic(); result.complete=true; save()
    iup.ExitLoop()
   end,debug.traceback)
   if not ok then error_record(err); iup.ExitLoop() end

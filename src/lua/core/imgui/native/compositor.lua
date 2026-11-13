@@ -52,6 +52,7 @@ local function snapshot(widget)
 
 	local snap = { w = r.w, h = r.h, calls = calls, recording = calls }
 	function snap:release()
+		Draw.releaseRecording(self.calls)
 		self.calls = {}
 		self.recording = self.calls
 		self.released = true
@@ -120,6 +121,7 @@ function Overlay:present(scene, regions, opacity)
 	if not self.handle or not self.handle:isOpen() then
 		self.handle = Runtime.overlay({
 			owner = self.dialog,
+			closed = function() self.visible=false;self.scene,self.regions=nil,nil end,
 			draw = function(dc)
 				if not self.visible or not self.scene then return end
 				Runtime.animate()

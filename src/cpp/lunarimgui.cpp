@@ -41,11 +41,15 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <list>
+#include <string_view>
+#include <memory>
 #include <algorithm>
 #include <utility>
 #include <chrono>
 #include <cmath>
 #include <cfloat>
+#include <climits>
 #include <cstdio>
 #include <cstring>
 
@@ -58,6 +62,7 @@ extern "C" {
 #include "backends/imgui_impl_win32.h"
 #include "backends/imgui_impl_dx11.h"
 #include "lunarimgui_gdifont.h"
+#include "lunar_texture_backup.h"
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
 #ifndef WM_DPICHANGED
@@ -107,6 +112,15 @@ struct Rect { int x = 0, y = 0, w = 0, h = 0; bool contains(int px, int py) cons
 struct Shot { bool pending = false; std::string path; int x = 0, y = 0, w = 0, h = 0; bool ok = false; int popup = 0; };
 struct VideoChild { HWND hwnd = nullptr; HBRUSH brush = nullptr; bool seen = false; Rect at; bool shown = false; };
 
+struct MappedFontSource {
+    HANDLE mapping = nullptr; void *view = nullptr; size_t length = 0;
+    std::string key;
+    ~MappedFontSource() { if(view)UnmapViewOfFile(view);if(mapping)CloseHandle(mapping); }
+    unsigned char *data() const { return static_cast<unsigned char*>(view); }
+    size_t size() const { return length; }
+    const unsigned char &operator[](size_t index) const { return data()[index]; }
+};
+
 struct State {
     HWND hwnd = nullptr;
     /* Direct3D 11. Auto selects hardware first and falls back to WARP. */
@@ -129,10 +143,14 @@ struct State {
     std::vector<KeyEvent> keys; std::vector<std::string> chars; std::vector<std::string> files;
     int pressed[3] = {}, released[3] = {}, dbl[3] = {}; bool down[3] = {};
     float wheel_x = 0, wheel_y = 0; int mx = -1, my = -1;
-    struct Texture { ID3D11ShaderResourceView *srv = nullptr; int w = 0, h = 0; std::vector<unsigned char> pixels; };
+    struct Texture { ID3D11ShaderResourceView *srv = nullptr; int w = 0, h = 0, refs = 1; bool packed = false; std::vector<unsigned char> pixels; };
     std::unordered_map<int, Texture> textures; int next_texture = 1;
+    std::vector<ID3D11ShaderResourceView*> retired_textures;
     std::vector<Face> faces;
     std::unordered_map<std::string, int> face_by_path;
+    // ImGui borrows these immutable bytes. Nodes/payloads stay stable through
+    // map rehashes and device resets, for the lifetime of the font context.
+    std::unordered_map<std::string, std::unique_ptr<MappedFontSource>> font_sources;
     std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
     HCURSOR cursor = nullptr;
     wchar_t high_surrogate = 0;
@@ -147,6 +165,25 @@ struct State {
     std::vector<const char*> frame_char_ptrs, frame_file_ptrs;
     LunarUiFrame frame = {};
 } g;
+
+void release_retired_textures() {
+    for (auto *srv : g.retired_textures) srv->Release();
+    g.retired_textures.clear();
+}
+bool retain_texture(int id) {
+    auto it=g.textures.find(id);if(it==g.textures.end())return false;
+    ++it->second.refs;return true;
+}
+void free_texture(int id) {
+    auto it=g.textures.find(id);if(it==g.textures.end())return;
+    if(--it->second.refs>0)return;
+    if(it->second.srv) {
+        // Already emitted draw commands borrow the SRV until submission.
+        if(g.frame_open)g.retired_textures.push_back(it->second.srv);
+        else it->second.srv->Release();
+    }
+    g.textures.erase(it);
+}
 
 /* Secondary dialogs as their own windows. Lua keeps a secondary dialog where it always
  * did, at (ox, oy) in the main window's client coordinates; such a dialog gets an owned
@@ -604,7 +641,7 @@ bool read_file(const std::wstring &path, std::vector<unsigned char> &out) {
 }
 
 /* The metrics GDI would report, from the face's own tables. */
-void read_metrics(const std::vector<unsigned char> &d, Face &face) {
+void read_metrics(const MappedFontSource &d, Face &face) {
     if (d.size() < 12) return;
     size_t base = 0;
     if (be32(&d[0]) == 0x74746366 /* ttcf */ && d.size() >= 16) base = be32(&d[12]);
@@ -651,6 +688,34 @@ float baseline_shift(const Face &f, float px) {
     return std::round(px * f.win_asc / f.upm) - px * f.hhea_asc / f.upm;
 }
 
+MappedFontSource *font_source(const std::string &path) {
+    std::wstring full = wide(path.c_str());
+    wchar_t resolved[32768];
+    DWORD n = GetFullPathNameW(full.c_str(), (DWORD)(sizeof(resolved)/sizeof(*resolved)), resolved, nullptr);
+    if (n && n < sizeof(resolved)/sizeof(*resolved)) full.assign(resolved, n);
+    CharLowerBuffW(full.data(), (DWORD)full.size());
+    std::string key = utf8(full.c_str());
+    auto found = g.font_sources.find(key);
+    if (found != g.font_sources.end()) return found->second.get();
+    HANDLE file=CreateFileW(wide(path.c_str()).c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_DELETE,
+        nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+    if(file==INVALID_HANDLE_VALUE)return nullptr;
+    auto mapped=std::make_unique<MappedFontSource>();
+    mapped->key=key;
+    LARGE_INTEGER size={};
+    if(GetFileSizeEx(file,&size) && size.QuadPart>100 && size.QuadPart<=INT_MAX) {
+        mapped->length=(size_t)size.QuadPart;
+        mapped->mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);
+        if(mapped->mapping)mapped->view=MapViewOfFile(mapped->mapping,FILE_MAP_READ,0,0,0);
+    }
+    CloseHandle(file);
+    if(!mapped->view)return nullptr;
+    auto entry = g.font_sources.emplace(key, std::move(mapped));
+    auto *source = entry.first->second.get();
+    lunarimgui_gdi_register_font_data(source->data(), path.c_str());
+    return source;
+}
+
 void merge_fallbacks(float size) {
     wchar_t windir[MAX_PATH]; GetWindowsDirectoryW(windir, MAX_PATH);
     const wchar_t *names[] = {L"\\Fonts\\seguisym.ttf", L"\\Fonts\\segoeui.ttf"};
@@ -658,36 +723,30 @@ void merge_fallbacks(float size) {
         std::wstring p = std::wstring(windir) + name;
         if (GetFileAttributesW(p.c_str()) == INVALID_FILE_ATTRIBUTES) continue;
         ImFontConfig cfg; cfg.MergeMode = true; cfg.PixelSnapH = true;
-        std::vector<unsigned char> bytes;
-        if (!read_file(p, bytes)) continue;
-        void *font_data = IM_ALLOC(bytes.size());
-        memcpy(font_data, bytes.data(), bytes.size());
-        lunarimgui_gdi_register_font_data(font_data, utf8(p.c_str()).c_str());
-        cfg.FontDataOwnedByAtlas = true;
-        ImGui::GetIO().Fonts->AddFontFromMemoryTTF(font_data, (int)bytes.size(), size, &cfg);
+        auto *bytes = font_source(utf8(p.c_str()));
+        if (!bytes) continue;
+        cfg.FontDataOwnedByAtlas = false;
+        ImGui::GetIO().Fonts->AddFontFromMemoryTTF(bytes->data(), (int)bytes->size(), size, &cfg);
     }
 }
 
 int load_face(const std::string &path) {
-    auto hit = g.face_by_path.find(path);
+    auto *bytes = font_source(path);
+    if (!bytes) return -1;
+    auto hit = g.face_by_path.find(bytes->key);
     if (hit != g.face_by_path.end()) return hit->second;
-    std::vector<unsigned char> bytes;
-    if (!read_file(wide(path.c_str()), bytes)) return -1;
     Face face;
-    read_metrics(bytes, face);
+    read_metrics(*bytes, face);
     ImFontConfig cfg; cfg.PixelSnapH = true; cfg.OversampleH = 1; cfg.OversampleV = 1;
     cfg.RasterizerMultiply = 1.4f;   /* closer to the weight GDI ClearType gave IUP text */
-    void *font_data = IM_ALLOC(bytes.size());
-    memcpy(font_data, bytes.data(), bytes.size());
-    lunarimgui_gdi_register_font_data(font_data, path.c_str());
-    cfg.FontDataOwnedByAtlas = true;
-    ImFont *font = ImGui::GetIO().Fonts->AddFontFromMemoryTTF(font_data, (int)bytes.size(), 16.0f, &cfg);
+    cfg.FontDataOwnedByAtlas = false;
+    ImFont *font = ImGui::GetIO().Fonts->AddFontFromMemoryTTF(bytes->data(), (int)bytes->size(), 16.0f, &cfg);
     if (!font) return -1;
     merge_fallbacks(16.0f);
     face.font = font;
     g.faces.push_back(face);
     int id = (int)g.faces.size() - 1;
-    g.face_by_path[path] = id;
+    g.face_by_path[bytes->key] = id;
     return id;
 }
 
@@ -866,6 +925,7 @@ void popup_hide(Popup *p);
 std::string lower(std::string s);
 
 void release_renderer_gpu() {
+    release_retired_textures();
     if (g.ctx) { g.ctx->ClearState(); g.ctx->Flush(); }
     for (Popup *p : popups) {
         if (p->rtv) { p->rtv->Release(); p->rtv = nullptr; }
@@ -895,8 +955,10 @@ bool restore_textures() {
         d.Width = (UINT)t.w; d.Height = (UINT)t.h; d.MipLevels = 1; d.ArraySize = 1;
         d.Format = DXGI_FORMAT_R8G8B8A8_UNORM; d.SampleDesc.Count = 1;
         d.Usage = D3D11_USAGE_DEFAULT; d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        std::vector<unsigned char> unpacked;
+        if (t.packed && !lunar_backup::unpack(t.pixels,(size_t)t.w*t.h*4,unpacked)) return false;
         D3D11_SUBRESOURCE_DATA init = {};
-        init.pSysMem = t.pixels.data(); init.SysMemPitch = (UINT)t.w * 4;
+        init.pSysMem = t.packed ? unpacked.data() : t.pixels.data(); init.SysMemPitch = (UINT)t.w * 4;
         ID3D11Texture2D *texture = nullptr;
         if (FAILED(g.device->CreateTexture2D(&d, &init, &texture)) || !texture) return false;
         HRESULT hr = g.device->CreateShaderResourceView(texture, nullptr, &t.srv);
@@ -1147,10 +1209,17 @@ ImDrawList *draw() { return g.frame_open && !g.lists.empty() ? g.lists[(size_t)g
  * comes from tmAveCharWidth and tmHeight. Natural sizes, wrap points and ellipses are
  * worked out from those numbers, so this host measures with GDI too and lays out to the
  * pixel the way IUP did; ImGui only draws. */
-struct GdiSize { HFONT font = nullptr; TEXTMETRICW tm = {}; };
+using GdiSizeLRU = std::list<std::pair<int,int>>;
+struct GdiSize { HFONT font = nullptr; TEXTMETRICW tm = {}; GdiSizeLRU::iterator recent; };
 struct GdiFont { std::wstring face; bool bold = false, italic = false; std::unordered_map<int, GdiSize> sizes; };
 std::vector<GdiFont> gdi_fonts;
 HDC gdi_dc = nullptr;
+GdiSizeLRU gdi_sizes;
+constexpr size_t GDI_SIZE_LIMIT = 256;
+void clear_gdi_sizes() {
+    for(auto &font:gdi_fonts) { for(auto &size:font.sizes)DeleteObject(size.second.font);font.sizes.clear(); }
+    gdi_sizes.clear();if(gdi_dc)DeleteDC(gdi_dc);gdi_dc=nullptr;
+}
 
 GdiSize *gdi_size(int id, float px) {
     if (id < 0 || id >= (int)gdi_fonts.size()) return nullptr;
@@ -1158,7 +1227,7 @@ GdiSize *gdi_size(int id, float px) {
     if (height <= 0) return nullptr;
     GdiFont &f = gdi_fonts[(size_t)id];
     auto it = f.sizes.find(height);
-    if (it != f.sizes.end()) return &it->second;
+    if (it != f.sizes.end()) { gdi_sizes.splice(gdi_sizes.begin(),gdi_sizes,it->second.recent);return &it->second; }
     if (!gdi_dc) gdi_dc = CreateCompatibleDC(nullptr);
     GdiSize gs;
     gs.font = CreateFontW(-height, 0, 0, 0, f.bold ? FW_BOLD : FW_NORMAL, f.italic, FALSE, FALSE,
@@ -1167,6 +1236,13 @@ GdiSize *gdi_size(int id, float px) {
     HGDIOBJ old = SelectObject(gdi_dc, gs.font);
     GetTextMetricsW(gdi_dc, &gs.tm);
     SelectObject(gdi_dc, old);
+    while(gdi_sizes.size()>=GDI_SIZE_LIMIT) {
+        auto key=gdi_sizes.back();auto &old_font=gdi_fonts[(size_t)key.first];
+        auto entry=old_font.sizes.find(key.second);
+        if(entry!=old_font.sizes.end()){DeleteObject(entry->second.font);old_font.sizes.erase(entry);}
+        gdi_sizes.pop_back();
+    }
+    gdi_sizes.emplace_front(id,height);gs.recent=gdi_sizes.begin();
     return &(f.sizes[height] = gs);
 }
 
@@ -1215,9 +1291,19 @@ bool gdi_text_size(int id, float px, const char *s, size_t len, float wrap, floa
  * Lua placed by measuring continues without a gap, and an ellipsis lands where IUP's
  * did. Cached per font, size and string. */
 struct GdiLine { std::vector<uint32_t> cps; std::vector<float> xs; };
-std::unordered_map<std::string, GdiLine> gdi_lines;
+using GdiLineEntry = std::pair<std::string, GdiLine>;
+using GdiLineList = std::list<GdiLineEntry>;
+GdiLineList gdi_lines;
+std::unordered_map<std::string_view, GdiLineList::iterator> gdi_line_index;
+size_t gdi_line_bytes = 0;
+constexpr size_t GDI_LINE_BUDGET = 512 * 1024, GDI_LINE_ENTRIES = 2048;
+size_t line_bytes(const GdiLineEntry &entry) {
+    return entry.first.capacity() + 1 + entry.second.cps.capacity()*sizeof(uint32_t)
+        + entry.second.xs.capacity()*sizeof(float) + sizeof(GdiLineEntry) + 128;
+}
+void clear_gdi_lines() { gdi_line_index.clear(); gdi_lines.clear(); gdi_line_bytes = 0; }
 
-const GdiLine *gdi_line(int id, float px, const char *s, size_t len) {
+const GdiLine *gdi_line(int id, float px, const char *s, size_t len, GdiLine &uncached) {
     GdiSize *gs = gdi_size(id, px);
     if (!gs) return nullptr;
     std::string key;
@@ -1226,9 +1312,11 @@ const GdiLine *gdi_line(int id, float px, const char *s, size_t len) {
     int height = (int)std::lround(px);
     key.append((const char*)&height, sizeof(height));
     key.append(s, len);
-    auto hit = gdi_lines.find(key);
-    if (hit != gdi_lines.end()) return &hit->second;
-    if (gdi_lines.size() > 16384) gdi_lines.clear();
+    auto hit = gdi_line_index.find(key);
+    if (hit != gdi_line_index.end()) {
+        gdi_lines.splice(gdi_lines.begin(), gdi_lines, hit->second);
+        return &hit->second->second;
+    }
     GdiLine line;
     std::wstring w;
     std::vector<int> start16;
@@ -1251,7 +1339,19 @@ const GdiLine *gdi_line(int id, float px, const char *s, size_t len) {
         SelectObject(gdi_dc, old);
     }
     for (size_t k = 0; k < line.cps.size(); k++) line.xs.push_back(start16[k] == 0 ? 0.0f : (float)dx[(size_t)start16[k] - 1]);
-    return &(gdi_lines[key] = line);
+    GdiLineEntry entry(std::move(key), std::move(line));
+    const size_t bytes = line_bytes(entry);
+    if (bytes > GDI_LINE_BUDGET) { uncached = std::move(entry.second); return &uncached; }
+    while (!gdi_lines.empty() && (gdi_line_bytes + bytes > GDI_LINE_BUDGET || gdi_lines.size() >= GDI_LINE_ENTRIES)) {
+        auto &old = gdi_lines.back();
+        gdi_line_bytes -= line_bytes(old);
+        gdi_line_index.erase(std::string_view(old.first));
+        gdi_lines.pop_back();
+    }
+    gdi_lines.push_front(std::move(entry));
+    gdi_line_index.emplace(std::string_view(gdi_lines.front().first), gdi_lines.begin());
+    gdi_line_bytes += bytes;
+    return &gdi_lines.front().second;
 }
 
 /* One line of text with ImGui's glyphs at GDI's positions (ImFont::RenderText's quad and
@@ -1259,7 +1359,8 @@ const GdiLine *gdi_line(int id, float px, const char *s, size_t len) {
 bool draw_text_gdi(ImDrawList *dl, int face, int gid, float px, float x, float y, ImU32 col,
                    const char *s, size_t len, const ImVec4 &fine) {
     if ((col & IM_COL32_A_MASK) == 0 || !len) return true;
-    const GdiLine *line = gdi_line(gid, px, s, len);
+    GdiLine uncached;
+    const GdiLine *line = gdi_line(gid, px, s, len, uncached);
     if (!line) return false;
     Face &f = face_of(face);
     float size = imgui_size(f, px);
@@ -1354,6 +1455,9 @@ int l_close(lua_State *L) {
     if (g.paint_ref != LUA_NOREF) { luaL_unref(L, LUA_REGISTRYINDEX, g.paint_ref); g.paint_ref = LUA_NOREF; }
     for (auto &t : g.textures) if (t.second.srv) t.second.srv->Release();
     g.textures.clear();
+    release_retired_textures();
+    clear_gdi_lines();
+    clear_gdi_sizes();
     if (ImGui::GetCurrentContext()) {
         if (ImGui::GetIO().BackendRendererUserData) ImGui_ImplDX11_Shutdown();
         if (ImGui::GetIO().BackendPlatformUserData) ImGui_ImplWin32_Shutdown();
@@ -1643,6 +1747,7 @@ int l_frame_end(lua_State *) {
         // The current draw lists can refer to SRVs from the old device. Submit
         // nothing until a fresh frame has rebuilt those references.
         PostMessageW(g.hwnd, WM_NULL, 0, 0);
+        release_retired_textures();
         return 0;
     }
     const float black[4] = {0, 0, 0, 1};
@@ -1665,6 +1770,7 @@ int l_frame_end(lua_State *) {
             PostMessageW(g.hwnd, WM_NULL, 0, 0);
         }
     }
+    release_retired_textures();
     return 0;
 }
 
@@ -1826,16 +1932,18 @@ int l_texture(lua_State *L) {
     if (FAILED(hr) || !tex) { lua_pushnil(L); return 1; }
     int id = g.next_texture++;
     State::Texture stored; stored.srv = tex; stored.w = w; stored.h = h;
-    stored.pixels.assign(p, p + (size_t)w * h * 4);
+    stored.pixels = lunar_backup::pack((const unsigned char*)p,(size_t)w*h*4,stored.packed);
     g.textures[id] = std::move(stored);
     lua_pushinteger(L, id);
     return 1;
 }
 
 int l_texture_free(lua_State *L) {
-    auto it = g.textures.find((int)luaL_checkinteger(L, 1));
-    if (it != g.textures.end()) { if (it->second.srv) it->second.srv->Release(); g.textures.erase(it); }
+    free_texture((int)luaL_checkinteger(L, 1));
     return 0;
+}
+int l_texture_retain(lua_State *L) {
+    lua_pushboolean(L,retain_texture((int)luaL_checkinteger(L,1)));return 1;
 }
 
 int l_image(lua_State *L) {
@@ -2313,13 +2421,13 @@ LUNAR_FFI int lunar_ui_texture_bits(const unsigned char *bgra, int w, int h, int
     texture->Release();
     if (FAILED(hr) || !tex) return 0;
     int id = g.next_texture++;
-    State::Texture stored; stored.srv = tex; stored.w = w; stored.h = h; stored.pixels = std::move(rgba);
+    State::Texture stored; stored.srv = tex; stored.w = w; stored.h = h;
+    stored.pixels = lunar_backup::pack(rgba.data(),rgba.size(),stored.packed);
     g.textures[id] = std::move(stored);
     return id;
 }
 LUNAR_FFI void lunar_ui_texture_free(int id) {
-    auto it = g.textures.find(id);
-    if (it != g.textures.end()) { if (it->second.srv) it->second.srv->Release(); g.textures.erase(it); }
+    free_texture(id);
 }
 /* An image with rounded corners: what the grid's corner tiles (grid_draw_corners) paint. */
 LUNAR_FFI int lunar_ui_image_rounded(ImDrawList *dl, int tex, float x1, float y1, float x2, float y2,
@@ -2386,6 +2494,34 @@ int l_gdi_text_size(lua_State *L) {
     return 2;
 }
 
+int l_memory_stats(lua_State *L) {
+    lua_newtable(L);
+    auto number=[&](const char *key,size_t value){lua_pushnumber(L,(lua_Number)value);lua_setfield(L,-2,key);};
+    size_t sources=0,reference_bytes=0,backups=0,rgba=0,atlas=0,refs=0,packed=0,draw_bytes=0;
+    for(const auto &source:g.font_sources)sources+=source.second->size();
+    if(ImGui::GetCurrentContext()) {
+        auto *fonts=ImGui::GetIO().Fonts;
+        for(const auto &source:fonts->Sources)reference_bytes+=(size_t)source.FontDataSize;
+        for(const auto *texture:fonts->TexList)if(texture->Pixels)atlas+=(size_t)texture->GetSizeInBytes();
+    }
+    for(const auto &entry:g.textures) {
+        const auto &t=entry.second;backups+=t.pixels.capacity();rgba+=(size_t)t.w*t.h*4;refs+=(size_t)t.refs;
+        if(t.packed)++packed;
+    }
+    auto draw_size=[&](const ImDrawList *dl){if(dl)draw_bytes+=(size_t)dl->VtxBuffer.Capacity*sizeof(ImDrawVert)
+        +(size_t)dl->IdxBuffer.Capacity*sizeof(ImDrawIdx)+(size_t)dl->CmdBuffer.Capacity*sizeof(ImDrawCmd);};
+    for(const auto *dl:g.lists)draw_size(dl);
+    for(const auto *popup:popups)for(const auto *dl:popup->lists)draw_size(dl);
+    number("font_source_bytes",sources);number("font_reference_bytes",reference_bytes);
+    number("font_mapped_bytes",sources);number("font_source_private_bytes",0);
+    number("font_source_files",g.font_sources.size());number("font_faces",g.faces.size());
+    number("glyph_line_bytes",gdi_line_bytes);number("glyph_line_budget",GDI_LINE_BUDGET);number("glyph_line_entries",gdi_lines.size());
+    number("gdi_font_sizes",gdi_sizes.size());number("gdi_font_size_limit",GDI_SIZE_LIMIT);
+    number("texture_backup_bytes",backups);number("texture_rgba_bytes",rgba);number("textures",g.textures.size());
+    number("texture_references",refs);number("packed_textures",packed);number("retired_textures",g.retired_textures.size());
+    number("atlas_cpu_bytes",atlas);number("draw_buffer_bytes",draw_bytes);return 1;
+}
+
 /* A font file this process uses (ctx:registerFont): GDI must know it to measure it. */
 int l_font_private(lua_State *L) {
     lua_pushboolean(L, AddFontResourceExW(wide(luaL_checkstring(L, 1)).c_str(), FR_PRIVATE, nullptr) > 0);
@@ -2401,7 +2537,8 @@ const luaL_Reg api[] = {
     {"line", l_line}, {"circle", l_circle}, {"poly", l_poly},
     {"text", l_text}, {"text_size", l_text_size}, {"font_metrics", l_font_metrics},
     {"font_load", l_font_load}, {"font_find", l_font_find}, {"font_names", l_font_names},
-    {"texture", l_texture}, {"texture_free", l_texture_free}, {"image", l_image},
+    {"texture", l_texture}, {"texture_free", l_texture_free}, {"texture_retain", l_texture_retain}, {"image", l_image},
+    {"memory_stats", l_memory_stats},
     {"clip_push", l_clip_push}, {"clip_pop", l_clip_pop}, {"layer", l_layer},
     {"cursor", l_cursor}, {"clipboard_get", l_clipboard_get}, {"clipboard_set", l_clipboard_set},
     {"cursor_pos", l_cursor_pos}, {"window", l_window}, {"screenshot", l_screenshot},

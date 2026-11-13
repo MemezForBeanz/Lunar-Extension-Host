@@ -138,6 +138,7 @@ Element.hooks.invalidate = function(el, kind, name, changed, layout_invalidated)
 end
 
 Element.hooks.destroyed = function(el, st)
+	if st.data.paint then Draw.releaseRecording(st.data.paint.list); st.data.paint = nil end
 	if hovered == el then hovered = nil end
 	if captured == el then captured = nil end
 	if focused == el then focused = nil end
@@ -147,10 +148,11 @@ Element.hooks.destroyed = function(el, st)
 	if main_dialog == el then main_dialog = nil end
 	for i = #overlays, 1, -1 do
 		local o = overlays[i]
-		if o.owner == el then table.remove(overlays, i); if o.closed then pcall(o.closed) end end
+		if o.owner == el then o:close() end
 	end
 	local tex = st.data and st.data.tex
-	if tex and B and B.texture_free then pcall(B.texture_free, tex) end
+	local owner = st.data and st.data.tex_backend or B
+	if tex and owner and owner.texture_free then pcall(owner.texture_free, tex) end
 end
 
 -- Globals ---------------------------------------------------------------------------------
@@ -1855,7 +1857,31 @@ function M.init(backend)
 end
 
 function M.close()
+	if closed then return end
 	closed = true
+	local roots = {}; for _,el in ipairs(dialogs) do roots[#roots+1] = el end
+	for _,el in ipairs(roots) do Element.destroy(el) end
+	for el in pairs(timers) do Element.destroy(el) end
+	local layers = {}; for _,o in ipairs(overlays) do layers[#layers+1] = o end
+	for _,o in ipairs(layers) do o:close() end
+	-- Unmapped shared image handles may survive close/reopen in resource caches.
+	-- Their native IDs and paint recordings cannot survive the device lifecycle.
+	for _,st in pairs(STATE) do
+		local d = st.data
+		if d.paint then Draw.releaseRecording(d.paint.list); d.paint = nil end
+		if d.tex then
+			local owner = d.tex_backend or B
+			if owner and owner.texture_free then owner.texture_free(d.tex) end
+			d.tex, d.tex_backend = nil, nil
+		end
+	end
+	if B then Draw.clearBitsCache(B) end
+	dialogs, overlays, timers, pending_closes = {}, {}, {}, {}
+	main_dialog, hovered, captured, focused, tip_el = nil, nil, nil, nil, nil
+	frame_input, DRAG, M._overlay_capture, wake_at = nil, nil, nil, nil
+	M.preRoute, M.postPaint = {}, {}
+	Draw.current, dc = nil, nil
+	Fonts.reset()
 	if B and B.close then B.close() end
 end
 

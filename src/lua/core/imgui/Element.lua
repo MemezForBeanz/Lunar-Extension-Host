@@ -506,7 +506,7 @@ end
 
 function M.destroy(el)
 	local st = STATE[el]
-	if not st or st.destroyed then return end
+	if not st or st.destroyed or st.destroying then return end
 	st.destroying = true
 	-- Children first, as IupDestroy does.
 	for i = #st.children, 1, -1 do M.destroy(st.children[i]) end

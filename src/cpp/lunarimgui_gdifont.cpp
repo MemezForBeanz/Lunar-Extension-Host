@@ -85,20 +85,18 @@ FontSource *source_from(ImFontConfig *src) {
     if (src->FontLoaderData) return (FontSource *)src->FontLoaderData;
     auto it = g_data.find(src->FontData);
     if (it == g_data.end()) return nullptr;
-    HANDLE file = CreateFileA(it->second.path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
-    if (file == INVALID_HANDLE_VALUE) return nullptr;
-    LARGE_INTEGER n = {}; GetFileSizeEx(file, &n);
-    std::vector<unsigned char> bytes((size_t)n.QuadPart);
-    DWORD got = 0; BOOL ok = ReadFile(file, bytes.data(), (DWORD)bytes.size(), &got, nullptr); CloseHandle(file);
-    if (!ok || got != bytes.size()) return nullptr;
+    // The host already keeps one immutable source per file for all merged
+    // faces. Parse it directly instead of rereading/copying every fallback.
+    const auto *bytes = static_cast<const unsigned char *>(src->FontData);
+    const size_t size = (size_t)src->FontDataSize;
     FontSource *out = new FontSource;
-    out->family = font_name(bytes.data(), bytes.size());
+    out->family = font_name(bytes, size);
     const unsigned char *head = nullptr, *hhea = nullptr, *os2 = nullptr; size_t hs = 0, hhs = 0, os = 0;
-    if (table(bytes.data(), bytes.size(), 0x68656164, &head, &hs) && hs >= 20) out->upm = be16(head + 18);
+    if (table(bytes, size, 0x68656164, &head, &hs) && hs >= 20) out->upm = be16(head + 18);
     float asc = out->upm, desc = 0;
-    if (table(bytes.data(), bytes.size(), 0x68686561, &hhea, &hhs) && hhs >= 8) { asc = be16s(hhea + 4); desc = be16s(hhea + 6); }
+    if (table(bytes, size, 0x68686561, &hhea, &hhs) && hhs >= 8) { asc = be16s(hhea + 4); desc = be16s(hhea + 6); }
     out->hhea_span = asc - desc;
-    if (table(bytes.data(), bytes.size(), 0x4F532F32, &os2, &os) && os >= 64) {
+    if (table(bytes, size, 0x4F532F32, &os2, &os) && os >= 64) {
         uint16_t selection = be16(os2 + 62);
         out->weight = (selection & 32) ? FW_BOLD : FW_NORMAL;
         out->italic = (selection & 1) != 0;

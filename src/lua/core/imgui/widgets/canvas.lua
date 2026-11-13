@@ -79,6 +79,7 @@ local function draw(e, st, dc, rt)
 		Draw.leaveCanvas()
 		if cacheable then
 			local list = dc:stop()
+			if c then Draw.releaseRecording(c.list) end
 			st.data.paint = { list = list, gen = gen, frame = frame, ax = ax, ay = ay, w = st.w, h = st.h,
 				dx = dx, dy = dy, px = px, py = py, cx1 = cx1, cy1 = cy1, cx2 = cx2, cy2 = cy2, surface = surface }
 		end

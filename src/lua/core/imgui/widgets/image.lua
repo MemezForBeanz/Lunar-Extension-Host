@@ -33,6 +33,18 @@ local function rgb_string_to_rgba(s)
 	return table.concat(out)
 end
 
+local function free_texture(st)
+	local d = st.data
+	if d.tex and d.tex_backend and d.tex_backend.texture_free then
+		d.tex_backend.texture_free(d.tex)
+	end
+	d.tex, d.tex_backend = nil, nil
+end
+
+local function destroy_image(el, st)
+	free_texture(st)
+end
+
 local function take_pixels(el, st, init, channels)
 	local src = init and (init.pixels or init.PIXELS)
 	if src == nil then
@@ -54,19 +66,25 @@ local function take_pixels(el, st, init, channels)
 	if st.luavals then st.luavals.pixels, st.luavals.PIXELS = nil, nil end
 end
 
+local function set_pixels(el, st, value, channels)
+	local pixels = type(value) == "string" and (channels == 3 and rgb_string_to_rgba(value) or value)
+	if not pixels or pixels == st.data.pixels then return false end
+	free_texture(st)
+	st.data.pixels = pixels
+	return false
+end
+
 local base = {
 	children = 0,
 	type = "image",
 	transparent = true,
-	set = {
-		-- A size change after creation means new pixels must follow.
-		PIXELS = function(el, st, value) st.data.pixels = value; st.data.tex = nil; return false end,
-	},
 }
 
 local function define(name, channels)
 	local def = { name = name }
 	for k, v in pairs(base) do def[k] = v end
+	def.set = { PIXELS = function(el, st, value) return set_pixels(el, st, value, channels) end }
+	def.destroy = destroy_image
 	def.create = function(el, st, init)
 		take_pixels(el, st, init, channels)
 	end
@@ -79,6 +97,8 @@ define("imagergb", 3)
 -- `iup.image`: 8-bit indexed rows plus colours "0".."255" (or a `colors` table).
 Classes.define({
 	name = "image", children = 0, type = "image", transparent = true,
+	set = { PIXELS = function(el, st, value) return set_pixels(el, st, value, 4) end },
+	destroy = destroy_image,
 	create = function(el, st, init)
 		init = init or {}
 		local rows = {}
