@@ -1,0 +1,31 @@
+﻿{
+    "date":  "2026-11-13T00:39:07.8050474-06:00",
+    "implementationCommit":  "9a025d94e5ca75bf82d2dd363e58671833388079",
+    "orgPacksCommit":  "6e17cc457f3662e045b4bc2d68aebca2dca3377c",
+    "trackedProductSourceClean":  true,
+    "binaries":  [
+                     {
+                         "path":  "build/win/bin/Lunar.exe",
+                         "sha256":  "68071733E257E8F1BF28602DC27BE6775497170A512BAD427E6256625CBEB038"
+                     },
+                     {
+                         "path":  "build/win/bin/LunarCLI.exe",
+                         "sha256":  "F4BEE97F07784AD16C6357AA7866D2FFF9429B511CABC29F2DAFAB5FC047C11B"
+                     },
+                     {
+                         "path":  "build/iup-bench/bin/Lunar.exe",
+                         "sha256":  "87FD4E9D295E99572CB8ADB85315973CD07A091601C60B573F88FB472CEF7427"
+                     },
+                     {
+                         "path":  "build/iup-bench/bin/LunarCLI.exe",
+                         "sha256":  "0B101FCFA2359FCCE153F1DC47ED31F7B8B3EEE2BBEE89CD25BCD14A60EE2DFC"
+                     }
+                 ],
+    "suites":  {
+                   "shipping":  "Final committed implementation; auto GPU, adaptive native threshold16, VSync on, 3 fresh runs per case.",
+                   "gpu-uncapped":  "Final committed implementation; auto GPU, adaptive threshold16, VSync off, 3 fresh runs per case.",
+                   "warp-uncapped":  "Staged uncommitted implementation on baseline1c98cbb, before adaptive threshold16; WARP, VSync off, 3 fresh runs per case.",
+                   "idle":  "Staged implementation before final adaptive threshold; auto GPU, one 10-second sample after 8-second settle."
+               },
+    "qualification":  "Windows local RTX3070Ti; no physical device removal, real RDP reconnect, POSIX build or native video recovery qualification."
+}

@@ -57,6 +57,6 @@ chart='''<style>
 #perf-change .c2{background:var(--chart-3)}#perf-change .c3{background:var(--chart-4)}
 #perf-change b{font-weight:400;text-align:right;font-variant-numeric:tabular-nums}
 #perf-change .note{font-size:12px;color:var(--muted-foreground);margin-top:16px}
-</style><div id="perf-change" role="figure" aria-label="All-packs before and after performance, lower is better"><div class="plots">'''+''.join(panels)+'''</div><p class="note">All org packs · three uncapped runs per case · lower is better · process CPU excludes GPU work</p></div>'''
+</style><div id="perf-change" role="figure" aria-label="All-packs before and after performance, lower is better"><div class="plots">'''+''.join(panels)+'''</div><p class="note">All org packs · three uncapped runs per case · lower is better.<br>WARP after is staged; GPU and IUP use the final build. Process CPU excludes GPU work.</p></div>'''
 (out/'before-after.html').write_text(chart,encoding='utf-8')
 print(json.dumps(comparison,indent=2))

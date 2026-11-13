@@ -1,0 +1,19 @@
+found mode true bars true term true tabs true
+rect mode 8 6 32 28
+rect bars 1182 6 32 28
+rect term 1214 6 32 28
+before: bars true terminal false
+FLAT_ACTION bars
+after bars click: bars false
+FLAT_ACTION term
+after terminal click: terminal true
+mode tip before: Switch to light theme
+FLAT_ACTION mode
+mode tip after: Switch to dark theme distinct images during the turn: 6
+titlebar tabs before: HPE Build Tools | Microchip Tools | Settings
+xy2pos 0:-1 20:-1 40:-1 60:-1 80:-1 100:-1 120:-1 140:-1 160:-1 180:-1 200:-1 220:-1 240:-1 260:-1 280:-1 300:-1
+tab_order table
+has flat_button_cb function
+has flat_motion_cb function
+TO _resolveDrop ok {kind=nil pos=nil index=nil}
+titlebar tabs after drag: HPE Build Tools | Microchip Tools | Settings

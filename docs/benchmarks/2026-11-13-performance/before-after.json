@@ -1,0 +1,30 @@
+{
+  "relayout_cpu_ms": {
+    "Before \u00b7 WARP": 14.12037037037037,
+    "After \u00b7 WARP": 3.935185185185185,
+    "After \u00b7 GPU": 0.925925925925926,
+    "Current IUP": 0.8101851851851852
+  },
+  "switch_cpu_ms": {
+    "Before \u00b7 WARP": 14.756944444444445,
+    "After \u00b7 WARP": 5.902777777777778,
+    "After \u00b7 GPU": 1.9097222222222223,
+    "Current IUP": 2.4305555555555554
+  },
+  "repaint_wall_ms": {
+    "Before \u00b7 WARP": 4.235863888890056,
+    "After \u00b7 WARP": 4.0278994444735,
+    "After \u00b7 GPU": 1.4367266666441583,
+    "Current IUP": 5.311990277732556
+  },
+  "startup_ready_ms": {
+    "before": 3215.6364999973,
+    "after": 532.2851000019
+  },
+  "private_memory_mb": {
+    "before_warp": 81.73046875,
+    "after_warp": 71.328125,
+    "after_gpu": 105.19140625,
+    "current_iup": 44.30859375
+  }
+}

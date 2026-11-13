@@ -1,0 +1,14 @@
+{
+    "date":  "2026-11-13T00:37:00.9984601-06:00",
+    "commit":  "9a025d94e5ca75bf82d2dd363e58671833388079",
+    "packsCommit":  "6e17cc457f3662e045b4bc2d68aebca2dca3377c",
+    "logicalCpus":  24,
+    "memoryGB":  31.8,
+    "cpu":  "12th Gen Intel(R) Core(TM) i9-12900K",
+    "os":  "Microsoft Windows NT 10.0.22631.0",
+    "renderer":  "auto",
+    "layout":  "auto",
+    "runs":  3,
+    "profile":  false,
+    "uncapped":  false
+}
