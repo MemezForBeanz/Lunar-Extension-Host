@@ -77,6 +77,7 @@ function M.new(opts)
 			keys = q.keys or {}, chars = q.chars or {},
 			mods = { shift = mods.shift or false, ctrl = mods.ctrl or false, alt = mods.alt or false, sys = mods.sys or false },
 			focused = true, resized = q.w ~= nil, close_requested = q.close_requested or false,
+			minimized = B.minimized and true or false,
 			files = q.files or {},
 			-- Ordered events, as the native backend reports them: { type = "move"|"press"|
 			-- "release"|"wheel"|"leave"|"keydown"|"char", x, y, button, double, dx, dy, code,

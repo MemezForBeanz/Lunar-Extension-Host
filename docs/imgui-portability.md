@@ -1,7 +1,15 @@
 # The ImGui host beyond Windows: devices, embedding, other platforms, WebAssembly
 
-Goal: the same Lua application and extensions on four kinds of target, each with the
-memory and responsiveness of the IUP build or better.
+Goal: the same Lua application and extensions on each kind of target, with the memory
+and responsiveness of the IUP build or better.
+
+**Scope (2026-11-13): no web for now.** The WebAssembly phase is deferred, and with it
+the move to standard Lua 5.4 (Phase 1), which only the browser needed: LuaJIT runs
+natively on Linux, ARM boards and macOS. Order now: Phase 0, then 3 (devices), 4
+(embedding) and 2 (the portable backend). Phase 0 is done: the contract is code,
+`core.imgui.backend.contract`, checked on the headless backend by
+`spec/imgui_backend_contract_spec.lua` and on the Windows backend by
+`scripts/backend_conformance.lua`.
 
 | Target | What it needs |
 |---|---|
