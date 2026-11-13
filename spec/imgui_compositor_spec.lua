@@ -37,6 +37,20 @@ describe("ImGui compositor", function()
 		assert.equals(before, #B.frame_calls)
 	end)
 
+	it("moves and fades rounded images without changing the recorded geometry", function()
+		local color = require("core.imgui.Color")
+		local tint = color.parse("200 100 50")
+		local calls = { { "image_rounded", 42, 10, 20, 30, 40, tint, 6 } }
+		local original = { unpack(calls[1]) }
+		local drawn
+		local target = Draw.new({ image_rounded = function(...) drawn = { ... } end })
+		target:replay(calls, 100, -5, 0.5)
+		assert.same({ 42, 110, 15, 130, 35, color.alpha(tint, 0.5), 6 }, drawn)
+		target:replay(calls, 200, 5)
+		assert.same({ 42, 210, 25, 230, 45, tint, 6 }, drawn)
+		assert.same(original, calls[1])
+	end)
+
 	it("replays image and solid sprites at an offset and alpha", function()
 		local snap = assert(overlay:snapshot(canvas))
 		assert.is_true(overlay:present({

@@ -197,6 +197,7 @@ function M.setAttribute(el, name, value)
 	else
 		value = tostr(value)
 	end
+	local changed = st.attrs[name] ~= value or st.handles[name] ~= handle
 	-- a class that registers the name replaces the base class's registration
 	local setter = class.set and class.set[name]
 	local common = not setter and M.commonSet[name]
@@ -204,6 +205,8 @@ function M.setAttribute(el, name, value)
 	if setter then
 		local keep = setter(el, st, value, handle)
 		if keep == false then
+			-- Command/non-storing setters cannot compare against st.attrs: repeating
+			-- the same input can still change their private state (APPEND, INSERT...).
 			M.hooks.invalidate(el, LAYOUT_ATTRS[name] and "layout" or "paint", name)
 			return
 		end
@@ -215,7 +218,7 @@ function M.setAttribute(el, name, value)
 		st.handles[name] = nil
 		st.attrs[name] = value
 	end
-	M.hooks.invalidate(el, LAYOUT_ATTRS[name] and "layout" or "paint", name)
+	M.hooks.invalidate(el, LAYOUT_ATTRS[name] and "layout" or "paint", name, changed)
 	if M.SETTERS[name] and M.inherits(class, name) then M.notifyChildren(el, st, name, value, handle) end
 end
 

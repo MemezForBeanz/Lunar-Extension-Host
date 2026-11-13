@@ -528,6 +528,24 @@ as the flat scrollbar's size (IUP registers 15) were found.
 - **A dialog's RASTERSIZE is its window** on the main dialog too (it was the client), and
   CENTERPARENT centres the dialog's window over the main window's, as `iDialogAdjustPos`.
 
+- **Canvas paint callbacks** now run on invalidation rather than every drawn frame.
+  The runtime stamps attribute changes and `Update`/`Redraw` requests; the canvas caches
+  its ACTION draw commands and replays them relative to the original recording origin.
+  Size, scroll position, visible clip, surface and visibility changes force a fresh paint.
+  Compositor recordings and translucent paints bypass the cache. Changes made by another
+  canvas during ACTION invalidate the next frame; repeated writes of unchanged stored
+  attributes and canvas `DRAW*` state do not sustain a redraw loop. Rounded images move
+  and fade correctly in replay too. Covered by `imgui_canvas_paint_spec.lua` and
+  `imgui_compositor_spec.lua`.
+
+November 12 continuation verification: 2,084 host specs passed with the org-pack worktree
+enabled (two environment-dependent skips: TLS tooling and symbolic-link privileges).
+The HPE pack's 113 specs and Microchip pack's 87 specs passed. The MinGW ImGui build and
+native drawing smoke passed; the native page probe visited all nine organization/settings
+pages with no warning/error records. This probe checked construction/layout, not pixel
+equivalence. `imgui_smoke.lua` now uses the Native backend adapter because the raw C API
+returns a frame pointer rather than a Lua input table.
+
 Known differences, in order of visibility:
 
 - **Popups of a dialog window** (a dropdown's list, a tooltip, a menu opened from a control
@@ -536,7 +554,6 @@ Known differences, in order of visibility:
   window; the ImGui host draws them at the main window's weight.
 - **Text positions are bytes**: `CARETPOS`, `SELECTIONPOS` and `COUNT` on native text count
   UTF-8 bytes, where the Win32 EDIT counts UTF-16 units; they agree for ASCII.
-- **Canvas `ACTION`** runs every frame a canvas is drawn (IUP calls it on WM_PAINT only).
 - **The code editor** is an emulation of the Scintilla messages CodeView sends, not
   Scintilla itself (see `docs/imgui-scintilla.md`).
 - **Video overlays**: ImGui popups (menus, tooltips) cannot draw over the native video child

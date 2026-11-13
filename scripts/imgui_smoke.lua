@@ -2,7 +2,9 @@
 -- shapes, text and a texture for a few frames, optionally save a shot, and exit 0.
 --
 --   Lunar scripts/imgui_smoke.lua [out.bmp]
-local B = require("lunarimgui")
+-- The raw C API returns a LunarUiFrame pointer; Native decodes it and routes
+-- drawing through the same FFI backend used by the application.
+local B = require("core.imgui.backend.Native")
 local out = arg and arg[1]
 local step = function(s) io.stderr:write("smoke: ", s, "\n") end
 local logf = out and io.open(out .. ".log", "w")

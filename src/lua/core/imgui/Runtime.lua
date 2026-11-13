@@ -93,15 +93,41 @@ local function dialog_of(el)
 	return nil
 end
 
-Element.hooks.invalidate = function(el, kind, name)
+-- Paint generations: what IUP would repaint. An element's visual attribute set or an
+-- IupUpdate/IupRedraw on it stamps it with a new generation; a canvas whose recorded
+-- ACTION is older than its own or any ancestor's stamp paints again (widgets/canvas.lua).
+local paint_gen, frame_no = 0, 0
+local function stamp(el)
+	paint_gen = paint_gen + 1
+	local st = el and STATE[el]
+	if st then st.data.paint_gen = paint_gen end
+end
+--- The newest stamp on el and its ancestors.
+function M.paintGen(el)
+	local g, e = 0, el
+	while e do
+		local st = STATE[e]
+		if not st then break end
+		local s = st.data.paint_gen
+		if s and s > g then g = s end
+		e = st.parent
+	end
+	return g
+end
+function M.paintGenNow() return paint_gen end
+function M.frameNo() return frame_no end
+
+Element.hooks.invalidate = function(el, kind, name, changed)
 	if kind ~= "layout" then
 		-- IUP repaints for a visual attribute, not for the canvas draw state (DRAWCOLOR,
-		-- DRAWSTYLE... set inside a paint callback) or internal storage; and what a
-		-- paint changes about itself is already on this frame. Either would otherwise
-		-- ask for a frame from every frame, and the window would never go idle.
-		if in_paint then return end
+		-- DRAWSTYLE... set inside a paint callback) or internal storage.
 		if type(name) == "string" and (name:sub(1, 4) == "DRAW" or name:sub(1, 4) == "_IUP") then return end
 	end
+	-- A later canvas may change an earlier canvas or its ancestor during ACTION.
+	-- Stamp that change for the next frame, but repeated writes of the same stored
+	-- value while drawing must not keep the event loop awake indefinitely.
+	if in_paint and changed == false then return end
+	stamp(el)
 	need_frame = true
 	if kind ~= "layout" or in_layout then return end
 	local _, dst = dialog_of(el)
@@ -483,7 +509,11 @@ function M.nextField(el, dir)
 end
 
 -- Services for widgets ---------------------------------------------------------------------
-function M.redraw() need_frame = true end
+--- IupUpdate / IupRedraw: the element (and what is inside it) paints again.
+function M.redraw(el)
+	if el and STATE[el] then stamp(el) end
+	need_frame = true
+end
 function M.relayout(el)
 	need_frame = true
 	if el then
@@ -1619,6 +1649,7 @@ end
 function M.frame()
 	if closed then return end
 	local input = B.frame_begin()
+	frame_no = frame_no + 1
 	frame_input = input
 	need_frame = false
 	animating = false

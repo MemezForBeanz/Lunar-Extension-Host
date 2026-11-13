@@ -514,12 +514,14 @@ end
 local XS = {
 	rect_filled = { 1, 3 }, rect = { 1, 3 }, rect_gradient = { 1, 3 }, line = { 1, 3 },
 	circle = { 1 }, text = { 3, 8, 10 }, image = { 2, 4 }, clip_push = { 1, 3 },
+	image_rounded = { 2, 4 },
 }
 local YS = {
 	rect_filled = { 2, 4 }, rect = { 2, 4 }, rect_gradient = { 2, 4 }, line = { 2, 4 },
 	circle = { 2 }, text = { 4, 9, 11 }, image = { 3, 5 }, clip_push = { 2, 4 },
+	image_rounded = { 3, 5 },
 }
-local COLOR_ARG = { rect_filled = 5, rect = 5, line = 5, circle = 4, text = 5, poly = 2, image = 10 }
+local COLOR_ARG = { rect_filled = 5, rect = 5, line = 5, circle = 4, text = 5, poly = 2, image = 10, image_rounded = 6 }
 
 --- Replay a recording shifted by (dx, dy) with its alpha scaled by `alpha`.
 function DC:replay(list, dx, dy, alpha)

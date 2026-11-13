@@ -50,12 +50,40 @@ local function draw(e, st, dc, rt)
 		if sb == "YES" or sb == "VERTICAL" then bar(false) end
 	end
 	local dx, dy = tonumber(attr(e, "DX")) or 0, tonumber(attr(e, "DY")) or 0
-	Draw.enterCanvas(e, dc)
-	dc:offset_push(-dx, -dy)
-	local result = call_result(e, "ACTION", tonumber(attr(e, "POSX")) or 0, tonumber(attr(e, "POSY")) or 0)
-	dc:offset_pop()
-	Draw.leaveCanvas()
-	if result == iup.CLOSE then st.close_result = result end
+	local px, py = tonumber(attr(e, "POSX")) or 0, tonumber(attr(e, "POSY")) or 0
+	-- IUP calls ACTION on WM_PAINT: when the canvas shows, changes size or scroll, or is
+	-- invalidated (IupUpdate, IupRedraw, a visual attribute on it or an ancestor). Any
+	-- other frame replays what the last ACTION drew, moved to where the canvas is now.
+	local ax, ay = (dc.ox or 0) + st.x, (dc.oy or 0) + st.y
+	-- the part of the canvas the enclosing clip leaves visible, in canvas coordinates
+	local cx1 = math.max(0, (dc.cx1 or 0) - ax)
+	local cy1 = math.max(0, (dc.cy1 or 0) - ay)
+	local cx2 = math.min(st.w, (dc.cx2 or 0) - ax)
+	local cy2 = math.min(st.h, (dc.cy2 or 0) - ay)
+	local surface = dc.surface_id or 0
+	local cacheable = rt and rt.paintGen and dc.rec == nil and (dc.alpha or 1) == 1
+	local c = st.data.paint
+	local frame = cacheable and rt.frameNo() or 0
+	if cacheable and c and c.frame == frame - 1 and c.gen >= rt.paintGen(e)
+		and c.w == st.w and c.h == st.h and c.dx == dx and c.dy == dy and c.px == px and c.py == py
+		and c.cx1 == cx1 and c.cy1 == cy1 and c.cx2 == cx2 and c.cy2 == cy2 and c.surface == surface then
+		dc:replay(c.list, ax - c.ax, ay - c.ay) -- (c.ax, c.ay): where it was when recorded
+		c.frame = frame
+	else
+		if cacheable then dc:record(true) end
+		local gen = cacheable and rt.paintGenNow() or 0
+		Draw.enterCanvas(e, dc)
+		dc:offset_push(-dx, -dy)
+		local result = call_result(e, "ACTION", px, py)
+		dc:offset_pop()
+		Draw.leaveCanvas()
+		if cacheable then
+			local list = dc:stop()
+			st.data.paint = { list = list, gen = gen, frame = frame, ax = ax, ay = ay, w = st.w, h = st.h,
+				dx = dx, dy = dy, px = px, py = py, cx1 = cx1, cy1 = cy1, cx2 = cx2, cy2 = cy2, surface = surface }
+		end
+		if result == iup.CLOSE then st.close_result = result end
+	end
 	if attr(e, "BORDER") ~= "NO" then dc:rect(st.x, st.y, st.w, st.h, attr(e, "BORDERCOLOR") or attr(e, "FGCOLOR"), { thickness = 1 }) end
 end
 local function event(e, st, ev, rt)
