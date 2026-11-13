@@ -29,6 +29,7 @@ local iup          -- core.imgui.iup
 
 local dialogs = {}        -- shown dialogs, bottom to top
 local main_dialog = nil   -- the dialog that owns the OS window
+local active_dialog = nil
 local timers = {}         -- running timer elements -> true
 local overlays = {}       -- rt.overlay handles, bottom to top
 local hovered, captured, focused = nil, nil, nil
@@ -146,6 +147,7 @@ Element.hooks.destroyed = function(el, st)
 	timers[el] = nil
 	for i = #dialogs, 1, -1 do if dialogs[i] == el then table.remove(dialogs, i) end end
 	if main_dialog == el then main_dialog = nil end
+	if active_dialog == el then active_dialog = nil end
 	for i = #overlays, 1, -1 do
 		local o = overlays[i]
 		if o.owner == el then o:close() end
@@ -451,8 +453,17 @@ local function check_close(r)
 	return r
 end
 
+function M.activateDialog(d)
+	if d == active_dialog then return end
+	local old = active_dialog
+	active_dialog = d
+	if old and STATE[old] then Element.call(old, "FOCUS_CB", 0) end
+	if d and STATE[d] then Element.call(d, "FOCUS_CB", 1) end
+end
+
 function M.setFocus(el)
 	if el ~= nil and not STATE[el] then return focused end
+	if el then M.activateDialog(dialog_of(el)) end
 	if el == focused then return focused end
 	local old = focused
 	if el and not focusable(el) then
@@ -791,6 +802,7 @@ function M.show(d, x, y)
 		end
 	end
 	st.data.shown = true
+	require("core.imgui.widgets.dialog").applyLimits(d)
 	raise(d)
 	if not first_show and st.data.win and st.data.win_shown then B.window("popup_focus", st.data.win) end
 	need_frame = true
@@ -1205,6 +1217,7 @@ local function ensure_window(d, st)
 		owned = parent ~= nil, parent = (parent ~= main_dialog and pst and pst.data.win) or 0,
 	})
 	st.data.win = id or false
+	if id then require("core.imgui.widgets.dialog").applyLimits(d) end
 	return id ~= nil
 end
 
@@ -1221,10 +1234,12 @@ end
 --- Where the user moved or sized a dialog window, and whether its close button was used.
 local function sync_windows()
 	if not dialog_windows then return end
+	if main_dialog and B.window("is_active") then M.activateDialog(main_dialog) end
 	for _, d in ipairs(dialogs) do
 		local st = STATE[d]
 		if st and d ~= main_dialog and st.data.win and st.data.win_shown then
-			local x, y, w, h, close, minimized = B.window("popup_state", st.data.win)
+			local x, y, w, h, close, minimized, active = B.window("popup_state", st.data.win)
+			if active then M.activateDialog(d) end
 			if x and not minimized then
 				if x ~= st.data.ox or y ~= st.data.oy then
 					st.data.ox, st.data.oy = x, y
@@ -1378,6 +1393,7 @@ local function route(input)
 		end
 		for b = 1, 3 do
 			if input.pressed[b] > 0 then
+				if over.owner then M.activateDialog(dialog_of(over.owner)) end
 				M._overlay_capture = over
 				ov({ type = "press", button = b, double = input.double[b] > 0, status = status_for(input, { double = input.double[b] > 0 }) })
 			end
@@ -1423,6 +1439,7 @@ local function route(input)
 		local lx, ly = local_xy(recv, mx, my)
 		for b = 1, 3 do
 			if input.pressed[b] > 0 then
+				M.activateDialog(dialog_of(recv))
 				if target_dialog and target_dialog ~= main_dialog then raise(target_dialog) end
 				if b == 1 and recv ~= focused and focusable(recv) then M.setFocus(recv) end
 				captured = recv
@@ -1847,6 +1864,7 @@ function M.init(backend)
 	iup = require("core.imgui.iup")
 	dialogs, overlays, timers = {}, {}, {}
 	main_dialog, hovered, captured, focused = nil, nil, nil, nil
+	active_dialog = nil
 	dialog_windows = B.surface ~= nil and B.dialog_windows == true and os.getenv("LUNAR_DIALOG_WINDOWS") ~= "0"
 	pending_closes = {}
 	loop_level, exit_levels = 0, {}
@@ -1902,6 +1920,7 @@ function M.close()
 	if B then Draw.clearBitsCache(B) end
 	dialogs, overlays, timers, pending_closes = {}, {}, {}, {}
 	main_dialog, hovered, captured, focused, tip_el = nil, nil, nil, nil, nil
+	active_dialog = nil
 	frame_input, DRAG, M._overlay_capture, wake_at = nil, nil, nil, nil
 	M.preRoute, M.postPaint = {}, {}
 	Draw.current, dc = nil, nil

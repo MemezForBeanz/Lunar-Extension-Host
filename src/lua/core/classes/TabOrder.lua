@@ -175,6 +175,8 @@ function TabOrder:setGroups(groups)
 	self._groups = groups
 end
 
+function TabOrder:setWindows(windows) self._windows = windows end
+
 --- Register a toolbar view. Positions match the root, including hidden tabs.
 function TabOrder:setStandIn(strip, stand_in, toolbar, drop_rect)
 	self._stand_ins = self._stand_ins or {}
@@ -884,6 +886,18 @@ function TabOrder:_showMenu(strip, pos)
 	local record = child and groups:groupOf(child) or nil
 	local items = {}
 	if child then
+		if self._windows then
+			local windows = self._windows
+			local window = windows:windowOf(child)
+			if window then
+				items[#items + 1] = { title = "Return Window to Main", action = function()
+					windows:later(function() windows:restore(window) end)
+				end }
+			else
+				items[#items + 1] = { title = "Pop Out in New Window", action = function() windows:openLater(child) end }
+			end
+			items[#items + 1] = { separator = true }
+		end
 		for _, entry in ipairs({ { "top", "Move to Top Toolbar" }, { "left", "Move to Left Toolbar" } }) do
 			if not handle.same(iup, groups:stripOf(child), groups._root) or groups:toolbarOf(child) ~= entry[1] then
 				items[#items + 1] = { title = entry[2], action = function()
@@ -914,6 +928,10 @@ function TabOrder:_showMenu(strip, pos)
 		items[#items + 1] = {
 			title = groups:isCollapsed(child) and "Show tab bar" or "Hide tab bar",
 			action = function() groups:toggleCollapsed(child) end,
+		}
+		items[#items + 1] = {
+			title = groups:isIconOnly(child) and "Show name" or "Show icon only",
+			action = function() groups:setIconOnly(child, not groups:isIconOnly(child)) end,
 		}
 		items[#items + 1] = {
 			title = "Rename Group...",

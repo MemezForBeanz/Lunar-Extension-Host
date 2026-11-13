@@ -25,8 +25,11 @@ function View.new(opts)
 	end
 	function strip:flat_motion_cb(x, y, status) return forward("flat_motion_cb", x, y, status) end
 	function strip:rightclick_cb(pos) return forward("rightclick_cb", pos) end
-	function strip:tabchange_cb()
-		if not view._syncing then view:select(tonumber(iup.GetAttribute(strip, "VALUEPOS"))) end
+	function strip:tabchange_cb(new_tab)
+		if not view._syncing then
+			local pos = new_tab and iup.GetChildPos(strip, new_tab) or tonumber(iup.GetAttribute(strip, "VALUEPOS"))
+			view:select(pos)
+		end
 		return iup.DEFAULT
 	end
 	return self
@@ -39,7 +42,8 @@ function View:select(pos)
 	local iup, root = self._iup, self._root
 	local old = iup.GetChild(root, tonumber(iup.GetAttribute(root, "VALUEPOS")) or 0)
 	iup.SetAttribute(root, "VALUEPOS", tostring(pos))
-	if root.tabchange_cb then root.tabchange_cb(root, iup.GetChild(root, pos), old) end
+	-- The ImGui setter already delivered TABCHANGE_CB; IUP's programmatic setter doesn't.
+	if not iup._IMGUI and root.tabchange_cb then root.tabchange_cb(root, iup.GetChild(root, pos), old) end
 end
 
 function View:themeChanged() self._away = nil end
@@ -66,7 +70,8 @@ function View:sync(pages)
 		visible[i] = show
 		local title = iup.GetAttributeId(self._root, "TABTITLE", pos) or ""
 		local image = iup.GetAttributeId(self._root, "TABIMAGE", pos)
-		for key, value in pairs({ TABTITLE = title, TABVISIBLE = show and "YES" or "NO", TABTIP = title }) do
+		local tip = iup.GetAttributeId(self._root, "TABTIP", pos) or title
+		for key, value in pairs({ TABTITLE = title, TABVISIBLE = show and "YES" or "NO", TABTIP = tip }) do
 			if iup.GetAttributeId(strip, key, pos) ~= value then
 				iup.SetAttributeId(strip, key, pos, value)
 				changed = true

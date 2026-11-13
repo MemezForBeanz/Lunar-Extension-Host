@@ -24,6 +24,20 @@ local function parse_size(s)
 	return tonumber(w), tonumber(h)
 end
 
+function M.applyLimits(el, changed, value)
+	local st, B = Element.state(el), backend()
+	if not st or not B or not B.window or not B.alive() then return end
+	local function size(name)
+		if changed == name then return parse_size(value) end
+		return parse_size(Element.own(el, name))
+	end
+	local minw, minh = size("MINSIZE")
+	local maxw, maxh = size("MAXSIZE")
+	if is_main(el) or st.data.win then
+		B.window("limits", { min_w = minw or 0, min_h = minh or 0, max_w = maxw or 65535, max_h = maxh or 65535 }, st.data.win or 0)
+	end
+end
+
 -- iDialogSizeGetScale: SIZE may give either side as a share of the screen.
 local SCREEN_FRACTION = { FULL = 1, HALF = 2, THIRD = 3, QUARTER = 4, EIGHTH = 8 }
 
@@ -93,6 +107,8 @@ Classes.define({
 		DROPFILES_CB = true, TRAYCLICK_CB = true },
 
 	set = {
+		MINSIZE = function(el, _, value) M.applyLimits(el, "MINSIZE", value) end,
+		MAXSIZE = function(el, _, value) M.applyLimits(el, "MAXSIZE", value) end,
 		TITLE = function(el, st, value)
 			if is_main(el) and backend() and backend().alive() then backend().window("title", value or "") end
 		end,

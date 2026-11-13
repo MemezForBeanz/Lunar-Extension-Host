@@ -134,6 +134,7 @@ struct State {
     bool resetting = false;
     bool alive = false, close = false, resized = false;
     bool custom_frame = false, fullscreen = false, nc_tracking = false;
+    int min_w = 0, min_h = 0, max_w = 65535, max_h = 65535;
     HWND tracked = nullptr;   /* the window TrackMouseEvent watches (main or a dialog window) */
     bool inside = false, in_sizemove = false, in_callback = false, frame_open = false, ready = false;
     WINDOWPLACEMENT saved_placement = { sizeof(WINDOWPLACEMENT) };
@@ -197,6 +198,7 @@ struct Popup {
     Rect at;   /* the client rect Lua draws it at, main-client coordinates */
     bool visible = false, shown = false, modal = false, close = false, drawn = false;
     std::string title;
+    int min_w = 0, min_h = 0, max_w = 65535, max_h = 65535;
 };
 std::vector<Popup*> popups; int next_popup = 1;
 int event_src = 0;   /* the window the message being handled is for: 0 main, else a dialog window id */
@@ -437,6 +439,15 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
         || m == WM_MOUSELEAVE || m == WM_NCMOUSELEAVE || m == WM_CAPTURECHANGED || m == WM_SETCURSOR;
     if (!mouse_msg && g.device && ImGui::GetCurrentContext() && ImGui::GetIO().BackendPlatformUserData) ImGui_ImplWin32_WndProcHandler(h, m, w, l);
     switch (m) {
+    case WM_GETMINMAXINFO:
+        if (!g.fullscreen) {
+            auto mm = (MINMAXINFO*)l;
+            DefWindowProcW(h, m, w, l);
+            mm->ptMinTrackSize = {std::max((int)mm->ptMinTrackSize.x, g.min_w), std::max((int)mm->ptMinTrackSize.y, g.min_h)};
+            mm->ptMaxTrackSize = {std::max(g.min_w, g.max_w), std::max(g.min_h, g.max_h)};
+            return 0;
+        }
+        break;
     case LUNAR_TRAY_MESSAGE:
         if (w == LUNAR_TRAY_ID) {
             int button = 0, pressed = 0, dbl = 0;
@@ -608,6 +619,15 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
 LRESULT CALLBACK popup_wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
     Popup *p = popup_of(h);
     switch (m) {
+    case WM_GETMINMAXINFO:
+        if (p) {
+            auto mm = (MINMAXINFO*)l;
+            DefWindowProcW(h, m, w, l);
+            mm->ptMinTrackSize = {std::max((int)mm->ptMinTrackSize.x, p->min_w), std::max((int)mm->ptMinTrackSize.y, p->min_h)};
+            mm->ptMaxTrackSize = {std::max(p->min_w, p->max_w), std::max(p->min_h, p->max_h)};
+            return 0;
+        }
+        break;
     case WM_CLOSE: if (p) p->close = true; return 0;   /* Lua runs CLOSE_CB and hides it */
     case WM_DESTROY: return 0;
     case WM_ERASEBKGND: return 1;
@@ -2062,6 +2082,28 @@ int l_window(lua_State *L) {
     const char *op = luaL_checkstring(L, 1);
     HWND h = g.hwnd;
     auto is = [&](const char *name) { return _stricmp(op, name) == 0; };
+    if (is("is_active")) { lua_pushboolean(L, GetForegroundWindow() == h); return 1; }
+    if (is("limits")) {
+        luaL_checktype(L, 2, LUA_TTABLE);
+        int id = (int)luaL_optinteger(L, 3, 0);
+        Popup *p = id ? popup_by_id(id) : nullptr;
+        if (id && !p) return 0;
+        auto n = [&](const char *key, int fallback) {
+            lua_getfield(L, 2, key); int v = (int)luaL_optinteger(L, -1, fallback); lua_pop(L, 1); return std::max(0, v);
+        };
+        int minw = n("min_w", 0), minh = n("min_h", 0);
+        int maxw = std::max(minw, n("max_w", 65535)), maxh = std::max(minh, n("max_h", 65535));
+        if (p) { p->min_w = minw; p->min_h = minh; p->max_w = maxw; p->max_h = maxh; h = p->hwnd; }
+        else { g.min_w = minw; g.min_h = minh; g.max_w = maxw; g.max_h = maxh; }
+        if (h && !IsZoomed(h) && !IsIconic(h) && (p || !g.fullscreen)) {
+            RECT r; GetWindowRect(h, &r);
+            int w = std::max(minw, std::min(maxw, (int)(r.right-r.left)));
+            int ht = std::max(minh, std::min(maxh, (int)(r.bottom-r.top)));
+            if (w != r.right-r.left || ht != r.bottom-r.top)
+                SetWindowPos(h, nullptr, 0, 0, w, ht, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+        return 0;
+    }
     if (is("screen") || is("full")) {
         RECT work, full; monitor_rects(work, full);
         RECT &r = is("screen") ? work : full;

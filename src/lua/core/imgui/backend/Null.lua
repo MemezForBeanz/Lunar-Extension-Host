@@ -180,7 +180,10 @@ function M.new(opts)
 
 	function B.window(op, a, b, c, d)
 		B.window_calls[#B.window_calls + 1] = { op, a, b, c, d }
-		if op == "title" then if a ~= nil then B.title = a end return B.title
+		if op == "limits" then
+			if b and b ~= 0 and B.popups and B.popups[b] then B.popups[b].limits = a else B.limits = a end
+			return
+		elseif op == "title" then if a ~= nil then B.title = a end return B.title
 		elseif op == "size" then if a then B.w, B.h = a, b end return B.w, B.h
 		elseif op == "pos" then if a then B.x, B.y = a, b end return B.x, B.y
 		elseif op == "client_origin" then return B.x, B.y

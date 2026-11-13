@@ -1150,6 +1150,23 @@ title_bar:setOrder(tab_order)
 host:setTabGroups(tab_groups)
 tab_groups:setPanes(pane_grid:extraStrips())
 pane_grid:setGroups(tab_groups)
+local tab_windows = require("core.ui.TabWindows").new({
+	iup = iup, groups = tab_groups, dialog = dlg,
+	on_activate = function() host:_applyTabScopes() end,
+	theme = function(window)
+		theme_mgr:themeWidget(window)
+		require("core.ui.WindowChrome").applyFrame(iup, window, theme_mgr:activeTheme())
+	end,
+})
+tab_order:setWindows(tab_windows)
+if rawget(_G, "LUNAR_DEV_SHELL") then _G.LUNAR_DEV_SHELL.tab_windows = tab_windows end
+add_host_command("window.popout", "Pop Out Active Extension", function()
+	local widget = tab_groups:activeLeaf()
+	if widget then tab_windows:openLater(widget) end
+end, { keywords = "detach extension floating window", group = "Layout" })
+add_host_command("window.dockAll", "Return All Windows to Main", function()
+	tab_windows:later(function() tab_windows:restoreAll() end)
+end, { keywords = "dock popout windows", group = "Layout" })
 tab_order:setPanes(pane_grid, dlg)
 for _, strip in pairs(pane_grid:extraStrips()) do theme_mgr:themeWidget(strip) end
 theme_mgr:onApply(function()
@@ -1210,6 +1227,7 @@ end
 
 -- Anything that changes what the bar should show also re-scopes the tabs, so that's the hook.
 local function sync_title_bar()
+	tab_windows:sync()
 	title_bar:sync(tab_groups:_children(tabs))
 	tool_rail:refresh()
 	do
@@ -1228,6 +1246,10 @@ host._after_scopes = sync_title_bar
 	end
 -- The groups' width depends on their font, which the theme sets.
 theme_mgr:onApply(function()
+	for _, window in ipairs(tab_windows.windows) do
+		theme_mgr:themeWidget(window.dialog)
+		require("core.ui.WindowChrome").applyFrame(iup, window.dialog, theme_mgr:activeTheme())
+	end
 	title_bar:themeChanged()
 	tool_rail:themeChanged()
 	sync_title_bar()

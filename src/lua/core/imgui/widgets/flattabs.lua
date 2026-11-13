@@ -70,6 +70,15 @@ local function setCurrent(el, child, notify)
 	if old == child then return iup.DEFAULT end
 	local oldpos = old and Element.childPos(el, old) or -1
 	local newpos = child and Element.childPos(el, child) or -1
+	-- TABCHANGE is a notification of the new selection. Shell callbacks read VALUEPOS
+	-- and can synchronise toolbar mirrors immediately; publishing afterwards let a
+	-- re-entrant sync put yesterday's folder label on today's page.
+	st.data.current = child
+	st.handles.VALUE_HANDLE = child
+	st.handles.VALUE = child
+	if old then Element.setAttribute(old, "VISIBLE", "NO") end
+	if child then Element.setAttribute(child, "VISIBLE", "YES") end
+	M.beginPageTransition(el, st, old, child, newpos > oldpos)
 	if notify and child then
 		local ret
 		if Element.hasCallback(el, "TABCHANGE_CB") then
@@ -79,12 +88,6 @@ local function setCurrent(el, child, notify)
 		end
 		if ret ~= nil and ret ~= iup.DEFAULT then return ret end
 	end
-	st.data.current = child
-	st.handles.VALUE_HANDLE = child
-	st.handles.VALUE = child
-	if old then Element.setAttribute(old, "VISIBLE", "NO") end
-	if child then Element.setAttribute(child, "VISIBLE", "YES") end
-	M.beginPageTransition(el, st, old, child, newpos > oldpos)
 	return iup.DEFAULT
 end
 
@@ -688,6 +691,10 @@ local def = {
 	-- PAGETRANSITIONDRAW: "LIVE", the strip plays page transitions with the live pages
 	-- (core.ui.TabTransition stands down for it)
 	get = { PAGETRANSITIONDRAW = function() return "LIVE" end,
+		TIP = function(el, st)
+			if st.data.extraHover then return attr(el, "EXTRATIP" .. st.data.extraHover) end
+			if st.data.hover ~= nil then return indexed(el, "TABTIP", st.data.hover, pages(el)[st.data.hover + 1]) end
+		end,
 		VALUE = classGetValue, VALUEPOS = classGetValuePos, VALUE_HANDLE = classGetValueHandle, COUNT = classGetCount,
 		-- iFlatTabsGetClientSizeAttrib: the page area, without the tab band (TabOrder takes
 		-- the band's height as RASTERSIZE minus this)

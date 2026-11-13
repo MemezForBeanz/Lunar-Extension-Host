@@ -159,6 +159,7 @@ function TabGroups:initialize(opts)
 
 	self._active_root = self._root
 	self._panes = {}   -- zone -> strip; see setPanes
+	self._floating = {} -- window records: root, original parent and index
 
 	if self._root then
 		self:_prepareStrip(self._root)
@@ -207,7 +208,32 @@ function TabGroups:_roots()
 	for zone in pairs(self._panes) do zones[#zones + 1] = zone end
 	table.sort(zones)
 	for _, zone in ipairs(zones) do roots[#roots + 1] = self._panes[zone] end
+	for _, window in ipairs(self._floating) do roots[#roots + 1] = window.root end
 	return roots
+end
+
+-- Floating pages remain part of the host's live tree for routes, owners and drag
+-- targeting. Save them in their docking positions so a restart restores a complete
+-- layout, including groups whose only member is currently in another window.
+function TabGroups:savedChildren(strip)
+	local children = self:_children(strip)
+	local anchored = {}
+	for order, window in ipairs(self._floating) do
+		local parent = self:rootOf(window.parent) and window.parent or self._root
+		if self:_same(parent, strip) then anchored[#anchored + 1] = { window = window, order = order } end
+	end
+	table.sort(anchored, function(a, b)
+		if a.window.index == b.window.index then return a.order < b.order end
+		return (a.window.index or math.huge) < (b.window.index or math.huge)
+	end)
+	for _, entry in ipairs(anchored) do
+		local window = entry.window
+		local at = math.min(window.index or #children + 1, #children + 1)
+		for _, child in ipairs(self:_children(window.root)) do
+			table.insert(children, at, child); at = at + 1
+		end
+	end
+	return children
 end
 
 function TabGroups:_isRoot(strip)
@@ -340,6 +366,7 @@ function TabGroups:_flushRefresh()
 	-- The root, not the strip that changed: IupRefresh lays out the containing
 	-- dialog either way, so every target is the same call.
 	pcall(self._iup.Refresh, self._root)
+	for _, window in ipairs(self._floating) do pcall(self._iup.Refresh, window.root) end
 end
 
 function TabGroups:_flushChanged()
@@ -420,7 +447,7 @@ end
 -- @treturn boolean
 function TabGroups:isGroupStrip(widget)
 	if not widget then return false end
-	if self._root and self:_same(widget, self._root) then return false end
+	if self:_isRoot(widget) then return false end
 
 	local ok, cls = pcall(self._iup.GetClassName, widget)
 	if ok and cls ~= nil then return cls == "flattabs" end
@@ -454,7 +481,14 @@ function TabGroups:_syncTitles(strip)
 	if not strip then return end
 	local iup = self._iup
 	for i, child in ipairs(self:_children(strip)) do
-		pcall(iup.SetAttributeId, strip, "TABTITLE", i - 1, self:_titleOf(child))
+		local title = self:_titleOf(child)
+		local display = title
+		if self:isIconOnly(child) then
+			local image = iup.GetAttribute(child, "TABIMAGE")
+			display = image and "" or (tostring(title):match("^.[\128-\191]*") or ""):upper()
+		end
+		pcall(iup.SetAttributeId, strip, "TABTITLE", i - 1, display)
+		pcall(iup.SetAttributeId, strip, "TABTIP", i - 1, title)
 	end
 	self:_requestRefresh()
 end
@@ -568,7 +602,11 @@ function TabGroups:_isAncestor(maybe_ancestor, widget)
 	local cur, guard = widget, 0
 	while cur and guard < MAX_DEPTH do
 		if self:_same(cur, maybe_ancestor) then return true end
-		cur = self:stripOf(cur)
+		local parent = self:stripOf(cur)
+		for _, window in ipairs(self._floating) do
+			if self:_same(cur, window.root) then parent = window.parent; break end
+		end
+		cur = parent
 		guard = guard + 1
 	end
 	return false
@@ -602,6 +640,20 @@ end
 
 function TabGroups:toggleCollapsed(strip)
 	return self:setCollapsed(strip, not self:isCollapsed(strip))
+end
+
+function TabGroups:isIconOnly(strip)
+	return attr.get(self._iup, strip, "_IUPLUNAR_ICONONLY") == "YES"
+end
+
+function TabGroups:setIconOnly(strip, compact)
+	if not self:isGroupStrip(strip) or self:isIconOnly(strip) == (compact == true) then return false end
+	return self:_batch(function()
+		attr.set(self._iup, strip, "_IUPLUNAR_ICONONLY", compact and "YES" or nil)
+		self:_syncTitles(self:stripOf(strip))
+		self:_requestRefresh(); self:_changed()
+		return true
+	end)
 end
 
 function TabGroups:showAllTabBars()
@@ -1185,7 +1237,7 @@ function TabGroups:_mergeAbsent(children)
 				end
 				if not found then
 					found = { t = "group", name = g.name, source = g.source, active = g.active,
-						collapsed = g.collapsed or nil, toolbar = g.toolbar, children = {} }
+						collapsed = g.collapsed or nil, icon_only = g.icon_only or nil, toolbar = g.toolbar, children = {} }
 					table.insert(list, math.min(g.index or #list + 1, #list + 1), found)
 				end
 				list = found.children
@@ -1199,7 +1251,7 @@ end
 function TabGroups:_serializeStrip(strip, depth)
 	local out = {}
 	if depth > MAX_DEPTH then return out end
-	for _, child in ipairs(self:_children(strip)) do
+	for _, child in ipairs(self:savedChildren(strip)) do
 		local record = self:groupOf(child)
 		if record then
 			out[#out + 1] = {
@@ -1208,6 +1260,7 @@ function TabGroups:_serializeStrip(strip, depth)
 				source   = record.source,
 				active   = record.active,
 				collapsed = record.collapsed or nil,
+				icon_only = self:isIconOnly(child) or nil,
 				toolbar  = self:toolbarOf(child) == "left" and "left" or nil,
 				children = self:_serializeStrip(child, depth + 1),
 			}
@@ -1401,6 +1454,7 @@ function TabGroups:_restoreInto(strip, nodes, placed, depth, path)
 				end
 				if group_strip then
 					self:setCollapsed(group_strip, node.collapsed == true)
+					self:setIconOnly(group_strip, node.icon_only == true)
 					attr.set(self._iup, group_strip, "_IUPLUNAR_TOOLBAR", node.toolbar == "left" and "left" or nil)
 				end
 				local sub = {}
@@ -1410,6 +1464,7 @@ function TabGroups:_restoreInto(strip, nodes, placed, depth, path)
 				sub[#sub + 1] = {
 					name = node.name, index = index, active = node.active,
 					collapsed = node.collapsed == true,
+					icon_only = node.icon_only == true,
 					toolbar = node.toolbar,
 					source = node.source == "manifest" and "manifest" or "user",
 				}
@@ -1493,7 +1548,7 @@ function TabGroups:_pruneEmptyManifestGroups(strip, depth)
 		local record = self:groupOf(child)
 		if record then
 			self:_pruneEmptyManifestGroups(child, depth + 1)
-			if #self:_children(child) == 0 and record.source == "manifest" then
+			if #self:savedChildren(child) == 0 and record.source == "manifest" then
 				pcall(iup.Detach, child)
 				pcall(iup.Destroy, child)
 				changed = true
@@ -1521,7 +1576,7 @@ function TabGroups:_pruneEmptyGroups(strip, depth)
 		if record then
 			local held = self:_pruneEmptyGroups(child, depth + 1)
 				or (self._holds_absent and self._holds_absent[self:_uid(child)]) or false
-			if #self:_children(child) == 0 and (record.source == "manifest" or held) then
+			if #self:savedChildren(child) == 0 and (record.source == "manifest" or held) then
 				pcall(iup.Detach, child)
 				pcall(iup.Destroy, child)
 				changed = true

@@ -4,11 +4,33 @@ local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
 local Fonts = require("core.imgui.Fonts")
 local iup = require("core.imgui.iup")
+local Reactor = require("core.ui.ThemeReactor")
 
 local M = {}
 local function attr(e, n) return Element.getAttribute(e, n) end
 local yes = Element.isTrue -- iupStrBoolean
 local function children(e) return Element.children(e) end
+local function colors(menu)
+	local manager = Reactor.themeManager()
+	local theme = manager and manager.activeTheme and manager:activeTheme()
+	local p = theme and theme.palette and theme:palette() or Reactor.palette()
+	local rules = theme and theme.rules and theme:rules() or {}
+	local r = rules.contextmenu or rules.dropdown_list or {}
+	return {
+		bg = Element.own(menu, "BGCOLOR") or r.bg or p.layer02 or p.layer01 or p.surface or attr(menu, "BGCOLOR"),
+		fg = Element.own(menu, "FGCOLOR") or r.fg or p.text or attr(menu, "FGCOLOR"),
+		hover = Element.own(menu, "HLCOLOR") or r.selbg or r.hover or p.layerHover01 or p.surface2 or attr(menu, "HLCOLOR"),
+		selected_fg = Element.own(menu, "HIGHLIGHTFGCOLOR") or r.seltext or r.hovertext or r.fg or p.text or attr(menu, "FGCOLOR"),
+		marker = Element.own(menu, "ITEMMARKERCOLOR") or p.accent or "0 180 150",
+		border = Element.own(menu, "BORDERCOLOR") or r.border or p.border or "90 92 100",
+		font = Element.own(menu, "FONT") or r.font or p.font,
+		radius = tonumber(Element.own(menu, "CORNERRADIUS")) or r.radius or 4,
+		muted = p.textMuted or "160 162 170", disabled = p.textDisabled or p.textMuted or "120 122 128",
+	}
+end
+local function item_font(e, c)
+	return Fonts.get(Element.own(e, "FONT") or c.font or attr(e, "FONT"))
+end
 local function title_parts(value)
 	local s = tostring(value or "")
 	local label, accel = s:match("^(.-)\t(.*)$")
@@ -17,17 +39,19 @@ local function title_parts(value)
 	label = label:gsub("&&", "\1"):gsub("&(.)", function(c) mnemonic = mnemonic or c:lower(); return c end):gsub("\1", "&")
 	return label, accel, mnemonic
 end
-local function item_height(e)
-	return math.max(24, Fonts.forElement(e):charsize())
+local function item_height(e, c)
+	return math.max(24, item_font(e, c):charsize())
 end
 local function menu_size(menu)
-	local f = Fonts.forElement(menu); local w, h = 36, 8
+	local c = colors(menu)
+	local w, h = 36, 8
 	for _, item in ipairs(children(menu)) do
 		if attr(item, "SEPARATOR") == "YES" or Element.state(item).classname == "separator" then h = h + 8
 		else
+			local f = item_font(item, c)
 			local label, accel = title_parts(attr(item, "TITLE"))
-			w = math.max(w, f:measure(label) + (accel and f:measure(accel) or 0) + 52)
-			h = h + item_height(item)
+			w = math.max(w, f:measure(label) + (accel and f:measure(accel) + 16 or 0) + 76)
+			h = h + item_height(item, c)
 		end
 	end
 	return w, h
@@ -44,39 +68,45 @@ local function activate(item, state)
 end
 local function menu_draw(menu, state, dc)
 	local w, h = state.w, state.h
-	local bg = attr(menu, "BGCOLOR") or "38 40 46"
-	local fg = attr(menu, "FGCOLOR") or "230 230 235"
-	dc:fill(state.x, state.y, w, h, bg, { radius = tonumber(attr(menu, "CORNERRADIUS")) or 4 })
+	local c = colors(menu)
+	local bg, fg = c.bg, c.fg
+	local radius = c.radius
+	dc:fill(state.x + 2, state.y + 3, w, h, "0 0 0 50", { radius = radius })
+	dc:fill(state.x, state.y, w, h, bg, { radius = radius })
+	dc:rect(state.x, state.y, w, h, c.border, { radius = radius })
 	local y = state.y + 4
 	for i, item in ipairs(children(menu)) do
 		local ist = Element.state(item)
 		if ist.classname == "separator" or yes(attr(item, "SEPARATOR")) then
-			dc:line(state.x + 8, y + 3, state.x + w - 8, y + 3, attr(item, "COLOR") or "90 92 100", 1)
+			dc:line(state.x + 8, y + 3, state.x + w - 8, y + 3, Element.own(item, "COLOR") or c.border, 1)
 			y = y + 8
 		else
-			local ih = item_height(item); local active = attr(item, "ACTIVE") ~= "NO"; local selected = state.selected == i
+			local ih = item_height(item, c); local active = attr(item, "ACTIVE") ~= "NO"; local selected = state.selected == i
 			if selected and active then
-				dc:fill(state.x + 3, y, w - 6, ih, attr(menu, "HLCOLOR") or "65 70 82", { radius = 3 })
+				dc:fill(state.x + 3, y, w - 6, ih, c.hover, { radius = 3 })
 				dc:fill(state.x + 5, y + 5, 2, math.max(1, ih - 10),
-					attr(menu, "ITEMMARKERCOLOR") or attr(menu, "TXTHLCOLOR") or "0 180 150")
+					c.marker)
 			end
 			local label, accel = title_parts(attr(item, "TITLE"))
 			local mark = yes(attr(item, "VALUE")) and "✓" or ""
-			local font = Fonts.forElement(item)
-			dc:text(mark, state.x + 10, y, 18, ih, fg, font, { valign = "center" })
-			dc:text(label, state.x + 32, y, w - 76, ih, active and (attr(item, "FGCOLOR") or fg) or "120 122 128", font, { valign = "center", ellipsis = true })
-			if accel then dc:text(accel, state.x + w - 42 - font:measure(accel), y, font:measure(accel), ih, "160 162 170", font, { valign = "center", align = "right" }) end
-			if Element.state(item).classname == "submenu" then dc:text("›", state.x + w - 22, y, 16, ih, fg, font, { valign = "center", align = "right" }) end
+			local font = item_font(item, c)
+			local item_fg = active and (Element.own(item, "FGCOLOR") or (selected and c.selected_fg or fg)) or c.disabled
+			dc:text(mark, state.x + 10, y, 18, ih, item_fg, font, { valign = "center" })
+			dc:text(label, state.x + 32, y, w - 76 - (accel and font:measure(accel) + 16 or 0), ih,
+				item_fg, font, { valign = "center", ellipsis = true })
+			if accel then dc:text(accel, state.x + w - 24 - font:measure(accel), y, font:measure(accel), ih, c.muted, font, { valign = "center", align = "right" }) end
+			if Element.state(item).classname == "submenu" then dc:text("›", state.x + w - 22, y, 16, ih, item_fg, font, { valign = "center", align = "right" }) end
 			y = y + ih
 		end
 	end
 end
 local function menu_item_at(menu, state, ly)
+	local c = colors(menu)
 	local y = 4
 	for i, item in ipairs(children(menu)) do
 		if Element.state(item).classname == "separator" or yes(attr(item, "SEPARATOR")) then y = y + 8
 		else
-			local h = item_height(item)
+			local h = item_height(item, c)
 			if ly >= y and ly < y + h then return i end
 			y = y + h
 		end
@@ -164,11 +194,12 @@ function M.menubarHeight(menu, font)
 	return (font or Fonts.forElement(menu)):charsize() + 8
 end
 function M.drawMenubar(menu, dc, x, y, w, rt)
-	local h = M.menubarHeight(menu); dc:fill(x, y, w, h, attr(menu, "BGCOLOR") or "38 40 46")
+	local c = colors(menu)
+	local h = M.menubarHeight(menu); dc:fill(x, y, w, h, c.bg)
 	local cursor = x + 8; local f = Fonts.forElement(menu)
 	for i, item in ipairs(children(menu)) do
 		local label = title_parts(attr(item, "TITLE")); local iw = f:measure(label) + 18
-		dc:text(label, cursor + 9, y, iw - 18, h, attr(item, "FGCOLOR") or "230 230 235", f, { valign = "center" }); cursor = cursor + iw
+		dc:text(label, cursor + 9, y, iw - 18, h, Element.own(item, "FGCOLOR") or c.fg, f, { valign = "center" }); cursor = cursor + iw
 	end
 end
 function M.menubarEvent(menu, ev, rt)

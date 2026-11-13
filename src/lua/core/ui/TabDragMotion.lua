@@ -95,6 +95,9 @@ end
 function TabDragMotion:initialize(opts)
 	opts = opts or {}
 	self._iup       = opts.iup
+	self._draw_dialog = opts.dialog
+	self._custom_comp = opts.compositor ~= nil
+	self._listening = setmetatable({}, { __mode = "k" })
 	self._director  = opts.director
 	self._log       = opts.log
 	self._spring_ms = tonumber(opts.spring_ms) or 500
@@ -119,11 +122,17 @@ function TabDragMotion:_comp()
 		return nil
 	end
 	self._compositor = comp
+	self:_watch(comp)
+	return comp
+end
+
+function TabDragMotion:_watch(comp)
+	if self._listening[comp] then return end
+	self._listening[comp] = true
 	local me = self
 	local function relayout() if me._state then me:_render() end end
 	comp:on("resize", relayout)
 	comp:on("dpi", relayout)
-	return comp
 end
 
 function TabDragMotion:_ready()
@@ -151,6 +160,23 @@ end
 
 -- Track `strip`; false when there is nowhere to draw.
 function TabDragMotion:_attach(strip)
+	-- A popped-out strip belongs to another render surface. Drawing its local
+	-- bounds on the main dialog would put its drop cues in the wrong window.
+	if self._iup._IMGUI and not self._custom_comp then
+		local dialog = self._iup.GetDialog(strip)
+		if dialog and not handle.same(self._iup, dialog, self._draw_dialog) then
+			local comp = Compositor.forDialog(self._iup, dialog)
+			if not comp then return false end
+			if self._compositor then
+				self._compositor:remove(GROUP)
+				self._compositor:schedule(self._director)
+			end
+			self._director:cancel({ tag = TAG })
+			self._compositor, self._draw_dialog = comp, dialog
+			self._state, self._strip = nil, nil
+			self:_watch(comp)
+		end
+	end
 	if not self:_ready() then return false end
 	if not self._compositor:rect(strip) then return false end
 	if self._strip and not handle.same(self._iup, self._strip, strip) then
