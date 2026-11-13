@@ -13,7 +13,7 @@ local L = require("core.lib.CarbonLayout")
 local Kit = require("core.ui.Kit")
 
 local CommandPalette = {}
-local UTF16 = require("core.imgui.utf16")
+local UTF16 = require("core.lib.utf16")
 CommandPalette.__index = CommandPalette
 
 -- Nine whole rows of 32px, plus the field, the rule and the hint. A height chosen any

@@ -266,6 +266,18 @@ What happens on the ImGui host:
   (single, multiple, shift interval, ctrl toggle), drag and drop and the internal key
   callbacks follow the C. `iup.list` keeps the earlier model (`widgets/listbase.lua`).
   Specs: `imgui_flatlist_port_spec.lua`, `imgui_checklist_spec.lua`.
+- **Native text positions in UTF-16 units** (`core.lib.utf16`, `widgets/text.lua`):
+  `CARETPOS`, `SELECTIONPOS`, `COUNT`, the column of `CARET`/`SELECTION` and `CARET_CB`
+  count as the Win32 EDIT does (surrogate pairs are two), so non-ASCII text agrees with
+  IUP (`spec/imgui_text_utf16_spec.lua`). The command palette and the plain code view
+  now pass UTF-16 lengths too, which was also wrong on IUP for non-ASCII text.
+- **Interaction sweep for every bundled extension and org pack**
+  (`spec/support/imgui_extension_harness.lua`): each page is selected and its controls are
+  clicked where the runtime's hit test says they are, each click must fire the control's
+  callback, text fields are typed into, and the extension's settings must lay out; each
+  case asserts a floor of pages, clicks, callbacks and typed fields
+  (`imgui_extensions_spec.lua`, `imgui_orgpacks_spec.lua`, with `LUNAR_ORGPACKS_DIR`).
+  `Runtime.hitTest(x, y)` answers in dialog coordinates for specs and tools.
 - **Bundled fonts.** `main_imgui.c` registers the fonts under `assets/Themes` (IBM Plex)
   with GDI before any UI exists, as `main.c` does for IUP. Without it GDI substituted
   another face, so every IBM Plex label (Lunar Media's sidebar and headings) measured
@@ -279,7 +291,7 @@ What happens on the ImGui host:
 
 | Check | Result |
 |---|---|
-| Lunar specs (`scripts/test.ps1`, headless backend) | 2121 passing, 0 failures (11 pending: TLS tooling, native layout DLL) |
+| Lunar specs (`scripts/test.ps1`, headless backend, `LUNAR_ORGPACKS_DIR` and `LUNAR_MEDIA_DEMO=1` set) | 2136 passing, 0 failures (3 pending: TLS tooling, native layout DLL) |
 | HPE org pack specs (`hpe/scripts/test.ps1`) | 115 passing, including the new `imgui_queuepanel_spec.lua` (the real Build Queue panel on the emulator) |
 | Microchip org pack specs | 87 passing |
 | Org-pack branch | `imgui-immediate-mode-migration` in `lunar-orgpacks`; no pack code changes needed |

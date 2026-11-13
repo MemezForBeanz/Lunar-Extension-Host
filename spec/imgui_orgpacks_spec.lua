@@ -1,10 +1,8 @@
 local lfs = require("lfs")
 local Harness = require("spec.support.imgui_extension_harness")
 
-local default_root = "C:/Users/Hayden MSI/.t3/worktrees/lunar-orgpacks-imgui-migration"
-local root = os.getenv("LUNAR_ORGPACKS_DIR")
-if not root and lfs.attributes(default_root, "mode") then root = default_root end
-root = root or "../lunar-orgpacks"
+-- LUNAR_ORGPACKS_DIR points at a lunar-orgpacks checkout; a sibling checkout is the default
+local root = os.getenv("LUNAR_ORGPACKS_DIR") or "../lunar-orgpacks"
 local CASES = {
 	{ "hpe/extensions/buildqueue", 1, 1, 3, 10, 1 },
 	{ "hpe/extensions/iloredfish", 1, 1, 0, 9, 1 },

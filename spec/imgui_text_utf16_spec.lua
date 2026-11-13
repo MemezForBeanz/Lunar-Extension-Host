@@ -1,4 +1,4 @@
-local UTF16 = require("core.imgui.utf16")
+local UTF16 = require("core.lib.utf16")
 local Element = require("core.imgui.Element")
 local Classes = require("core.imgui.Classes")
 local iup = require("core.imgui.iup")

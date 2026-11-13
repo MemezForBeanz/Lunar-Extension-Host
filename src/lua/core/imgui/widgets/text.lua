@@ -4,7 +4,7 @@ local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
 local Fonts = require("core.imgui.Fonts")
 local iup = require("core.imgui.iup")
-local UTF16 = require("core.imgui.utf16")
+local UTF16 = require("core.lib.utf16")
 
 local M = {}
 local function attr(e, n) return Element.getAttribute(e, n) end

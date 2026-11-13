@@ -42,7 +42,7 @@ local function native()
 end
 
 local CodeView = {}
-local UTF16 = require("core.imgui.utf16")
+local UTF16 = require("core.lib.utf16")
 CodeView.__index = CodeView
 
 --- Is the real code view (Scintilla) in this build?
