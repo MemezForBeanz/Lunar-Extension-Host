@@ -85,6 +85,9 @@ local function save_bmp(target, path, from_screen)
 	-- The backend reads the back buffer at the end of the next frame, which also shows
 	-- the state after the step that asked for the shot.
 	if target == Runtime.mainDialog() or not st then B.screenshot(path)
+	elseif st.data.win then
+		-- a dialog in its own window (secondary dialogs are native windows): its back buffer
+		B.screenshot(path, 0, 0, 0, 0, st.data.win)
 	else
 		local top = st.data.chrome and st.data.chrome.top or 0
 		B.screenshot(path, st.data.ox or 0, (st.data.oy or 0) - top, st.w, st.h + top)
