@@ -73,29 +73,7 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM,
  * declares the same layout). Input arrives as an ordered list of events, each with the
  * pointer position and modifiers it happened with, so a press and release that land in
  * one frame (a touchpad tap, a quick click) are routed exactly as they happened. */
-extern "C" {
-typedef struct LunarUiEvent {
-    int32_t type;     /* 1 move, 2 press, 3 release, 4 wheel, 5 key down, 6 key up, 7 char, 8 leave, 9 file */
-    int32_t button;   /* 1 left, 2 middle, 3 right; a double click is a press with button + 8 */
-    int32_t mods;     /* 1 shift, 2 ctrl, 4 alt, 8 sys, 16/32/64 buttons 1/2/3 held */
-    int32_t code;     /* key: the backend key code; char/file: index into chars/files */
-    float x, y;       /* client px */
-    float dx, dy;     /* wheel notches */
-} LunarUiEvent;
-
-typedef struct LunarUiFrame {
-    int32_t w, h;
-    float scale;
-    int32_t focused, resized, minimized, close_requested, inside;
-    float mx, my;
-    int32_t nevents;
-    const LunarUiEvent *events;
-    int32_t nchars;
-    const char *const *chars;
-    int32_t nfiles;
-    const char *const *files;
-} LunarUiFrame;
-}
+#include "lunarimgui_abi.h"
 
 namespace {
 

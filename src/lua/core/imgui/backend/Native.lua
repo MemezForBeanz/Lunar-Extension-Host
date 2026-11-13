@@ -110,6 +110,14 @@ end
 local TYPES = { "move", "press", "release", "wheel", "keydown", "keyup", "char", "leave", "file", "tray" }
 
 local raw_frame_begin = C_API.frame_begin
+local raw_frame_end = C_API.frame_end
+function B.frame_end()
+	raw_frame_end()
+	-- Timers and layout captures may draw between frames. A rendered list can
+	-- have its trailing command removed; send those calls to the scratch list.
+	surface, layer = 0, 0
+	dl = C.lunar_ui_draw_list(0)
+end
 function B.frame_begin()
 	local f = ffi.cast(frame_ptr_t, raw_frame_begin())
 	surface = 0

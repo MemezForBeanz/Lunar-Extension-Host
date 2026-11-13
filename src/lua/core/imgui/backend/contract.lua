@@ -154,6 +154,10 @@ function M.exercise(B, opts)
 	end
 	local okf, errf = pcall(B.frame_end)
 	if not okf then fail("frame_end() failed: %s", tostring(errf)) end
+	-- Layout and motion capture can issue clipping calls between frames.
+	-- The native adapter must redirect them away from already rendered lists.
+	local okclip, errclip = pcall(function() B.clip_push(0, 0, 8, 8); B.clip_pop() end)
+	if not okclip then fail("between-frame clipping failed: %s", tostring(errclip)) end
 	if tex then
 		local okt, errt = pcall(B.texture_free, tex)
 		if not okt then fail("texture_free() failed: %s", tostring(errt)) end

@@ -564,6 +564,8 @@ else()
 endif()
 
 endif()
+elseif(NOT LUNAR_HEADLESS AND LUNAR_UI STREQUAL "IMGUI")
+include(cmake/ImGuiLinux.cmake)
 elseif(NOT LUNAR_HEADLESS)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)

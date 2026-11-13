@@ -7,7 +7,9 @@
  * running in place of the embedded application, in exactly the environment the
  * application gets.
  */
+#ifdef _WIN32
 #include <windows.h>
+#endif
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -49,12 +51,16 @@ static void preload(lua_State *L, const char *name, lua_CFunction fn)
 
 static void fatal(const char *msg)
 {
+#ifdef _WIN32
     int n = MultiByteToWideChar(CP_UTF8, 0, msg, -1, NULL, 0);
     wchar_t *w = (wchar_t *)malloc((size_t)(n > 0 ? n : 1) * sizeof(wchar_t));
     if (!w) return;
     if (n > 0) MultiByteToWideChar(CP_UTF8, 0, msg, -1, w, n); else w[0] = 0;
     MessageBoxW(NULL, w, L"Lunar Extension Host - Fatal Error", MB_OK | MB_ICONERROR);
     free(w);
+#else
+    fprintf(stderr, "Lunar: %s\n", msg ? msg : "unknown error");
+#endif
 }
 
 static int has_lua_suffix(const char *path)
@@ -207,8 +213,10 @@ int main(int argc, char **argv)
     return status == LUA_OK ? 0 : 1;
 }
 
+#ifdef _WIN32
 int WINAPI WinMain(HINSTANCE h, HINSTANCE p, LPSTR cmd, int show)
 {
     (void)h; (void)p; (void)cmd; (void)show;
     return main(__argc, __argv);
 }
+#endif
