@@ -71,6 +71,25 @@ describe("ImGui compositor", function()
 		overlay:hide()
 		assert.is_false(overlay:isOpen())
 	end)
+	it("converts scene RGB colours to visible ImGui colours for every solid sprite", function()
+		local Color = require("core.imgui.Color")
+		overlay:present({
+			{ kind = "fill", x = 2, y = 3, w = 8, h = 6, color = 0x1267ab, alpha = 0.5 },
+			{ kind = "stroke", x = 12, y = 3, w = 8, h = 6, color = 0x1267ab, alpha = 1 },
+			{ kind = "rrect", x = 22, y = 3, w = 8, h = 6, color = 0x1267ab, alpha = 1, radius = 2 },
+		}, {}, 0.5)
+		B.queue({})
+		Runtime.frame()
+		local colors = {}
+		for _, call in ipairs(B.lastFrame()) do
+			if (call[1] == "rect_filled" or call[1] == "rect") and call[3] == 3 then
+				colors[call[2]] = call[6]
+			end
+		end
+		assert.equal(Color.pack(0x12, 0x67, 0xab, 64), colors[2])
+		assert.equal(Color.pack(0x12, 0x67, 0xab, 128), colors[12])
+		assert.equal(Color.pack(0x12, 0x67, 0xab, 128), colors[22])
+	end)
 
 	it("keeps a crossfade live across advancing frames", function()
 		local first = assert(overlay:snapshot(canvas))

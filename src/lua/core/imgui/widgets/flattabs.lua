@@ -301,11 +301,11 @@ local function xyToPos(el, st, x, y)
 	local hit = hitTab(el, st, st.x + x, st.y + y)
 	return hit or -1
 end
-local function drawTabContent(el, st, dc, pos, x, y, w, h, color)
+local function drawTabContent(el, st, dc, pos, x, y, w, h, color, force_title)
 	local child = pages(el)[pos + 1]
 	local title = tabTitle(el, pos, child)
 	local image = tabImage(el, pos, child)
-	if image and yes(attr(el, "TABSHIDETITLE")) then title = nil end
+	if image and yes(attr(el, "TABSHIDETITLE")) and not force_title then title = nil end
 	local font = tabFont(el, pos)
 	local px, py = pair(attr(el, "TABSPADDING"), 6, 4)
 	local iw, ih = Draw.imageSize(image)
@@ -358,6 +358,13 @@ local function draw(el, st, dc)
 			local selected = child == current_child
 			local hovered = st.data.hover == i - 1
 			local cid = Element.state(child) and Element.state(child).id or i
+			-- Layout and hit testing retain the model's stable slots during a drag;
+			-- only the picture moves while the eventual drop is being previewed.
+			local shift = motion.number(st, "drag" .. cid,
+				motion.enabled() and ((st.data.drag_offsets or {})[i - 1] or 0) or 0, "tab_drag_caret")
+			if horizontal(el) then x = x + shift else y = y + shift end
+			local dragged = st.data.drag_source == i - 1 and motion.enabled()
+			if dragged then dc:alpha_push(0) end
 			local role = (was_selected[child] ~= nil and was_selected[child] ~= selected) and "tab_select" or "hover"
 			was_selected[child] = selected
 			-- iFlatTabsRedraw_CB: the current tab in BGCOLOR/FORECOLOR (TABSSELCOLOR on side
@@ -388,7 +395,7 @@ local function draw(el, st, dc)
 				end
 			end
 			drawTabContent(el, st, dc, i - 1, x, y, w, h, color or attr(el, "FGCOLOR"))
-			if selected and attr(el, "TABSACTIVELINE") then indicator = { x, y, w, h, child } end
+			if selected and not dragged and attr(el, "TABSACTIVELINE") then indicator = { x, y, w, h, child } end
 			if yes(attr(el, "SHOWCLOSE")) then
 				local cx, cy = x + w - CLOSE_GAP - CLOSE_SIZE, y + (h - CLOSE_SIZE) / 2
 				if not horizontal(el) then cx, cy = x + (w - CLOSE_SIZE) / 2, y + h - CLOSE_GAP - CLOSE_SIZE end
@@ -400,6 +407,7 @@ local function draw(el, st, dc)
 					dc:line(cx + 11, cy + 2, cx + 2, cy + 11, color, 1)
 				end
 			end
+			if dragged then dc:alpha_pop() end
 			offset = offset + (horizontal(el) and w or h)
 		end
 	end
@@ -695,5 +703,33 @@ local def = {
 
 M.flattabs = Classes.define(def)
 M.tabs = Classes.define(setmetatable({ name = "tabs", place = place_pages(true) }, { __index = def }))
+
+-- Shared by the drag preview so it uses the exact header geometry and content.
+function M.headerRects(el)
+	local st, rects, offset = Element.state(el), {}, 0
+	if not st then return rects end
+	for i, child in ipairs(pages(el)) do
+		if visibleAt(el, i - 1) then
+			local x, y, w, h = tabRect(el, st, i - 1, offset)
+			rects[#rects + 1] = { pos = i - 1, x = x, y = y, w = w, h = h }
+			offset = offset + (horizontal(el) and w or h)
+		end
+	end
+	return rects
+end
+
+function M.drawDragHeader(el, pos, dc, x, y, w, h)
+	local bg = attr(el, "BGCOLOR") or attr(el, "TABSBACKCOLOR")
+	dc:fill(x + 2, y + 3, w, h, "0 0 0 70", { radius = 5 })
+	dc:fill(x, y, w, h, bg, { radius = 5 })
+	dc:rect(x, y, w, h, attr(el, "TABSACTIVELINE") or attr(el, "TABSLINECOLOR"), { radius = 5 })
+	drawTabContent(el, Element.state(el), dc, pos, x, y, w, h, attr(el, "TABSFORECOLOR") or attr(el, "FORECOLOR"), true)
+end
+
+function M.dragSize(el, pos, rect)
+	if horizontal(el) then return rect.w, rect.h end
+	local w, h = tabSize(el, pos, pages(el)[pos + 1])
+	return math.max(96, math.min(260, w)), math.max(28, h)
+end
 
 return M

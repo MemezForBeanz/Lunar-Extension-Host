@@ -176,9 +176,9 @@ function TabOrder:setGroups(groups)
 end
 
 --- Register a toolbar view. Positions match the root, including hidden tabs.
-function TabOrder:setStandIn(strip, stand_in, toolbar)
+function TabOrder:setStandIn(strip, stand_in, toolbar, drop_rect)
 	self._stand_ins = self._stand_ins or {}
-	self._stand_ins[#self._stand_ins + 1] = { strip = strip, widget = stand_in, toolbar = toolbar }
+	self._stand_ins[#self._stand_ins + 1] = { strip = strip, widget = stand_in, toolbar = toolbar, drop_rect = drop_rect }
 end
 
 --- Forward a toolbar event using that toolbar's geometry for the captured pointer.
@@ -357,7 +357,35 @@ function TabOrder:_resolveDrop(source, x, y, dragged)
 			return drop
 		end
 	end
+	-- A title strip sizes to its tabs, but its toolbar includes the empty caption
+	-- beside them. Captured drags may be released anywhere in that empty area.
+	for _, view in ipairs(candidates) do
+		if view.drop_rect then
+			local ax, ay, aw, ah = view.drop_rect()
+			if ax and gx >= ax and gx < ax + aw and gy >= ay and gy < ay + ah then
+				return self:fromView(view.widget, function()
+					return self:_appendDrop(view.strip, view.toolbar)
+				end)
+			end
+		end
+	end
 	return nil
+end
+
+function TabOrder:_appendDrop(strip, toolbar)
+	local zone = self:_shown(strip)
+	local band, vertical = self:_bandHeight(strip), self:_vertical(strip)
+	local _, _, w, h = self:_rect(strip)
+	local extent = vertical and h or w
+	local last = 0
+	-- Empty space appends, and gets an insertion marker after the last tab.
+	if band and extent then
+		for at = extent - 1, 0, -1 do
+			local p = self:_posAt(strip, vertical and band / 2 or at, vertical and at or band / 2)
+			if p then last = at + 1; break end
+		end
+	end
+	return { strip = strip, zone = zone, band = band, vertical = vertical, caret_x = last, toolbar = toolbar, append = true }
 end
 
 function TabOrder:_dropAt(strip, gx, gy, dragged)
@@ -376,7 +404,7 @@ function TabOrder:_dropAt(strip, gx, gy, dragged)
 		local pos = self:_posAt(strip, lx, ly)
 		if not pos then
 			-- Past the last tab (or on the "+" button): append here.
-			return { strip = strip, index = nil, zone = (self:_shown(strip)), band = band, vertical = vertical }
+			return self:_appendDrop(strip)
 		end
 
 		local child = self:_child(strip, pos)
@@ -563,7 +591,12 @@ function TabOrder:_applyDropInner(job)
 		return
 	elseif drop.strip then
 		if drop.toolbar then
-			groups:setToolbar(job.widget, drop.toolbar, drop.index)
+			local index = drop.index
+			if drop.append then
+				local count = tonumber(self._iup.GetAttribute(drop.strip, "COUNT"))
+				index = count and count + 1 or nil
+			end
+			groups:setToolbar(job.widget, drop.toolbar, index)
 		else
 			groups:moveInto(job.widget, drop.strip, drop.index)
 		end
@@ -686,6 +719,7 @@ function TabOrder:install(strip)
 				-- DRAG_THRESHOLD).
 				self_._drag = {
 					strip = strip,
+					view = self_:_shown(strip),
 					pos = pos,
 					widget = self_:_child(strip, pos),
 					ox = x, oy = y,
@@ -699,6 +733,7 @@ function TabOrder:install(strip)
 
 		local drag = self_._drag
 		self_._drag = nil
+		if iup._IMGUI then require("core.imgui.TabDragPreview").finish() end
 		self_:_cancelSpring()
 		pcall(iup.SetAttribute, strip, "CURSOR", "ARROW")
 
@@ -750,6 +785,7 @@ function TabOrder:install(strip)
 				return iup.DEFAULT   -- still within the click tolerance
 			end
 			drag.moved = true
+			if iup._IMGUI then require("core.imgui.TabDragPreview").start(drag.view, drag.pos, drag.ox, drag.oy) end
 			pcall(iup.SetAttribute, strip, "CURSOR", "MOVE")
 			-- This gesture is a DRAG, not a click. The capture taken on press was
 			-- for a page transition that is no longer going to happen: any page
@@ -762,6 +798,12 @@ function TabOrder:install(strip)
 		end
 
 		local drop = self_:_resolveDrop(strip, x, y, drag.widget)
+		if iup._IMGUI then
+			local st = require("core.imgui.Element").state(drag.view)
+			local index = drop and (drop.index or (self_._iup.GetChildCount(drop.strip or drop.zone) + 1))
+			require("core.imgui.TabDragPreview").update(drop and drop.zone, index,
+				drop and (drop.merge or drop.into), st.x + x, st.y + y)
+		end
 		local motion = self_._motion
 		if motion and motion.setVertical then motion:setVertical(drop and drop.vertical) end
 

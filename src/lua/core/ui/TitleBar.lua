@@ -101,6 +101,19 @@ end
 function TitleBar:widget() return self._widget end
 --- The top toolbar's mirror of the main tree.
 function TitleBar:groupStrip() return self._groups end
+-- The empty caption space belongs to the top toolbar as a drop destination too.
+-- Keep the strip itself snug so the add button still follows its last tab.
+function TitleBar:dropRect()
+	local iup = self._iup
+	local function pos(w)
+		local x, y = tostring(iup.GetAttribute(w, "SCREENPOSITION")):match("(-?%d+),(-?%d+)")
+		return tonumber(x), tonumber(y)
+	end
+	local x = pos(self._groups)
+	local right = pos(self._menu)
+	local _, y = pos(self._widget)
+	if x and right and y then return x, y, math.max(0, right - x), TitleBar.HEIGHT end
+end
 function TitleBar:onMode(fn) self._on_mode = fn end
 function TitleBar:onMenu(fn) self._on_menu = fn end
 function TitleBar:onBars(fn) self._on_bars = fn end

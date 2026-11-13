@@ -62,6 +62,18 @@ end
 local STRIP = {}
 
 describe("TabDragMotion sprites", function()
+	it("moves the combine cue to a different strip with identical local tab bounds", function()
+		local m, backend, _, dir, clock = make()
+		local other = {}
+		function backend:rect(widget)
+			return widget == other and 400 or STRIP_X, STRIP_Y, 600, 300
+		end
+		m:showCombine(STRIP, 100, 96, 28)
+		clock.t = 1; dir:tick(clock.t)
+		m:showCombine(other, 100, 96, 28)
+		clock.t = 2; dir:tick(clock.t)
+		assert.equal(500, last_scene(backend)[1].x)
+	end)
 	it("keeps drop cues visible without animating when motion is disabled", function()
 		local m, backend, _, dir = make({ enabled = false })
 		m:showCombine(STRIP, 100, 96, 28)
@@ -126,9 +138,11 @@ describe("TabDragMotion sprites", function()
 		local m, backend, _, dir, clock = make()
 		m:showCombine(STRIP, 100, 96, 28)
 		local first = last_scene(backend)
-		assert.are.equal(1, #first)
+		assert.are.equal(2, #first)
 		assert.are.equal("stroke", first[1].kind)
 		assert.are.equal(2, first[1].thickness)
+		assert.are.equal("fill", first[2].kind)
+		assert.are.equal(0.16, first[2].alpha)
 		-- Starts at 0.8 scale: narrower than the target and centred on it.
 		assert.is_true(first[1].w < 96)
 		assert.are.equal(20 + 100 + math.floor((96 - first[1].w) / 2 + 0.5), first[1].x)

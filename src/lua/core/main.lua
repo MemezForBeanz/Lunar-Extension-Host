@@ -1144,7 +1144,7 @@ tab_groups = TabGroups:new({
 tab_order:setGroups(tab_groups)
 -- The main strip's tabs are partitioned between the top and left toolbars.
 iup.SetAttribute(tabs, "SHOWTABS", "NO")
-tab_order:setStandIn(tabs, title_bar:groupStrip(), "top")
+tab_order:setStandIn(tabs, title_bar:groupStrip(), "top", function() return title_bar:dropRect() end)
 tab_order:setStandIn(tabs, tool_rail:widget(), "left")
 title_bar:setOrder(tab_order)
 host:setTabGroups(tab_groups)

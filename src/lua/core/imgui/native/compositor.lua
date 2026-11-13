@@ -7,6 +7,7 @@
 
 local Element = require("core.imgui.Element")
 local Draw = require("core.imgui.Draw")
+local Color = require("core.imgui.Color")
 local Runtime = require("core.imgui.Runtime")
 
 local M = {}
@@ -69,6 +70,11 @@ end
 local function draw_sprite(dc, sprite, layer_alpha)
 	local alpha = (tonumber(sprite.alpha) or 1) * layer_alpha
 	if alpha <= 0 then return end
+	-- Compositor scenes use 0xRRGGBB, just like the native IUP compositor.
+	-- Draw expects packed ImGui 0xAABBGGRR: passing scene numbers straight
+	-- through makes every solid sprite transparent (and swaps red and blue).
+	local rgb = sprite.color or 0
+	local color = Color.pack(math.floor(rgb / 65536) % 256, math.floor(rgb / 256) % 256, rgb % 256)
 	local clipped = clip(dc, sprite.clip)
 	if sprite.kind == "image" then
 		local snap = sprite.snap
@@ -79,17 +85,17 @@ local function draw_sprite(dc, sprite, layer_alpha)
 		end
 	elseif sprite.kind == "fill" then
 		dc:alpha_push(alpha)
-		dc:fill(sprite.x or 0, sprite.y or 0, sprite.w or 0, sprite.h or 0, sprite.color)
+		dc:fill(sprite.x or 0, sprite.y or 0, sprite.w or 0, sprite.h or 0, color)
 		dc:alpha_pop()
 	elseif sprite.kind == "rrect" then
 		dc:alpha_push(alpha)
 		dc:fill(sprite.x or 0, sprite.y or 0, sprite.w or 0, sprite.h or 0,
-			sprite.color, { radius = sprite.radius or 0 })
+			color, { radius = sprite.radius or 0 })
 		dc:alpha_pop()
 	elseif sprite.kind == "stroke" then
 		dc:alpha_push(alpha)
 		dc:rect(sprite.x or 0, sprite.y or 0, sprite.w or 0, sprite.h or 0,
-			sprite.color, { thickness = sprite.thickness or 1 })
+			color, { thickness = sprite.thickness or 1 })
 		dc:alpha_pop()
 	end
 	if clipped then dc:clip_pop() end

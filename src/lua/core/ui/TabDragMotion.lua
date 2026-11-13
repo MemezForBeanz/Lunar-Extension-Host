@@ -48,6 +48,7 @@ local class = require("middleclass")
 
 local Compositor = require("core.lib.Compositor")
 local ThemeReactor = require("core.ui.ThemeReactor")
+local handle = require("core.lib.handle")
 
 local TabDragMotion = class("TabDragMotion")
 
@@ -152,6 +153,10 @@ end
 function TabDragMotion:_attach(strip)
 	if not self:_ready() then return false end
 	if not self._compositor:rect(strip) then return false end
+	if self._strip and not handle.same(self._iup, self._strip, strip) then
+		self._director:cancel({ tag = TAG })
+		self._state = nil
+	end
 	self._strip = strip
 	return true
 end
@@ -192,6 +197,10 @@ function TabDragMotion:_sprites(ox, oy, scale)
 		local x = st.x + (st.w - w) / 2
 		local y = st.y + (st.h - h) / 2
 		outline(sprites, ox + x, oy + y, w, h, c.fill, 2)
+		-- A translucent target surface stays legible behind the lifted tab. The
+		-- outline and spring countdown still distinguish grouping from insertion.
+		fill(sprites, ox + x + 2, oy + y + 2, w - 4, h - 4, c.fill)
+		if sprites[2] then sprites[2].alpha = 0.16 end
 
 	elseif st.kind == "merge" then
 		-- The folder-creation flourish: one rectangle contracting from the span of
@@ -317,7 +326,7 @@ function TabDragMotion:showCombine(strip, x, w, band)
 	if not self:_attach(strip) then return end
 
 	local st = self._state
-	if st and st.kind == "combine" and st.x == x and st.w == w then
+	if st and st.kind == "combine" and st.x == x and st.w == w and st.h == band then
 		return   -- already announcing this exact target
 	end
 

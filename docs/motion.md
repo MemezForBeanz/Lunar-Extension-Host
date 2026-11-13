@@ -108,6 +108,13 @@ reason to differ still can. The defaults live in `MotionTokens.ROLES`.
 | `tab_select` | 110 ms, standard, productive | A tab's text and fill cross-fading as it is selected or left (ImGui host) |
 | `hover` | 70 ms, standard, productive | Hover fill and text easing in and out (ImGui host) |
 
+On ImGui, dragging lifts the tab header under the pointer and eases neighbouring
+headers aside to preview insertion, horizontally or vertically. The actual tab
+tree changes on release. Group targets keep their position and show an accent
+outline and translucent fill; hovering a closed group also shows its spring-open
+countdown. The whole empty title-bar area accepts sidebar drops. With motion off,
+headers remain still and the drop cues appear immediately.
+
 ### Motion inside widgets (the ImGui host)
 
 On the IUP build every effect above is a picture laid over the real widgets, because
