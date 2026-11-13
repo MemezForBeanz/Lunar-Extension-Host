@@ -1,0 +1,81 @@
+local UTF16 = require("core.imgui.utf16")
+local Element = require("core.imgui.Element")
+local Classes = require("core.imgui.Classes")
+local iup = require("core.imgui.iup")
+local Null = require("core.imgui.backend.Null")
+local Runtime = require("core.imgui.Runtime")
+
+describe("Win32 EDIT UTF-16 text positions", function()
+	before_each(function() Runtime.init(Null.new()) end)
+
+	it("counts UTF-16 units and replaces invalid UTF-8 bytes", function()
+		assert.equal(1, UTF16.length("A"))
+		assert.equal(1, UTF16.length("é"))
+		assert.equal(1, UTF16.length("€"))
+		assert.equal(2, UTF16.length("😀"))
+		assert.equal(1, UTF16.length("界"))
+		assert.equal(1, UTF16.length(string.char(0xFF)))
+	end)
+
+	it("round trips byte boundaries through UTF-16 units", function()
+		local text = "Aé😀界"
+		assert.equal(0, UTF16.byte_to_units(text, 0))
+		assert.equal(1, UTF16.byte_to_units(text, 1))
+		assert.equal(2, UTF16.byte_to_units(text, 3))
+		assert.equal(4, UTF16.byte_to_units(text, 7))
+		assert.equal(0, UTF16.units_to_byte(text, 0))
+		assert.equal(1, UTF16.units_to_byte(text, 1))
+		assert.equal(3, UTF16.units_to_byte(text, 2))
+		assert.equal(7, UTF16.units_to_byte(text, 4))
+		assert.equal(#text, UTF16.units_to_byte(text, 99))
+	end)
+
+	local function text(value, multiline)
+		return iup.text({
+			VALUE = value,
+			MULTILINE = multiline and "YES" or "NO",
+			SCROLLBAR = "NO",
+		})
+	end
+
+	it("exposes UTF-16 COUNT and positions while keeping selections in bytes", function()
+		local t = text("Aé€😀界")
+		assert.equal("6", iup.GetAttribute(t, "COUNT"))
+		iup.SetAttribute(t, "CARETPOS", "5")
+		assert.equal("5", iup.GetAttribute(t, "CARETPOS"))
+		iup.SetAttribute(t, "SELECTIONPOS", "1:5")
+		assert.equal("1:5", iup.GetAttribute(t, "SELECTIONPOS"))
+		assert.equal("é€😀", iup.GetAttribute(t, "SELECTEDTEXT"))
+		iup.SetAttribute(t, "CARETPOS", "999")
+		assert.equal("6", iup.GetAttribute(t, "CARETPOS"))
+		iup.SetAttribute(t, "SELECTIONPOS", "ALL")
+		assert.equal("0:6", iup.GetAttribute(t, "SELECTIONPOS"))
+		iup.SetAttribute(t, "SELECTIONPOS", "NONE")
+		assert.is_nil(iup.GetAttribute(t, "SELECTIONPOS"))
+	end)
+
+	it("uses UTF-16 columns and normalized multiline line breaks", function()
+		local t = text("é😀\n€界", true)
+		assert.equal("6", iup.GetAttribute(t, "COUNT"))
+		iup.SetAttribute(t, "CARET", "1,4")
+		assert.equal("1,4", iup.GetAttribute(t, "CARET"))
+		assert.equal("3", iup.GetAttribute(t, "CARETPOS"))
+		iup.SetAttribute(t, "SELECTIONPOS", "1:7")
+		assert.equal("1:6", iup.GetAttribute(t, "SELECTIONPOS"))
+		assert.equal("😀\n€界", iup.GetAttribute(t, "SELECTEDTEXT"))
+		iup.SetAttribute(t, "SELECTION", "1,2:2,2")
+		assert.equal("1,2:2,2", iup.GetAttribute(t, "SELECTION"))
+		assert.equal("😀\n€", iup.GetAttribute(t, "SELECTEDTEXT"))
+	end)
+
+	it("passes UTF-16 positions to CARET_CB", function()
+		local seen = {}
+		local t = text("é😀")
+		t.caret_cb = function(_, lin, col, pos) seen[#seen + 1] = { lin, col, pos } end
+		local st = Element.state(t)
+		iup.SetAttribute(t, "CARETPOS", "0")
+		Classes.get("text").event(t, st, { type = "key", key = iup.K_RIGHT }, {})
+		Classes.get("text").event(t, st, { type = "key", key = iup.K_RIGHT }, {})
+		assert.same({ { 1, 2, 1 }, { 1, 4, 3 } }, seen)
+	end)
+end)

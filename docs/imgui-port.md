@@ -556,8 +556,10 @@ Known differences, in order of visibility:
   on it) draw inside that window, so one cannot reach past its edges; IUP's are windows.
 - **Text weight in IUP's popups**: IUP's secondary windows draw text heavier than its main
   window; the ImGui host draws them at the main window's weight.
-- **Text positions are bytes**: `CARETPOS`, `SELECTIONPOS` and `COUNT` on native text count
-  UTF-8 bytes, where the Win32 EDIT counts UTF-16 units; they agree for ASCII.
+- **Text positions use UTF-16 units**: `CARETPOS`, `SELECTIONPOS`, `COUNT`, `CARET`,
+  `SELECTION` and `CARET_CB` on native text match the Win32 EDIT's UTF-16 code-unit
+  positions (with multiline `\r\n` exposed as one logical line break); internal emulation
+  state remains UTF-8 byte offsets.
 - **The code editor** is an emulation of the Scintilla messages CodeView sends, not
   Scintilla itself (see `docs/imgui-scintilla.md`).
 - **Video overlays**: ImGui popups (menus, tooltips) cannot draw over the native video child

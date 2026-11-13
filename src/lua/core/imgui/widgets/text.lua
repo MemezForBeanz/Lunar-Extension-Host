@@ -4,6 +4,7 @@ local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
 local Fonts = require("core.imgui.Fonts")
 local iup = require("core.imgui.iup")
+local UTF16 = require("core.imgui.utf16")
 
 local M = {}
 local function attr(e, n) return Element.getAttribute(e, n) end
@@ -60,6 +61,15 @@ local function word_right(s, p)
 	return p
 end
 local function clamp(st, p) return math.max(0, math.min(#st.data.text, math.floor(p or 0))) end
+-- winTextGet/SetSelection and winTextRemoveExtraChars: public positions are the
+-- normalized UTF-16 positions, while the EDIT's internal buffer has CRLF line breaks.
+local function native_to_byte(text, p)
+	return UTF16.units_to_byte(text or "", math.max(0, math.floor(p or 0)))
+end
+local function byte_to_native(text, p)
+	return UTF16.byte_to_units(text or "", math.max(0, math.floor(p or 0)))
+end
+local function native_length(text) return UTF16.length(text or "") end
 local function sorted_selection(st)
 	local a, b = st.data.anchor or st.data.caret, st.data.caret
 	return math.min(a, b), math.max(a, b)
@@ -203,13 +213,16 @@ local function lincol_to_pos(text, lin, col)
 	local lines = lines_of(text or "")
 	lin = math.max(1, math.min(#lines, math.floor(lin)))
 	local ln = lines[lin]
-	col = math.max(1, math.min(ln[2] - ln[1] + 1, math.floor(col)))
-	return ln[1] + col - 1
+	local max_col = byte_to_native(text, ln[2]) - byte_to_native(text, ln[1]) + 1
+	col = math.max(1, math.min(max_col, math.floor(col)))
+	return ln[1] + UTF16.units_to_byte((text or ""):sub(ln[1] + 1, ln[2]), col - 1)
 end
 -- winTextGetLinColFromPosition: a position to 1-based line and column.
 local function pos_to_lincol(text, p)
-	local line, col = line_at(text or "", p)
-	return line + 1, col + 1
+	local value = text or ""
+	local line, byte_col = line_at(value, p)
+	local start = line_start(value, p)
+	return line + 1, byte_to_native(value, start + byte_col) - byte_to_native(value, start) + 1
 end
 local function action(e, old, proposed, from, to)
 	local c = proposed:sub(1, 1)
@@ -253,7 +266,9 @@ local function caret_cb(e, st)
 	if st.data.last_caret_pos == st.data.caret then return end
 	st.data.last_caret_pos = st.data.caret
 	local line, col = line_at(st.data.text, st.data.caret)
-	Element.call(e, "CARET_CB", line + 1, col + 1, st.data.caret)
+	local start = line_start(st.data.text, st.data.caret)
+	local native_col = byte_to_native(st.data.text, start + col) - byte_to_native(st.data.text, start) + 1
+	Element.call(e, "CARET_CB", line + 1, native_col, byte_to_native(st.data.text, st.data.caret))
 end
 -- After the caret moved: CARET_CB, EM_SCROLLCARET, and the blink restarts shown.
 local function moved(e, st, rt)
@@ -833,19 +848,24 @@ local common = {
 		end,
 		DELETERANGE = function(e, st, v)
 			local a, b = tostring(v or ""):match("^(%d+)%s*[,;:]%s*(%d+)$")
-			if a then replace(e, st, tonumber(a), tonumber(b), "") end
+			if a then replace(e, st, native_to_byte(st.data.text, a), native_to_byte(st.data.text, b), "") end
 			return false
 		end,
 		-- winTextSetCaretPosAttrib: EM_SETSEL, then EM_SCROLLCARET
-		CARETPOS = function(e, st, v) st.data.caret = clamp(st, tonumber(v) or 0); st.data.anchor = st.data.caret; M.scrollCaret(e, st); return false end,
+		CARETPOS = function(e, st, v) st.data.caret = native_to_byte(st.data.text, tonumber(v) or 0); st.data.anchor = st.data.caret; M.scrollCaret(e, st); return false end,
 		SELECTIONPOS = function(e, st, v)
-			local a, b = tostring(v or ""):match("^(%d+)%s*[,;:]%s*(%d+)$")
-			if a then st.data.anchor, st.data.caret = clamp(st, tonumber(a)), clamp(st, tonumber(b)) end
+			local s = tostring(v or ""):upper()
+			if s == "NONE" then st.data.anchor = st.data.caret
+			elseif s == "ALL" then st.data.anchor, st.data.caret = 0, #st.data.text
+			else
+				local a, b = s:match("^(%d+)%s*[,;:]%s*(%d+)$")
+				if a then st.data.anchor, st.data.caret = native_to_byte(st.data.text, a), native_to_byte(st.data.text, b) end
+			end
 			return false
 		end,
 		-- winTextSetScrollToPosAttrib: the position's line, as SCROLLTO
 		SCROLLTOPOS = function(e, st, v)
-			local p = clamp(st, tonumber(v) or 0)
+			local p = native_to_byte(st.data.text, tonumber(v) or 0)
 			local line = select(2, (st.data.text or ""):sub(1, p):gsub("\n", "\n"))
 			line_scroll_to(e, st, line)
 			return false
@@ -861,7 +881,7 @@ local common = {
 				lin = tonumber(lin) or tonumber(tostring(v or ""):match("^%s*(-?%d+)")) or 1
 				p = lincol_to_pos(text, lin, tonumber(col) or 1)
 			else
-				p = clamp(st, (tonumber(tostring(v or ""):match("^%s*(-?%d+)")) or 1) - 1)
+				p = native_to_byte(text, (tonumber(tostring(v or ""):match("^%s*(-?%d+)")) or 1) - 1)
 			end
 			st.data.caret, st.data.anchor = p, p
 			st.data.last_caret_pos = p -- a programmatic move fires no CARET_CB
@@ -884,7 +904,7 @@ local common = {
 			else
 				local a, b = s:match("^%s*(%d+)%s*:%s*(%d+)")
 				if not a or tonumber(a) < 1 or tonumber(b) < 1 then return false end
-				st.data.anchor, st.data.caret = clamp(st, tonumber(a) - 1), clamp(st, tonumber(b) - 1)
+				st.data.anchor, st.data.caret = native_to_byte(text, tonumber(a) - 1), native_to_byte(text, tonumber(b) - 1)
 			end
 			return false
 		end,
@@ -896,7 +916,7 @@ local common = {
 	},
 	get = {
 		VALUE = function(e, st) return st.data.text or "" end,
-		COUNT = function(e, st) return #st.data.text end,
+		COUNT = function(e, st) return native_length(st.data.text) end,
 		-- winTextGetCaretAttrib: "lin,col" on a multiline, the column on a single line (1-based)
 		CARET = function(e, st)
 			local lin, col = pos_to_lincol(st.data.text, st.data.caret or 0)
@@ -904,8 +924,12 @@ local common = {
 			return tostring(col)
 		end,
 		CARETPos = function() end,
-		CARETPOS = function(e, st) return tostring(st.data.caret or 0) end,
-		SELECTIONPOS = function(e, st) local a, b = sorted_selection(st); return a .. ":" .. b end,
+		CARETPOS = function(e, st) return tostring(byte_to_native(st.data.text, st.data.caret or 0)) end,
+		SELECTIONPOS = function(e, st)
+			local a, b = sorted_selection(st)
+			if a == b then return nil end
+			return byte_to_native(st.data.text, a) .. ":" .. byte_to_native(st.data.text, b)
+		end,
 		-- winTextGetSelectionAttrib: nothing when empty, else 1-based "l1,c1:l2,c2" or "a:b"
 		SELECTION = function(e, st)
 			local a, b = sorted_selection(st)
@@ -915,7 +939,7 @@ local common = {
 				local l2, c2 = pos_to_lincol(st.data.text, b)
 				return string.format("%d,%d:%d,%d", l1, c1, l2, c2)
 			end
-			return (a + 1) .. ":" .. (b + 1)
+			return (byte_to_native(st.data.text, a) + 1) .. ":" .. (byte_to_native(st.data.text, b) + 1)
 		end,
 		SELECTEDTEXT = function(e, st) local a, b = sorted_selection(st); return st.data.text:sub(a + 1, b) end,
 		LINECOUNT = function(e, st) return select(2, st.data.text:gsub("\n", "\n")) + 1 end,
