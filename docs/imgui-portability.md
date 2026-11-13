@@ -19,6 +19,38 @@ natively on Linux, ARM boards and macOS. Order now: Phase 0, then 3 (devices), 4
 | Other platforms (Linux, embedded Linux, macOS) | a portable window/input/render backend |
 | WebAssembly (browser) | standard Lua instead of LuaJIT, WebGL, and a server for processes and sockets |
 
+## The rule: the core never touches the OS
+
+The web build is deferred, not abandoned: a future LuaJIT-on-WebAssembly could bring it
+back, and that should only take a new platform module and a new backend. So the OS is
+reached through exactly two layers:
+
+- **`core.platform`** (`win32`, `posix`): folders, clocks, files, processes, opening
+  things, single-instance and service plumbing as they move there;
+- **the UI backend** (`core.imgui.backend.*`, held to `core.imgui.backend.contract`), with
+  the native shims in `core.imgui.native`.
+
+Portable native modules (lfs, cjson, luasocket/luasec, subprocess, file_stream) are part
+of what a platform provides; a port builds them or supplies a shim with the same API.
+
+`spec/portability_boundary_spec.lua` enforces it:
+
+- **Every core module loads with no FFI** (`scripts/portability_check.lua`, one clean
+  package state per module), but for six listed with their reason: the Windows backend,
+  the raw ImGui bindings, the IUP-only theme applier, the native SVG size table, the
+  executable's entry point and the fork's raw list widget. A module dropping off that
+  list fails the spec too, so it only shrinks. Today: 207 of 213 load.
+- **No new direct OS access** (`ffi.C`, `ffi.load`, `os.execute`, `io.popen`) outside the
+  two layers: 18 files do it today, listed in the spec as debt to move behind
+  `core.platform`; a new one fails, and a listed one that stops fails until it is taken
+  off.
+
+The first pass fixed what it found: `Instance` and `Service` used `pcall(require, "ffi")`'s
+error message as the FFI module; `sqlite`, `HttpTokens` and `svgicon` required the FFI at
+load time. Without the FFI, SQLite reports itself unavailable, and the HTTP tokens file is
+refused off Windows (its symlink and owner checks need native calls, and it holds
+credentials).
+
 ## Where things stand
 
 The UI core is already portable in design. `core.imgui` (Element, Layout, Runtime,

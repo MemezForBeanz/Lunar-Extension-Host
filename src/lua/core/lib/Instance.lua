@@ -15,6 +15,7 @@
 -- @module core.lib.Instance
 
 local ok_ffi, ffi = pcall(require, "ffi")
+if not ok_ffi then ffi = nil end -- pcall leaves the error message there
 
 local M = {}
 
