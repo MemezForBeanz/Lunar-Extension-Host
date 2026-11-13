@@ -62,6 +62,17 @@ end
 local STRIP = {}
 
 describe("TabDragMotion sprites", function()
+	it("keeps drop cues visible without animating when motion is disabled", function()
+		local m, backend, _, dir = make({ enabled = false })
+		m:showCombine(STRIP, 100, 96, 28)
+		local box = last_scene(backend)[1]
+		assert.are.same({ 120, 50, 96, 28 }, { box.x, box.y, box.w, box.h })
+		assert.equal(0, dir:activeCount())
+		m:showCaret(STRIP, 200, 28)
+		assert.equal(219, last_scene(backend)[1].x)
+		m:clear()
+		assert.is_false(backend.shown)
+	end)
 	it("scales strip-local caret and combine bounds at scale 2", function()
 		local m, backend, _, dir, clock = make({ scale = 2 })
 		m:showCaret(STRIP, 100, 28)

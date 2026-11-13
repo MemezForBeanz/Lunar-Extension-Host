@@ -4,6 +4,24 @@ local iup = require("core.imgui.iup")
 local sci = require("core.imgui.native.sci")
 
 describe("ImGui scintilla compatibility", function()
+	it("paints the caret line with the colour supplied by CodeView", function()
+		local B = require("core.imgui.backend.Null").new()
+		local R = require("core.imgui.Runtime")
+		R.init(B)
+		local c = iup.scintilla{ VALUE = "terminal input" }
+		local st = Element.state(c)
+		st.x, st.y, st.w, st.h = 0, 0, 300, 100
+		sci.send(c, 2096, 1) -- SCI_SETCARETLINEVISIBLE
+		sci.send(c, 2098, 0x332211) -- SCI_SETCARETLINEBACK, BGR
+		local dc = require("core.imgui.Draw").new(B)
+		dc:begin(300, 100)
+		Classes.get("scintilla").draw(c, st, dc, R)
+		local found = false
+		for _, call in ipairs(B.frame_calls) do
+			if call[1] == "rect_filled" and call[6] == require("core.imgui.Color").parse("17 34 51") then found = true end
+		end
+		assert.is_true(found)
+	end)
 	it("answers CodeView's document and position messages", function()
 		local c = iup.scintilla({ VALUE = "one\ntwo", VISIBLELINES = "4" })
 		assert.equal(7, sci.send(c, 2006))

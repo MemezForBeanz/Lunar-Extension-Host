@@ -679,7 +679,17 @@ function M.DrawLine(h, x1, y1, x2, y2)
 	local c = ctx(h)
 	if not c then return end
 	local ox, oy = c.st.x, c.st.y
-	c.dc:line(ox + x1 + 0.5, oy + y1 + 0.5, ox + x2 + 0.5, oy + y2 + 0.5, drawcolor(h), linewidth(h))
+	local lw = linewidth(h)
+	-- iupdrvDrawLine (GDI) sets whole pixels, both ends included. An anti-aliased ImGui
+	-- line blends a 1px row to partial coverage and draws nothing for a single point,
+	-- which left WorkspaceFrame's rounded junctions a shade off and their edge pixels
+	-- missing. Straight lines are filled as exact pixel runs instead.
+	if lw <= 1 and (y1 == y2 or x1 == x2) then
+		local lx, ly = math.min(x1, x2), math.min(y1, y2)
+		c.dc:fill(ox + lx, oy + ly, math.abs(x2 - x1) + 1, math.abs(y2 - y1) + 1, drawcolor(h))
+		return
+	end
+	c.dc:line(ox + x1 + 0.5, oy + y1 + 0.5, ox + x2 + 0.5, oy + y2 + 0.5, drawcolor(h), lw)
 end
 
 function M.DrawPixel(h, x, y)

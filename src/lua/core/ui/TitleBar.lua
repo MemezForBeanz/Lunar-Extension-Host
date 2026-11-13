@@ -70,6 +70,8 @@ function TitleBar.new(opts)
 
 	self._groups = iup.flattabs({
 		EXPAND = "NO", CANFOCUS = "NO", THEMEROLE = "titlebar_tabs", EXTRABUTTONS = "1", TABSIMAGEPOSITION = "RIGHT",
+		-- the + follows the last tab (beside the mode button when there are none)
+		EXTRAFOLLOW1 = "YES",
 	})
 	self._view = StripView.new({ iup = iup, root = opts.root, strip = self._groups, is_hidden = opts.is_hidden })
 	opts.icon(self._groups, "add", 16, "neutral", "EXTRAIMAGE1")
@@ -212,7 +214,7 @@ function TitleBar:_measureTabs(pages, hidden)
 			end
 		end
 	end
-	self._tabs_width = math.max(80, total + 32)
+	self._tabs_width = total + BUTTON -- the + alone when no tab is showing
 end
 
 --- Fit the bar to the window. Attributes only: the window's own layout pass follows.
@@ -233,7 +235,7 @@ function TitleBar:fit(width, force)
 	local iup = self._iup
 	local lay = TitleBar.layout(width, reserved, self._tabs_width)
 	iup.SetAttribute(self._left, "RASTERSIZE", lay.left .. "x")
-	iup.SetAttribute(self._groups, "RASTERSIZE", math.max(1, math.min(lay.groups, self._tabs_width or 80)) .. "x32")
+	iup.SetAttribute(self._groups, "RASTERSIZE", math.max(1, math.min(lay.groups, self._tabs_width or BUTTON)) .. "x32")
 end
 
 --- Make the bar the window's caption, where the platform can. Call between Map and Show,

@@ -71,6 +71,8 @@ function ToolRail:_size()
 	iup.SetAttribute(strip, "MAXSIZE", width .. "x65535")
 	iup.SetAttribute(strip, "TABSHIDETITLE", self._collapsed and "YES" or "NO")
 	iup.SetAttribute(strip, "EXTRABUTTONS", "2")
+	-- "+" right under the last rail entry; the collapse chevron stays at the foot
+	iup.SetAttribute(strip, "EXTRAFOLLOW1", "YES")
 	for id, name in ipairs({ "add", self._collapsed and "chevron--right" or "chevron--left" }) do
 		local image = self._icon(name, 16)
 		if image then iup.SetAttributeId(strip, "EXTRAIMAGE", id, image) end

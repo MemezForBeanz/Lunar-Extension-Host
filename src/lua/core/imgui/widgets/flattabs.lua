@@ -155,6 +155,7 @@ local function tabSize(el, pos, child)
 	end
 	return w + px * 2, h + py * 2
 end
+local extraSize
 local function metrics(el)
 	local ps = pages(el)
 	local t = typeOf(el)
@@ -179,6 +180,12 @@ local function metrics(el)
 		bw, bh, total = w, h, horizontal(el) and w or h
 	end
 	if horizontal(el) then bw = total else bh = total end
+	-- iFlatTabsGetTitleSize: the band is at least as deep as the extra buttons, so an
+	-- empty strip still centres its buttons in a full-height band
+	for id = 1, integer(attr(el, "EXTRABUTTONS"), 0) do
+		local ew, eh = extraSize(el, id)
+		if horizontal(el) then bh = math.max(bh, eh) else bw = math.max(bw, ew) end
+	end
 	if not horizontal(el) then bw = integer(attr(el, "TABSBREADTH"), bw) end
 	return bw, bh, px, py
 end
@@ -211,7 +218,7 @@ local function tabRect(el, st, pos, offset)
 	x = t == "RIGHT" and st.x + st.w - bw or st.x
 	return x, y, bw, tabh
 end
-local function extraSize(el, id)
+function extraSize(el, id)
 	local title = attr(el, "EXTRATITLE" .. id) or ""
 	local image = Draw.resolveImage(attr(el, "EXTRAIMAGE" .. id))
 	local font = Fonts.get(attr(el, "EXTRAFONT" .. id) or attr(el, "TABSFONT") or attr(el, "FONT"))
@@ -224,24 +231,49 @@ local function extraSize(el, id)
 	if image and title then w = iw + spacing + tw end
 	return w + px * 2, h + py * 2
 end
-local function extraRect(el, st, id, used)
+-- Where each extra button goes. IUP puts them all at the far end of the band (the
+-- right of a top strip, the bottom of a side one). Lunar adds EXTRAFOLLOWn=YES: that
+-- button follows the last visible tab instead (a "+" sits beside the last tab, not at
+-- the end of an empty bar), never running into the far-end buttons.
+local function extraRects(el, st)
+	local rects = {}
+	local count = integer(attr(el, "EXTRABUTTONS"), 0)
+	if count == 0 then return rects end
 	local bw, bh = metrics(el)
-	local ew, eh = extraSize(el, id)
-	local t = typeOf(el)
-	if horizontal(el) then
-		return st.x + st.w - used - ew, t == "BOTTOM" and st.y + st.h - bh or st.y, ew, bh
+	local t, hz = typeOf(el), horizontal(el)
+	local band_x = t == "RIGHT" and st.x + st.w - bw or st.x
+	local band_y = t == "BOTTOM" and st.y + st.h - bh or st.y
+	local used = 0
+	for id = 1, count do
+		if not yes(attr(el, "EXTRAFOLLOW" .. id)) then
+			local ew, eh = extraSize(el, id)
+			if hz then rects[id] = { st.x + st.w - used - ew, band_y, ew, bh }; used = used + ew
+			else rects[id] = { band_x, st.y + st.h - used - eh, bw, eh }; used = used + eh end
+		end
 	end
-	return t == "RIGHT" and st.x + st.w - bw or st.x, st.y + st.h - used - eh, bw, eh
+	local pos = 0
+	for i, child in ipairs(pages(el)) do
+		if visibleAt(el, i - 1) then
+			local w, h = tabSize(el, i - 1, child)
+			pos = pos + (hz and w or h)
+		end
+	end
+	local room = (hz and st.w or st.h) - used
+	for id = 1, count do
+		if yes(attr(el, "EXTRAFOLLOW" .. id)) then
+			local ew, eh = extraSize(el, id)
+			local size = hz and ew or eh
+			local at = math.max(0, math.min(pos, room - size))
+			if hz then rects[id] = { st.x + at, band_y, ew, bh } else rects[id] = { band_x, st.y + at, bw, eh } end
+			pos = at + size
+		end
+	end
+	return rects
 end
 local function hitExtra(el, st, x, y)
 	if not yes(attr(el, "SHOWTABS")) then return nil end
-	local count = integer(attr(el, "EXTRABUTTONS"), 0)
-	local used = 0
-	for id = 1, count do
-		local ew, eh = extraSize(el, id)
-		local tx, ty, tw, th = extraRect(el, st, id, used)
-		if x >= tx and x < tx + tw and y >= ty and y < ty + th then return id end
-		used = used + (horizontal(el) and ew or eh)
+	for id, r in pairs(extraRects(el, st)) do
+		if x >= r[1] and x < r[1] + r[3] and y >= r[2] and y < r[2] + r[4] then return id end
 	end
 end
 local function hitTab(el, st, x, y)
@@ -384,10 +416,9 @@ local function draw(el, st, dc)
 			dc:fill(x + 7, ly, 2, lh, line)
 		end
 	end
-	local extra_count = integer(attr(el, "EXTRABUTTONS"), 0)
-	local extra_used = 0
-	for id = 1, extra_count do
-		local x, y, w, h = extraRect(el, st, id, extra_used)
+	local extra_rects = extraRects(el, st)
+	for id = 1, integer(attr(el, "EXTRABUTTONS"), 0) do
+		local x, y, w, h = unpack(extra_rects[id])
 		local title = attr(el, "EXTRATITLE" .. id) or ""
 		local image = Draw.resolveImage(attr(el, "EXTRAIMAGE" .. id))
 		local font = Fonts.get(attr(el, "EXTRAFONT" .. id) or attr(el, "TABSFONT") or attr(el, "FONT"))
@@ -401,7 +432,6 @@ local function draw(el, st, dc)
 		local iw, ih = Draw.imageSize(image)
 		if image then dc:image(image, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih, {}) end
 		if title ~= "" then dc:text(title, x + 6, y + 4, w - 12, h - 8, color, font, { align = "center", valign = "center", ellipsis = true }) end
-		extra_used = extra_used + (horizontal(el) and w or h)
 	end
 	if yes(attr(el, "SHOWLINES")) then
 		if horizontal(el) then dc:line(st.x, t == "TOP" and st.y + bh or st.y + st.h - bh, st.x + st.w, t == "TOP" and st.y + bh or st.y + st.h - bh, attr(el, "TABSLINECOLOR"), 1)

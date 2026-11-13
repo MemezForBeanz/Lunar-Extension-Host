@@ -29,6 +29,27 @@ local function layout(tab)
 end
 
 describe("imgui flattabs", function()
+	it("places follow buttons after visible tabs in either orientation", function()
+		for _, side in ipairs({ "TOP", "LEFT" }) do
+			setup()
+			local tabs = iup.flattabs{ iup.user{}, TABTITLE0 = "One", TABTYPE = side, TABSBREADTH = "42",
+				EXTRABUTTONS = "2", EXTRATITLE1 = "+", EXTRATITLE2 = "<", EXTRAFOLLOW1 = "YES" }
+			local cls, st = layout(tabs)
+			local id
+			tabs.extrabutton_cb = function(_, n) id = n end
+			local rt = { redraw = function() end }
+			local last = 0
+			for at = 0, (side == "TOP" and st.w or st.h) - 1 do
+				if iup.ConvertXYToPos(tabs, side == "TOP" and at or 8, side == "TOP" and 8 or at) == 0 then last = at end
+			end
+			cls.event(tabs, st, { type = "press", button = 1, x = side == "TOP" and last + 2 or 8, y = side == "TOP" and 8 or last + 2 }, rt)
+			assert.equal(1, id)
+			iup.SetAttribute(tabs, "TABVISIBLE0", "NO")
+			id = nil
+			cls.event(tabs, st, { type = "press", button = 1, x = 8, y = 8 }, rt)
+			assert.equal(1, id)
+		end
+	end)
 	it("lays every page into the client rect and exposes IUP values", function()
 		setup()
 		local a, b = iup.user{ NAME = "a" }, iup.user{ NAME = "b" }

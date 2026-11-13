@@ -126,7 +126,9 @@ function TabDragMotion:_comp()
 end
 
 function TabDragMotion:_ready()
-	return self._director ~= nil and self._director:enabled() and self:_comp() ~= nil
+	-- These shapes describe the pending drop, even with reduced motion. The
+	-- director already settles animations immediately when motion is disabled.
+	return self._director ~= nil and self:_comp() ~= nil
 end
 
 -- Theme colors, read live so a theme switch mid-drag is reflected immediately.
@@ -420,7 +422,7 @@ function TabDragMotion:playMerge(strip, from, to, band, done)
 		if done then pcall(done) end
 	end
 
-	if not self:_ready() or not from or not to then
+	if not self:_ready() or not self._director:enabled() or not from or not to then
 		self:clear()
 		finish()
 		return

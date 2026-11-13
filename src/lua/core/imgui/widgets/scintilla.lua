@@ -172,7 +172,8 @@ local function draw(e, st, dc, rt)
 	local caret_line = line_from(text, st.data.caret)
 	for i = first + 1, math.min(#lines, first + math.ceil(st.h / ch) + 1) do
 		local y = st.y + (i - first - 1) * ch
-		if st.data.caret_line_visible and i - 1 == caret_line then dc:fill(st.x, y, st.w, ch, attr(e, "CARETLINEBACKCOLOR") or "240 240 240") end
+		-- SCI_SETCARETLINEBACK (CodeView themes it), then the IUP attribute, then Scintilla's default
+		if st.data.caret_line_visible and i - 1 == caret_line then dc:fill(st.x, y, st.w, ch, st.data.caret_line_back or attr(e, "CARETLINEBACKCOLOR") or "240 240 240") end
 		if (st.data.margin_width[0] or 0) > 0 then
 			dc:text(tostring(i), st.x + 4, y, st.data.margin_width[0] - 8, ch, attr(e, "MARGINFGCOLOR") or "120 120 120", f, { align = "right", clip = true })
 		end

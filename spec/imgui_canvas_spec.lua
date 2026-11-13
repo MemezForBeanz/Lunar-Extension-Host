@@ -6,6 +6,28 @@ local Classes = require("core.imgui.Classes")
 local Draw = require("core.imgui.Draw")
 
 describe("imgui canvas", function()
+	it("joins pixel-aligned corner segments including single-pixel endpoints", function()
+		local b = Null.new()
+		local c = iup.canvas{ action = function(self)
+			iup.DrawBegin(self)
+			iup.SetAttribute(self, "DRAWCOLOR", "1 2 3")
+			iup.DrawLine(self, 2, 3, 5, 3)
+			iup.DrawLine(self, 5, 4, 5, 4)
+			iup.DrawEnd(self)
+		end }
+		local st = Element.state(c)
+		st.x, st.y, st.w, st.h = 10, 20, 30, 40
+		local dc = Draw.new(b)
+		dc:begin(100, 100)
+		Classes.get("canvas").draw(c, st, dc, {})
+		local runs = {}
+		for _, call in ipairs(b.frame_calls) do
+			if call[1] == "rect_filled" and call[6] == require("core.imgui.Color").parse("1 2 3") then
+				runs[#runs + 1] = { call[2], call[3], call[4], call[5] }
+			end
+		end
+		assert.same({ { 12, 23, 16, 24 }, { 15, 24, 16, 25 } }, runs)
+	end)
 	it("runs ACTION inside the Draw context with inclusive coordinates", function()
 		local b=Null.new();Fonts.backend=b;Fonts.reset()
 		local gotw, goth
