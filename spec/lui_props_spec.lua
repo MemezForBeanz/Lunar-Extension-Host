@@ -247,7 +247,7 @@ describe("lui props: primitives", function()
 		assert.equal("4", own(list, "VISIBLELINES"))
 		root:update(ui.List{ items = { "x" }, selected = 1, lines = 4 })
 		assert.equal("1", iup.GetAttribute(list, "COUNT"))
-		assert.equal("x", own(list, "1"))
+		assert.equal("x", iup.GetAttribute(list, "1")) -- items live in the list, not the attribute store, as in IUP
 	end)
 
 	it("Canvas, Dialog and Dropdown", function()

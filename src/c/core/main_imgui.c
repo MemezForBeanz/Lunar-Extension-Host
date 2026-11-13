@@ -136,6 +136,11 @@ int main(int argc, char **argv)
 {
     if (argc > 1 && argv[1] && strcmp(argv[1], "--service") == 0) return run_service(argc, argv);
 
+    /* The fonts bundled under assets/Themes (IBM Plex) are private to this process, as
+     * main.c makes them for the IUP build: GDI measures and draws text, and without them
+     * it substitutes another face with other metrics. */
+    host_register_bundled_fonts();
+
     lua_State *L = luaL_newstate();
     if (!L) { fatal("Failed to create Lua VM."); return 1; }
     luaL_openlibs(L);

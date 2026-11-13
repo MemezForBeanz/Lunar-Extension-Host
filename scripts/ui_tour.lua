@@ -290,8 +290,12 @@ local function shoot_new(key, before, main, main_dlg)
 			if n.dialog then
 				local st = require("core.imgui.Element").state(n.dialog)
 				local top = st.data.chrome and st.data.chrome.top or 0
-				B.screenshot(out_dir .. "/" .. BUILD .. "__" .. key .. "-w" .. i .. ".bmp",
-					st.data.ox or 0, (st.data.oy or 0) - top, st.w, st.h + top)
+				if st.data.win then
+					B.screenshot(out_dir .. "/" .. BUILD .. "__" .. key .. "-w" .. i .. ".bmp", 0, 0, 0, 0, st.data.win)
+				else
+					B.screenshot(out_dir .. "/" .. BUILD .. "__" .. key .. "-w" .. i .. ".bmp",
+						st.data.ox or 0, (st.data.oy or 0) - top, st.w, st.h + top)
+				end
 				R.frame()
 				titles[#titles + 1] = "dialog:" .. tostring(attr(n.dialog, "TITLE"))
 				dump_tree(key, n.dialog)

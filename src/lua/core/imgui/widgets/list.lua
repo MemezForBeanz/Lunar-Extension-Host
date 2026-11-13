@@ -1,6 +1,6 @@
-local Classes = require("core.imgui.widgets.flatlist")
+local Classes = require("core.imgui.widgets.listbase")
 local Element = require("core.imgui.Element")
-local base = Classes.get("flatlist")
+local base = Classes.get("_listbase")
 local function own(e, n) return Element.own(e, n) end
 
 local Fonts = require("core.imgui.Fonts")
