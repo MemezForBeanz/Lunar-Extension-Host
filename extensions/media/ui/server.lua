@@ -72,6 +72,7 @@ function M.new(ctx, opts)
 		local jump = Kit.button(iup, { title = "View", role = "link_btn", action = function()
 			if targets[kind] then iup.SetFocus(targets[kind]) end
 		end })
+		iup.SetAttribute(jump, "MAXSIZE", L.maxSize(nil, L.PAGE.control))
 		Kit.show(iup, jump, kind ~= nil)
 		setters[key] = function(value) iup.SetAttribute(number, "TITLE", grouped(value)) end
 		iup.Append(metrics, iup.vbox({ number, iup.hbox({ iup.hbox(caption_row), jump, ALIGNMENT = "ACENTER", RASTERSIZE = L.size(nil, L.PAGE.control) }),
