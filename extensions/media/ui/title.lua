@@ -264,7 +264,7 @@ function M.new(ctx, opts)
     local Reactor = require("core.ui.ThemeReactor")
     function api:_afterThemePass()
         local p = Reactor.palette()
-        local bg = p.layer02 or p.surface or p.bg
+        local bg = iup.GetAttribute(content, "BGCOLOR") or p.layer02 or p.surface or p.bg
         if not bg then return end
         local function paint(node)
             local class = iup.GetClassName(node)
