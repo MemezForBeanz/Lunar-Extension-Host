@@ -264,8 +264,10 @@ function M.new(ctx, opts)
     local Reactor = require("core.ui.ThemeReactor")
     function api:_afterThemePass()
         local p = Reactor.palette()
-        local bg = iup.GetAttribute(content, "BGCOLOR") or p.layer02 or p.surface or p.bg
+        -- Carbon's tool page sits on layer 01 (Gray 10 in White mode).
+        local bg = p.focusInset and p.layer01 or (iup.GetAttribute(content, "BGCOLOR") or p.layer02 or p.surface or p.bg)
         if not bg then return end
+        if iup.GetAttribute(hero.widget,"BGCOLOR") == bg and iup.GetAttribute(more.widget,"BGCOLOR") == bg then return end
         local function paint(node)
             local class = iup.GetClassName(node)
             if class == "flatlabel" or class == "flatframe" or class == "flatgrid" or class == "vbox" or class == "hbox" then
@@ -366,6 +368,7 @@ function M.new(ctx, opts)
 	end
 
 	function api.tick()
+		api:_afterThemePass()
 		reliability.tick()
 		metadata.tick()
 		hero.tick()
