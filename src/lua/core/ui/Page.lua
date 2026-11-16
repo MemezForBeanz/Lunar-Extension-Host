@@ -122,7 +122,12 @@ function M.new(iup, opts)
         if self.renderedRunState == state and self.runProgress == progress then return end
         self.runState = state
         self.renderedRunState, self.runProgress = state, progress
-        if self.runIcon then self.runIcon:set(state, { progress = progress })
+        if self.runIcon then
+            -- each kind names its own states; one it lacks (a connection has no "ready")
+            -- starts from the kind's initial state
+            local def = StateIcon.definition(self.runKind)
+            if def and not def.states[state] then state = def.initial end
+            self.runIcon:set(state, { progress = progress })
         else Kit.bindIcon(iup, self.primaryIconTarget, state == "failed" and "warning--alt" or (state == "working" and "stop" or "play--outline")) end
     end
     function self:setPrimary(spec)
