@@ -482,6 +482,13 @@ iup.MainLoop = function()
 			dlg = main_dialog()
 			if not dlg then return iup.DEFAULT end
 			pages = leaves(find_strip(dlg), {}, {})
+			if os.getenv("LUNAR_CAPTURE_TOOLS_ONLY") then
+				local tools = { ["Build Queue"] = true, ["iLO Redfish"] = true, ["Log Parser"] = true,
+					["Scan Chain"] = true, ["Black Duck"] = true, ["Time Clock"] = true }
+				local selected = {}
+				for _, page in ipairs(pages) do if tools[page.title] then selected[#selected + 1] = page end end
+				pages = selected
+			end
 			local width, height = (os.getenv("LUNAR_CAPTURE_SIZE") or ""):match("^(%d+)x(%d+)$")
 			if width then
 				local IupFFI = require("core.classes.IupFFI")
@@ -504,7 +511,7 @@ iup.MainLoop = function()
 		end
 		local page = pages[math.ceil(index / 2)]
 		if not page then
-			if extra_scene() then return iup.DEFAULT end
+			if not os.getenv("LUNAR_CAPTURE_NO_EXTRAS") and extra_scene() then return iup.DEFAULT end
 			self.run = "NO"
 			iup.ExitLoop()
 			return iup.CLOSE
@@ -532,7 +539,19 @@ iup.MainLoop = function()
 				iup.Refresh(dlg)
 				return iup.DEFAULT
 			end
-			if fixture then shoot("-data") end
+			if fixture and page.stage == 3 then shoot("-data") end
+			local tool_shell = rawget(_G, "LUNAR_DEV_SHELL")
+			local tool = tool_shell and tool_shell.toolPages and tool_shell.toolPages[page.title]
+			if tool then
+				page.tool_step = (page.tool_step or 0) + 1
+				local phase = (page.tool_step - 1) % 3
+				local state = ({ "working", "failed" })[math.floor((page.tool_step - 1) / 3) + 1]
+				if state then
+					if phase == 0 then fixtures.tool_state(tool, state); iup.Refresh(dlg)
+					elseif phase == 2 then fixtures.tool_state(tool, state); shoot("-" .. state) end
+					return iup.DEFAULT
+				end
+			end
 			-- A page can list named views. Each is shown, given a few ticks for art to arrive, and shot.
 			local shell = rawget(_G, "LUNAR_DEV_SHELL")
 			local views = shell and shell.pages and shell.pages[page.title]

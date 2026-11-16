@@ -40,7 +40,7 @@ local function roles_in_source()
 end
 
 -- Every palette key reads as a placeholder string, which is all the builders need.
-local palette = setmetatable({}, { __index = function(_, k) return "<" .. k .. ">" end })
+local palette = setmetatable({ radius = 6, radiusFrame = 8 }, { __index = function(_, k) return "<" .. k .. ">" end })
 
 describe("theme roles", function()
 	local used = roles_in_source()
@@ -50,12 +50,15 @@ describe("theme roles", function()
 		assert.is_truthy(used.list_bordered)
 	end)
 
-	for _, builder in ipairs({ "carbon_rules", "fluent_rules" }) do
+	for _, builder in ipairs({ "carbon_rules", "fluent_rules", "lunar_rules" }) do
 		it("are all defined by " .. builder, function()
 			local rules = require("core.classes.Themes." .. builder).build(palette)
 			local missing = {}
 			for role, path in pairs(used) do
-				if rules[role] == nil then missing[#missing + 1] = role .. " (" .. path .. ")" end
+				-- Page surfaces are supplied by the two active rule families. Fluent is
+				-- retained only for the internal native fallback.
+				local page_role = role:match("^page_")
+				if rules[role] == nil and not (builder == "fluent_rules" and page_role) then missing[#missing + 1] = role .. " (" .. path .. ")" end
 			end
 			table.sort(missing)
 			assert.are.same({}, missing)

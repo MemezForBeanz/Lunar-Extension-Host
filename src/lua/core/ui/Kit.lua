@@ -15,6 +15,8 @@ local ok_reactor, ThemeReactor = pcall(require, "core.ui.ThemeReactor")
 if not ok_reactor then ThemeReactor = nil end
 
 local L = require("core.lib.CarbonLayout")
+function M.page(iup, opts) return require("core.ui.Page").new(iup, opts) end
+function M.cards(iup, opts) return require("core.ui.Page").cards(iup, opts) end
 function M.rowList(iup, opts) return require("core.ui.RowList").new(iup, opts) end
 function M.segmented(iup, opts) return require("core.ui.RowList").segmented(iup, opts) end
 function M.cellGrid(iup, opts) return require("core.ui.CellGrid").new(iup, opts) end
@@ -388,7 +390,7 @@ end
 -- @treturn function `set_empty(boolean)`
 -- @treturn ihandle the hint label, for text that changes with state
 function M.emptyPane(iup, opts)
-	local glyph = iup.flatlabel({ TITLE = "", THEMEROLE = "well", ALIGNMENT = "ACENTER" })
+	local glyph = iup.flatlabel({ TITLE = "", THEMEROLE = "page_surface", ALIGNMENT = "ACENTER" })
 	if opts.icon then M.bindIcon(iup, glyph, opts.icon, { size = M.ICON_EMPTY, role = "neutral" }) end
 	local title = iup.flatlabel({ TITLE = opts.title or "", THEMEROLE = "empty_title", ALIGNMENT = "ACENTER" })
 	local hint = iup.flatlabel({ TITLE = opts.hint or "", THEMEROLE = "empty_hint", ALIGNMENT = "ACENTER" })
@@ -409,9 +411,9 @@ function M.emptyPane(iup, opts)
 	kids.GAP, kids.EXPAND = L.gap(2), "YES"
 	local placeholder = iup.flatframe({
 		iup.vbox(kids),
-		TITLE = "", THEMEROLE = "well", MARGIN = L.margin(5), EXPAND = "YES",
+		TITLE = "", THEMEROLE = "page_surface", MARGIN = L.margin(5), EXPAND = "YES",
 	})
-	local pane = iup.zbox({ placeholder, opts.content, EXPAND = "YES" })
+	local pane = iup.zbox({ placeholder, opts.content or iup.vbox({}), EXPAND = "YES" })
 	local function set_empty(empty)
 		iup.SetAttribute(pane, "VALUEPOS", empty and "0" or "1")
 	end

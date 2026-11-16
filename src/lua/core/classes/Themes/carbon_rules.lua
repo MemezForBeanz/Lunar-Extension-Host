@@ -227,6 +227,12 @@ function M.build(p)
     require("core.classes.Themes.fluent_rules").addShellRoles(rules, p)
     require("core.classes.Themes.fluent_rules").addPlainRoles(rules, p.bg)
     rules.flattabs_sub = rules.flattabs
+    -- U3 page-template roles: opaque work surfaces, shared by every tool.
+    local page_bg = p.layer02 or p.surface or p.bg
+    for _, role in ipairs({ "page_surface", "page_header", "page_toolbar", "page_column", "page_inspector", "page_dock" }) do
+        rules[role] = { bg = page_bg, fg = p.text, font = p.font, borderwidth = 0 }
+    end
+    -- End U3 page-template roles.
     rules = require("core.classes.Themes.shell_rules")(rules, p, {
         well = layer1, hover = hover, selected = selected, border = p.borderSubtle01 or p.border,
         font = p.font, small_font = sized(p.font, 9),
