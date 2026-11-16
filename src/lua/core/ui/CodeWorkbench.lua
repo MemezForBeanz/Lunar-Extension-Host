@@ -325,6 +325,9 @@ function Workbench:_showServer(doc)
 	local iup = self._iup
 	local binder = doc.binder
 	local state, name = binder and binder.state or "none", binder and binder._entry and binder._entry.name
+	-- The actionable notice owns failed/missing-server states. Keep the
+	-- toolbar chip for connection progress and healthy servers only.
+	Kit.show(iup, self._chip, state ~= "unavailable" and state ~= "failed", self._anchor)
 	local chip = CHIP[state]
 	if chip and name then
 		Kit.setStatus(iup, self._chip, chip.kind, chip.text:format(name))

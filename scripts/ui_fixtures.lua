@@ -230,7 +230,7 @@ function M.tool_state(page, state)
     Kit.show(iup, page.capturePlaceholder, queue == nil, page.stateLine)
     local working = state == "working"
     local sentence = working and (name .. " in progress") or (name .. " failed. Review the output and retry.")
-    Kit.setStatus(iup, page.capturePlaceholder, working and "info" or "error", working and "Waiting for results..." or "No results were produced.")
+    Kit.setStatus(iup, page.capturePlaceholder, "idle", working and "Waiting for results..." or "Results will appear here after a completed run.")
     page:setState(working and "working" or "error", sentence)
     page:setRunState(working and "working" or "failed", working and 0.5 or nil)
     if not (page.opts.primary and page.opts.primary.widget) then iup.SetAttribute(page.primary, "TITLE", working and "Stop" or "Retry") end
