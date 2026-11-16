@@ -267,14 +267,15 @@ end
 
 -- Tool messages are stored independently; switching pages never borrows a neighbour's status.
 function StatusBar:postStatus(tool, message, now)
+	if not tool then return end -- host/background messages have no active tool scope
 	self._messages = self._messages or {}
 	self._messages[tool or false] = { text = tostring(message or ""), expires = (now or os.time()) + 8 }
-	self:showTool(self._tool, now, self._work)
+	self:showTool(self._tool, now, self._work, self._header)
 end
 
 function StatusBar:clearTool(tool)
 	if self._messages then self._messages[tool or false] = nil end
-	self:showTool(self._tool)
+	self:showTool(self._tool, nil, tool ~= self._tool and self._work or nil, self._header)
 end
 
 function StatusBar:hasTransient(now)
@@ -286,13 +287,16 @@ function StatusBar:hasTransient(now)
 	return pending
 end
 
-function StatusBar:showTool(tool, now, work)
-	self._tool, self._work = tool, work
+function StatusBar:showTool(tool, now, work, header)
+	self._tool, self._work, self._header = tool, work, header
 	local message = self._messages and self._messages[tool or false]
 	if message and message.expires <= (now or os.time()) then
 		self._messages[tool or false], message = nil, nil
 	end
 	local text = work and (work.message or work.title) or (message and message.text or "")
+	-- Template pages already own the visible state sentence. Keep the peripheral
+	-- bar empty rather than repeat it or revive a stale legacy completion message.
+	if header and header ~= "" then text = "" end
 	local state = work and "running" or "queued"
 	if self._shown_text ~= text or self._shown_state ~= state then
 		self._shown_text, self._shown_state = text, state
@@ -346,6 +350,14 @@ function StatusBar:setStatus(msg, state)
 		-- A dead label must never turn status updates into repeated error dialogs.
 		self._label = nil
 		return
+	end
+	local shown = tostring(msg or "") ~= ""
+	if self._status_shown ~= shown then
+		self._status_shown = shown
+		local icon = self._status_icon:widget()
+		iup.SetAttribute(icon, "VISIBLE", shown and "YES" or "NO")
+		iup.SetAttribute(icon, "FLOATING", shown and "NO" or "YES")
+		iup.Refresh(self._widget)
 	end
 	local motion = self._motion
 	-- Resolve the theme's resting colour after a store update. A component fallback

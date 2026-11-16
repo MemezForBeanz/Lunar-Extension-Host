@@ -2,6 +2,7 @@
 -- @classmod core.ui.TitleBar
 
 local WindowChrome = require("core.ui.WindowChrome")
+local L = require("core.lib.CarbonLayout")
 local ModeIcon = require("core.ui.ModeIcon")
 
 local StripView = require("core.ui.TabStripView")
@@ -28,6 +29,13 @@ function TitleBar.layout(width, reserved, tabs)
 	local available = math.max(0, width - before - after - (reserved or 0) - 80)
 	local groups = math.min(available, tabs or available)
 	return { left = before + groups, groups = groups }
+end
+
+function TitleBar.commandWidth(width, reserved, tabs)
+	local room = width - SIDE_MARGIN * 2 - BUTTON - GAP - VIEW_BUTTONS * BUTTON - (reserved or 0) - (tabs or BUTTON)
+	local minimum = L.PAGE.card_min
+	if room < minimum then return BUTTON end
+	return math.min(L.PAGE.main_min, math.floor(width / 3), room)
 end
 
 --- @tparam table opts
@@ -87,6 +95,7 @@ function TitleBar.new(opts)
 		ALIGNMENT = "ALEFT:ACENTER", EXPAND = "HORIZONTAL", CANFOCUS = "YES" })
 	opts.icon(self._command, "search")
 	local shortcut = iup.flatbutton({ TITLE = "Ctrl+P", THEMEROLE = "keycap", CANFOCUS = "NO" })
+	self._shortcut = shortcut
 	local function command() if bar._on_command then bar._on_command() end; return iup.DEFAULT end
 	self._command.flat_action, shortcut.flat_action = command, command
 	self._field = iup.flatframe({ iup.hbox({ self._command, shortcut, ALIGNMENT = "ACENTER" }),
@@ -257,7 +266,12 @@ function TitleBar:fit(width, force)
 	if width == self._width and not force then return end
 	self._width = width
 	local iup = self._iup
-	local field = math.max(180, math.min(480, math.floor(width / 3)))
+	local field = TitleBar.commandWidth(width, reserved, self._tabs_width)
+	local compact = field == BUTTON
+	iup.SetAttribute(self._command, "TITLE", compact and "" or "Search or run a command")
+	iup.SetAttribute(self._command, "TIP", "Search or run a command (Ctrl+P)")
+	iup.SetAttribute(self._shortcut, "FLOATING", compact and "YES" or "NO")
+	iup.SetAttribute(self._shortcut, "VISIBLE", compact and "NO" or "YES")
 	local lay = TitleBar.layout(width - field, reserved, self._tabs_width)
 	local left = math.max(lay.left, math.floor((width - field) / 2))
 	left = math.min(left, math.max(lay.left, width - field - reserved - VIEW_BUTTONS * BUTTON))

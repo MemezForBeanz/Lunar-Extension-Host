@@ -3,13 +3,16 @@ describe("declarative tool page", function()
     local iup
     before_each(function()
         iup = { DEFAULT = 0 }
-        for _, kind in ipairs({ "flatlabel", "flatbutton", "vbox", "hbox", "fill", "split", "zbox", "flatframe" }) do
+        for _, kind in ipairs({ "text", "flatlabel", "flatbutton", "vbox", "hbox", "fill", "split", "zbox", "flatframe" }) do
             iup[kind] = function(attrs) attrs.kind = kind; return attrs end
         end
         iup.SetAttribute = function(w, k, v) w[k] = v end
         iup.GetAttribute = function(w, k) return w[k] end
         iup.ResetAttribute = function(w, k) w[k] = nil end
         iup.Refresh = function() end
+        iup.Detach = function() end
+        iup.GetClassName = function(w) return w.kind end
+        iup.GetChild = function(w, n) return w[n + 1] end
     end)
     it("keeps callbacks and the primary in the header when the mode changes", function()
         local hit
@@ -81,6 +84,8 @@ describe("declarative tool page", function()
         assert.equals("NO", page.capturePlaceholder.FLOATING)
         assert.equals("Stop", page.primary.TITLE)
         fixtures.tool_state(page, "failed")
+        assert.is_true(page.dockOpen)
+        assert.matches("incomplete device record", page.dockContent.VALUE, 1, true)
         assert.equals("YES", page.main.FLOATING)
         assert.equals("Retry", page.primary.TITLE)
         assert.is_nil(page.stateLine.TITLE:find("fixture", 1, true))
@@ -100,5 +105,23 @@ describe("declarative tool page", function()
         assert.equals(2, #page.secondary)
         assert.equals("NO", page.overflow.FLOATING)
         assert.equals("Three", page.secondarySpecs[3].title)
+    end)
+end)
+
+describe("tool page header geometry", function()
+    it("pins native and grouped primaries to the page padding at every pane width", function()
+        local iup = require("core.lui.test").boot({})
+        local Layout = require("core.imgui.Layout")
+        local Element = require("core.imgui.Element")
+        for _, grouped in ipairs({ false, true }) do
+            local primary = grouped and { widget = iup.hbox{ iup.flatbutton{TITLE="Build"} } } or { title="Run" }
+            local page = Kit.page(iup, {title="Build Queue", primary=primary, secondary={{title="Browse"}}})
+            for _, width in ipairs({ 560, 700, 1036, 1872 }) do
+                page:fit(width)
+                Layout.run(page.root, width, 800)
+                local action = Element.state(page.primary)
+                assert.equal(width - require("core.lib.CarbonLayout").PAGE.padding, action.x + action.w)
+            end
+        end
     end)
 end)

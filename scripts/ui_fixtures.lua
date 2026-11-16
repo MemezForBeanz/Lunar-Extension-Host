@@ -185,7 +185,18 @@ function M.time_clock(page)
 	page.show({ employee = "Alex Morgan", available = { "meal_start", "clock_out" },
 		response = "Clock In confirmed at 08:00. Next action: Meal Start.",
 		history = { "2026-11-16 08:00  Clock In confirmed", "2026-11-13 17:02  Clock Out confirmed" } })
+	local tool = rawget(_G, "LUNAR_DEV_SHELL").toolPages["Time Clock"]
+	if tool then tool:setDockSummary("success", "Clock In confirmed at 08:00") end
 end
+
+local OUTPUT = {
+    ["Build Queue"] = { working = "[Build 1/5] AcpiTables - (A66)\ncl /nologo /W4 /O2 acpi.c tables.c\nCompiling acpi.c...", failed = BUILD_OUTPUT, summary = "Build stopped on error in PcieLink" },
+    ["Log Parser"] = { working = "Scanning C:\\Work\\diagnostics\n128 of 214 files scanned...", failed = "Scanning C:\\Work\\diagnostics\nERROR: Cannot open platform-diagnostics.log (access denied).\nScan stopped. Check file permissions, then run again.", summary = "Log scan stopped: file access denied" },
+    ["Scan Chain"] = { working = "Reading memid_0042.log\nDecoding installed device sections...", failed = "Reading memid_0042.log\nERROR at byte 0x18: incomplete device record (expected 4 bytes, read 2).\nParse stopped. Choose a complete capture, then retry.", summary = "Parse stopped at byte 0x18: incomplete record" },
+    ["Black Duck"] = { working = "Connecting to scan server...\nUploading source manifest (128 of 256 files)...", failed = "POST /api/scans\nHTTP 401 Unauthorized: scan token expired.\nUpdate the token in connection settings, then retry.", summary = "Scan rejected: token expired" },
+    ["iLO Redfish"] = { working = "GET /redfish/v1/Systems/1/\nRequest sent; awaiting response...", failed = "GET /redfish/v1/Systems/1/\nHTTP 503 Service Unavailable\nThe management controller is restarting. Wait for it to become available, then retry.", summary = "Request failed: controller unavailable" },
+    ["Time Clock"] = { working = "Submitting Meal Start...\nWaiting for clock service confirmation.", failed = "Meal Start request\nHTTP 503 Service Unavailable\nNo punch was confirmed. Check the service before retrying.", summary = "Meal Start was not confirmed" },
+}
 
 -- Deterministic presentation states: never start jobs or make network requests.
 function M.tool_state(page, state)
@@ -198,6 +209,10 @@ function M.tool_state(page, state)
     local Kit = require("core.ui.Kit")
     local names = { ["Build Queue"]="Build", ["iLO Redfish"]="Request", ["Log Parser"]="Log scan", ["Scan Chain"]="Parse", ["Black Duck"]="Scan", ["Time Clock"]="Clock request" }
     local name = names[page.opts.title] or "Operation"
+    local transcript = OUTPUT[page.opts.title]
+    if transcript and not page.dockContent then
+        page:ensureDock{ widget = iup.text{ MULTILINE="YES", READONLY="YES", EXPAND="YES", THEMEROLE="outputlog" } }
+    end
     if not page.capturePlaceholder then
         page.capturePlaceholder = Kit.statusLine(iup, "info", "")
         iup.Append(page.mainHost, page.capturePlaceholder)
@@ -233,12 +248,13 @@ function M.tool_state(page, state)
     if page.dockContent then
         local function output(w)
             local class = iup.GetClassName(w)
-            if class == "text" then iup.SetAttribute(w, "VALUE", working and (name .. " started. Awaiting response...") or (name .. " stopped: connection or input could not be read. Check configuration and retry.")) end
+            if class == "text" then iup.SetAttribute(w, "VALUE", transcript and transcript[state] or (name .. " started.")) end
             local n=0
             while iup.GetChild(w,n) do output(iup.GetChild(w,n)); n=n+1 end
         end
         output(page.dockContent)
-        page:setDockSummary(working and "info" or "error", working and "Waiting for output" or "Operation stopped before completion", not working and function() page:openDock(true) end or nil)
+        page:setDockSummary(working and "info" or "error", working and "Waiting for output" or (transcript and transcript.summary or "Operation stopped before completion"), not working and function() page:openDock(true) end or nil)
+        if working then page:openDock(false) end
     end
 end
 

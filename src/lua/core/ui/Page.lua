@@ -1,5 +1,7 @@
 --- Declarative tool workspace. No extension logic or per-frame work lives here.
 local M = {}
+local pages = setmetatable({}, { __mode = "kv" })
+function M.fromWidget(widget) return pages[widget] end
 local L = require("core.lib.CarbonLayout")
 local P = L.PAGE
 local Kit = require("core.ui.Kit")
@@ -31,6 +33,8 @@ function M.new(iup, opts)
     if opts.icon then Kit.bindIcon(iup, title, opts.icon) end
     self.primary = opts.primary and opts.primary.widget or Kit.button(iup, { title = "", role = "primary_btn" })
     self.primaryIconTarget = opts.primary and opts.primary.iconWidget or self.primary
+    -- Custom action groups must not compete with the state line for spare width.
+    iup.SetAttribute(self.primary, "EXPAND", "NO")
     self.secondary = {}
     for n = 1, 2 do self.secondary[n] = Kit.button(iup, { title = "" }) end
     local overflow = Kit.button(iup, { title = "More", action = function()
@@ -46,7 +50,7 @@ function M.new(iup, opts)
     self.configure = Kit.button(iup, { title = "Configure", action = function()
         self.configOpen = not self.configOpen; self:fit(self.width)
     end })
-    self.header = row({ title, self.stateLine, iup.fill{}, self.configure, self.secondary[1], self.secondary[2], overflow, self.primary }, "page_header", P.header)
+    self.header = row({ title, self.stateLine, self.configure, self.secondary[1], self.secondary[2], overflow, self.primary }, "page_header", P.header)
     local config = opts.config or opts.nav
     local function column(spec, role, close)
         if not spec then return nil end
@@ -100,31 +104,43 @@ function M.new(iup, opts)
         self.toolbar = row({ opts.toolbar }, "page_toolbar", P.toolbar)
         kids[#kids + 1] = self.toolbar
     end
-    if opts.dock then
-        self.dockSummary = Kit.statusLine(iup, "idle", opts.dock.summary or "No output yet")
+    local function buildDock(spec)
+        self.dockSummary = Kit.statusLine(iup, "idle", spec.summary or "No output yet")
         self.dockAction = Kit.button(iup, { title = "Open error" })
         self.dockToggle = Kit.button(iup, { title = "Show output", action = function() self:openDock(not self.dockOpen) end })
-        self.dock = iup.vbox({ row({ L.sectionTitle(iup, opts.dock.title or "Output"), self.dockSummary, self.dockAction, self.dockToggle }, "page_dock", P.control),
-            opts.dock.widget, GAP = L.gap(3), EXPAND = "YES", THEMEROLE = "page_dock" })
-        self.dockContent = opts.dock.widget
+        self.dock = iup.vbox({ row({ L.sectionTitle(iup, spec.title or "Output"), self.dockSummary, self.dockAction, self.dockToggle }, "page_dock", P.control),
+            spec.widget, GAP = L.gap(3), EXPAND = "YES", THEMEROLE = "page_dock" })
+        self.dockContent = spec.widget
         self.dockSplit = split(body, self.dock, true, "dock", P.dock, P.toolbar, P.dock * 2)
         self.dockHost = iup.vbox{self.dockSplit, EXPAND="YES", THEMEROLE="page_column"}
-        kids[#kids + 1] = self.dockHost
+        return self.dockHost
+    end
+    if opts.dock then
+        kids[#kids + 1] = buildDock(opts.dock)
     else kids[#kids + 1] = body end
     kids.MARGIN, kids.GAP, kids.EXPAND = L.margin(P.padding), L.gap(5), "YES"
     kids.THEMEROLE = "page_surface"
     self.root = iup.vbox(kids)
+    pages[self.root] = self
     local dev = rawget(_G, "LUNAR_DEV_SHELL")
     if dev then
         dev.toolPages = dev.toolPages or {}
         dev.toolPages[opts.title] = self
     end
     function self:widget() return self.root end
+    function self:ensureDock(spec)
+        if self.dock then return end
+        iup.Detach(self.body)
+        iup.Append(self.root, buildDock(spec))
+        self:openDock(false)
+    end
     function self:destroy()
+        pages[self.root] = nil
         if self.runIcon then self.runIcon:destroy(); self.runIcon = nil end
         if self.menu then self.menu:destroy(); self.menu = nil end
     end
     function self:setState(kind, text)
+        self.stateText = text
         Kit.setStatus(iup, self.stateLine, kind == "success" and "ok" or kind, text)
         iup.SetAttribute(self.stateLine, "TIP", text)
     end
@@ -156,7 +172,7 @@ function M.new(iup, opts)
             self.runKind = spec.run
             self.renderedRunState = nil
             if spec.run and ok then
-                self.runIcon = StateIcon.new(iup, { kind = spec.run, size = Kit.ICON_BUTTON, role = "on-accent" })
+                self.runIcon = StateIcon.new(iup, { kind = spec.run, size = Kit.ICON_BUTTON, role = spec.iconRole or "on-accent" })
                 self.runIcon:attach(self.primaryIconTarget, "IMAGE")
             end
         end
@@ -215,18 +231,17 @@ function M.new(iup, opts)
         end
         width = math.max(P.control, width)
         iup.SetAttribute(self.root, "MAXSIZE", L.maxSize(width))
-        iup.SetAttribute(self.header, "MAXSIZE", L.maxSize(math.max(P.control, width - P.padding * 2)))
+        -- The parent already removes page padding. Let this row fill that client area.
+        iup.SetAttribute(self.header, "MAXSIZE", nil)
         self.fitting = true
         self.width, self.height = width, height or self.height or P.dock * 3
         local narrow = width - P.padding * 2 < P.config_break
         self:setSecondary(self.secondarySpecs)
-        local actionCount = 1 + ((narrow and self.config) and 1 or 0)
-        if #(opts.menu or {}) > 0 or #(self.secondarySpecs or {}) > (width < P.drawer_break and 0 or 2) then actionCount = actionCount + 1 end
-        if width >= P.drawer_break then actionCount = actionCount + math.min(2, #(self.secondarySpecs or {})) end
         local titleWidth = math.min(P.card_min, math.floor(width / 4))
         iup.SetAttribute(title, "MAXSIZE", L.maxSize(titleWidth))
-        local stateWidth = math.max(1, width - P.padding * 2 - titleWidth - actionCount * (P.card_min / 2 + P.gutter) - P.gutter)
-        iup.SetAttribute(self.stateLine, "MAXSIZE", L.maxSize(stateWidth))
+        -- One unbounded expanding child consumes all remaining space; a capped label
+        -- plus an IUP fill loses space when the label hits its maximum.
+        iup.SetAttribute(self.stateLine, "MAXSIZE", nil)
         show(self.configure, narrow and self.config ~= nil)
         if self.configSplit then
             local visible = not narrow or self.configOpen

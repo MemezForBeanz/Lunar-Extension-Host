@@ -945,11 +945,20 @@ local activity_store = host:activityStore()
 	local function refresh_tool_status()
 		local active = host:_activeTab()
 		local tab = active and iup.GetAttribute(active, "HOSTTABOWNERID")
+		local function page_state(widget)
+			if not widget then return end
+			local page = require("core.ui.Page").fromWidget(widget)
+			if page then return page.stateText end
+			for n = 0, iup.GetChildCount(widget) - 1 do
+				local text = page_state(iup.GetChild(widget, n))
+				if text then return text end
+			end
+		end
 		local work
 		for _, item in ipairs(activity_store:running()) do
-			if item.tab == tab then work = item; break end
+			if tab and item.tab == tab then work = item; break end
 		end
-		status_bar:showTool(tab, nil, work)
+		status_bar:showTool(tab, nil, work, page_state(active))
 		if status_timer then iup.SetAttribute(status_timer, "RUN", status_bar:hasTransient() and "YES" or "NO") end
 	end
 	activity_store:subscribe(function(event, item)
