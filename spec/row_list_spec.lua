@@ -38,6 +38,14 @@ describe("RowList", function()
 		assert.equals(30, bound.value(1, "PROGRESS"))
 	end)
 
+	it("bounds content without imposing a minimum on narrow layouts", function()
+		local list = RowList.new(iup, {title_width=280,column_widths={112,80}})
+		assert.equals("472x", attrs.MAXSIZE)
+		assert.is_nil(attrs.MINSIZE)
+		list:setContentWidth(320)
+		assert.equals("512x", attrs.MAXSIZE)
+	end)
+
 	it("turns the sort round on a second click of the same column", function()
 		local sorts = {}
 		RowList.new(iup, {

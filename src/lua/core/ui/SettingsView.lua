@@ -177,7 +177,7 @@ function SettingsView:initialize(opts)
     -- themed flatframe (a real owner-drawn native window, same mechanism already
     -- proven to work for the search box above) gives flatlabel children an actual
     -- painted native parent to inherit from.
-    self._panel = iup.flatframe{
+    self._panel = (rawget(iup, "_IMGUI") and iup.vbox or iup.flatframe){
         self._inner,
         TITLE     = "",
         MARGIN    = L.margin(0),
@@ -798,7 +798,7 @@ function SettingsView:addSection(category, opts, mapped)
         MARGIN = L.margin(0),
         EXPAND = "HORIZONTAL",
     }
-    local body = iup.flatframe{
+    local body = (rawget(iup, "_IMGUI") and iup.vbox or iup.flatframe){
         body_inner,
         TITLE     = "",
         MARGIN    = L.margin(0),
