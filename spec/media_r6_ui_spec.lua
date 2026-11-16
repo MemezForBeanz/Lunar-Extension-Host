@@ -51,6 +51,13 @@ describe("round 6 media details", function()
         local shelf = iup.GetChild(body,iup.GetChildCount(body)-1)
         assert.equals("11 22 33",iup.GetAttribute(identity,"BGCOLOR"))
         assert.equals("11 22 33",iup.GetAttribute(shelf,"BGCOLOR"))
+        local reactor = require("core.ui.ThemeReactor")
+        local palette = reactor.palette
+        reactor.palette = function() return {focusInset="255 255 255",layer01="44 44 44",layer02="255 255 255"} end
+        api:_afterThemePass()
+        reactor.palette = palette
+        assert.equals("44 44 44",iup.GetAttribute(identity,"BGCOLOR"))
+        assert.equals("44 44 44",iup.GetAttribute(shelf,"BGCOLOR"))
         api.setModel({origins={{name="Feed",status="failed",error="Offline"}}})
         assert.equals("1 source unavailable",iup.GetAttribute(page.stateLine,"TITLE"))
         iup.Destroy(api.widget)
