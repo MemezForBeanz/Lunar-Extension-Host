@@ -270,6 +270,7 @@ function M.new(ctx, opts)
 	drains[#drains + 1] = inspector_posters
 
 	local shelves, sheet, ledger, hero
+	local workspace
 	local sources_anchor
 
 	local function position_in(list, item)
@@ -290,6 +291,7 @@ function M.new(ctx, opts)
 	local function choose(item)
 		if not item then return end
 		chosen = item
+		if workspace and source_id ~= "home" and not opened then workspace:openInspector(true) end
 		show_item(item)
 		mark_chosen()
 		if source_id == "home" and hero then hero.show(item, true) end
@@ -662,9 +664,17 @@ function M.new(ctx, opts)
 		filter_changed()
 	end })
 	api.search_field = search
-	local filter_bar = iup.hbox({ search.widget, watch_box.widget, genre_box.widget, decade_box.widget, quality_box.widget,
-		clear_button, iup.fill({}), save_button, density_box,
-		GAP = L.gap(2), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL", MARGIN = RING .. "x0" })
+    local filter_dialog
+    local filters_button = Kit.button(iup, { title = "Filters", icon = "filter", action = function()
+        if filter_dialog then iup.Popup(filter_dialog, iup.MOUSEPOS, iup.MOUSEPOS) end
+    end })
+    local close_filters = Kit.button(iup, { title = "Done", action = function() if filter_dialog then iup.Hide(filter_dialog) end end })
+    filter_dialog = iup.dialog({ iup.vbox({ L.sectionTitle(iup, "Filter library"),
+        L.hint(iup, "Watch status"), watch_box.widget, L.hint(iup, "Genre"), genre_box.widget,
+        L.hint(iup, "Decade"), decade_box.widget, L.hint(iup, "Quality"), quality_box.widget,
+        close_filters, GAP = L.gap(3), MARGIN = L.margin(5) }), TITLE = "Filters", RESIZE = "NO" })
+    local filter_bar = iup.hbox({ search.widget, filters_button, clear_button, iup.fill({}), save_button, density_box,
+        GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" })
 
 	-- Icons are asked for at paint time, so they follow the theme instead of the colours that
 	-- were current when the extension loaded.
@@ -738,7 +748,7 @@ function M.new(ctx, opts)
 	local scanning = Kit.statusLine(iup, "info", "")
 	Kit.show(iup, scanning, false, sources.widget)
 	local sample_note = iup.vbox({
-		L.hint(iup, "This is a sample library."),
+		L.hint(iup, "Your media, in one library."),
 		iup.flatbutton({ TITLE = "Connect a server", THEMEROLE = "link_btn", CANFOCUS = "YES", flat_action = function()
 			if opts.on_connect then opts.on_connect() end
 			return iup.DEFAULT
@@ -785,6 +795,7 @@ function M.new(ctx, opts)
 			if source.id == id then title = source.title end
 		end
 		iup.SetAttribute(heading, "TITLE", title)
+        if workspace then workspace:setState("info", title); workspace:openInspector(false) end
 		if api.fit and api.last_width then api.fit(api.last_width) end
 		Kit.show(iup, toolbar, id ~= "home", sources.widget)
 		Kit.show(iup, filter_bar, id ~= "home", sources.widget)
@@ -806,13 +817,12 @@ function M.new(ctx, opts)
 	local reliability = require("ui.reliability").new(ctx, model, opts.on_sources)
 	local main = iup.vbox({ reliability.widget, toolbar, filter_bar, iup.hbox({ stack, jump_box, GAP = "0", MARGIN = "0x0", EXPAND = "YES" }),
 		GAP = L.gap(3), MARGIN = "0x0", EXPAND = "YES" })
-	local right = iup.vbox({ iup.hbox({ RASTERSIZE = L.size(INSPECTOR_WIDTH) }), inspector_body, MARGIN = "0x0", EXPAND = "VERTICAL" })
-	-- Collections run to the bottom of the panel, so nothing is cut short of its edge.
-	api.widget = iup.vbox({
-		iup.fill({ RASTERSIZE = "1x16" }),
-		iup.hbox({ source_rail, main, right, GAP = L.gap(5), MARGIN = "0x0", EXPAND = "YES" }),
-		MARGIN = "16x0", EXPAND = "YES",
-	})
+	workspace = Kit.page(iup, { id = "media-browser", title = "Media", icon = "media--library",
+        nav = { widget = source_rail, title = "Browse" }, main = main,
+        inspector = { widget = inspector_body, title = "Selected title", width = L.PAGE.inspector },
+        state = { kind = "info", text = "Choose a library or collection" } })
+    api.widget = workspace:widget()
+    workspace.mediaCaptureState = function() workspace:setState("info", "Browse your library") end
 
 	local fill_spotlight
 	choose(continuing[1] or model.films[1])
@@ -876,7 +886,8 @@ function M.new(ctx, opts)
 		elseif state == "ledger" then
 			pick_view("ledger", 2)
 			go_source("films")
-			choose(model.films[3])
+			choose(active[3] or active[1])
+            if ledger.scrollTo then ledger:scrollTo(3) end
 		elseif state == "shows" then
 			pick_view("sheet", 3)
 			go_source("shows")
@@ -886,10 +897,14 @@ function M.new(ctx, opts)
 
 	function api.fit(width)
 		api.last_width = width
-		-- Anchored on the rail, which shows exactly when this tab does: the inspector must never
-		-- come back while another tab is in front.
-		Kit.show(iup, right, width >= Adaptive.MEDIUM and source_id ~= "home" and not opened, sources.widget)
-		Kit.show(iup, source_rail, width >= Adaptive.NARROW, stack)
+        -- Keep the title and identifying columns usable; full file metadata stays in the inspector.
+        local widths = width < (L.PAGE.main_min + L.PAGE.config + L.PAGE.inspector + 2 * L.PAGE.padding + L.px(13))
+            and { 72, 112, 0, 0, 0, 0 } or { 72, 112, 88, 128, 128, 80 }
+        for column, pixels in ipairs(widths) do iup.SetAttribute(ledger.widget, "COLUMN" .. column .. "WIDTH", tostring(pixels)) end
+        workspace:fit(width)
+        Kit.show(iup,workspace.header,not opened,sources.widget)
+        workspace:openInspector(source_id ~= "home" and not opened and workspace.inspectorOpen)
+
 	end
 
 	-- Cells follow the width the collection really got, measured after layout.

@@ -189,6 +189,10 @@ end
 
 -- Deterministic presentation states: never start jobs or make network requests.
 function M.tool_state(page, state)
+	if page.opts and tostring(page.opts.id):match("^media%-") then
+		if page.mediaCaptureState then page.mediaCaptureState(state) end
+		return
+	end
     page.captureState = state
     local iup = page.iup
     local Kit = require("core.ui.Kit")

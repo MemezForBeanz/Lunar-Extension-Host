@@ -427,7 +427,8 @@ function M:register(ctx)
 				if answer then self:connect() end
 			end)
 		end })
-	self.sources_page = sources_page.new(ctx, { sources = model.origins, libraries = model.libraries, providers = sample.PROVIDERS,
+	self.sources_page = sources_page.new(ctx, { owner = self, is_connected = function() return self.client ~= nil end,
+        on_connect = function() ctx:dispatchAddress("lunar://host/settings") end, sources = model.origins, libraries = model.libraries, providers = sample.PROVIDERS,
 		on_discover = function(body, done)
 			if not self.client then return done(nil, "Connect a server first.") end
 			self.client:discover(body, done)
@@ -520,6 +521,9 @@ function M:register(ctx)
 	if shell then
 		shell.pages = shell.pages or {}
 		shell.pages["Media"] = { states = { "home", "sheet", "filtered", "collection", "ledger", "shows", "title", "show", "source" }, show = self.library.go }
+		shell.pages["Metadata"] = { states = { "selected" }, show = self.metadata_page.capture }
+		shell.pages["Sources"] = { states = os.getenv("LUNAR_CAPTURE_SOURCE_MANAGE_ONLY") and { "manage" } or { "disconnected", "connected", "manage" }, show = self.sources_page.capture }
+		if os.getenv("LUNAR_CAPTURE_SOURCE_MANAGE_ONLY") then shell.toolPages["Sources"] = nil end
 		local states = { "wait", "paused" }
 		if os.getenv("LUNAR_MEDIA_SERVER") then states = { "wait", "paused", "play", "playing", "playing2", "playing3" } end
 		for i = 1, tonumber(os.getenv("LUNAR_CAPTURE_LINGER") or "0") do states[#states + 1] = "linger" .. i end

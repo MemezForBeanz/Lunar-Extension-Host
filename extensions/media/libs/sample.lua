@@ -163,8 +163,8 @@ end
 M.PROVIDERS = {
 	{ id = "jellyfin", name = "Jellyfin or Emby server", summary = "Another media server you run, on this network or elsewhere.",
 		fields = { { id = "url", label = "Server address", cue = "https://media.example.org" }, { id = "key", label = "API key" } } },
-	{ id = "archive-feature-films", name = "Internet Archive: Feature Films", summary = "Public-domain and openly licensed feature films.", fields = {} },
-	{ id = "archive-prelinger", name = "Internet Archive: Prelinger Archives", summary = "Advertising, educational and home films from the Prelinger collection.", fields = {} },
+	{ id = "archive-feature-films", kind = "archive", name = "Internet Archive: Feature Films", summary = "Public-domain and openly licensed feature films.", fields = {} },
+	{ id = "archive-prelinger", kind = "archive", name = "Internet Archive: Prelinger Archives", summary = "Advertising, educational and home films from the Prelinger collection.", fields = {} },
 	{ id = "m3u", name = "M3U playlist", summary = "A playlist of streams at an address you give it.",
 		fields = { { id = "url", label = "Playlist address", cue = "https://example.org/list.m3u" } } },
 	{ id = "feed", name = "Video feed", summary = "A podcast or RSS feed with video enclosures.",
@@ -202,7 +202,7 @@ function M.library()
 			{ id = "c4", name = "Rainy day", icon = "bookmark", items = { 2, 4, 6, 10, 15 } },
 		},
 		server = {
-			name = "Sample library", version = "0.1.0", analysis = "on", files = 1240, missing = 3, analysing = 18, failed = 1,
+			name = "Lunar Media", version = "0.1.0", analysis = "on", files = 1240, missing = 3, analysing = 18, failed = 1,
 			sessions = {
 				{ user = "Alice", title = "The Salt Line", device = "Living room", mode = "Direct",
 					video = "Original HEVC HDR10, client decodes it", audio = "Original E-AC3 5.1, client decodes it",

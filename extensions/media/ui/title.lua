@@ -69,7 +69,7 @@ function M.new(ctx, opts)
 		action = function() opts.on_back() end })
 	iup.SetAttribute(back, "RASTERSIZE", "x32")
 
-	local hero = spotlight.new(ctx, { cache = opts.cache, art = opts.art, compact = true,
+	local hero = spotlight.new(ctx, { cache = opts.cache, art = opts.art, compact = true, header_action = true,
 		on_play = function()
 			if not current then return end
 			if current.kind ~= "show" then return opts.on_play(current) end
@@ -247,24 +247,17 @@ function M.new(ctx, opts)
 		Kit.show(iup, metadata.widget, matching, back)
 		iup.Refresh(api.widget)
 	end })
-	local body = L.stack(iup, {
-		holder,
-		aligned(back),
-		aligned(hero.widget),
-		aligned(fix_match),
-		aligned(metadata.widget),
-		aligned(fact_box),
-		aligned(copies_section),
-		aligned(forecast_section),
-		episode_section,
-		more_section,
-		iup.fill({ RASTERSIZE = "x16" }),
-	}, 4)
-	iup.SetAttribute(body, "EXPAND", "HORIZONTAL")
-
-	api.widget = iup.flatscrollbox({
-		iup.flatframe({ body, TITLE = "", THEMEROLE = "settingspanel", MARGIN = "0x0", EXPAND = "HORIZONTAL" }),
-		EXPAND = "YES", SCROLLBAR = "VERTICAL", XHIDDEN = "YES", THEMEROLE = "tabscroll" })
+    local technical = L.stack(iup, { copies_section, forecast_section }, 4)
+    Kit.show(iup, technical, false, back)
+    local disclosure = Kit.disclosure(iup, { title = "Technical details", on_change = function(open)
+        Kit.show(iup, technical, open, back); iup.Refresh(api.widget)
+    end })
+    local body = L.stack(iup, { holder, aligned(hero.widget), aligned(fix_match), aligned(metadata.widget),
+        aligned(fact_box), episode_section, aligned(disclosure), aligned(technical), more_section }, 4)
+    local content = iup.flatscrollbox({ body, EXPAND = "YES", SCROLLBAR = "VERTICAL", XHIDDEN = "YES", THEMEROLE = "tabscroll" })
+    local page = Kit.page(iup, { id = "media-title", title = "Library / Title", main = content, primary = { widget = hero.primary },
+        secondary = { { title = "Back to library", action = opts.on_back } } })
+    api.widget = page:widget()
 
 	local function fact_values(item)
 		local joined = function(list) return list and #list > 0 and table.concat(list, ", ") or "" end
@@ -294,6 +287,7 @@ function M.new(ctx, opts)
 	-- @tparam table item
 	function api.open(item)
 		current = item
+        page:setState("info", item.title)
 		metadata.open(item)
 		matching = false
 		Kit.show(iup, metadata.widget, false, back)
