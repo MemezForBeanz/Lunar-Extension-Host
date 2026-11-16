@@ -332,7 +332,6 @@ local function recolor(image, colorU32)
 		if shape.stroke.type == NSVG_PAINT_COLOR then
 			shape.stroke.color = colorU32
 		end
-		shape.opacity = 1.0
 		shape = shape.next
 	end
 end
@@ -526,6 +525,24 @@ function VectorIcon.imageHandle(iup, opts)
 	iup.SetHandle(handleName, img)
 	_imageCache[key] = handleName
 	return handleName
+end
+
+--- Release generated animation frames after their owner's LRU evicts them.
+function VectorIcon.releasePath(iup, path)
+	local prefix = path .. "|"
+	for key, name in pairs(_imageCache) do
+		if key:sub(1, #prefix) == prefix then
+			if name then
+				local image = iup.GetHandle(name)
+				iup.SetHandle(name, nil)
+				if image then iup.Destroy(image) end
+			end
+			_imageCache[key] = nil
+		end
+	end
+	local parsed = _parseCache[path]
+	if parsed then C.nsvgDelete(parsed) end
+	_parseCache[path] = nil
 end
 
 local _logoCache = {}  -- "path|height" -> IUP handle name, or `false` on failure

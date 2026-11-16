@@ -173,8 +173,43 @@ function M.button(iup, opts)
 			return iup.DEFAULT
 		end
 	end
-	if opts.icon then M.bindIcon(iup, btn, opts.icon, { role = opts.icon_role }) end
-	return btn
+	local state_icon
+	if opts.state_icon then
+		state_icon = require("core.ui.StateIcon").new(iup, { kind = opts.state_icon, size = M.ICON_BUTTON,
+			role = opts.icon_role or (opts.role == "primary_btn" and "on-accent" or "neutral"), animate = opts.animate })
+		state_icon:attach(btn)
+	elseif opts.icon then M.bindIcon(iup, btn, opts.icon, { role = opts.icon_role }) end
+	return btn, state_icon
+end
+
+--- Copy callbacks return false on failure; the button keeps a fixed icon box.
+function M.copyButton(iup, opts)
+	opts = opts or {}
+	local action = opts.action
+	local config = {}
+	for key, value in pairs(opts) do config[key] = value end
+	config.state_icon = "copy"
+	local btn, icon = M.button(iup, config)
+	function btn:flat_action()
+		if not action or action() ~= false then icon:set("copied") end
+		return iup.DEFAULT
+	end
+	return btn, icon
+end
+
+--- A disclosure button with the shared 90-degree chevron state.
+function M.disclosure(iup, opts)
+	opts = opts or {}
+	local open = opts.open == true
+	local button, icon = M.button(iup, { title=opts.title, state_icon="chevron", animate=opts.animate })
+	icon:set(open and "open" or "closed")
+	function button:flat_action()
+		open = not open
+		icon:set(open and "open" or "closed")
+		if opts.on_change then opts.on_change(open) end
+		return iup.DEFAULT
+	end
+	return button, icon
 end
 
 --- Put Carbon icons on a set of existing buttons.

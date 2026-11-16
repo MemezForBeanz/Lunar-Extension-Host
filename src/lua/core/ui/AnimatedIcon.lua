@@ -218,7 +218,7 @@ function M:setPlaying(playing)
 		return self
 	end
 	self.morph = self.animate({
-		role = "status_change", from = self.progress, to = target,
+		role = "icon_morph", from = self.progress, to = target,
 		on_frame = function(value)
 			self.progress = value
 			self:_draw()
@@ -230,7 +230,7 @@ end
 
 function M:_cycle()
 	self.bars = self.animate({
-		duration = 1200, from = 0, to = 1, curve = "linear",
+		role = "icon_activity", from = 0, to = 1,
 		on_frame = function(value) self:_draw_bars(value % 1) end,
 		on_done = function(completed)
 			self.bars = nil

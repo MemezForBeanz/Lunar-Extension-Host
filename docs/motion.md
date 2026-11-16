@@ -486,6 +486,73 @@ Both roles carry extras:
 A theme can slow the entrance, widen the travel, or shorten the hold by naming
 these roles in its `motion()` table.
 
+## Icons that change state
+
+`core.ui.StateIcon` uses the cached SVG technique of `ModeIcon` and `AnimatedIcon`.
+It only sets image attributes, so it works on either host.
+
+```lua
+local StateIcon = require("core.ui.StateIcon")
+local icon = StateIcon.new(iup, {kind="run",size=16,role="on-accent",
+    animate=function(spec) return director:animate(spec) end})
+icon:attach(button, "IMAGE") -- or place icon:widget() in a layout
+icon:set("working", {progress=0.42})
+icon:set("succeeded")
+print(icon:state())
+icon:destroy() -- cancel before removing the target
+```
+
+The animate callback is optional: the host director registers itself. Roles are
+neutral, muted, accent, on-accent, success, warning and error. End states use
+semantic palette tokens; on-accent preserves contrast on primary buttons.
+`setSize(px)` requests a new raster size when the caller changes DPI.
+
+| Kind | States |
+| --- | --- |
+| run | ready, working, stopping, succeeded, failed |
+| row | queued, running, ok, warning, failed, skipped |
+| connection | offline, connecting, connected, error |
+| refresh | idle, checking, current, available, failed |
+| copy | ready, copied |
+| save | clean, modified, saving, saved, failed |
+| chevron | closed, open |
+| activity | idle, busy, attention |
+| pin, favourite, panel | off, on |
+
+`StateIcon.kinds()` lists registered names. Extensions register shape data on a
+32-unit box with square caps:
+
+```lua
+StateIcon.register("connection-mark", {initial="offline",states={
+    offline={path="M8 16H24",role="muted"},
+    online={glyph="check",role="success"},
+}})
+```
+
+`Kit.button` accepts `state_icon="run"` and returns `button, icon`.
+`Kit.copyButton` confirms successful callbacks; `Kit.disclosure` toggles a chevron.
+`RowList:setState(pos,state,progress)` changes an individual row's status image.
+Call `destroyStateIcons()` before disposing the list. Populating rows alone starts
+no animation.
+
+Transitions use eight steps and loops twelve. A geometry LRU retains 48 frames
+per kind, pinning displayed frames. VectorIcon releases evicted parse and raster
+handles. Theme changes repaint live icons. Timing roles are icon_morph (110ms
+standard), icon_row (110ms entrance), icon_settle (150ms entrance), icon_spin
+(1000ms linear), icon_connect (1200ms linear), icon_activity (900ms linear), and
+icon_hold (1200ms). Run success and copy confirmation hold, then return to ready.
+
+Only real work loops, with at most four loops at once. Determinate progress has
+no idle clock. Hidden widgets suspend on an existing ImGui UI frame and resume
+when their page is shown. No private timer polls idle icons. Reduced motion swaps
+glyphs immediately and leaves work static; keep accompanying status text visible.
+Real IUP callers should re-set the current state when remapping a hidden container;
+it does not provide the ImGui frame visibility hook.
+
+Run `scripts/ui_stateicons.lua` through `cap-ui.ps1 -Script` for every ordered
+state pair, at 16px and 20px, with enlarged frames and static Carbon references.
+The probe paginates to fit the viewport.
+
 ## Implementation
 
 | Module | Role |

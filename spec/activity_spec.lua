@@ -333,17 +333,17 @@ describe("StatusBar activity slot", function()
 	-- The bar on the Null backend, with a stand-in for the activity icon that counts spins.
 	local function bar()
 		local T = require("core.lui.test")
-		local StatusIcon = require("core.ui.StatusIcon")
+		local StatusIcon = require("core.ui.StateIcon")
 		local iup, Runtime = T.boot({})
 		local calls = { spin = 0, refresh = 0, glyph = nil }
 		local spinning = false
 		local raw_new = StatusIcon.new
 		StatusIcon.new = function(i, opts)
-			if opts.state ~= "activity_ok" then return raw_new(i, opts) end
+			if opts.kind ~= "activity" then return raw_new(i, opts) end
 			local label = iup.label({ TITLE = "" })
 			return {
 				widget = function() return label end,
-				isSpinning = function() return spinning end,
+				set = function(_, state) if state == "busy" and not spinning then calls.spin = calls.spin + 1 end; spinning = state == "busy"; calls.glyph = state end,
 				startSpin = function() spinning = true; calls.spin = calls.spin + 1 end,
 				stopSpin = function(_, glyph) spinning = false; calls.glyph = glyph end,
 			}
@@ -378,7 +378,7 @@ describe("StatusBar activity slot", function()
 	it("settles on the state's glyph and keeps an ampersand literal", function()
 		local sb, _, text, calls, attr, done = bar()
 		sb:setActivity({ state = "failed", text = "Upload & scan failed" })
-		assert.equals("activity_failed", calls.glyph)
+		assert.equals("attention", calls.glyph)
 		assert.equals("Upload && scan failed", attr(text, "TITLE"))
 		done()
 	end)

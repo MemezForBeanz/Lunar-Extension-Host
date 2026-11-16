@@ -14,7 +14,7 @@
 -- @classmod core.ui.StatusBar
 
 local L = require("core.lib.CarbonLayout")
-local StatusIcon = require("core.ui.StatusIcon")
+local StateIcon = require("core.ui.StateIcon")
 local ui = require("core.lui")
 
 local StatusBar = {}
@@ -147,9 +147,7 @@ function StatusBar.new(opts)
 		self._refs[name] = {}
 	end
 	-- Registered with HostAPI by core.ui.UpdateCheck for every installation.
-	self._update_icon = StatusIcon.new(iup, {
-		dir = opts.icon_dir, size = 16, state = "upd_complete", tip = StatusBar.UPDATE_STATES.current.tip,
-	})
+	self._update_icon = StateIcon.new(iup, { kind = "refresh", size = 16 })
 	local seed_name
 	if self._has_logo then
 		-- Seed IMAGE before Map even when the startup theme has no logo variant.
@@ -161,7 +159,7 @@ function StatusBar.new(opts)
 	-- Background work, in place of a word that said nothing. Empty until there is some.
 	-- The state matters even though nothing shows yet: IUP fixes a label as image or text
 	-- when it maps, and one mapped without an image never draws one.
-	self._activity_icon = StatusIcon.new(iup, { dir = opts.icon_dir, size = 16, state = "activity_ok" })
+	self._activity_icon = StateIcon.new(iup, { kind = "activity", size = 16 })
 	local bar = self
 	local activity_glyph = self._activity_icon:widget()
 	function activity_glyph:button_cb(button, pressed)
@@ -262,7 +260,7 @@ function StatusBar:onActivity(fn) self._on_activity = fn end
 function StatusBar:activityAnchor() return self._refs.settings.current end
 --- The box extension status elements go in (HostAPI's `status_box`).
 function StatusBar:extBox() return self._refs.ext_box.current end
---- The update indicator (a `core.ui.StatusIcon`).
+--- The update indicator (a `core.ui.StateIcon`).
 function StatusBar:updateIcon() return self._update_icon end
 
 --- Animate status changes through this director (it is built after the bar).
@@ -280,11 +278,11 @@ function StatusBar:setActivity(view)
 	-- A status bar that throws would surface as an error in whichever tool reported.
 	pcall(function()
 		if view and view.state == "running" then
-			if not icon:isSpinning() then icon:startSpin() end
+			icon:set("busy")
 		elseif view then
-			icon:stopSpin(ACTIVITY_GLYPHS[view.state])
+			icon:set((view.state == "failed" or view.state == "attention") and "attention" or "idle")
 		else
-			icon:stopSpin()
+			icon:set("idle")
 		end
 		local cur = self._store:get().activity
 		local shown = view ~= nil
@@ -356,18 +354,21 @@ end
 function StatusBar:setUpdateState(state, tooltip)
 	local s = StatusBar.UPDATE_STATES[state] or StatusBar.UPDATE_STATES.current
 	local icon = self._update_icon
-	pcall(function() icon:set(s.icon, (tooltip or s.tip) .. StatusBar.UPDATE_CLICK_HINT) end)
+	pcall(function()
+		icon:set(({ unavailable = "failed", ready = "available" })[state] or (StatusBar.UPDATE_STATES[state] and state) or "current")
+		self._iup.SetAttribute(icon:widget(), "TIP", (tooltip or s.tip) .. StatusBar.UPDATE_CLICK_HINT)
+	end)
 end
 
 --- Spin the update indicator while a check runs.
 function StatusBar:startUpdateSpin()
 	local s, icon = StatusBar.UPDATE_STATES.checking, self._update_icon
-	pcall(function() icon:startSpinState(s.icon, "ccw", s.tip) end)
+	pcall(function() icon:set("checking") end)
 end
 
 function StatusBar:stopUpdateSpin()
 	local icon = self._update_icon
-	pcall(function() icon:stopSpin() end)
+	pcall(function() icon:set("idle") end)
 end
 
 --- Occupy a fraction of the bar's height without changing any content state.

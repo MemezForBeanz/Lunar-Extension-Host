@@ -86,8 +86,10 @@ describe("MotionTokens.role", function()
 	it("keeps every default role on a published Carbon duration token", function()
 		local published = {}
 		for _, ms in pairs(Tokens.DURATION) do published[ms] = true end
+		local cycles = { icon_spin=1000, icon_connect=1200, icon_activity=900, icon_hold=1200 }
 		for name, spec in pairs(Tokens.ROLES) do
-			if spec.duration then
+			if cycles[name] then assert.equals(cycles[name], spec.duration)
+			elseif spec.duration then
 				assert(published[spec.duration],
 					"role " .. name .. " uses an off-scale duration")
 			end

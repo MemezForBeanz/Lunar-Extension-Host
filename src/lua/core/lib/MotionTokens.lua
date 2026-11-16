@@ -174,6 +174,13 @@ end
 -- @field progress_advance a progress bar moving between values
 -- @field status_change the status line changing text
 M.ROLES = {
+	icon_morph = { duration = M.DURATION.fast_02, curve = "standard", style = "productive" },
+	icon_row = { duration = M.DURATION.fast_02, curve = "entrance", style = "productive" },
+	icon_settle = { duration = M.DURATION.moderate_01, curve = "entrance", style = "productive" },
+	icon_spin = { duration = 1000, curve = "linear" },
+	icon_connect = { duration = 1200, curve = "linear" },
+	icon_activity = { duration = 900, curve = "linear" },
+	icon_hold = { duration = 1200, curve = "linear" },
 	-- Switching tabs. The single most repeated navigation in the app, so it is
 	-- productive and firmly in the middle of the duration band -- long enough to
 	-- read as movement, short enough that a user stepping through five tabs is
