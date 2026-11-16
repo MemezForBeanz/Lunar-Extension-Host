@@ -20,7 +20,7 @@ function M.new(ctx, opts)
  for _,p in ipairs(Metadb.providers) do provider_ids[#provider_ids+1]=p.id;provider_names[#provider_names+1]=p.name end
  local provider_index=1
  local provider=Dropdown.new(iup,{items=provider_names,value=1,width=240,on_change=function(index) provider_index=index;generation=generation+1;pending=nil;candidates={};selected=nil;if rows then rows:setRows({}) end;if match then match_enabled(false) end end})
- local query=Field.new(iup,{cue='Movie or TV title', toolbar=true})
+ local query=Field.new(iup,{cue='Movie or TV title'})
  local status=Kit.statusLine(iup,'info','Search, then choose the correct title and year.')
  local function value(pos,field)
   local row=candidates[pos]; if not row then return end

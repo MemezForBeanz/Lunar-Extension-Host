@@ -423,6 +423,7 @@ function ToastHost:show(spec)
 		-- 3 px status bar on the left edge, coloured by kind
 		local status_bar = (iup.canvas or iup.flatlabel)({
 			TITLE    = "",
+			BORDER = "NO", CANFOCUS = "NO", EXPAND = "VERTICAL",
 			RASTERSIZE = tostring(STATUS_BAR_W) .. "x" .. tostring(toast_h),
 			MINSIZE = L.size(STATUS_BAR_W, 1), MAXSIZE = L.size(STATUS_BAR_W, toast_h),
 			THEMEROLE = ROLE_BAR[kind] or "toast_bar_info",

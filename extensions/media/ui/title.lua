@@ -252,15 +252,14 @@ function M.new(ctx, opts)
         Kit.show(iup, technical, open, back); iup.Refresh(api.widget)
     end })
     local reliability = require("ui.reliability").new(ctx, opts.model or {}, opts.on_sources)
-    api.setModel = reliability.setModel
     local body = L.stack(iup, { reliability.widget, aligned(hero.widget), aligned(metadata.widget),
         aligned(fact_box), episode_section, aligned(disclosure), aligned(technical), more_section }, 4)
     local content = iup.flatscrollbox({ body, EXPAND = "YES", SCROLLBAR = "VERTICAL", XHIDDEN = "YES", THEMEROLE = "tabscroll" })
     local page = Kit.page(iup, { id = "media-title", title = "Library / Title", main = content, primary = { widget = hero.primary } })
-    page:setSecondary({
-        {title = "Mark watched", action = function() hero.secondary:flat_action() end},
-        {title = "Fix match", action = function() fix_match:flat_action() end},
-    })
+    function api.setModel(model)
+        reliability.setModel(model)
+        page:setState(reliability.summary and "error" or "info", reliability.summary or "Ready to play")
+    end
     -- The compact identity and shelf share the page surface, including native labels.
     local Reactor = require("core.ui.ThemeReactor")
     function api:_afterThemePass()

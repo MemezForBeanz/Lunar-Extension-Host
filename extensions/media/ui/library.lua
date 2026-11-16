@@ -660,7 +660,7 @@ function M.new(ctx, opts)
 	iup.SetAttribute(density.widget, "TIP", "Poster size")
 
 	density_box = iup.hbox({ L.hint(iup, "Size"), density.widget, GAP = L.gap(2), MARGIN = "0x0", ALIGNMENT = "ACENTER" })
-	search = FlatField.new(iup, { cue = "Find a title", width = 148, toolbar = true, on_change = function(text)
+	search = FlatField.new(iup, { cue = "Find a title", width = 148, on_change = function(text)
 		filters.title = text ~= "" and text or nil
 		filter_changed()
 	end })
