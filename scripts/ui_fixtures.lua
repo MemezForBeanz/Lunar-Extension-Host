@@ -198,7 +198,7 @@ function M.tool_state(page, state)
         page.capturePlaceholder = Kit.statusLine(iup, "info", "")
         iup.Append(page.mainHost, page.capturePlaceholder)
     end
-    local queue = page.opts.title == "Build Queue" and rawget(_G, "LUNAR_DEV_SHELL").pages["Build Queue"]
+    local queue = page.opts.title == "Build Queue" and rawget(_G, "LUNAR_DEV_SHELL").pages["Build Queue"] or nil
     if queue then
         for n,entry in ipairs(queue.panel.get_queued_entries()) do
             entry.status = state == "working" and (n == 1 and "running" or "pending") or (n == 1 and "fail" or "skip")
@@ -214,6 +214,7 @@ function M.tool_state(page, state)
     Kit.setStatus(iup, page.capturePlaceholder, working and "info" or "error", working and "Waiting for results..." or "No results were produced.")
     page:setState(working and "working" or "error", sentence)
     page:setRunState(working and "working" or "failed", working and 0.5 or nil)
+    if not (page.opts.primary and page.opts.primary.widget) then iup.SetAttribute(page.primary, "TITLE", working and "Stop" or "Retry") end
     if page.opts.primary and page.opts.primary.widget then
         local target = page.primaryIconTarget
         local n = 0
