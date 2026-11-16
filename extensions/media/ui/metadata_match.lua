@@ -15,11 +15,15 @@ function M.new(ctx, opts)
   iup.SetAttribute(match,'TIP',on and 'Apply metadata from the selected result' or 'Select a result to apply its metadata')
   if ctx.notifyTreeChange then ctx:notifyTreeChange(match) end
  end
+ local function selection_changed()
+  if preview then iup.SetAttribute(preview,'TITLE',selected and ((selected.title or '')..' — '..(selected.overview or '')) or 'Select a result to check its title and year.') end
+  if opts.on_selection then opts.on_selection(selected) end
+ end
  local candidates={}
  local provider_ids,provider_names={},{}
  for _,p in ipairs(Metadb.providers) do provider_ids[#provider_ids+1]=p.id;provider_names[#provider_names+1]=p.name end
  local provider_index=1
- local provider=Dropdown.new(iup,{items=provider_names,value=1,width=240,on_change=function(index) provider_index=index;generation=generation+1;pending=nil;candidates={};selected=nil;if rows then rows:setRows({}) end;if match then match_enabled(false) end end})
+ local provider=Dropdown.new(iup,{items=provider_names,value=1,width=240,on_change=function(index) provider_index=index;generation=generation+1;pending=nil;candidates={};selected=nil;selection_changed();if rows then rows:setRows({}) end;if match then match_enabled(false) end end})
  local query=Field.new(iup,{cue='Movie or TV title'})
  local status=Kit.statusLine(iup,'info','Search, then choose the correct title and year.')
  local function value(pos,field)
@@ -29,12 +33,12 @@ function M.new(ctx, opts)
   if field=='COLUMN1' then return tostring(row.year or '') end
  end
  rows=Rows.new(iup,{count=0,value=value,row_height=64,column_widths={70},role='flatrows_plain',
-  empty_title='Find the correct match',empty_hint='Choose a metadata provider and search.',header={title='Title',columns={'Year'}},on_select=function(pos) selected=candidates[pos];if match then match_enabled(selected ~= nil) end;if preview then iup.SetAttribute(preview,'TITLE',selected and ((selected.title or '')..' — '..(selected.overview or '')) or 'Select a result') end end})
+  empty_title='Find the correct match',empty_hint='Choose a metadata provider and search.',header={title='Title',columns={'Year'}},on_select=function(pos) selected=candidates[pos];if match then match_enabled(selected ~= nil) end;selection_changed() end})
  iup.SetAttribute(rows.widget,'RASTERSIZE','x240')
  local function start(method,arg)
   if not item or not opts.on_metadata then return end
   generation=generation+1;local own=generation;pending=nil
-  if method=='search' then candidates={};selected=nil;rows:setProvider(0,value);match_enabled(false) end
+  if method=='search' then candidates={};selected=nil;selection_changed();rows:setProvider(0,value);match_enabled(false) end
   Kit.setStatus(iup,status,'info',method=='search' and 'Searching provider...' or 'Loading selected metadata...')
   opts.on_metadata(method,item,arg,function(job,why)
    if own~=generation then return end
@@ -59,7 +63,7 @@ function M.new(ctx, opts)
  match_enabled(false)
 
  function api.open(next_item)
-  generation=generation+1;pending=nil;item=next_item;selected=nil;candidates={}
+  generation=generation+1;pending=nil;item=next_item;selected=nil;selection_changed();candidates={}
   query:setValue(item.title or '');rows:setProvider(0,value);match_enabled(false)
   Kit.setStatus(iup,status,'info','Search, then choose the correct title and year.')
  end
@@ -71,6 +75,7 @@ function M.new(ctx, opts)
    iup.SetAttribute(preview,'TITLE',selected.title..' (1926) — '..selected.overview)
   end
   rows:setProvider(#candidates,value);if selected then rows:select(1) end
+  selection_changed()
   match_enabled(selected ~= nil)
   Kit.setStatus(iup,status,state=='failed' and 'error' or 'info',state=='working' and 'Searching metadata providers…' or state=='failed' and 'Provider did not respond. Search again to retry.' or '1 match. Check the title and year before choosing.')
  end
@@ -88,8 +93,9 @@ function M.new(ctx, opts)
      Kit.setStatus(iup,status,'ok',opts.lookup and 'Details loaded.' or 'Match saved. Reloading artwork and details...')
      if opts.on_changed then opts.on_changed(item) end
     else
-     candidates=answer.result or {};selected=nil;rows:setProvider(#candidates,value)
+     candidates=answer.result or {};selected=nil;selection_changed();rows:setProvider(#candidates,value)
      if candidates[1] then selected=candidates[1];rows:select(1) end
+     selection_changed()
      match_enabled(selected ~= nil)
      Kit.setStatus(iup,status,'info',tostring(#candidates)..' matches. Check the title and year before choosing.')
     end
