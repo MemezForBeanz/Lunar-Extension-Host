@@ -75,6 +75,10 @@ function M.build_queue(page)
 	panel.set_output_empty(false)
 	require("iup").SetAttribute(panel.output_text, "VALUE", BUILD_OUTPUT)
 	panel.set_last_built_text("Last built (PcieLink): today 14:02")
+	if panel.page then
+		panel.page:setState("error", "Build failed in PcieLink: 1 error")
+		panel.page:setDockSummary("error", "Build stopped on error in PcieLink", function() panel.page:openDock(true) end)
+	end
 end
 
 local LOG_LINES = {
@@ -127,6 +131,7 @@ function M.log_parser(page)
 	repeat until results:renderStep(50)
 	results._list:select(4)
 	results:_chooseRow(4)
+	if results._page then results._page:setState("warning", "5 failures in 2 of 214 files") end
 end
 
 local SCAN_REPORT = table.concat({
@@ -170,9 +175,28 @@ end
 --- The fixture for a tab, by its title, if it has one and the page has registered.
 function M.for_tab(shell, title)
 	local page = shell.pages and shell.pages[title]
-	local name = title:lower():gsub("%s+", "_")
+	local name = title == "Black Duck" and "scan" or title:lower():gsub("%s+", "_")
 	if page and M[name] then
 		return function() M[name](page) end
+	end
+end
+
+function M.time_clock(page)
+	page.show({ employee = "Alex Morgan", available = { "meal_start", "clock_out" },
+		response = "Clock In confirmed at 08:00. Next action: Meal Start.",
+		history = { "2026-11-16 08:00  Clock In confirmed", "2026-11-13 17:02  Clock Out confirmed" } })
+end
+
+-- Deterministic presentation states: never start jobs or make network requests.
+function M.tool_state(page, state)
+	if state == "working" then
+		page:setState("working", "Processing fixture data — 50% complete")
+		page:setRunState("working", 0.5)
+		page:setDockSummary("working", "Processing fixture data — 50% complete")
+	elseif state == "failed" then
+		page:setState("error", "Fixture operation failed. Review the output and retry.")
+		page:setRunState("failed")
+		page:setDockSummary("error", "Fixture operation failed. Review the output.", function() page:openDock(true) end)
 	end
 end
 
