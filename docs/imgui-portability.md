@@ -77,6 +77,19 @@ modules (lfs, cjson, luasocket, luasec, subprocess) are already portable.
 
 ## Plan
 
+The backend contract also declares `overlay_windows` (explicit flag plus `surface`).
+`window("overlay_open", {owner, passthrough})` creates a borderless popup surface;
+`overlay_place(id, x, y, w, h, visible, inset)` places it in main-client pixels and returns
+false if it was destroyed; `overlay_close(id)` releases it. `monitor(x,y)` returns work
+and full monitor rectangles in that coordinate space. Native input carries the surface
+id; `dismiss` closes non-sticky overlays on application deactivation or a frame press.
+Null models these operations with `opts.overlay_windows=true`. Embedded hosts without
+the capability retain owner-surface rendering. `LUNAR_OVERLAY_WINDOWS=0` forces that path.
+Windows uses nonactivating layered windows with a shared render/readback target. SDL3
+uses `SDL_CreatePopupWindow` with `SDL_WINDOW_POPUP_MENU` or `SDL_WINDOW_TOOLTIP` and
+parent-relative placement on Wayland. The SDL implementation has not been built or run
+on Linux; platform focus behavior, alpha composition, DPI and captures require validation.
+
 Each phase ends with something runnable and measured against IUP.
 
 ### Phase 0: the backend contract (small)

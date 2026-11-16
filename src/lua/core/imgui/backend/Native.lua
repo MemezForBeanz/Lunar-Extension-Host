@@ -83,6 +83,8 @@ if pcall(ffi.cdef, "ImDrawList *lunar_ui_popup_list(int id, int layer);")
 		id = id or 0
 		if id ~= surface then surface = id; dl = list_of(layer) end
 	end
+	-- Overlay windows (window("overlay_*")) are surfaces too; an older exe has none.
+	B.overlay_windows = C_API.overlay_windows == true
 end
 
 -- Input -----------------------------------------------------------------------------------
@@ -107,7 +109,7 @@ local function mods_of(bits)
 	end
 	return m
 end
-local TYPES = { "move", "press", "release", "wheel", "keydown", "keyup", "char", "leave", "file", "tray" }
+local TYPES = { "move", "press", "release", "wheel", "keydown", "keyup", "char", "leave", "file", "tray", "dismiss" }
 
 local raw_frame_begin = C_API.frame_begin
 local raw_frame_end = C_API.frame_end
@@ -150,6 +152,7 @@ function B.frame_begin()
 		-- bits 8 and up: the window it came from (0 the main one, else a dialog window id)
 		local bits = bit.band(e.mods, 0xFF)
 		ev.win = bit.rshift(e.mods, 8)
+		if t == "move" or t == "press" or t == "release" or t == "wheel" then input.win = ev.win end
 		ev.mods = mods_of(bits)
 		last_mods = bits
 		if t == "press" then

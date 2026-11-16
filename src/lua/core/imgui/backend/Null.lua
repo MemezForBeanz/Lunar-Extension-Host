@@ -274,6 +274,52 @@ function M.new(opts)
 		end
 	end
 
+	-- Overlay windows (opts.overlay_windows): what lunarimgui does for window("overlay_*"),
+	-- kept in B.overlays[id] = { owner, passthrough, x, y, w, h, visible, inset }; ids share
+	-- the dialog windows' sequence, as surfaces do. B.overlay_opens counts the windows made.
+	-- window("monitor") answers from B.monitor = { work = { x, y, w, h }, full = { ... } } in
+	-- main-client coordinates. A test destroys a window behind the host's back with
+	-- B.overlays[id] = nil.
+	if opts.overlay_windows then
+		B.overlay_windows = true
+		B.overlays, B.overlay_opens = {}, 0
+		B.next_popup = B.next_popup or 1
+		B.monitor = { work = { -B.x, -B.y, 1920, 1040 }, full = { -B.x, -B.y, 1920, 1080 } }
+		if not B.surface then
+			B.surface_id = 0
+			function B.surface(id) B.surface_id = id or 0; record("surface", B.surface_id) end
+			local frame_begin = B.frame_begin
+			function B.frame_begin(...) B.surface_id = 0; return frame_begin(...) end
+		end
+		local window = B.window
+		function B.window(op, ...)
+			local a = { ... }
+			if op == "overlay_open" then
+				local id = B.next_popup; B.next_popup = id + 1
+				B.overlay_opens = B.overlay_opens + 1
+				B.overlays[id] = { owner = a[1] and a[1].owner or 0, passthrough = a[1] and a[1].passthrough and true or false,
+					visible = false, x = 0, y = 0, w = 1, h = 1, inset = 0 }
+				return id
+			elseif op == "overlay_place" then
+				local p = B.overlays[a[1]]
+				if not p then return false end
+				p.visible = a[6] and true or false
+				if p.visible then p.x, p.y, p.w, p.h, p.inset = a[2], a[3], a[4], a[5], a[7] or 0 end
+				return true
+			elseif op == "overlay_close" then
+				B.overlays[a[1]] = nil
+				return
+			elseif op == "monitor" then
+				local m = B.monitor
+				return m.work[1], m.work[2], m.work[3], m.work[4], m.full[1], m.full[2], m.full[3], m.full[4]
+			elseif op == "popup_close" and B.popups then
+				-- Windows destroys what a window owns
+				for id, p in pairs(B.overlays) do if p.owner == a[1] then B.overlays[id] = nil end end
+			end
+			return window(op, ...)
+		end
+	end
+
 	--- Every text string drawn in the last frame, in order (handy in tests).
 	function B.texts()
 		local out = {}

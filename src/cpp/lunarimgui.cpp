@@ -87,7 +87,7 @@ struct Face {
 
 struct Rect { int x = 0, y = 0, w = 0, h = 0; bool contains(int px, int py) const { return w > 0 && px >= x && py >= y && px < x + w && py < y + h; } };
 
-struct Shot { bool pending = false; std::string path; int x = 0, y = 0, w = 0, h = 0; bool ok = false; int popup = 0; };
+struct Shot { bool pending = false; std::string path; int x = 0, y = 0, w = 0, h = 0; bool ok = false; int popup = 0; bool extend = false; };
 struct VideoChild { HWND hwnd = nullptr; HBRUSH brush = nullptr; bool seen = false; Rect at; bool shown = false; };
 
 struct MappedFontSource {
@@ -105,6 +105,9 @@ struct State {
     ID3D11Device *device = nullptr; ID3D11DeviceContext *ctx = nullptr;
     IDXGISwapChain *swap = nullptr; ID3D11RenderTargetView *rtv = nullptr;
     int sc_w = 0, sc_h = 0; bool warp = false;
+    /* The target overlay windows are drawn on, shared by all of them, and its CPU copy. */
+    ID3D11Texture2D *ov_tex = nullptr, *ov_copy = nullptr; ID3D11RenderTargetView *ov_rtv = nullptr;
+    int ov_w = 0, ov_h = 0; bool ov_bgra = true;
     std::string renderer_requested = "auto", renderer = "uninitialized", renderer_status = "not_open";
     std::string renderer_error; HRESULT device_reason = S_OK;
     std::string adapter_description, fallback_reason;
@@ -177,8 +180,16 @@ struct Popup {
     bool visible = false, shown = false, modal = false, close = false, drawn = false;
     std::string title;
     int min_w = 0, min_h = 0, max_w = 65535, max_h = 65535;
+    /* An overlay window (a menu, a dropdown list, a tooltip that left its owner's surface):
+     * layered, never active, no swap chain. `owner` is the surface it belongs to (0 main,
+     * else a dialog window), `inset` the transparent margin around what it shows, and
+     * `bits` the last pixels it was given (premultiplied BGRA, top-down), kept for captures. */
+    bool overlay = false, passthrough = false; int owner = 0, inset = 0;
+    uint64_t order = 0;
+    HBITMAP dib = nullptr; unsigned char *bits = nullptr; int dib_w = 0, dib_h = 0, bits_w = 0, bits_h = 0;
 };
 std::vector<Popup*> popups; int next_popup = 1;
+uint64_t overlay_order = 0;
 int event_src = 0;   /* the window the message being handled is for: 0 main, else a dialog window id */
 void popup_destroy(Popup *p);
 const wchar_t *POPUP_CLASS = L"LunarImGuiDialog";
@@ -407,6 +418,15 @@ LRESULT hit_test(HWND h, LPARAM l) {
 
 bool is_button_hit(WPARAM ht) { return ht == HTCLOSE || ht == HTMAXBUTTON || ht == HTMINBUTTON; }
 
+/* The wheel is sent to the window with the keyboard, which an overlay window never has:
+ * the event is for the one of this host's windows the pointer is over. */
+void wheel_source(LPARAM l) {
+    POINT pt = {GET_X_LPARAM(l), GET_Y_LPARAM(l)};
+    HWND under = WindowFromPoint(pt);
+    if (under == g.hwnd) event_src = 0;
+    else if (Popup *p = popup_of(under)) event_src = p->id;
+}
+
 LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
     /* The mouse is this file's alone: ImGui's own handler would SetCapture/ReleaseCapture
      * and track leaves too, and its ReleaseCapture on button-up arrives here as
@@ -483,6 +503,10 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (g.custom_frame && is_button_hit(w)) {
             mouse_to_client(h, l, true); g.pressed[0]++; g.down[0] = true; push_event(2, 1); return 0;
         }
+        push_event(11);   /* a press on the frame or the caption closes open menus */
+        break;
+    case WM_NCRBUTTONDOWN: case WM_NCMBUTTONDOWN:
+        push_event(11);
         break;
     case WM_NCLBUTTONUP:
         if (g.custom_frame && is_button_hit(w)) {
@@ -492,7 +516,7 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_ERASEBKGND: return 1;
     case WM_CLOSE: g.close = true; return 0;
     case WM_DESTROY: g.alive = false; return 0;
-    case WM_ENTERSIZEMOVE: g.in_sizemove = true; SetTimer(h, 1, 16, nullptr); return 0;
+    case WM_ENTERSIZEMOVE: g.in_sizemove = true; push_event(11); SetTimer(h, 1, 16, nullptr); return 0;
     case WM_EXITSIZEMOVE: g.in_sizemove = false; KillTimer(h, 1); return 0;
     case WM_TIMER: if (w == 1) { call_paint(); return 0; } break;
     case WM_SIZE:
@@ -551,19 +575,26 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_CAPTURECHANGED:
-        /* another window took the mouse while a button was held: that is a release */
-        if ((HWND)l != h)
+        /* another window took the mouse while a button was held: that is a release (an
+           overlay window that hides hands the mouse to its owner, whose button-up follows) */
+        if ((HWND)l != h && !is_ours((HWND)l))
             for (int i = 0; i < 3; i++) if (g.down[i]) { g.down[i] = false; g.released[i]++; push_event(3, i + 1); }
+        break;
+    case WM_ACTIVATEAPP:
+        /* another application came forward: open menus and dropdowns close, as Windows' do */
+        if (!w) push_event(11);
         break;
     case WM_MOUSEWHEEL: {
         float d = (float)GET_WHEEL_DELTA_WPARAM(w) / WHEEL_DELTA;
         g.wheel_y += d;
+        wheel_source(l);
         push_event(4, 0, 0, 0, d);
         return 0;
     }
     case WM_MOUSEHWHEEL: {
         float d = (float)GET_WHEEL_DELTA_WPARAM(w) / WHEEL_DELTA;
         g.wheel_x += d;
+        wheel_source(l);
         push_event(4, 0, 0, d, 0);
         return 0;
     }
@@ -616,11 +647,45 @@ LRESULT CALLBACK popup_wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
         SetWindowPos(h, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top, SWP_NOZORDER | SWP_NOACTIVATE);
         return 0;
     }
+    case WM_NCLBUTTONDOWN: case WM_NCRBUTTONDOWN: case WM_NCMBUTTONDOWN:
+        event_src = p ? p->id : 0; push_event(11);   /* as the main window's frame does */
+        return DefWindowProcW(h, m, w, l);
     case WM_NCCALCSIZE: case WM_NCHITTEST: case WM_NCMOUSEMOVE: case WM_NCMOUSELEAVE:
-    case WM_NCLBUTTONDOWN: case WM_NCLBUTTONUP: case WM_NCLBUTTONDBLCLK:
+    case WM_NCLBUTTONUP: case WM_NCLBUTTONDBLCLK:
         return DefWindowProcW(h, m, w, l);
     }
     return wndproc(h, m, w, l);
+}
+
+/* An overlay window: it never takes activation or the keyboard (its owner keeps the caret
+ * and the keys), the margin around what it shows lets the mouse through to the window
+ * under it, and its client mouse is the main window's handling, like a dialog window's. */
+LRESULT CALLBACK overlay_wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    Popup *p = popup_of(h);
+    switch (m) {
+    case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
+    case WM_NCHITTEST: {
+        if (!p || p->passthrough) return HTTRANSPARENT;
+        POINT pt = {GET_X_LPARAM(l), GET_Y_LPARAM(l)}; ScreenToClient(h, &pt);
+        RECT c; GetClientRect(h, &c);
+        if (pt.x < p->inset || pt.y < p->inset || pt.x >= c.right - p->inset || pt.y >= c.bottom - p->inset) return HTTRANSPARENT;
+        return HTCLIENT;
+    }
+    case WM_ERASEBKGND: return 1;
+    case WM_PAINT: { PAINTSTRUCT ps; BeginPaint(h, &ps); EndPaint(h, &ps); return 0; }
+    case WM_CLOSE: return 0;
+    case WM_DPICHANGED: return 0;   /* its pixels are the main window's, as a dialog window's are */
+    case WM_SHOWWINDOW:
+        /* the owner is restored: Windows shows again what it hid when the owner was
+           minimised, which must not bring back one that was closed in between */
+        if (w && l == SW_PARENTOPENING && p && !p->shown) return 0;
+        break;
+    case WM_NCDESTROY: if (p) p->hwnd = nullptr; break;   /* its owner went: Lua finds it gone */
+    case WM_SETCURSOR: case WM_CAPTURECHANGED: case WM_MOUSELEAVE:
+        return wndproc(h, m, w, l);
+    }
+    if (m >= WM_MOUSEFIRST && m <= WM_MOUSELAST) return wndproc(h, m, w, l);
+    return DefWindowProcW(h, m, w, l);
 }
 
 /* -- Fonts ------------------------------------------------------------------- */
@@ -920,11 +985,20 @@ bool create_device(D3D_DRIVER_TYPE driver) {
 
 bool popup_swap_create(Popup *p);
 void popup_hide(Popup *p);
+void popup_lists_begin(Popup *p);
 std::string lower(std::string s);
+
+void release_overlay_target() {
+    if (g.ov_rtv) { g.ov_rtv->Release(); g.ov_rtv = nullptr; }
+    if (g.ov_tex) { g.ov_tex->Release(); g.ov_tex = nullptr; }
+    if (g.ov_copy) { g.ov_copy->Release(); g.ov_copy = nullptr; }
+    g.ov_w = g.ov_h = 0;
+}
 
 void release_renderer_gpu() {
     release_retired_textures();
     if (g.ctx) { g.ctx->ClearState(); g.ctx->Flush(); }
+    release_overlay_target();
     for (Popup *p : popups) {
         if (p->rtv) { p->rtv->Release(); p->rtv = nullptr; }
         if (p->swap) { p->swap->Release(); p->swap = nullptr; }
@@ -1049,7 +1123,7 @@ bool restore_renderer(bool reset) {
             release_renderer_gpu(); g.renderer_status="unavailable"; g.resetting=false; return false;
         }
     }
-    for (Popup *p : popups) if (p->hwnd && !popup_swap_create(p)) {
+    for (Popup *p : popups) if (p->hwnd && !p->overlay && !popup_swap_create(p)) {
         popup_hide(p);
         g.renderer_error = "popup_swap_chain_restore_failed";
         g.renderer_status = "partial";
@@ -1162,7 +1236,10 @@ Rect rect_field(lua_State *L, int idx, const char *name) {
     return r;
 }
 
-/* The back buffer of the main window, or of a dialog window (screenshot's 6th argument). */
+/* The back buffer of the main window, or of a dialog window (screenshot's 6th argument),
+ * with the overlay windows that belong to it drawn over it where they are on screen. With
+ * `extend` (the 7th) the image grows to hold what of them lies outside the window; the
+ * area no window covers is a flat purple. */
 void write_shot(IDXGISwapChain *swap = nullptr, HWND hwnd = nullptr) {
     Shot &s = g.shot;
     if (!swap) { swap = g.swap; hwnd = g.hwnd; }
@@ -1172,6 +1249,20 @@ void write_shot(IDXGISwapChain *swap = nullptr, HWND hwnd = nullptr) {
     int x = s.w > 0 ? std::max(0, s.x) : 0, y = s.w > 0 ? std::max(0, s.y) : 0;
     int w = s.w > 0 ? std::min(s.w, W - x) : W, h = s.h > 0 ? std::min(s.h, H - y) : H;
     if (w <= 0 || h <= 0) return;
+    /* the window's part (wx, wy, w, h) and the image (ix, iy, iw, ih), in its client pixels */
+    Popup *self = s.popup ? popup_by_id(s.popup) : nullptr;
+    int ox = self ? self->at.x : 0, oy = self ? self->at.y : 0;
+    std::vector<Popup*> over;
+    for (Popup *p : popups) if (p->overlay && p->visible && p->shown && p->owner == s.popup && p->bits && p->bits_w > 0) over.push_back(p);
+    std::sort(over.begin(), over.end(), [](Popup *a, Popup *b) { return a->order < b->order; });
+    int wx = x, wy = y, ix = x, iy = y, ix2 = x + w, iy2 = y + h;
+    if (s.extend) for (Popup *p : over) {
+        ix = std::min(ix, p->at.x - ox); iy = std::min(iy, p->at.y - oy);
+        ix2 = std::max(ix2, p->at.x - ox + p->bits_w); iy2 = std::max(iy2, p->at.y - oy + p->bits_h);
+    }
+    int iw = ix2 - ix, ih = iy2 - iy;
+    std::vector<unsigned char> img((size_t)iw * ih * 4);
+    for (size_t i = 0; i < img.size(); i += 4) { img[i] = 64; img[i + 1] = 0; img[i + 2] = 64; img[i + 3] = 255; }
     std::vector<unsigned char> px((size_t)w * h * 4);
     /* the back buffer through a CPU-readable copy, rows bottom-up as the BMP wants them */
     ID3D11Texture2D *back = nullptr;
@@ -1189,6 +1280,28 @@ void write_shot(IDXGISwapChain *swap = nullptr, HWND hwnd = nullptr) {
     }
     g.ctx->Unmap(copy, 0);
     copy->Release(); back->Release();
+    /* into the image (bottom-up RGBA, like px), then each overlay window over it: its
+       pixels are premultiplied BGRA, top-down */
+    for (int row = 0; row < h; row++)
+        memcpy(&img[((size_t)(ih - 1 - (wy - iy + (h - 1 - row))) * iw + (size_t)(wx - ix)) * 4], &px[(size_t)row * w * 4], (size_t)w * 4);
+    for (Popup *p : over) {
+        int px0 = p->at.x - ox, py0 = p->at.y - oy;
+        for (int sy = 0; sy < p->bits_h; sy++) {
+            int dy = py0 + sy - iy;
+            if (dy < 0 || dy >= ih) continue;
+            const unsigned char *src = p->bits + (size_t)sy * p->dib_w * 4;
+            unsigned char *dst = &img[(size_t)(ih - 1 - dy) * iw * 4];
+            for (int sx = 0; sx < p->bits_w; sx++) {
+                int dx = px0 + sx - ix;
+                if (dx < 0 || dx >= iw) continue;
+                const unsigned char *sp = src + (size_t)sx * 4; unsigned char *dp = dst + (size_t)dx * 4;
+                int inv = 255 - sp[3];
+                dp[0] = (unsigned char)(sp[2] + dp[0] * inv / 255); dp[1] = (unsigned char)(sp[1] + dp[1] * inv / 255);
+                dp[2] = (unsigned char)(sp[0] + dp[2] * inv / 255);
+            }
+        }
+    }
+    px.swap(img); w = iw; h = ih;
     FILE *f = _wfopen(wide(s.path.c_str()).c_str(), L"wb");
     if (!f) return;
     uint32_t data = (uint32_t)px.size(), file = 54 + data;
@@ -1487,6 +1600,7 @@ int l_close(lua_State *L) {
         if (ImGui::GetIO().BackendPlatformUserData) ImGui_ImplWin32_Shutdown();
     }
     release_target();
+    release_overlay_target();
     if (g.swap) { g.swap->Release(); g.swap = nullptr; }
     if (g.ctx) { g.ctx->Release(); g.ctx = nullptr; }
     if (g.device) { g.device->Release(); g.device = nullptr; }
@@ -1582,15 +1696,7 @@ int l_frame_begin(lua_State *L) {
     g.lists.push_back(ImGui::GetBackgroundDrawList());
     g.lists.push_back(ImGui::GetForegroundDrawList());
     g.layer = 0;
-    for (Popup *p : popups) {
-        for (ImDrawList *&dl : p->lists) {
-            if (!dl) dl = IM_NEW(ImDrawList)(ImGui::GetDrawListSharedData());
-            dl->_ResetForNewFrame();
-            dl->PushTexture(io.Fonts->TexRef);
-            dl->PushClipRect(ImVec2(-32768, -32768), ImVec2(32768, 32768), false);
-        }
-        p->drawn = false;
-    }
+    for (Popup *p : popups) popup_lists_begin(p);
     g.frame_open = true;
 
     /* This frame's input moves to the frame_* buffers, which stay valid until the next
@@ -1678,13 +1784,25 @@ void popup_update_modal() {
 void popup_hide(Popup *p) {
     p->visible = false;
     popup_update_modal();   /* the owner first, so activation returns to it */
-    if (p->shown) { ShowWindow(p->hwnd, SW_HIDE); p->shown = false; }
+    if (p->shown && p->hwnd) {
+        /* An overlay closed by the press it is handling: its owner takes the mouse, so the
+           button-up arrives there as the one release, not as a lost capture and a stray one. */
+        if (p->overlay && GetCapture() == p->hwnd) {
+            Popup *o = popup_by_id(p->owner);
+            SetCapture(o && o->hwnd ? o->hwnd : g.hwnd);
+        }
+        ShowWindow(p->hwnd, SW_HIDE);
+    }
+    p->shown = false;
 }
 
 void popup_destroy(Popup *p) {
     popup_hide(p);
     if (p->rtv) p->rtv->Release();
     if (p->swap) p->swap->Release();
+    if (p->dib) DeleteObject(p->dib);
+    /* its overlay windows go with it (Windows destroys what a window owns) */
+    if (!p->overlay) for (Popup *o : popups) if (o->overlay && o->owner == p->id) o->visible = o->shown = false;
     if (p->hwnd) DestroyWindow(p->hwnd);
     for (ImDrawList *dl : p->lists) if (dl) IM_DELETE(dl);
     popups.erase(std::remove(popups.begin(), popups.end(), p), popups.end());
@@ -1761,6 +1879,139 @@ Popup *popup_create(lua_State *L, int t) {
     return p;
 }
 
+/* -- Overlay windows -----------------------------------------------------------------
+ * A menu, a dropdown list or a tooltip that does not fit its owner's surface, or that lies
+ * over a native video child, is drawn in a window of its own: WS_POPUP, layered, owned by
+ * the window it belongs to (so above it and its child windows, and minimised with it), and
+ * never activated. Lua draws it as it draws on any surface, in main-client coordinates;
+ * the lists are rendered to one shared target with a transparent background, read back
+ * and handed to the window with UpdateLayeredWindow, so the shadow and the rounded
+ * corners it draws blend with what is behind as they do inside the owner. No swap chain
+ * is made per window: opening one costs a window and a bitmap of its size. */
+const wchar_t *OVERLAY_CLASS = L"LunarImGuiOverlay";
+
+void popup_lists_begin(Popup *p) {
+    for (ImDrawList *&dl : p->lists) {
+        if (!dl) dl = IM_NEW(ImDrawList)(ImGui::GetDrawListSharedData());
+        dl->_ResetForNewFrame();
+        dl->PushTexture(ImGui::GetIO().Fonts->TexRef);
+        dl->PushClipRect(ImVec2(-32768, -32768), ImVec2(32768, 32768), false);
+    }
+    p->drawn = false;
+}
+
+Popup *overlay_create(int owner, bool passthrough) {
+    Popup *op = owner ? popup_by_id(owner) : nullptr;
+    if (owner && (!op || op->overlay || !op->hwnd)) return nullptr;
+    static bool registered = false;
+    HINSTANCE hi = GetModuleHandleW(nullptr);
+    if (!registered) {
+        WNDCLASSEXW wc = {sizeof(wc)};
+        wc.style = CS_DBLCLKS; wc.hInstance = hi; wc.lpfnWndProc = overlay_wndproc;
+        wc.lpszClassName = OVERLAY_CLASS; wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+        RegisterClassExW(&wc); registered = true;
+    }
+    /* a tooltip takes no mouse at all, as the Win32 tooltip control does not */
+    DWORD ex = WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | (passthrough ? WS_EX_TRANSPARENT : 0);
+    HWND h = CreateWindowExW(ex, OVERLAY_CLASS, L"", WS_POPUP, 0, 0, 1, 1, op ? op->hwnd : g.hwnd, nullptr, hi, nullptr);
+    if (!h) return nullptr;
+    Popup *p = new Popup;
+    p->id = next_popup++; p->hwnd = h; p->style = WS_POPUP; p->ex = ex;
+    p->overlay = true; p->passthrough = passthrough; p->owner = owner;
+    /* made while a frame is being drawn: it is drawn in this one */
+    if (g.frame_open) popup_lists_begin(p);
+    popups.push_back(p);
+    return p;
+}
+
+bool overlay_target(int w, int h) {
+    if (g.ov_rtv && g.ov_copy && g.ov_w >= w && g.ov_h >= h) return true;
+    int tw = std::max(g.ov_w, (w + 63) & ~63), th = std::max(g.ov_h, (h + 63) & ~63);
+    release_overlay_target();
+    D3D11_TEXTURE2D_DESC d = {};
+    d.Width = (UINT)tw; d.Height = (UINT)th; d.MipLevels = 1; d.ArraySize = 1; d.SampleDesc.Count = 1;
+    d.Usage = D3D11_USAGE_DEFAULT; d.BindFlags = D3D11_BIND_RENDER_TARGET;
+    d.Format = DXGI_FORMAT_B8G8R8A8_UNORM; g.ov_bgra = true;   /* the order GDI wants */
+    if (FAILED(g.device->CreateTexture2D(&d, nullptr, &g.ov_tex)) || !g.ov_tex) {
+        d.Format = DXGI_FORMAT_R8G8B8A8_UNORM; g.ov_bgra = false; g.ov_tex = nullptr;
+        if (FAILED(g.device->CreateTexture2D(&d, nullptr, &g.ov_tex)) || !g.ov_tex) { g.ov_tex = nullptr; return false; }
+    }
+    if (FAILED(g.device->CreateRenderTargetView(g.ov_tex, nullptr, &g.ov_rtv)) || !g.ov_rtv) { release_overlay_target(); return false; }
+    d.Usage = D3D11_USAGE_STAGING; d.BindFlags = 0; d.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    if (FAILED(g.device->CreateTexture2D(&d, nullptr, &g.ov_copy)) || !g.ov_copy) { release_overlay_target(); return false; }
+    g.ov_w = tw; g.ov_h = th;
+    return true;
+}
+
+bool overlay_dib(Popup *p, int w, int h) {
+    if (p->dib && p->dib_w >= w && p->dib_h >= h) return true;
+    if (p->dib) { DeleteObject(p->dib); p->dib = nullptr; p->bits = nullptr; }
+    int dw = (w + 31) & ~31, dh = (h + 31) & ~31;
+    BITMAPINFO bi = {}; bi.bmiHeader.biSize = sizeof(bi.bmiHeader);
+    bi.bmiHeader.biWidth = dw; bi.bmiHeader.biHeight = -dh; bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32; bi.bmiHeader.biCompression = BI_RGB;
+    void *bits = nullptr;
+    p->dib = CreateDIBSection(nullptr, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!p->dib) return false;
+    p->bits = (unsigned char*)bits; p->dib_w = dw; p->dib_h = dh; p->bits_w = p->bits_h = 0;
+    return true;
+}
+
+/* Its lists (drawn after the main window's, so the atlas is up to date) to its window. */
+void overlay_render(Popup *p) {
+    if (!p->overlay || !p->visible || !p->hwnd || !p->drawn) return;
+    int w = p->at.w, h = p->at.h;
+    if (w <= 0 || h <= 0 || !overlay_target(w, h) || !overlay_dib(p, w, h)) return;
+    ImDrawData dd;
+    dd.Valid = true;
+    for (ImDrawList *dl : p->lists) {
+        if (!dl) continue;
+        dl->_PopUnusedDrawCmd();
+        if (dl->CmdBuffer.Size == 0) continue;
+        dd.CmdLists.push_back(dl);
+        dd.TotalVtxCount += dl->VtxBuffer.Size; dd.TotalIdxCount += dl->IdxBuffer.Size;
+    }
+    dd.DisplayPos = ImVec2((float)p->at.x, (float)p->at.y);
+    dd.DisplaySize = ImVec2((float)w, (float)h);
+    dd.FramebufferScale = ImVec2(1, 1);
+    dd.Textures = nullptr;
+    /* ImGui blends colour by source alpha and adds alpha: over transparent black the
+       result is premultiplied, which is what a layered window takes */
+    const float clear[4] = {0, 0, 0, 0};
+    g.ctx->OMSetRenderTargets(1, &g.ov_rtv, nullptr);
+    g.ctx->ClearRenderTargetView(g.ov_rtv, clear);
+    if (dd.CmdLists.Size > 0) ImGui_ImplDX11_RenderDrawData(&dd);
+    D3D11_BOX box = {0, 0, 0, (UINT)w, (UINT)h, 1};
+    g.ctx->CopySubresourceRegion(g.ov_copy, 0, 0, 0, 0, g.ov_tex, 0, &box);
+    D3D11_MAPPED_SUBRESOURCE map;
+    if (FAILED(g.ctx->Map(g.ov_copy, 0, D3D11_MAP_READ, 0, &map))) {
+        g.device_reason = g.device->GetDeviceRemovedReason();
+        if (FAILED(g.device_reason)) g.renderer_status = "device_lost";
+        return;
+    }
+    for (int row = 0; row < h; row++) {
+        const unsigned char *src = (const unsigned char*)map.pData + (size_t)row * map.RowPitch;
+        unsigned char *dst = p->bits + (size_t)row * p->dib_w * 4;
+        if (g.ov_bgra) memcpy(dst, src, (size_t)w * 4);
+        else for (int i = 0; i < w * 4; i += 4) { dst[i] = src[i + 2]; dst[i + 1] = src[i + 1]; dst[i + 2] = src[i]; dst[i + 3] = src[i + 3]; }
+    }
+    g.ctx->Unmap(g.ov_copy, 0);
+    p->bits_w = w; p->bits_h = h;
+    POINT o = {0, 0}; ClientToScreen(g.hwnd, &o);
+    POINT dst = {o.x + p->at.x, o.y + p->at.y}, src = {0, 0}; SIZE size = {w, h};
+    BLENDFUNCTION bf = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+    HDC mem = CreateCompatibleDC(nullptr);
+    HGDIOBJ old = SelectObject(mem, p->dib);
+    UpdateLayeredWindow(p->hwnd, nullptr, &dst, &size, mem, &src, 0, &bf, ULW_ALPHA);
+    SelectObject(mem, old); DeleteDC(mem);
+    /* shown once it has pixels, above the overlay windows opened before it (a submenu
+       over its menu), and without taking activation from its owner */
+    if (!p->shown) {
+        SetWindowPos(p->hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER);
+        p->shown = true;
+    }
+}
+
 int l_frame_end(lua_State *) {
     if (!g.frame_open) return 0;
     g.frame_open = false;
@@ -1778,6 +2029,12 @@ int l_frame_end(lua_State *) {
     g.ctx->OMSetRenderTargets(1, &g.rtv, nullptr);
     g.ctx->ClearRenderTargetView(g.rtv, black);
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+    /* overlay windows before the shots (a capture of a window includes them) and before
+       the presents (one that just left a surface is up before that surface drops it) */
+    std::vector<Popup*> overlays;
+    for (Popup *p : popups) if (p->overlay && p->visible) overlays.push_back(p);
+    std::sort(overlays.begin(), overlays.end(), [](Popup *a, Popup *b) { return a->order < b->order; });
+    for (Popup *p : overlays) overlay_render(p);
     if (g.shot.pending && g.shot.popup == 0) write_shot();
     for (Popup *p : popups) popup_render(p);
     /* LUNAR_VSYNC=0 presents at once (frame timing in scripts/imgui_perf.lua) */
@@ -2052,6 +2309,7 @@ int l_screenshot(lua_State *L) {
     g.shot.x = (int)luaL_optinteger(L, 2, 0); g.shot.y = (int)luaL_optinteger(L, 3, 0);
     g.shot.w = (int)luaL_optinteger(L, 4, 0); g.shot.h = (int)luaL_optinteger(L, 5, 0);
     g.shot.popup = (int)luaL_optinteger(L, 6, 0);
+    g.shot.extend = lua_toboolean(L, 7) != 0;
     lua_pushboolean(L, 1);
     return 1;
 }
@@ -2215,6 +2473,48 @@ int l_window(lua_State *L) {
         Popup *p = popup_by_id((int)luaL_checkinteger(L, 2));
         if (p) popup_destroy(p);
         return 0;
+    }
+    if (is("overlay_open")) {
+        /* { owner = the surface it belongs to (0 the main window), passthrough } -> id */
+        if (!g.device || !lua_istable(L, 2)) return 0;
+        lua_getfield(L, 2, "owner"); int owner = (int)lua_tointeger(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 2, "passthrough"); bool pass = lua_toboolean(L, -1) != 0; lua_pop(L, 1);
+        Popup *p = overlay_create(owner, pass);
+        if (!p) return 0;
+        lua_pushinteger(L, p->id); return 1;
+    }
+    if (is("overlay_place")) {
+        /* id, x, y, w, h (main-client coordinates), visible, inset -> false when it is gone */
+        Popup *p = popup_by_id((int)luaL_checkinteger(L, 2));
+        if (!p || !p->overlay || !p->hwnd) { lua_pushboolean(L, 0); return 1; }
+        if (!lua_toboolean(L, 7)) { popup_hide(p); lua_pushboolean(L, 1); return 1; }
+        p->at.x = (int)std::floor(luaL_checknumber(L, 3)); p->at.y = (int)std::floor(luaL_checknumber(L, 4));
+        p->at.w = std::max(1, (int)std::ceil(luaL_checknumber(L, 5))); p->at.h = std::max(1, (int)std::ceil(luaL_checknumber(L, 6)));
+        p->inset = std::max(0, (int)luaL_optinteger(L, 8, 0));
+        p->order = ++overlay_order;
+        p->visible = true;
+        lua_pushboolean(L, 1); return 1;
+    }
+    if (is("overlay_close")) {
+        Popup *p = popup_by_id((int)luaL_checkinteger(L, 2));
+        if (p && p->overlay) popup_destroy(p);
+        bool any = false;
+        for (Popup *q : popups) if (q->overlay) any = true;
+        if (!any) release_overlay_target();
+        return 0;
+    }
+    if (is("monitor")) {
+        /* the monitor at (x, y): its work area and its whole area, main-client coordinates */
+        POINT o = {0, 0}; ClientToScreen(h, &o);
+        POINT pt = {o.x + (int)luaL_optnumber(L, 2, 0), o.y + (int)luaL_optnumber(L, 3, 0)};
+        MONITORINFO mi = {sizeof(mi)};
+        if (!GetMonitorInfoW(MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST), &mi)) return 0;
+        const RECT *rs[2] = {&mi.rcWork, &mi.rcMonitor};
+        for (const RECT *r : rs) {
+            lua_pushinteger(L, r->left - o.x); lua_pushinteger(L, r->top - o.y);
+            lua_pushinteger(L, r->right - r->left); lua_pushinteger(L, r->bottom - r->top);
+        }
+        return 8;
     }
     if (is("show")) { if (!IsWindowVisible(h)) ShowWindow(h, SW_SHOW); return 0; }
     if (is("hide")) { ShowWindow(h, SW_HIDE); return 0; }
@@ -2565,6 +2865,9 @@ int l_memory_stats(lua_State *L) {
     number("gdi_font_sizes",gdi_sizes.size());number("gdi_font_size_limit",GDI_SIZE_LIMIT);
     number("texture_backup_bytes",backups);number("texture_rgba_bytes",rgba);number("textures",g.textures.size());
     number("texture_references",refs);number("packed_textures",packed);number("retired_textures",g.retired_textures.size());
+    size_t overlay_windows=0,overlay_bytes=(size_t)g.ov_w*g.ov_h*8;
+    for(const auto *popup:popups)if(popup->overlay){++overlay_windows;overlay_bytes+=(size_t)popup->dib_w*popup->dib_h*4;}
+    number("overlay_windows",overlay_windows);number("overlay_bytes",overlay_bytes);
     number("atlas_cpu_bytes",atlas);number("draw_buffer_bytes",draw_bytes);return 1;
 }
 
@@ -2599,5 +2902,6 @@ extern "C" int luaopen_lunarimgui(lua_State *L) {
     ensure_imgui();
     lua_newtable(L);
     luaL_register(L, nullptr, api);
+    lua_pushboolean(L, 1); lua_setfield(L, -2, "overlay_windows");   /* window("overlay_*") */
     return 1;
 }
