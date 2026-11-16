@@ -1,0 +1,66 @@
+local Kit = require("core.ui.Kit")
+describe("declarative tool page", function()
+    local iup
+    before_each(function()
+        iup = { DEFAULT = 0 }
+        for _, kind in ipairs({ "flatlabel", "flatbutton", "vbox", "hbox", "fill", "split", "zbox", "flatframe" }) do
+            iup[kind] = function(attrs) attrs.kind = kind; return attrs end
+        end
+        iup.SetAttribute = function(w, k, v) w[k] = v end
+        iup.GetAttribute = function(w, k) return w[k] end
+        iup.ResetAttribute = function(w, k) w[k] = nil end
+        iup.Refresh = function() end
+    end)
+    it("keeps callbacks and the primary in the header when the mode changes", function()
+        local hit
+        local page = Kit.page(iup, { title = "Tests", primary = { title = "Run", action = function() hit = "run" end } })
+        page.primary:flat_action()
+        assert.equals("run", hit)
+        page:setPrimary{ title = "Stop", action = function() hit = "stop" end }
+        page.primary:flat_action()
+        assert.equals("stop", hit)
+        assert.equals(page.primary, page.header[#page.header])
+    end)
+    it("uses the pane width for config and inspector breakpoints", function()
+        local page = Kit.page(iup, { config = { widget = iup.vbox{} }, main = iup.vbox{}, inspector = { widget = iup.vbox{} } })
+        page:fit(1200)
+        assert.equals("NO", page.config.FLOATING)
+        assert.equals("YES", page.configure.FLOATING)
+        page:fit(700)
+        assert.equals("YES", page.config.FLOATING)
+        assert.equals("NO", page.configure.FLOATING)
+        page.configure:flat_action()
+        assert.equals("NO", page.config.FLOATING)
+        page:openInspector(true)
+        assert.equals("0", page.inspectorSplit.VALUE)
+        page:openInspector(false)
+        assert.equals("1000", page.inspectorSplit.VALUE)
+    end)
+    it("keeps the summary visible and opens failures, closes successes", function()
+        local page = Kit.page(iup, { dock = { widget = iup.vbox{}, summary = "No output" } })
+        assert.is_false(page.dockOpen)
+        page:setDockSummary("error", "Build failed", function() end)
+        assert.is_true(page.dockOpen)
+        assert.equals("Build failed", page.dockSummary.TITLE)
+        assert.equals("NO", page.dockAction.FLOATING)
+        page:setDockSummary("success", "Build complete")
+        assert.is_false(page.dockOpen)
+        assert.equals("IGNORE", page.dockContent.FLOATING)
+    end)
+    it("bounds remembered widths and saves dragged geometry per page", function()
+        local values = { ["page.Test.config"] = 999 }
+        local settings = { get = function(_, k) return values[k] end, set = function(_, k, v) values[k] = v end, save = function() end }
+        local page = Kit.page(iup, { title = "Test", settings = settings, config = { widget = iup.vbox{} } })
+        assert.equals(360, page.configSize)
+        page:fit(1200)
+        page.configSplit.VALUE = "250"
+        page.configSplit:valuechanged_cb()
+        assert.equals(300, values["page.Test.config"])
+    end)
+    it("keeps extra secondary actions available in overflow", function()
+        local page = Kit.page(iup, { secondary = { { title = "One" }, { title = "Two" }, { title = "Three" } } })
+        assert.equals(2, #page.secondary)
+        assert.equals("NO", page.overflow.FLOATING)
+        assert.equals("Three", page.secondarySpecs[3].title)
+    end)
+end)
