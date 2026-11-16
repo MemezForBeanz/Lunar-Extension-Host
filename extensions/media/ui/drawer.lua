@@ -29,6 +29,15 @@ function M.new(iup, page)
     function api:_afterThemePass()
         local p = Reactor.palette()
         if not p.bg then return end
+        if page.inspector then
+            local function paintClose(node)
+                if iup.GetAttribute(node,"TITLE") == "Close" then
+                    iup.SetAttribute(node,"BGCOLOR",p.layer02 or p.surface or p.bg)
+                end
+                for n=0,iup.GetChildCount(node)-1 do paintClose(iup.GetChild(node,n)) end
+            end
+            paintClose(page.inspector)
+        end
         iup.SetAttribute(scrim, "BGCOLOR", p.bg .. " 160")
         local light = tint.isLight(p.bg)
         iup.SetAttribute(shadow, "BGCOLOR", (light and p.text or p.bg) .. (light and " 48" or " 200"))

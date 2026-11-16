@@ -379,6 +379,7 @@ function ToastHost:show(spec)
 
 			EXPAND   = "HORIZONTAL",
 			THEMEROLE = "toast_title",
+			IMAGEPOSITION = "LEFT", SPACING = L.gap(3),
 		})
 		local status = Kit.STATUS[kind == "success" and "ok" or kind]
 		Kit.bindIcon(iup, title_label, status.icon, {size=Kit.ICON_STATUS, role=status.role})
