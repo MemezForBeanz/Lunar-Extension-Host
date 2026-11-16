@@ -632,11 +632,31 @@ end
 -- opens and closes (nil unless the description is too long to stay on show).
 function SettingsView:_buildRow(entry, category, first, section)
     local iup = self._iup
+    if entry.children then
+        local body = iup.vbox{ GAP = L.gap(L.ROLE.row_gap), EXPAND = "HORIZONTAL", VISIBLE = "NO", FLOATING = "YES" }
+        for index, child in ipairs(entry.children) do
+            local row = self:_buildRow(child, category, index == 1, section)
+            iup.Append(body, row)
+        end
+        local view, button = self
+        button = Kit.disclosure(iup, { title = "Advanced", on_change = function(open)
+            entry._advanced_open = open
+            Kit.show(iup, body, open, button)
+            view:_settle()
+        end })
+        entry._advanced_body = body
+        entry._advanced_button = button
+        iup.SetAttribute(button, "THEMEROLE", "settingsheader")
+        iup.SetAttribute(button, "ALIGNMENT", "ALEFT:ACENTER")
+        iup.SetAttribute(button, "EXPAND", "HORIZONTAL")
+        return iup.vbox{ button, body, EXPAND = "HORIZONTAL", MARGIN = L.margin(L.ROLE.section, 0) }, "advanced motion speed tab transition"
+    end
     local description = entry.description or ""
     local inline = description ~= "" and inline_description(description)
     local expandable = description ~= "" and not inline
 
     local label = iup.flatlabel{ TITLE = entry.label or "", THEMEROLE = "settings_name", EXPAND = "HORIZONTAL" }
+    if entry.help then iup.SetAttribute(label, "TIP", entry.help) end
     local left = { label, GAP = L.gap(1), EXPAND = "HORIZONTAL" }
     if inline then
         local text = iup.flatlabel{ TITLE = wrap(description, self._wrap_room), THEMEROLE = "settings_description" }
@@ -722,6 +742,16 @@ end
 function SettingsView:addSection(category, opts, mapped)
     local iup = self._iup
     opts = opts or {}
+    if category == "Background" then
+        category = "Startup & services"
+        local descriptions = { "Keep Lunar available in the system tray.", "Run services without an open window.", "Start or stop the service for this session." }
+        for index, entry in ipairs(opts.entries or {}) do
+            if descriptions[index] then
+                entry.help = entry.description
+                entry.description = descriptions[index]
+            end
+        end
+    end
 
     if self._empty then
         iup.SetAttribute(self._empty, "VISIBLE", "NO")
@@ -747,7 +777,7 @@ function SettingsView:addSection(category, opts, mapped)
     end
     section.nav_btn = nav_btn
     -- These belong to the app; everything an extension adds is a tool.
-    if category == "Appearance" or category == "Background" then
+    if category == "Appearance" or category == "Startup & services" then
         iup.Insert(self._nav_items, self._group_tools, nav_btn)
     else
         iup.Append(self._nav_items, nav_btn)
@@ -991,6 +1021,9 @@ function SettingsView:filter(query)
             for _, row in ipairs(section.rows) do
                 local show = (not searching) or (row.text:find(query, 1, true) ~= nil)
                 Kit.show(iup, row.box, show, self._search)
+                if row.entry and row.entry._advanced_body then
+                    Kit.show(iup, row.entry._advanced_body, searching or row.entry._advanced_open == true, self._search)
+                end
                 if show then any = true end
             end
 

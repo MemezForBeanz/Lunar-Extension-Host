@@ -83,6 +83,14 @@ function TitleBar.new(opts)
 
 	-- A fill, not a label: anything with a window here would cover the painted buttons.
 	self._reserved = iup.fill({ RASTERSIZE = "1x" })
+	self._command = iup.flatbutton({ TITLE = "Search or run a command", THEMEROLE = "commandbar_text",
+		ALIGNMENT = "ALEFT:ACENTER", EXPAND = "HORIZONTAL", CANFOCUS = "YES" })
+	opts.icon(self._command, "search")
+	local shortcut = iup.flatbutton({ TITLE = "Ctrl+P", THEMEROLE = "keycap", CANFOCUS = "NO" })
+	local function command() if bar._on_command then bar._on_command() end; return iup.DEFAULT end
+	self._command.flat_action, shortcut.flat_action = command, command
+	self._field = iup.flatframe({ iup.hbox({ self._command, shortcut, ALIGNMENT = "ACENTER" }),
+		TITLE = "", THEMEROLE = "commandbar", EXPAND = "NO", RASTERSIZE = "320x28" })
 	self._left = iup.hbox({
 		self._mode,
 		iup.vbox({ iup.fill({}), self._groups, EXPAND = "VERTICALFREE" }),
@@ -92,7 +100,7 @@ function TitleBar.new(opts)
 		THEMEROLE = "titlebar_window",
 		-- The strut holds the bar's height: a box takes its height from its children.
 		iup.label({ TITLE = "", RASTERSIZE = "0x" .. TitleBar.HEIGHT }),
-		self._left, iup.fill({}), self._menu, self._bars, self._terminal, self._reserved,
+		self._left, self._field, iup.fill({}), self._menu, self._bars, self._terminal, self._reserved,
 		ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL", GAP = "0",
 		MARGIN = "0x0",
 	})
@@ -100,6 +108,8 @@ function TitleBar.new(opts)
 end
 
 function TitleBar:widget() return self._widget end
+function TitleBar:commandWidget() return self._field end
+function TitleBar:onCommand(fn) self._on_command = fn end
 --- The top toolbar's mirror of the main tree.
 function TitleBar:groupStrip() return self._groups end
 -- The empty caption space belongs to the top toolbar as a drop destination too.
@@ -247,8 +257,12 @@ function TitleBar:fit(width, force)
 	if width == self._width and not force then return end
 	self._width = width
 	local iup = self._iup
-	local lay = TitleBar.layout(width, reserved, self._tabs_width)
-	iup.SetAttribute(self._left, "RASTERSIZE", lay.left .. "x")
+	local field = math.max(180, math.min(480, math.floor(width / 3)))
+	local lay = TitleBar.layout(width - field, reserved, self._tabs_width)
+	local left = math.max(lay.left, math.floor((width - field) / 2))
+	left = math.min(left, math.max(lay.left, width - field - reserved - VIEW_BUTTONS * BUTTON))
+	iup.SetAttribute(self._field, "RASTERSIZE", field .. "x28")
+	iup.SetAttribute(self._left, "RASTERSIZE", left .. "x")
 	iup.SetAttribute(self._groups, "RASTERSIZE", math.max(1, math.min(lay.groups, self._tabs_width or BUTTON)) .. "x32")
 end
 

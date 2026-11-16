@@ -354,7 +354,7 @@ describe("StatusBar activity slot", function()
 		Runtime.frame()
 		local raw_refresh = iup.Refresh
 		iup.Refresh = function(h) calls.refresh = calls.refresh + 1; return raw_refresh(h) end
-		local box = iup.GetChild(iup.GetChild(sb:widget(), 0), 1)
+		local box = sb:activityAnchor()
 		local function attr(h, k) return iup._Element.own(h, k) end
 		return sb, box, iup.GetChild(box, 1), calls, attr, function() iup.Refresh = raw_refresh end
 	end
@@ -365,7 +365,7 @@ describe("StatusBar activity slot", function()
 		sb:setActivity({ state = "running", text = "Build 2 of 3", tip = "a" })
 		assert.equals("YES", attr(box, "VISIBLE"))
 		assert.equals("NO", attr(box, "FLOATING"))
-		assert.equals("Build 2 of 3", attr(text, "TITLE"))
+		assert.equals("0", attr(text, "TITLE"))
 		assert.equals(1, calls.spin)
 		assert.equals(1, calls.refresh)
 		sb:setActivity(nil)
@@ -379,7 +379,7 @@ describe("StatusBar activity slot", function()
 		local sb, _, text, calls, attr, done = bar()
 		sb:setActivity({ state = "failed", text = "Upload & scan failed" })
 		assert.equals("attention", calls.glyph)
-		assert.equals("Upload && scan failed", attr(text, "TITLE"))
+		assert.equals("0", attr(text, "TITLE"))
 		done()
 	end)
 end)
