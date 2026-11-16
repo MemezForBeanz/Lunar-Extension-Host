@@ -394,7 +394,7 @@ function M.build(p)
     -- U3 page-template roles: opaque work surfaces, shared by every tool.
     local page_bg = p.layer02 or p.surface or p.bg
     for _, role in ipairs({ "page_surface", "page_header", "page_toolbar", "page_column", "page_inspector", "page_dock" }) do
-        rules[role] = { bg = page_bg, fg = p.text, font = p.font, borderwidth = 0 }
+        rules[role] = { bg = page_bg, fg = p.text, font = p.font, borderwidth = 0, showborder = false, radius = 0 }
     end
     -- End U3 page-template roles.
     rules = require("core.classes.Themes.shell_rules")(rules, p, {

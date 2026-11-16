@@ -26,6 +26,8 @@ function M.new(iup, opts)
     iup.SetAttribute(self.stateLine, "RASTERSIZE", L.size(1))
     iup.SetAttribute(self.stateLine, "TEXTELLIPSIS", "YES")
     local title = L.pageTitle(iup, opts.title or "")
+    self.title = title
+    iup.SetAttribute(title, "TEXTELLIPSIS", "YES")
     if opts.icon then Kit.bindIcon(iup, title, opts.icon) end
     self.primary = opts.primary and opts.primary.widget or Kit.button(iup, { title = "", role = "primary_btn" })
     self.primaryIconTarget = opts.primary and opts.primary.iconWidget or self.primary
@@ -34,7 +36,7 @@ function M.new(iup, opts)
     local overflow = Kit.button(iup, { title = "More", action = function()
         local items = {}
         for _, item in ipairs(opts.menu or {}) do items[#items + 1] = item end
-        for n = 3, #(self.secondarySpecs or {}) do items[#items + 1] = self.secondarySpecs[n] end
+        for n = (self.width < P.drawer_break and 1 or 3), #(self.secondarySpecs or {}) do items[#items + 1] = self.secondarySpecs[n] end
         local Menu = require("core.ui.ContextMenu")
         self.menu = self.menu or Menu:new(iup, {})
         self.menu:setItems(items)
@@ -44,7 +46,7 @@ function M.new(iup, opts)
     self.configure = Kit.button(iup, { title = "Configure", action = function()
         self.configOpen = not self.configOpen; self:fit(self.width)
     end })
-    self.header = row({ title, self.stateLine, self.configure, self.secondary[1], self.secondary[2], overflow, self.primary }, "page_header", P.header)
+    self.header = row({ title, self.stateLine, iup.fill{}, self.configure, self.secondary[1], self.secondary[2], overflow, self.primary }, "page_header", P.header)
     local config = opts.config or opts.nav
     local function column(spec, role, close)
         if not spec then return nil end
@@ -59,8 +61,12 @@ function M.new(iup, opts)
     self.config = column(config, "page_column")
     local close = Kit.button(iup, { title = "Close", action = function() self:openInspector(false) end })
     self.inspector = column(opts.inspector, "page_inspector", close)
+    if self.inspector then self.inspector = iup.flatframe{self.inspector, TITLE="", FRAME="NO", MARGIN=L.margin(3), EXPAND="YES", THEMEROLE="page_inspector"} end
     self.inspectorOpen = opts.inspector and opts.inspector.open == true
     local main = opts.main or iup.vbox({ EXPAND = "YES" })
+    self.main = main
+    self.mainHost = iup.vbox{main, EXPAND="YES", THEMEROLE="page_column"}
+    main = self.mainHost
     local body = main
     local function split(first, second, horizontal, name, default, lo, hi)
         local s = iup.split({ first, second, EXPAND = "YES", SHOWGRIP = "SASH", MINMAX = "0:1000" })
@@ -80,7 +86,9 @@ function M.new(iup, opts)
     end
     if self.inspector then
         self.inspectorSplit = split(body, self.inspector, false, "inspector", opts.inspector.width or P.inspector, P.inspector_min, P.inspector_max)
-        body = self.inspectorSplit
+        self.inspectorOverlay = iup.vbox{self.inspectorSplit, EXPAND="YES"}
+        self.inspectorFrame = iup.flatframe{self.inspectorOverlay, TITLE="", FRAME="NO", MARGIN=L.margin(0), EXPAND="YES", THEMEROLE="page_column"}
+        body = self.inspectorFrame
     end
     if self.config then
         self.configSplit = split(self.config, body, false, "config", config.width or P.config, P.config_min, P.config_max)
@@ -100,7 +108,8 @@ function M.new(iup, opts)
             opts.dock.widget, GAP = L.gap(3), EXPAND = "YES", THEMEROLE = "page_dock" })
         self.dockContent = opts.dock.widget
         self.dockSplit = split(body, self.dock, true, "dock", P.dock, P.toolbar, P.dock * 2)
-        kids[#kids + 1] = self.dockSplit
+        self.dockHost = iup.vbox{self.dockSplit, EXPAND="YES", THEMEROLE="page_column"}
+        kids[#kids + 1] = self.dockHost
     else kids[#kids + 1] = body end
     kids.MARGIN, kids.GAP, kids.EXPAND = L.margin(P.padding), L.gap(5), "YES"
     kids.THEMEROLE = "page_surface"
@@ -117,10 +126,14 @@ function M.new(iup, opts)
     end
     function self:setState(kind, text)
         Kit.setStatus(iup, self.stateLine, kind == "success" and "ok" or kind, text)
+        iup.SetAttribute(self.stateLine, "TIP", text)
     end
     function self:setRunState(state, progress)
         if self.renderedRunState == state and self.runProgress == progress then return end
         self.runState = state
+        if not (opts.primary and opts.primary.widget) then
+            iup.SetAttribute(self.primary, "TITLE", state == "working" and "Stop" or self.primaryTitle or "")
+        end
         self.renderedRunState, self.runProgress = state, progress
         if self.runIcon then
             -- each kind names its own states; one it lacks (a connection has no "ready")
@@ -133,7 +146,8 @@ function M.new(iup, opts)
     function self:setPrimary(spec)
         spec = spec or {}
         if not spec.widget then
-            iup.SetAttribute(self.primary, "TITLE", spec.title or "")
+            self.primaryTitle = spec.title or ""
+            iup.SetAttribute(self.primary, "TITLE", self.runState == "working" and "Stop" or self.primaryTitle)
             self.primary.flat_action = function() if spec.action then spec.action() end; return iup.DEFAULT end
         end
         show(self.primary, spec.widget ~= nil or spec.title ~= nil)
@@ -154,13 +168,25 @@ function M.new(iup, opts)
             local spec = self.secondarySpecs[n]
             iup.SetAttribute(btn, "TITLE", spec and spec.title or "")
             btn.flat_action = function() if spec and spec.action then spec.action() end; return iup.DEFAULT end
-            show(btn, spec ~= nil)
+            show(btn, spec ~= nil and self.width >= P.drawer_break)
         end
-        show(overflow, #(opts.menu or {}) > 0 or #self.secondarySpecs > 2)
+        show(overflow, #(opts.menu or {}) > 0 or #self.secondarySpecs > (self.width < P.drawer_break and 0 or 2))
     end
     function self:openInspector(on) self.inspectorOpen = on == true; self:fit(self.width) end
     function self:openDock(on)
         self.dockOpen = on == true
+        if self.dockHost and iup.Append and iup.Detach then
+            local tree = require("core.lib.tree")
+            if self.dockOpen then
+                tree.place(iup, self.dockSplit, self.body)
+                tree.place(iup, self.dockSplit, self.dock)
+            else
+                tree.place(iup, self.dockHost, self.body)
+                tree.place(iup, self.dockHost, self.dock)
+            end
+            show(self.dockSplit, self.dockOpen)
+            iup.SetAttribute(self.dock, "EXPAND", self.dockOpen and "YES" or "HORIZONTAL")
+        end
         if self.dockContent then
             show(self.dockContent, self.dockOpen)
             iup.SetAttribute(self.dockContent, "FLOATING", self.dockOpen and "NO" or "IGNORE")
@@ -177,10 +203,30 @@ function M.new(iup, opts)
         if kind == "error" then self:openDock(true) elseif kind == "success" then self:openDock(false) end
     end
     function self:fit(width, height)
+        if iup.GetParent then
+            local rootX = tonumber((iup.GetAttribute(self.root, "SCREENPOSITION") or ""):match("^(-?%d+),"))
+            local ancestor = iup.GetParent(self.root)
+            while ancestor do
+                local w = tonumber((iup.GetAttribute(ancestor, "RASTERSIZE") or ""):match("^(%d+)x"))
+                local x = tonumber((iup.GetAttribute(ancestor, "SCREENPOSITION") or ""):match("^(-?%d+),"))
+                if w and w > P.control then width = math.min(width, w - ((rootX and x) and math.max(0, rootX - x) or 0)) end
+                ancestor = iup.GetParent(ancestor)
+            end
+        end
         width = math.max(P.control, width)
+        iup.SetAttribute(self.root, "MAXSIZE", L.maxSize(width))
+        iup.SetAttribute(self.header, "MAXSIZE", L.maxSize(math.max(P.control, width - P.padding * 2)))
         self.fitting = true
         self.width, self.height = width, height or self.height or P.dock * 3
-        local narrow = width < P.config_break
+        local narrow = width - P.padding * 2 < P.config_break
+        self:setSecondary(self.secondarySpecs)
+        local actionCount = 1 + ((narrow and self.config) and 1 or 0)
+        if #(opts.menu or {}) > 0 or #(self.secondarySpecs or {}) > (width < P.drawer_break and 0 or 2) then actionCount = actionCount + 1 end
+        if width >= P.drawer_break then actionCount = actionCount + math.min(2, #(self.secondarySpecs or {})) end
+        local titleWidth = math.min(P.card_min, math.floor(width / 4))
+        iup.SetAttribute(title, "MAXSIZE", L.maxSize(titleWidth))
+        local stateWidth = math.max(1, width - P.padding * 2 - titleWidth - actionCount * (P.card_min / 2 + P.gutter) - P.gutter)
+        iup.SetAttribute(self.stateLine, "MAXSIZE", L.maxSize(stateWidth))
         show(self.configure, narrow and self.config ~= nil)
         if self.configSplit then
             local visible = not narrow or self.configOpen
@@ -189,13 +235,29 @@ function M.new(iup, opts)
         end
         if self.inspectorSplit then
             show(self.inspector, self.inspectorOpen)
-            -- A narrow pane gives the details the work area until Close is pressed.
-            show(main, not self.inspectorOpen or width >= P.drawer_break)
-            iup.SetAttribute(self.inspectorSplit, "VALUE", not self.inspectorOpen and "1000" or (width < P.drawer_break and "0" or tostring(math.floor((1 - self.inspectorSize / width) * 1000))))
+            local drawer = self.inspectorOpen and width < P.drawer_break and rawget(iup, "_IMGUI")
+            show(main, true)
+            if iup.Append and iup.Detach then
+                require("core.lib.tree").place(iup, drawer and self.inspectorOverlay or self.inspectorSplit, self.inspector)
+            end
+            if drawer then
+                iup.SetAttribute(self.inspector, "_IUPLUNAR_OVERLAY", "YES")
+                iup.SetAttribute(self.inspector, "FLOATING", "YES")
+                iup.SetAttribute(self.inspector, "VISIBLE", "YES")
+                local frameHeight = tonumber((iup.GetAttribute(self.inspectorFrame, "RASTERSIZE") or ""):match("x(%d+)$"))
+                iup.SetAttribute(self.inspector, "RASTERSIZE", L.size(self.inspectorSize, (frameHeight and frameHeight > P.control) and frameHeight or math.max(P.dock, self.height - P.header - P.padding * 2)))
+                iup.SetAttribute(self.inspector, "POSITION", tostring(math.max(0, width - P.padding * 2 - self.inspectorSize)) .. ",0")
+            else
+                iup.SetAttribute(self.inspector, "_IUPLUNAR_OVERLAY", nil)
+                iup.SetAttribute(self.inspector, "RASTERSIZE", L.size(1))
+            end
+            iup.SetAttribute(self.inspectorSplit, "VALUE", (not self.inspectorOpen or drawer) and "1000" or tostring(math.floor((1 - self.inspectorSize / math.max(P.control, width - P.padding * 2 - ((self.config and (not narrow or self.configOpen)) and self.configSize + P.gutter or 0))) * 1000)))
         end
         if self.dockSplit then
+            local actual = (iup.GetAttribute(self.root, "RASTERSIZE") or ""):match("x(%d+)$")
+            local bodyHeight = (tonumber(actual) or self.height) - P.padding * 2 - P.header - (self.toolbar and P.toolbar or 0) - P.gutter
             local h = self.dockOpen and self.dockSize or P.control
-            iup.SetAttribute(self.dockSplit, "VALUE", tostring(math.floor(clamp((1 - h / self.height) * 1000, 0, 1000))))
+            iup.SetAttribute(self.dockSplit, "VALUE", self.dockOpen and tostring(math.floor(clamp((1 - h / math.max(P.control, bodyHeight)) * 1000, 0, 1000))) or "1000")
         end
         self.fitting = false
         refresh()
@@ -218,6 +280,7 @@ function M.cards(iup, opts)
         rows[n] = iup.hbox({ card.widget or card, GAP = L.gap(5), EXPAND = "HORIZONTAL" })
         iup.Append(root, rows[n])
     end
+    iup.Append(root, iup.fill{})
     local grid = { widget = root }
     function grid:fit(width)
         local count = math.max(1, math.min(P.columns, math.floor((width + P.gutter) / (P.card_min + P.gutter))))

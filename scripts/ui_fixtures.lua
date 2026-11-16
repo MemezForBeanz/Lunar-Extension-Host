@@ -97,11 +97,11 @@ local LOG_LINES = {
 }
 
 function M.log_parser(page)
-	local dir = (os.getenv("TEMP") or ".") .. "\\lunar-fixture-result.log"
+	local dir = (os.getenv("TEMP") or ".") .. "\\platform-diagnostics.log"
 	local file = assert(io.open(dir, "wb"))
 	file:write(table.concat(LOG_LINES, "\r\n"))
 	file:close()
-	local other = (os.getenv("TEMP") or ".") .. "\\lunar-fixture-thermal.042"
+	local other = (os.getenv("TEMP") or ".") .. "\\thermal-diagnostics.042"
 	file = assert(io.open(other, "wb"))
 	file:write("13:58:02 FAILED Sensor 12 read 96 C over limit\r\n13:58:03 FAILED CRC mismatch in SMBIOS table\r\n")
 	file:close()
@@ -189,15 +189,52 @@ end
 
 -- Deterministic presentation states: never start jobs or make network requests.
 function M.tool_state(page, state)
-	if state == "working" then
-		page:setState("working", "Processing fixture data — 50% complete")
-		page:setRunState("working", 0.5)
-		page:setDockSummary("working", "Processing fixture data — 50% complete")
-	elseif state == "failed" then
-		page:setState("error", "Fixture operation failed. Review the output and retry.")
-		page:setRunState("failed")
-		page:setDockSummary("error", "Fixture operation failed. Review the output.", function() page:openDock(true) end)
-	end
+    page.captureState = state
+    local iup = page.iup
+    local Kit = require("core.ui.Kit")
+    local names = { ["Build Queue"]="Build", ["iLO Redfish"]="Request", ["Log Parser"]="Log scan", ["Scan Chain"]="Parse", ["Black Duck"]="Scan", ["Time Clock"]="Clock request" }
+    local name = names[page.opts.title] or "Operation"
+    if not page.capturePlaceholder then
+        page.capturePlaceholder = Kit.statusLine(iup, "info", "")
+        iup.Append(page.mainHost, page.capturePlaceholder)
+    end
+    local queue = page.opts.title == "Build Queue" and rawget(_G, "LUNAR_DEV_SHELL").pages["Build Queue"]
+    if queue then
+        for n,entry in ipairs(queue.panel.get_queued_entries()) do
+            entry.status = state == "working" and (n == 1 and "running" or "pending") or (n == 1 and "fail" or "skip")
+            entry.duration = nil
+        end
+        queue.panel.refresh_queue_list()
+    end
+    if page.inspector then page:openInspector(false) end
+    Kit.show(iup, page.main, queue ~= nil, page.stateLine)
+    Kit.show(iup, page.capturePlaceholder, queue == nil, page.stateLine)
+    local working = state == "working"
+    local sentence = working and (name .. " in progress") or (name .. " failed. Review the output and retry.")
+    Kit.setStatus(iup, page.capturePlaceholder, working and "info" or "error", working and "Waiting for results..." or "No results were produced.")
+    page:setState(working and "working" or "error", sentence)
+    page:setRunState(working and "working" or "failed", working and 0.5 or nil)
+    if page.opts.primary and page.opts.primary.widget then
+        local target = page.primaryIconTarget
+        local n = 0
+        while iup.GetChild(page.primary, n) do
+            local child = iup.GetChild(page.primary, n)
+            Kit.show(iup, child, child == target, page.stateLine)
+            n = n + 1
+        end
+        iup.SetAttribute(target, "TITLE", working and "Stop" or "Retry")
+        iup.SetAttribute(target, "ACTIVE", "YES")
+    end
+    if page.dockContent then
+        local function output(w)
+            local class = iup.GetClassName(w)
+            if class == "text" then iup.SetAttribute(w, "VALUE", working and (name .. " started. Awaiting response...") or (name .. " stopped: connection or input could not be read. Check configuration and retry.")) end
+            local n=0
+            while iup.GetChild(w,n) do output(iup.GetChild(w,n)); n=n+1 end
+        end
+        output(page.dockContent)
+        page:setDockSummary(working and "info" or "error", working and "Waiting for output" or "Operation stopped before completion", not working and function() page:openDock(true) end or nil)
+    end
 end
 
 return M
