@@ -341,13 +341,21 @@ function M.new(iup, opts)
                     -- Asked for in a very short pane: the output gets the pane; Hide output
                     -- returns to the work.
                     takeover, h = true, bodyHeight
-                elseif room < h then
-                    -- The work keeps its minimum: the dock shrinks, and when even its
-                    -- smallest readable height does not fit it gives way to its summary
-                    -- line, unless the user asked for it.
-                    if room >= P.dock_min then h = room
-                    elseif self.dockForced then h = P.dock_min
-                    else open = false end
+                elseif room < P.dock_min then
+                    -- The work keeps its minimum: when even the dock's smallest readable
+                    -- height does not fit, it gives way to its summary line, unless the
+                    -- user asked for it.
+                    if self.dockForced then h = P.dock_min else open = false end
+                else
+                    h = math.min(h, room)
+                    -- Softer: the dock also shrinks (not below readable) so a config form
+                    -- fits whole above it, instead of scrolling beside an empty main.
+                    local Lay = rawget(iup, "_IMGUI") and package.loaded["core.imgui.Layout"]
+                    if Lay and self.config and (not narrow or self.configOpen) then
+                        local form = Lay.minContent(self.config, false)
+                        local bar = tonumber(iup.GetAttribute(self.dockSplit, "BARSIZE")) or 0
+                        if form > 0 then h = math.max(P.dock_min, math.min(h, bodyHeight - bar - form)) end
+                    end
                 end
             end
             placeDock(open)
