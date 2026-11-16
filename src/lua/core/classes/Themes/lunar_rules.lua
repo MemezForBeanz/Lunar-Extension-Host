@@ -75,7 +75,7 @@ function M.build(p)
     -- sides keep the label snug instead of floating in a slab. The label is
     -- the body font -- text and control are proportionate again, which is the
     -- real fix for "undersized text on oversized buttons".
-    local BTN_FONT = sized(p.font, 11)
+    local BTN_FONT = sized(p.font, p.glass and 10 or 11)
     local BTN_PAD  = "12x5"
     local ROW_PAD  = "14x4"   -- one list row height, wherever a list is
     local accent_hover   = p.accentHover   or shade(p.accent, 0.12)
@@ -447,6 +447,7 @@ function M.build(p)
         rules.statusbar_text.glass, rules.titlebar_tabs.glass = nil, nil
         for _, role in ipairs({ "primary_btn", "actionbutton", "ghost_btn", "danger_btn", "warning_btn", "info_btn", "icon_btn", "dropbutton", "text" }) do
             rules[role].focuscolor = p.accent
+            rules[role].controlheight = 32
         end
     end
     return rules
