@@ -48,7 +48,7 @@ end
 -- thumb_top, all relative to the bar's start.
 function M.geometry(bar)
 	local len = bar.vertical and bar.h or bar.w
-	local arrow = math.min(M.SIZE, math.floor(len / 2))
+	local arrow = bar.carbon and 0 or math.min(M.SIZE, math.floor(len / 2))
 	local track = len - 2 * arrow
 	local g = { len = len, arrow = arrow, track = track }
 	local range = bar.max or 0
@@ -70,6 +70,9 @@ local function data(e) return Element.state(e).data end
 -- pos }` in dialog client coordinates, or nil when that bar is hidden.
 function M.set(e, vbar, hbar)
 	local d = data(e)
+	local carbon = Element.getAttribute(e, "CARBONSTYLE") == "YES"
+	if vbar then vbar.carbon = carbon end
+	if hbar then hbar.carbon = carbon end
 	if vbar then vbar.vertical = true end
 	if hbar then hbar.vertical = false end
 	d.wsb = { v = vbar, h = hbar }
@@ -236,8 +239,19 @@ function M.leave(e, rt)
 	if d.wsb_hot then d.wsb_hot = nil; if rt and rt.redraw then rt.redraw(e) end end
 end
 
-local function draw_bar(dc, bar, hot)
+local function draw_bar(dc, bar, hot, e)
 	local g = M.geometry(bar)
+	if bar.carbon then
+		local bg = Element.getAttribute(e, "SB_BACKCOLOR") or Element.getAttribute(e, "BGCOLOR")
+		local fg = Element.getAttribute(e, hot and "SB_HIGHCOLOR" or "SB_FORECOLOR") or Element.getAttribute(e, "FGCOLOR")
+		dc:fill(bar.x, bar.y, bar.w, bar.h, bg)
+		if g.thumb then
+			local thickness = require("core.lib.CarbonLayout").px(2)
+			if bar.vertical then dc:fill(bar.x + math.floor((bar.w-thickness)/2), bar.y+g.thumb_top, thickness, g.thumb, fg)
+			else dc:fill(bar.x+g.thumb_top, bar.y + math.floor((bar.h-thickness)/2), g.thumb, thickness, fg) end
+		end
+		return
+	end
 	local S = Sys.current
 	dc:fill(bar.x, bar.y, bar.w, bar.h, S.scroll_track)
 	if bar.vertical then dc:fill(bar.x, bar.y, 1, bar.h, S.scroll_edge) else dc:fill(bar.x, bar.y, bar.w, 1, S.scroll_edge) end
@@ -297,8 +311,8 @@ function M.draw(e, st, dc)
 	local wsb = d.wsb
 	if not wsb then return end
 	local active = d.wsb_track or d.wsb_hot
-	if wsb.v then draw_bar(dc, wsb.v, active and active.vertical == true) end
-	if wsb.h then draw_bar(dc, wsb.h, active and active.vertical == false) end
+	if wsb.v then draw_bar(dc, wsb.v, active and active.vertical == true, e) end
+	if wsb.h then draw_bar(dc, wsb.h, active and active.vertical == false, e) end
 	if wsb.v and wsb.h then dc:fill(wsb.v.x, wsb.h.y, wsb.v.w, wsb.h.h, Sys.current.scroll_track) end
 end
 

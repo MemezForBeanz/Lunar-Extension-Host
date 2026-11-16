@@ -291,6 +291,7 @@ function M.build(p)
         r.selbg, r.seltext, r.selalpha = selected, p.text, "0"
         r.itemradius, r.itemmarker, r.header = 0, p.borderInteractive or p.accent, p.layerAccent01 or selected
         r.hover = hover
+        r.border = p.borderSubtle01 or p.border
         r.padding = L.margin(5, 2)
     end
     for k,v in pairs(rules.list_bordered) do if k ~= "font" then rules.list_mono[k] = v end end
@@ -322,7 +323,9 @@ function M.build(p)
     for _, r in pairs(rules) do
         r.radius = 0
         r.carbonstyle = true
-
+        -- All scrollable roles share Carbon's neutral, arrowless treatment.
+        r.scrollsize, r.scrollinset, r.scrollradius = L.px(3), L.px(1), 0
+        r.scrollfg, r.scrollhi, r.scrollpress = p.borderStrong01 or p.border, p.textMuted, p.text
     end
     rules.flatsegmented.radius = 4 -- Carbon content switcher is a rounded exception.
     return rules

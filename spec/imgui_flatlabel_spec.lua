@@ -24,4 +24,19 @@ describe("imgui flatlabel", function()
 		assert.are.equal(1, entered)
 		assert.is_nil(c.focusable)
 	end)
+	it("leaves the enclosing Carbon layer visible instead of painting a label patch", function()
+		local F = require("core.imgui.widgets.flatdraw")
+		local label = iup.flatlabel{ TITLE="Employee", CARBONSTYLE="YES" }
+		local box = iup.vbox{label, BGCOLOR="244 244 244"}
+		local dialog = iup.dialog{box, BGCOLOR="255 255 255"}
+		local old_icon, old_box = F.icon, F.boxAttrib
+		local backgrounds = {}
+		F.icon = function() end
+		F.boxAttrib = function(_, _, _, _, _, _, _, _, bg) backgrounds[#backgrounds+1] = bg end
+		local ok, err = pcall(Classes.get("flatlabel").draw, label, Element.state(label), { fill=function(_,_,_,_,_,bg) backgrounds[#backgrounds+1]=bg end })
+		F.icon, F.boxAttrib = old_icon, old_box
+		assert.is_true(ok, err)
+		assert.same({}, backgrounds)
+		iup.Destroy(dialog)
+	end)
 end)

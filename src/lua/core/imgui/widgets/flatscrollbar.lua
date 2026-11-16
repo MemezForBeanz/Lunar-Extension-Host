@@ -22,7 +22,7 @@ local function axis(owner_el, vertical)
 	local track = vertical and s.h or s.w
 	local other = vertical and num(attr(owner_el, "XMAX")) > num(attr(owner_el, "DX"))
 		or num(attr(owner_el, "YMAX")) > num(attr(owner_el, "DY"))
-	local arrows = yes(attr(owner_el, "SHOWARROWS")) and not yes(attr(owner_el, "SHOWTRANSPARENT"))
+	local arrows = attr(owner_el, "CARBONSTYLE") ~= "YES" and yes(attr(owner_el, "SHOWARROWS")) and not yes(attr(owner_el, "SHOWTRANSPARENT"))
 	local arrow = arrows and size or 0
 	if not yes(attr(owner_el, "SHOWFLOATING")) and other then track = track - size end
 	local range = math.max(0, track - 1 - 2 * arrow)
@@ -89,7 +89,7 @@ local function scrollbar_draw(sb, st, dc)
 	if yes(attr(e, "SHOWTRANSPARENT")) then
 		draw_thumb()
 	else
-		if yes(attr(e, "SHOWARROWS")) then
+		if attr(e, "CARBONSTYLE") ~= "YES" and yes(attr(e, "SHOWARROWS")) then
 			if vertical then
 				draw_arrow(dc, st.x, st.y, size, true, false, ss.data.highlight == "up" and hl or fg, bg)
 				draw_arrow(dc, st.x, st.y + track - size, size, true, true, ss.data.highlight == "down" and hl or fg, bg)
