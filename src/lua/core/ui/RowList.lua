@@ -85,6 +85,14 @@ function M.new(iup, opts)
     })
     iup.SetAttribute(widget, "COUNT", tostring(opts.count or #rows))
     local api = { widget = widget }
+    -- Bound a table to its content instead of sending metadata to the far edge
+    -- of a maximised page. The layout can still shrink it in a narrow pane.
+    function api:setContentWidth(title_width)
+        local width = title_width
+        for _, col in ipairs(opts.column_widths or {}) do width = width + col end
+        iup.SetAttribute(widget, "MAXSIZE", tostring(width) .. "x")
+    end
+    if opts.title_width then api:setContentWidth(opts.title_width) end
     --- Change only a row's status glyph; unchanged rows retain their cached frame.
     function api:setState(pos, state, progress)
         states[pos] = state
