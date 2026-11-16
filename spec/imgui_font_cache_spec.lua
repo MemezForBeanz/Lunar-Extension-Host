@@ -20,6 +20,17 @@ local function counted_text_size(b)
 end
 
 describe("imgui font measurement cache", function()
+    it("registers bundled Plex before atlas loading and GDI measurement", function()
+        local b = backend()
+        local calls = {}
+        b.font_find = function(face) return face .. ".otf" end
+        b.font_private = function(path) calls[#calls + 1] = "private:" .. path end
+        b.font_load = function(path) calls[#calls + 1] = "load:" .. path; return 1 end
+        Fonts.get("IBM Plex Sans, 11")
+        Fonts.get("IBM Plex Sans, 11")
+        assert.same({ "private:IBM Plex Sans.otf", "load:IBM Plex Sans.otf" }, calls)
+    end)
+
 	it("caches exact empty, wrapped, and UTF-8 measurements per font", function()
 		local b = backend()
 		local calls = counted_text_size(b)

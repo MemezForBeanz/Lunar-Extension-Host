@@ -224,6 +224,9 @@ local function face_id(face, bold, italic)
 		-- No styled file: fall back to the regular face (and remember it is synthetic).
 		path = B.font_find and B.font_find(face, false, false)
 	end
+	-- Carbon bundles Plex rather than installing it. The GDI atlas loader and
+	-- GDI measurement must both resolve that same private face, never a substitute.
+	if path and face and face:match("^IBM Plex") and B.font_private then B.font_private(path) end
 	local loaded = path and B.font_load and B.font_load(path)
 	face_ids[key] = loaded or false
 	return loaded or 0
