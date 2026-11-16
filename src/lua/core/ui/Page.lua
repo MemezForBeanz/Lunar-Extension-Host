@@ -105,12 +105,33 @@ function M.new(iup, opts)
         kids[#kids + 1] = self.toolbar
     end
     local function buildDock(spec)
+        -- Both declared and late docks may take height from long config forms.
+        -- Scrolling the body keeps those inputs reachable without squeezing logs.
+        body = iup.scrollbox{body, EXPAND="YES", CANVASBOX="YES", SCROLLBAR="VERTICAL", BORDER="NO", THEMEROLE="page_column"}
+        self.body = body
+        if iup.GetClassName(spec.widget) == "text" and iup.flatscrollbox then
+            spec.widget = iup.flatscrollbox{spec.widget, EXPAND="YES", SCROLLBAR="YES",
+                NATIVETEXTSCROLL="YES", THEMEROLE="outputlog_scroll"}
+        end
         self.dockSummary = Kit.statusLine(iup, "idle", spec.summary or "No output yet")
         self.dockAction = Kit.button(iup, { title = "Open error" })
         self.dockToggle = Kit.button(iup, { title = "Show output", action = function() self:openDock(not self.dockOpen) end })
         self.dock = iup.vbox({ row({ L.sectionTitle(iup, spec.title or "Output"), self.dockSummary, self.dockAction, self.dockToggle }, "page_dock", P.control),
             spec.widget, GAP = L.gap(3), EXPAND = "YES", THEMEROLE = "page_dock" })
         self.dockContent = spec.widget
+        -- Existing viewers keep their callbacks and handles; plain dock text gets
+        -- the same flat scrolling container as the org-pack output viewers.
+        local function outputStyle(w)
+            if iup.GetClassName(w) == "text" then
+                iup.SetAttribute(w, "THEMEROLE", "outputlog")
+                iup.SetAttribute(w, "FONT", "IBM Plex Mono, 10")
+                iup.SetAttribute(w, "SCROLLBAR", "NO")
+                iup.SetAttribute(w, "VISIBLELINES", "6")
+            end
+            local n = 0
+            while iup.GetChild(w, n) do outputStyle(iup.GetChild(w, n)); n = n + 1 end
+        end
+        outputStyle(spec.widget)
         self.dockSplit = split(body, self.dock, true, "dock", P.dock, P.toolbar, P.dock * 2)
         self.dockHost = iup.vbox{self.dockSplit, EXPAND="YES", THEMEROLE="page_column"}
         return self.dockHost
@@ -134,8 +155,6 @@ function M.new(iup, opts)
         -- A late dock must be able to take height from a tall configuration form.
         -- Preserve access to that form instead of letting its natural minimum
         -- squeeze the failure transcript down to zero lines in a short pane.
-        body = iup.scrollbox{ self.body, EXPAND="YES", CANVASBOX="YES", SCROLLBAR="VERTICAL", BORDER="NO", THEMEROLE="page_column" }
-        self.body = body
         iup.Append(self.root, buildDock(spec))
         self:openDock(false)
     end
@@ -276,7 +295,13 @@ function M.new(iup, opts)
         if self.dockSplit then
             local actual = (iup.GetAttribute(self.root, "RASTERSIZE") or ""):match("x(%d+)$")
             local bodyHeight = (tonumber(actual) or self.height) - P.padding * 2 - P.header - (self.toolbar and P.toolbar or 0) - P.gutter
-            local h = self.dockOpen and self.dockSize or P.control
+            -- In a short split, give output the pane instead of leaving a tiny
+            -- navigation strip above it. Hide output to return to configuration.
+            local takeover = self.dockOpen and bodyHeight < P.dock + L.px(13)
+            show(self.body, not takeover)
+            iup.SetAttribute(self.body, "FLOATING", takeover and "IGNORE" or "NO")
+            local h = self.dockOpen and math.max(P.dock, self.dockSize) or P.control
+            if takeover then h = bodyHeight end
             iup.SetAttribute(self.dockSplit, "VALUE", self.dockOpen and tostring(math.floor(clamp((1 - h / math.max(P.control, bodyHeight)) * 1000, 0, 1000))) or "1000")
         end
         self.fitting = false

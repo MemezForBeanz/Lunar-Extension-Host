@@ -36,7 +36,11 @@ end
 if rawget(iup, "_IMGUI") then
 	package.loaded["core.imgui.Draw"] = nil
 	package.loaded["core.imgui.Runtime"] = nil
-	require("core.imgui.Runtime").init(require("core.imgui.backend.Native"))
+	-- Draw secondary dialogs as panels in this capture-only runtime. Their
+	-- rendered pixels then belong to the full app buffer (no desktop reads).
+	local backend = require("core.imgui.backend.Native")
+	backend.dialog_windows = false
+	require("core.imgui.Runtime").init(backend)
 end
 
 -- Nobody is there to dismiss a dialog, and one would stop the run with nothing to show for it.
@@ -90,7 +94,22 @@ local function save_bmp(target, path, from_screen)
 	if not IMGUI then return save_bmp_native(target, path, from_screen) end
 	local Runtime = require("core.imgui.Runtime")
 	local B = Runtime.backend()
-	local st = require("core.imgui.Element").state(target)
+	local Element = require("core.imgui.Element")
+	local st = Element.state(target)
+	-- Native popovers may extend beyond the parent window. In panel capture
+	-- mode keep the complete floating surface inside the app buffer.
+	local main = Runtime.mainDialog()
+	local mst = main and Element.state(main)
+	if mst then
+		local inset = require("core.lib.CarbonLayout").px(3)
+		for _, dialog in ipairs(Runtime.dialogs()) do
+			local ds = Element.state(dialog)
+			if dialog ~= main and ds then
+				ds.data.ox = math.max(inset, math.min(ds.data.ox or inset, mst.w - ds.w - inset))
+				ds.data.oy = math.max(inset, math.min(ds.data.oy or inset, mst.h - ds.h - inset))
+			end
+		end
+	end
 	-- The backend reads the back buffer at the end of the next frame, which also shows
 	-- the state after the step that asked for the shot.
 	if target == Runtime.mainDialog() or not st then B.screenshot(path)
@@ -424,8 +443,8 @@ iup.MainLoop = function()
 			shell.activity:close()
 			activity_scene.start(shell)
 		elseif scene == 10 then
-			snap_window(dlg, "94-activity-running") -- the bar's slot, with the panel shut
 			shell.activity:open()
+			snap("94-activity-running")
 			shell.activity:_move(2) -- onto the Build Queue row, which offers both actions
 		elseif scene == 11 then
 			snap_window(shell.activity._dialog, "95-activity")

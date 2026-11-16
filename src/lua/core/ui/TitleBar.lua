@@ -34,7 +34,7 @@ end
 function TitleBar.commandWidth(width, reserved, tabs)
 	local room = width - SIDE_MARGIN * 2 - BUTTON - GAP - VIEW_BUTTONS * BUTTON - (reserved or 0) - (tabs or BUTTON)
 	local minimum = L.PAGE.card_min
-	if room < minimum then return BUTTON end
+	if room < minimum + L.px(12) then return BUTTON end
 	return math.min(L.PAGE.main_min, math.floor(width / 3), room)
 end
 
@@ -218,6 +218,9 @@ end
 -- would know, and it doesn't say. Close enough on a build without the export.
 local function text_width(iup, strip, text)
 	-- The ImGui host measures with the element's own font, as the driver would.
+	if rawget(iup, "_IMGUI") then
+		return require("core.imgui.Fonts").get(iup.GetAttribute(strip, "TABSFONT") or iup.GetAttribute(strip, "FONT")):measure(text)
+	end
 	local measure = rawget(iup, "_textWidth")
 	if measure then return measure(strip, text) end
 	local width
@@ -247,7 +250,7 @@ function TitleBar:_measureTabs(pages, hidden)
 			end
 		end
 	end
-	self._tabs_width = total + BUTTON -- the + alone when no tab is showing
+	self._tabs_width = total + BUTTON + GAP -- the + alone when no tab is showing
 end
 
 --- Fit the bar to the window. Attributes only: the window's own layout pass follows.
@@ -260,7 +263,7 @@ function TitleBar:fit(width, force)
 	local reserved = self._frame_dialog and require("winframe").reserved(self._frame_dialog) or 0
 	if reserved ~= self._frame_width then
 		self._frame_width = reserved
-		self._iup.SetAttribute(self._reserved, "RASTERSIZE", math.max(reserved, 1) .. "x") -- 0 means no size at all
+		self._iup.SetAttribute(self._reserved, "RASTERSIZE", L.size(math.max(reserved, 1))) -- 0 means no size at all
 		force = true
 	end
 	if width == self._width and not force then return end
@@ -276,7 +279,7 @@ function TitleBar:fit(width, force)
 	local left = math.max(lay.left, math.floor((width - field) / 2))
 	left = math.min(left, math.max(lay.left, width - field - reserved - VIEW_BUTTONS * BUTTON))
 	iup.SetAttribute(self._field, "RASTERSIZE", field .. "x28")
-	iup.SetAttribute(self._left, "RASTERSIZE", left .. "x")
+	iup.SetAttribute(self._left, "RASTERSIZE", L.size(left))
 	iup.SetAttribute(self._groups, "RASTERSIZE", math.max(1, math.min(lay.groups, self._tabs_width or BUTTON)) .. "x32")
 end
 
