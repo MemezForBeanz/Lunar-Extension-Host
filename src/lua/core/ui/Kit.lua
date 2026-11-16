@@ -159,6 +159,23 @@ end
 -- @tparam table opts `title`, `icon`, `role` (default actionbutton), `action`, `tip`,
 --   `icon_role` (default: text-coloured on a primary, neutral otherwise)
 -- @return flatbutton
+function M.notification(iup, opts)
+	local title = M.statusLine(iup, opts.kind or "info", opts.title or "")
+	iup.SetAttribute(title, "TEXTELLIPSIS", "YES")
+	iup.SetAttribute(title, "RASTERSIZE", L.size(1))
+	local recovery = M.button(iup, { title = opts.action and opts.action.title or "Retry",
+		action = opts.action and opts.action.action })
+	local root
+	local dismiss = M.button(iup, { title = "Dismiss", icon = "close", action = function()
+		M.show(iup, root, false); if iup.Refresh then iup.Refresh(root) end
+	end })
+	root = iup.hbox({ title, recovery, dismiss, EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER",
+		GAP = L.gap(3), MARGIN = L.margin(3), THEMEROLE = "page_column" })
+	return { widget = root, setTitle = function(_, text)
+		M.setStatus(iup, title, opts.kind or "info", text); iup.SetAttribute(title, "TIP", text)
+	end }
+end
+
 function M.button(iup, opts)
 	local btn = iup.flatbutton({
 		TITLE = opts.title or "",

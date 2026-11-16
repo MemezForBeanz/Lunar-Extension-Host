@@ -40,6 +40,17 @@ describe("source download controls", function()
 		return chunk().new(ctx, options), buttons, rows, lists
 	end
 
+    it("rethemes Search when a connected provider enables it", function()
+        local painted
+        local api = page({is_connected=function() return false end,providers={{id="archive",kind="archive",name="Archive"}}},
+            {notifyTreeChange=function(_,w) painted=w end})
+        api.capture("connected")
+        assert.equals("YES",painted.attrs.ACTIVE)
+        assert.equals("Search / Browse",painted.attrs.TITLE)
+        api.capture("disconnected")
+        assert.equals("NO",painted.attrs.ACTIVE)
+        assert.equals("Connect and choose a source first",painted.attrs.TIP)
+    end)
 	it("cancels the selected persisted job and retains its identity when the list reorders", function()
 		local jobs = { { id = 1, title = "First", state = "complete" }, { id = 2, title = "Second", state = "running" } }
 		local cancelled
