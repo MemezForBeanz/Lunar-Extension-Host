@@ -91,7 +91,12 @@ end
 local function frame(e, st)
 	local bi = yes(attr(e, "BORDER")) and 3 or 0
 	local px = pair(attr(e, "PADDING"))
-	return st.x + bi + px, st.y + bi, math.max(0, st.w - 2 * (bi + px)), math.max(0, st.h - 2 * bi)
+	local y = st.y + bi
+	if Fonts.backend and st.h > 0 and not is_multiline(e, st) then
+		local _, ch = Fonts.forElement(e):charsize()
+		y = st.y + math.max(bi, math.floor((st.h - ch) / 2))
+	end
+	return st.x + bi + px, y, math.max(0, st.w - 2 * (bi + px)), math.max(0, st.h - 2 * bi)
 end
 -- One UTF-8 character (a lead byte and its continuation bytes).
 local UTF8_CHAR = "[%z\1-\127\194-\244][\128-\191]*"

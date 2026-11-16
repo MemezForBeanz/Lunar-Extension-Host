@@ -48,25 +48,25 @@ local function sel(t) return iup.GetAttribute(t, "SELECTIONPOS") end
 describe("native text on the ImGui host: geometry", function()
 	before_each(boot)
 
-	it("starts the text at the control's edge without a border or padding", function()
+	it("centres text vertically without a border or padding", function()
 		local t = iup.text{ VALUE = "abc", BORDER = "NO", RASTERSIZE = "200x20" }
 		local _, st = show(t, 300, 100)
 		local c = assert(text_call("abc"))
-		assert.equal(st.x, c[4]); assert.equal(st.y, c[5])
+		assert.equal(st.x, c[4]); assert.equal(st.y + 2, c[5])
 	end)
 
-	it("puts the text 3 px inside a BORDER=YES control on both axes", function()
+	it("keeps the horizontal border inset and centres text vertically", function()
 		local t = iup.text{ VALUE = "abc", BORDER = "YES", RASTERSIZE = "200x26" }
 		local _, st = show(t, 300, 100)
 		local c = assert(text_call("abc"))
-		assert.equal(st.x + 3, c[4]); assert.equal(st.y + 3, c[5])
+		assert.equal(st.x + 3, c[4]); assert.equal(st.y + 5, c[5])
 	end)
 
 	it("adds PADDING horizontally only (EM_SETMARGINS)", function()
 		local t = iup.text{ VALUE = "abc", BORDER = "YES", PADDING = "4x2", RASTERSIZE = "200x26" }
 		local _, st = show(t, 300, 100)
 		local c = assert(text_call("abc"))
-		assert.equal(st.x + 7, c[4]); assert.equal(st.y + 3, c[5])
+		assert.equal(st.x + 7, c[4]); assert.equal(st.y + 5, c[5])
 	end)
 
 	it("right-aligns and centres a line narrower than the field (ES_RIGHT, ES_CENTER)", function()

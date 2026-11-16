@@ -25,7 +25,7 @@ local Activity = require("core.classes.Activity")
 local ActivityPanel = {}
 ActivityPanel.__index = ActivityPanel
 
-local WIDTH, ROW_HEIGHT, MAX_ROWS = 420, 44, 7
+local WIDTH, ROW_HEIGHT, MAX_ROWS = 420, 48, 7
 local HEADER_HEIGHT, HINT_HEIGHT = 36, 28
 -- The header, its rule, the hint, the frame's edge and the padding around the rows.
 local CHROME = HEADER_HEIGHT + 1 + HINT_HEIGHT + 2 + L.SPACING[3]
@@ -189,7 +189,7 @@ function ActivityPanel:_build()
 	local title = iup.flatlabel({ TITLE = "Activity", EXPAND = "HORIZONTAL", THEMEROLE = "palette_text",
 		ALIGNMENT = "ALEFT:ACENTER", RASTERSIZE = "x" .. HEADER_HEIGHT })
 	local count = iup.flatlabel({ TITLE = "", ALIGNMENT = "ARIGHT:ACENTER",
-		RASTERSIZE = "96x" .. HEADER_HEIGHT, THEMEROLE = "palette_hint" })
+		RASTERSIZE = "96x" .. HEADER_HEIGHT, THEMEROLE = "palette_text" })
 	local canvas = iup.canvas({
 		EXPAND = "YES",
 		BORDER = "NO",
@@ -201,7 +201,7 @@ function ActivityPanel:_build()
 		ALIGNMENT = "ALEFT:ACENTER", RASTERSIZE = "x" .. HINT_HEIGHT })
 	local frame = iup.flatframe({
 		iup.vbox({
-			iup.hbox({ title, count, MARGIN = L.margin(5, 0), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" }),
+		iup.hbox({ title, count, MARGIN = L.margin(5, 0), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL", THEMEROLE = "palette_text" }),
 			iup.flatseparator({ ORIENTATION = "HORIZONTAL", STYLE = "LINE", BARSIZE = "1" }),
 			iup.vbox({ canvas, MARGIN = L.margin(0, 2) }),
 			iup.hbox({ hint, MARGIN = L.margin(5, 0), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" }),

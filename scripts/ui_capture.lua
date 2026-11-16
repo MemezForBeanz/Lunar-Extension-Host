@@ -534,7 +534,6 @@ iup.MainLoop = function()
 				shell.terminal:execute("help")
 			end
 		elseif scene == 25 and not os.getenv("LUNAR_CAPTURE_CODE") then
-			if shell.terminal then shell.terminal._output:goTo(0,0) end
 			snap_window(dlg,"101-terminal")
 			return false
 		elseif scene == 34 then -- about 20 seconds: a server has to index before it reports

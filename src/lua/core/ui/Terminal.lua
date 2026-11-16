@@ -176,12 +176,12 @@ end
 function Terminal:write(text, role, language)
 	local block = self._buffer:append(text, { role = role, language = language })
 	self:_render()
-	self._output:scrollToEnd()
 	return block
 end
 function Terminal:_render()
 	local text, fragments = self._buffer:snapshot()
 	self._output:setTranscript(text, fragments)
+	self._output:scrollToEnd()
 end
 function Terminal:clear()
 	self._generation = self._generation + 1

@@ -120,7 +120,7 @@ local function draw(e, st, dc)
 		draw_border = true
 	end
 
-	if draw_border then
+	if draw_border and (bw > 0 or d.highlighted) then
 		local bordercolor = attr(e, "BORDERCOLOR")
 		if pressed_look then
 			bordercolor = attr(e, "BORDERPSCOLOR") or bordercolor
