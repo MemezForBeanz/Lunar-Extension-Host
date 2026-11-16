@@ -21,20 +21,29 @@ local VIEW_BUTTONS = 3
 -- A strip has no natural width of its own: it takes its page's, and these pages are empty.
 -- So the bar works it out, with a little over for what the control adds around a title.
 local TAB_SLACK = 10
+-- The caption keeps this much empty bar to drag the window by.
+local DRAG_AREA = 80
+-- Below this window width the command field is its icon in every theme. Above it the
+-- field stays a field only while the tabs and their "+" keep all the room they measure.
+TitleBar.COMPACT_BELOW = 1200
+
+local function chrome(reserved)
+	return SIDE_MARGIN + BUTTON + GAP + VIEW_BUTTONS * BUTTON + (reserved or 0) + DRAG_AREA
+end
 
 --- Space for tabs, leaving a caption drag area and the native window buttons.
 function TitleBar.layout(width, reserved, tabs)
-	local before = SIDE_MARGIN + BUTTON + GAP
-	local after = VIEW_BUTTONS * BUTTON
-	local available = math.max(0, width - before - after - (reserved or 0) - 80)
+	local available = math.max(0, width - chrome(reserved))
 	local groups = math.min(available, tabs or available)
-	return { left = before + groups, groups = groups }
+	return { left = SIDE_MARGIN + BUTTON + GAP + groups, groups = groups }
 end
 
+--- The command field's width: what is left once the tabs (with their "+") have theirs,
+-- counted exactly as `layout` counts, so the field can never take the "+" away.
 function TitleBar.commandWidth(width, reserved, tabs)
-	local room = width - SIDE_MARGIN * 2 - BUTTON - GAP - VIEW_BUTTONS * BUTTON - (reserved or 0) - (tabs or BUTTON)
+	local room = width - chrome(reserved) - (tabs or BUTTON)
 	local minimum = L.PAGE.card_min
-	if room < minimum + L.px(12) then return BUTTON end
+	if width < TitleBar.COMPACT_BELOW or room < minimum + L.px(12) then return BUTTON end
 	return math.min(L.PAGE.main_min, math.floor(width / 3), room)
 end
 

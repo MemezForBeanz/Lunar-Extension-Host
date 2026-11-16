@@ -10,7 +10,9 @@ local function clamp(n, lo, hi) return math.max(lo, math.min(hi, tonumber(n) or 
 
 function M.new(iup, opts)
     opts = opts or {}
-    local self = { iup = iup, opts = opts, width = math.huge, runState = "ready" }
+    local self = { iup = iup, opts = opts, width = math.huge, runState = "ready",
+        -- what the work above an open dock keeps before the dock gives way
+        bodyMin = opts.bodyMin or P.body_min }
     local settings, key = opts.settings, "page." .. (opts.id or opts.title or "tool") .. "."
     local function saved(name, default) return settings and settings:get(key .. name) or default end
     local function save(name, value)
@@ -86,6 +88,7 @@ function M.new(iup, opts)
             return iup.DEFAULT
         end
         self[name .. "Size"] = clamp(saved(name, default), lo, hi)
+        self[name .. "Bar"] = iup.GetAttribute(s, "BARSIZE")
         return s
     end
     if self.inspector then
@@ -113,9 +116,16 @@ function M.new(iup, opts)
             spec.widget = iup.flatscrollbox{spec.widget, EXPAND="YES", SCROLLBAR="YES",
                 NATIVETEXTSCROLL="YES", THEMEROLE="outputlog_scroll"}
         end
+        -- One dock anatomy on every page: the output always sits in the same well.
+        -- A page that already hands one over keeps its own handle.
+        if not (iup.GetClassName(spec.widget) == "flatframe" and iup.GetAttribute(spec.widget, "THEMEROLE") == "well") then
+            spec.widget = iup.flatframe{spec.widget, TITLE="", EXPAND="YES", MARGIN=L.margin(2), THEMEROLE="well"}
+        end
+        self.renderedDockOpen = nil
         self.dockSummary = Kit.statusLine(iup, "idle", spec.summary or "No output yet")
         self.dockAction = Kit.button(iup, { title = "Open error" })
-        self.dockToggle = Kit.button(iup, { title = "Show output", action = function() self:openDock(not self.dockOpen) end })
+        -- The toggle acts on what is shown: a dock that gave way to a short pane opens.
+        self.dockToggle = Kit.button(iup, { title = "Show output", action = function() self:openDock(not self.renderedDockOpen) end })
         self.dock = iup.vbox({ row({ L.sectionTitle(iup, spec.title or "Output"), self.dockSummary, self.dockAction, self.dockToggle }, "page_dock", P.control),
             spec.widget, GAP = L.gap(3), EXPAND = "YES", THEMEROLE = "page_dock" })
         self.dockContent = spec.widget
@@ -156,6 +166,10 @@ function M.new(iup, opts)
         -- Preserve access to that form instead of letting its natural minimum
         -- squeeze the failure transcript down to zero lines in a short pane.
         iup.Append(self.root, buildDock(spec))
+        -- A dock added after the page was themed is themed now, so its title, buttons and
+        -- well match a dock declared up front.
+        local theme = require("core.ui.ThemeReactor").themeManager()
+        if theme then pcall(theme.themeWidget, theme, self.dockHost) end
         self:openDock(false)
     end
     function self:destroy()
@@ -213,34 +227,50 @@ function M.new(iup, opts)
         show(overflow, #(opts.menu or {}) > 0 or #self.secondarySpecs > (self.width < P.drawer_break and 0 or 2))
     end
     function self:openInspector(on) self.inspectorOpen = on == true; self:fit(self.width) end
-    function self:openDock(on)
-        self.dockOpen = on == true
+    -- What is on screen. `openDock` records what is wanted; `fit` decides what the
+    -- pane has room for and calls this only when that changes.
+    local function placeDock(open)
+        if self.renderedDockOpen == open then return end
+        self.renderedDockOpen = open
         if self.dockHost and iup.Append and iup.Detach then
             local tree = require("core.lib.tree")
-            if self.dockOpen then
+            if open then
                 tree.place(iup, self.dockSplit, self.body)
                 tree.place(iup, self.dockSplit, self.dock)
             else
                 tree.place(iup, self.dockHost, self.body)
                 tree.place(iup, self.dockHost, self.dock)
             end
-            show(self.dockSplit, self.dockOpen)
-            iup.SetAttribute(self.dock, "EXPAND", self.dockOpen and "YES" or "HORIZONTAL")
+            show(self.dockSplit, open)
+            iup.SetAttribute(self.dock, "EXPAND", open and "YES" or "HORIZONTAL")
         end
         if self.dockContent then
-            show(self.dockContent, self.dockOpen)
-            iup.SetAttribute(self.dockContent, "FLOATING", self.dockOpen and "NO" or "IGNORE")
-            iup.SetAttribute(self.dock, "MAXSIZE", self.dockOpen and L.maxSize() or L.maxSize(nil, P.control))
-            iup.SetAttribute(self.dockToggle, "TITLE", self.dockOpen and "Hide output" or "Show output")
+            show(self.dockContent, open)
+            iup.SetAttribute(self.dockContent, "FLOATING", open and "NO" or "IGNORE")
+            iup.SetAttribute(self.dock, "MAXSIZE", open and L.maxSize() or L.maxSize(nil, P.control))
+            iup.SetAttribute(self.dockToggle, "TITLE", open and "Hide output" or "Show output")
         end
+    end
+    --- Open or close the output dock. An open asked for by the user (or by a call
+    -- without `how`) holds even in a short pane; `how == "auto"` (a failure arriving)
+    -- lets the dock give way to the work when the pane is short.
+    function self:openDock(on, how)
+        on = on == true
+        self.dockForced = on and (how ~= "auto" or (self.dockOpen == true and self.dockForced == true))
+        self.dockOpen = on
         self:fit(self.width, self.height)
     end
     function self:setDockSummary(kind, text, action)
         if not self.dockSummary then return end
         Kit.setStatus(iup, self.dockSummary, kind == "success" and "ok" or kind, text)
-        self.dockAction.flat_action = function() if action then action() end; return iup.DEFAULT end
+        -- "Open error" always shows the output, even where the dock had given way.
+        self.dockAction.flat_action = function()
+            self:openDock(true)
+            if action then action() end
+            return iup.DEFAULT
+        end
         show(self.dockAction, action ~= nil)
-        if kind == "error" then self:openDock(true) elseif kind == "success" then self:openDock(false) end
+        if kind == "error" then self:openDock(true, "auto") elseif kind == "success" then self:openDock(false) end
     end
     function self:fit(width, height)
         if iup.GetParent then
@@ -271,6 +301,8 @@ function M.new(iup, opts)
             local visible = not narrow or self.configOpen
             show(self.config, visible)
             iup.SetAttribute(self.configSplit, "VALUE", visible and tostring(math.floor(self.configSize / width * 1000)) or "0")
+            -- A closed column leaves no bar behind: an idle sash at the edge reads as a scrollbar.
+            iup.SetAttribute(self.configSplit, "BARSIZE", visible and self.configBar or "0")
         end
         if self.inspectorSplit then
             show(self.inspector, self.inspectorOpen)
@@ -290,19 +322,39 @@ function M.new(iup, opts)
                 iup.SetAttribute(self.inspector, "_IUPLUNAR_OVERLAY", nil)
                 iup.SetAttribute(self.inspector, "RASTERSIZE", L.size(1))
             end
+            iup.SetAttribute(self.inspectorSplit, "BARSIZE", (not self.inspectorOpen or drawer) and "0" or self.inspectorBar)
             iup.SetAttribute(self.inspectorSplit, "VALUE", (not self.inspectorOpen or drawer) and "1000" or tostring(math.floor((1 - self.inspectorSize / math.max(P.control, width - P.padding * 2 - ((self.config and (not narrow or self.configOpen)) and self.configSize + P.gutter or 0))) * 1000)))
         end
         if self.dockSplit then
-            local actual = (iup.GetAttribute(self.root, "RASTERSIZE") or ""):match("x(%d+)$")
-            local bodyHeight = (tonumber(actual) or self.height) - P.padding * 2 - P.header - (self.toolbar and P.toolbar or 0) - P.gutter
-            -- In a short split, give output the pane instead of leaving a tiny
-            -- navigation strip above it. Hide output to return to configuration.
-            local takeover = self.dockOpen and bodyHeight < P.dock + L.px(13)
+            local function measured(w, fallback)
+                local h = w and tonumber((iup.GetAttribute(w, "RASTERSIZE") or ""):match("x(%d+)$"))
+                return (h and h > 0) and h or fallback
+            end
+            local rows = self.toolbar and 2 or 1
+            local bodyHeight = measured(self.root, self.height) - P.padding * 2 - math.max(P.header, measured(self.header, 0))
+                - (self.toolbar and math.max(P.toolbar, measured(self.toolbar, 0)) or 0) - P.gutter * rows
+            local open, takeover = self.dockOpen == true, false
+            local h = math.max(P.dock, self.dockSize)
+            if open then
+                local room = bodyHeight - self.bodyMin
+                if self.dockForced and bodyHeight < P.dock + L.px(13) then
+                    -- Asked for in a very short pane: the output gets the pane; Hide output
+                    -- returns to the work.
+                    takeover, h = true, bodyHeight
+                elseif room < h then
+                    -- The work keeps its minimum: the dock shrinks, and when even its
+                    -- smallest readable height does not fit it gives way to its summary
+                    -- line, unless the user asked for it.
+                    if room >= P.dock_min then h = room
+                    elseif self.dockForced then h = P.dock_min
+                    else open = false end
+                end
+            end
+            placeDock(open)
             show(self.body, not takeover)
             iup.SetAttribute(self.body, "FLOATING", takeover and "IGNORE" or "NO")
-            local h = self.dockOpen and math.max(P.dock, self.dockSize) or P.control
-            if takeover then h = bodyHeight end
-            iup.SetAttribute(self.dockSplit, "VALUE", self.dockOpen and tostring(math.floor(clamp((1 - h / math.max(P.control, bodyHeight)) * 1000, 0, 1000))) or "1000")
+            if not open then h = P.control end
+            iup.SetAttribute(self.dockSplit, "VALUE", open and tostring(math.floor(clamp((1 - h / math.max(P.control, bodyHeight)) * 1000, 0, 1000))) or "1000")
         end
         self.fitting = false
         refresh()

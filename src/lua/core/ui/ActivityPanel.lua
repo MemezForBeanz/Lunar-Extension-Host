@@ -42,7 +42,9 @@ local SPIN_FRAMES = 12
 
 local SEPARATOR = "  |  "
 local STATE_WORDS = { running = "Running", ok = "Finished", failed = "Failed", cancelled = "Cancelled" }
-local GLYPHS = { ok = "activity_ok", failed = "activity_failed", cancelled = "activity_stopped" }
+-- The rows wear the same glyphs as every other state list (core.ui.StateIcon "row"):
+-- a job the user stopped reads as skipped, not as a failure.
+local ROW_STATES = { queued = "queued", running = "running", ok = "ok", failed = "failed", cancelled = "skipped" }
 
 --- Turn the store's entries into rows, newest first.
 -- @tparam table store a `core.classes.Activity`
@@ -558,19 +560,34 @@ function ActivityPanel:_pill(x1, y1, x2, y2, color, radius)
 	iup.DrawImage(canvas, corners.br, x2 - radius + 1, y2 - radius + 1)
 end
 
+-- One cached frame per state, and per spin step while running: painting allocates nothing
+-- once a frame has been drawn.
+local glyph_paths = {}
+local function glyph_path(state, step)
+	local frames = glyph_paths[state]
+	if not frames then frames = {}; glyph_paths[state] = frames end
+	local path = frames[step]
+	if not path then
+		local S = require("core.ui.StateIcon")
+		local svg = S.svg("row", state, state, 1, step / SPIN_FRAMES)
+		path = require("core.ui.AnimatedIcon").frame("activity-row-v1-" .. state .. "-" .. step, svg)
+		frames[step] = path
+	end
+	return path
+end
+
 function ActivityPanel:_glyph(row)
-	local iup = self._iup
 	local VectorIcon = require("core.ui.VectorIcon")
 	if not VectorIcon.available then return nil end
-	if row.state == "running" then
-		return VectorIcon.imageHandle(iup, {
-			path = self._icon_dir .. "/in-progress.svg",
-			size = GLYPH_SIZE,
-			color = VectorIcon.roleColor("info"),
-			rotation = self._frame * (360 / SPIN_FRAMES),
-		})
-	end
-	return require("core.ui.StatusIcon").imageHandle(iup, self._icon_dir, GLYPHS[row.state], GLYPH_SIZE)
+	local state = ROW_STATES[row.state]
+	if not state then return nil end
+	local path = glyph_path(state, state == "running" and self._frame or 0)
+	if not path then return nil end
+	local role = require("core.ui.StateIcon").definition("row").states[state].role
+	return VectorIcon.imageHandle(self._iup, {
+		path = path, size = GLYPH_SIZE,
+		color = VectorIcon.roleColor((role == nil or role == "muted") and "neutral" or role),
+	})
 end
 
 function ActivityPanel:_paintRow(row, y, w, colors, selected)

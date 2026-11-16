@@ -30,6 +30,22 @@ describe("TitleBar command field", function()
   bar:fit(1920)
   assert.equal("Search or run a command",iup.GetAttribute(bar._command,"TITLE"))
  end)
+ it("collapses the same way in every theme, whatever the tab font measures", function()
+  -- narrow tab fonts (Segoe) and wide ones (Plex) both get the icon at 1100 px
+  for _, tabs in ipairs({ 300, 420, 520 }) do
+   assert.equal(32, TitleBar.commandWidth(1100, 138, tabs))
+  end
+ end)
+ it("never lets the field take the room the tabs and their + measured", function()
+  for width = 1200, 1920, 20 do
+   for tabs = 200, 900, 50 do
+    local field = TitleBar.commandWidth(width, 138, tabs)
+    if field > 32 then
+     assert.equal(tabs, TitleBar.layout(width - field, 138, tabs).groups)
+    end
+   end
+  end
+ end)
  it("keeps search bounded and opens the command callback", function()
   local iup = require("core.lui.test").boot({})
   local root = iup.flattabs({})
