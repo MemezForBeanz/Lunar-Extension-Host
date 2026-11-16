@@ -23,6 +23,42 @@ describe("Lunar glass",function()
         assert.is_false(Glass.enabled())
         assert.equal(0,Glass.stats().bytes)
     end)
+    it("keeps the silver bloom within seven percent linear luminance and off the right floor",function()
+        local p=require("core.classes.Themes.LunarDarkTheme"):new():palette()
+        local pixels,w,h=Glass.pixels(p,256,256)
+        local function light(v)
+            v=v/255
+            return v<=.04045 and v/12.92 or ((v+.055)/1.055)^2.4
+        end
+        local left=pixels:byte(1)
+        local right=pixels:byte((w-1)*4+1)
+        local foot=pixels:byte((h-1)*w*4+1)
+        assert.is_true(light(left)-light(right)>.065)
+        assert.is_true(light(left)-light(right)<.075)
+        assert.is_true(foot>left-12)
+        assert.equal(11,right)
+    end)
+    it("keeps chrome labels AA at the actual brightest sampled bloom",function()
+        local lunar=require("core.classes.Themes.lunar_rules")
+        for _,name in ipairs({"LunarDarkTheme","LunarLightTheme"}) do
+            local theme=require("core.classes.Themes."..name):new()
+            local p=theme:palette()
+            local pixels=Glass.pixels(p,128,128)
+            local r,g,b=pixels:byte(1,3)
+            for _,rule in pairs(theme:rules()) do
+                if rule.glass and rule.glass~="card" and rule.fg then
+                    local floating=rule.glass=="floating" or rule.glass=="content"
+                    local tint=floating and (p.glassDark and p.layer03 or "255 255 255") or p.layer01
+                    local a=floating and p.glassFloatingAlpha or p.glassChromeAlpha
+                    local channels={r,g,b}; local i=0
+                    for v in tint:gmatch("%d+") do
+                        i=i+1; channels[i]=math.floor(channels[i]*(1-a)+tonumber(v)*a)
+                    end
+                    assert.is_true(lunar.contrast(rule.fg,table.concat(channels," "))>=4.5)
+                end
+            end
+        end
+    end)
     it("paints content without adding a second rim or shadow",function()
         local B=require("core.imgui.backend.Null").new()
         local dc=require("core.imgui.Draw").new(B)

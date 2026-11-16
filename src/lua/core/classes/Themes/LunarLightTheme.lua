@@ -33,6 +33,9 @@ function LunarLightTheme:initialize()
         font = "Segoe UI, 10",
         glass = true,
         glassDark = false,
+        glassBloom = 0.18, glassBloomWidth = 0.60, glassBloomHeight = 1.4,
+        glassChromeAlpha = 0.82, glassFloatingAlpha = 0.90,
+        glassTopRim = "255 255 255 204", glassRim = "0 0 0 20",
         radius = 6, radiusFrame = 8,
     }
     p.warningText = p.accentText
