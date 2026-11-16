@@ -31,12 +31,32 @@ function M.new(ctx, opts)
 			Kit.setStatus(iup, feedback, answer and "ok" or "warning", answer and "Queued. The server will update after the work finishes." or why)
 		end)
 	end
-    attention = RowList.new(iup, { rows = {}, row_height = L.PAGE.control + L.px(5), role = "flatrows_plain",
-        column_widths = { L.PAGE.config_min },
-        header = { title = "Issue / next step", columns = { "Repair" } },
-        empty_title = "Everything looks healthy", empty_hint = "No repairs needed.",
-        on_part = function(pos, part) local problem = problems[pos]; if part == "action" and problem and problem.action then act(problem.action) end end,
-        on_activate = function(pos) local problem = problems[pos]; if problem and problem.action then act(problem.action) end end })
+    -- Real ghost buttons keep repairs discoverable and keyboard accessible.
+    local attention_rows = iup.vbox({GAP = L.gap(1), EXPAND = "HORIZONTAL"})
+    local repair_header = iup.flatlabel({TITLE = "Repair", THEMEROLE = "hint", RASTERSIZE = L.size(L.PAGE.config_min)})
+    attention = {widget = iup.vbox({
+        iup.hbox({L.hint(iup, "Issue / next step"), iup.fill({}), repair_header, EXPAND = "HORIZONTAL"}),
+        attention_rows, GAP = L.gap(2), EXPAND = "HORIZONTAL"})}
+    function attention:setRows(rows)
+        while iup.GetChildCount(attention_rows) > 0 do
+            iup.Destroy(iup.GetChild(attention_rows, 0))
+        end
+        for i, row in ipairs(rows) do
+            local problem = problems[i]
+            local label = iup.flatlabel({TITLE = row.title, IMAGE = row.image, THEMEROLE = "reading", EXPAND = "HORIZONTAL", TEXTELLIPSIS = "YES"})
+            local copy = iup.vbox({label, L.hint(iup, row.secondary), EXPAND = "HORIZONTAL", GAP = L.gap(1)})
+            local action = Kit.button(iup, {title = row.action or "", role = "ghost_btn", active = row.action and "YES" or "NO",
+                action = function() act(problem.action) end})
+            iup.SetAttribute(action, "RASTERSIZE", L.size(L.PAGE.config_min, L.PAGE.control))
+            iup.Append(attention_rows, iup.hbox({copy, action, GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL"}))
+        end
+    end
+    function attention:setEmpty(title, hint)
+        if #problems == 0 then
+            iup.Append(attention_rows, L.stack(iup, {L.hint(iup, title), L.hint(iup, hint)}, 2))
+        end
+    end
+
 	local metrics = iup.hbox({ HOMOGENEOUS = "YES", GAP = L.gap(3), EXPAND = "HORIZONTAL", MARGIN = "0x0" })
 	local setters, semantic_numbers = {}, {}
 	for _, entry in ipairs({ { "failed", "Failed", "analysis" }, { "missing", "Offline", "offline" },
@@ -44,14 +64,18 @@ function M.new(ctx, opts)
 		local key, caption, kind = entry[1], entry[2], entry[3]
 		local number = iup.flatlabel({ TITLE = "0", THEMEROLE = "pagetitle", EXPAND = "HORIZONTAL" })
 		if kind then semantic_numbers[key] = number end
-		local label = kind and Kit.statusLine(iup, key == "failed" and "error" or "warning", caption)
-			or iup.flatlabel({ TITLE = caption, THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL" })
+		local label = iup.flatlabel({ TITLE = caption, THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL" })
+		iup.SetAttribute(label, "RASTERSIZE", L.size(nil, L.PAGE.control))
+		iup.SetAttribute(label, "ALIGNMENT", "ALEFT:ACENTER")
+		local caption_row = { label, GAP = L.gap(2), EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER" }
+		if kind then table.insert(caption_row, 1, iup.flatlabel({ TITLE = "", IMAGE = Kit.icon(iup, "error--filled", Kit.ICON_STATUS, "error"), RASTERSIZE = L.size(Kit.ICON_STATUS, L.PAGE.control) })) end
 		local jump = Kit.button(iup, { title = "View", role = "link_btn", action = function()
 			if targets[kind] then iup.SetFocus(targets[kind]) end
 		end })
+		iup.SetAttribute(jump, "MAXSIZE", L.maxSize(nil, L.PAGE.control))
 		Kit.show(iup, jump, kind ~= nil)
 		setters[key] = function(value) iup.SetAttribute(number, "TITLE", grouped(value)) end
-		iup.Append(metrics, iup.vbox({ number, iup.hbox({ label, jump, ALIGNMENT = "ACENTER" }),
+		iup.Append(metrics, iup.vbox({ number, iup.hbox({ iup.hbox(caption_row), jump, ALIGNMENT = "ACENTER", RASTERSIZE = L.size(nil, L.PAGE.control) }),
 			GAP = L.gap(1), MARGIN = "12x8", EXPAND = "HORIZONTAL" }))
 	end
 	local function rows_for(libraries)
@@ -120,7 +144,7 @@ function M.new(ctx, opts)
 		end
 		paint(self.widget, palette.layer01 or palette.surface or palette.bg)
 		for key, number in pairs(semantic_numbers) do
-			local color = key == "failed" and palette.error or palette.warning
+			local color = palette.error
 			if color then iup.SetAttribute(number, "FGCOLOR", color) end
 		end
 	end
@@ -146,16 +170,18 @@ function M.new(ctx, opts)
         local repair_rows = {}
         for i,problem in ipairs(problems) do
             repair_rows[i] = { title = problem.title .. " — " .. problem.wrong, secondary = "Next: " .. problem.next_step,
-                image = Kit.icon(iup, problem.severity <= 2 and "error--filled" or "warning--alt--filled", Kit.ICON_STATUS, problem.severity <= 2 and "error" or "warning"),
+                image = Kit.icon(iup, problem.kind ~= "frame" and "error--filled" or "warning--alt--filled", Kit.ICON_STATUS, problem.kind ~= "frame" and "error" or "warning"),
                 column1 = problem.action and problem.action.label or "",
                 action = problem.action and problem.action.label or nil }
             if problem.action then targets[problem.kind] = attention.widget end
         end
-        page:setState(#problems > 0 and "warning" or "ok", server.name .. " · " .. (#problems > 0 and (#problems .. " items need attention") or "Healthy") .. " · analysis " .. server.analysis)
+        local failed = false
+        for _, problem in ipairs(problems) do if problem.kind ~= "frame" then failed = true end end
+        page:setState(failed and "error" or (#problems > 0 and "warning" or "ok"), server.name .. " · " .. (#problems > 0 and (#problems .. " items need attention") or "Healthy") .. " · analysis " .. server.analysis)
         attention:setRows(repair_rows)
         iup.SetAttribute(attention.widget, "EXPAND", "HORIZONTAL")
         attention:setEmpty(model.attention_error and "Could not load attention" or "Everything looks healthy", model.attention_error or "No repairs needed.")
-        iup.SetAttribute(attention.widget, "RASTERSIZE", L.size(nil, L.PAGE.toolbar + L.PAGE.control * 1.5 * math.max(1,#repair_rows)))
+
 
 		libraries:setRows(rows_for(model.libraries))
 		iup.SetAttribute(libraries.widget, "RASTERSIZE", "x" .. (40 + 44 * math.max(1, #(model.libraries or {}))))

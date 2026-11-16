@@ -14,9 +14,20 @@ function M.new(ctx,opts)
   details.title=(item.overview or 'No description supplied.')..'\n\n'..table.concat(item.genres or {},', ')..'\nCast: '..table.concat(item.people or {},', ')
   source.title=(item.provider or '')..' - '..(item.source_url or '');source.url=item.source_url or ''
  end
+ local function selection(next_item)
+  if next_item then
+   title.title=(next_item.title or '')..(next_item.year and ' ('..next_item.year..')' or '')
+   details.title=(next_item.kind or item.kind or 'movie')..'\n'..(next_item.overview or 'No description supplied.')
+   source.title=next_item.source_url or '';source.url=next_item.source_url or ''
+  else
+   title.title='Preview'
+   details.title='Search movies, TV shows, and anime without connecting a media server.'
+   source.title=''
+  end
+ end
  local match
  local kind=Dropdown.new(iup,{items={'Movies','TV shows / anime'},value=1,width=220,on_change=function(index) item={kind=index==1 and 'movie' or 'show',title=''};match.open(item) end})
- match=Match.new(ctx,{lookup=true,on_metadata=opts.on_metadata,on_changed=changed,type_widget=kind.widget})
+ match=Match.new(ctx,{lookup=true,on_selection=selection,on_metadata=opts.on_metadata,on_changed=changed,type_widget=kind.widget})
  match.open(item)
  local content=iup.vbox({match.widget,title,details,source,iup.fill({}),require('ui.credits').new(iup),GAP=L.gap(4),EXPAND='YES'})
  local page=Kit.page(iup,{id='media-metadata',title='Metadata',icon='search',main=content,state={kind='info',text='Search a provider, select a result, then load its details'}})

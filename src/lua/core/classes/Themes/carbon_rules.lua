@@ -266,6 +266,8 @@ function M.build(p)
     rules.tertiary_btn.hovertext = p.textInverse or p.accentText
     rules.tertiary_btn.pressedtext = p.textInverse or p.accentText
     rules.ghost_btn = button(layer1, p.linkPrimary or p.accent, hover, selected)
+    rules.ghost_btn.inactivebg = layer1
+    rules.ghost_btn.inactivefg = p.textDisabled or p.textMuted
     rules.flatbutton = rules.ghost_btn
     rules.button = rules.ghost_btn
     rules.danger_btn = button(p.buttonDangerPrimary or p.error, p.textOnColor or p.accentText,

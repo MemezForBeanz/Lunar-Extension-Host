@@ -254,6 +254,7 @@ function M.new(ctx, opts)
     local reliability = require("ui.reliability").new(ctx, opts.model or {}, opts.on_sources)
     local body = L.stack(iup, { reliability.widget, aligned(hero.widget), aligned(metadata.widget),
         aligned(fact_box), episode_section, aligned(disclosure), aligned(technical), more_section }, 4)
+    iup.SetAttribute(body, "EXPAND", "HORIZONTAL")
     local content = iup.flatscrollbox({ body, EXPAND = "YES", SCROLLBAR = "VERTICAL", XHIDDEN = "YES", THEMEROLE = "tabscroll" })
     local page = Kit.page(iup, { id = "media-title", title = "Library / Title", main = content, primary = { widget = hero.primary } })
     function api.setModel(model)
@@ -278,7 +279,8 @@ function M.new(ctx, opts)
         paint(hero.widget); paint(more_section)
     end
     Reactor.register(api)
-    local library_crumb = Kit.button(iup, { title = "Films", role = "link_btn", action = opts.on_back })
+    local library_crumb = iup.link({ TITLE = "Films", URL = "", action = function() opts.on_back(); return iup.DEFAULT end })
+    library_crumb.flat_action = library_crumb.action
     local breadcrumb = iup.hbox({library_crumb, L.hint(iup, "/"), GAP = L.gap(2), ALIGNMENT = "ACENTER"})
     require("core.lib.tree").place(iup, page.header, breadcrumb, page.title)
     require("core.lib.tree").place(iup, breadcrumb, page.title)
