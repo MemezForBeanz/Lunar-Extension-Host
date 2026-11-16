@@ -118,7 +118,7 @@ function M.register(opts)
 	local entries = {
 		{
 			label = "Theme",
-			description = "Choose the application's color palette. Affects all tabs and extensions.",
+			description = "Choose a palette for all tools.",
 			widget = manage(opts.theme_manager:buildDropdown(), "theme"),
 		},
 	}
@@ -132,7 +132,8 @@ function M.register(opts)
 		end
 		return iup.DEFAULT
 	end
-	if opts.theme_manager:activeTheme() and opts.theme_manager:activeTheme():palette().glass == true then
+	local active = opts.theme_manager:activeTheme()
+	if active and active.palette and (active:palette() or {}).glass == true then
 	entries[#entries + 1] = { label = "Glass effects", description = "Frosted chrome and floating surfaces in Lunar themes.", widget = manage(glass, "glass_effects") }
 	end
 	local themes = opts.theme_manager
@@ -140,69 +141,56 @@ function M.register(opts)
 		local theme = themes:activeTheme()
 		return theme ~= nil and theme:isDark()
 	end
-	local dark_mode = iup.flattoggle({ TITLE = "", THEMEROLE = "flattoggle", VALUE = is_dark() and "ON" or "OFF" })
-	function dark_mode:valuechanged_cb()
-		if (iup.GetAttribute(dark_mode, "VALUE") == "ON") ~= is_dark() then themes:toggleMode() end
-		iup.SetAttribute(dark_mode, "VALUE", is_dark() and "ON" or "OFF")
-		return iup.DEFAULT
-	end
-	manage(dark_mode, "theme")
-	entries[#entries + 1] = {
-		label = "Dark mode",
-		description = "Show this palette's dark colors. The moon button in the title bar does the same. "
-			.. "A palette with only one mode can't switch.",
-		widget = dark_mode,
-	}
 	local system_theme = opts.system_theme
-	local follow
-	if system_theme then
-		follow = iup.flattoggle({ TITLE = "", THEMEROLE = "flattoggle", VALUE = system_theme:enabled() and "ON" or "OFF" })
-		function follow:valuechanged_cb()
-			if not system_theme:setEnabled(iup.GetAttribute(follow, "VALUE") == "ON") then
-				iup.SetAttribute(follow, "VALUE", system_theme:enabled() and "ON" or "OFF")
-			end
-			return iup.DEFAULT
-		end
-		entries[#entries + 1] = {
-			label = "Match system theme",
-			description = "Follow the system's light or dark mode (on Windows: Settings > Personalization > "
-				.. "Colors; on Linux: the desktop's light/dark style). Switching mode by hand turns this off.",
-			widget = manage(follow, "theme"),
-		}
+	local function mode_index()
+		return system_theme and system_theme:enabled() and 1 or (is_dark() and 3 or 2)
 	end
+	local mode_dd
+	mode_dd = FlatDropdown.new(iup, {
+		items = { "System", "Light", "Dark" }, value = mode_index(), width = 180,
+		name = "appearance_mode",
+		on_change = function(index)
+			if settings:isLocked("theme") or settings:isLocked("theme_follow_system") then
+				mode_dd:setValue(mode_index()); return
+			end
+			if system_theme then
+				if not system_theme:setEnabled(index == 1) then mode_dd:setValue(mode_index()); return end
+			elseif index == 1 then mode_dd:setValue(mode_index()); return end
+			if index ~= 1 and (index == 3) ~= is_dark() then themes:toggleMode() end
+			mode_dd:setValue(mode_index())
+		end,
+	})
+	manage(mode_dd.widget, "theme")
+	manage(mode_dd.widget, "theme_follow_system")
+	entries[#entries + 1] = { label = "Mode", description = "Follow the system or choose light or dark.", widget = mode_dd.widget }
+	themes:onApply(function() mode_dd:setValue(mode_index()) end)
 
-	themes:onApply(function()
-		iup.SetAttribute(dark_mode, "VALUE", is_dark() and "ON" or "OFF")
-		if follow then iup.SetAttribute(follow, "VALUE", system_theme:enabled() and "ON" or "OFF") end
-		if not settings:isLocked("theme") then
-			iup.SetAttribute(dark_mode, "ACTIVE", themes:counterpart(themes:current()) and "YES" or "NO")
-		end
-	end)
-
-	entries[#entries + 1] = {
-		label = "Interface motion",
-		description = "Animate tab switches, tab dragging and group creation. "
-			.. "Turn this off for an instant, static interface.",
-		widget = toggle("motion_enabled", "enabled"),
-	}
-	entries[#entries + 1] = {
-		label = "Motion speed",
-		description = "Scales the duration of every animation.",
-		widget = speed,
-	}
-	entries[#entries + 1] = {
-		label = "Tab transition",
-		description = "How a page gives way to the next when you switch tabs: Push moves both "
-			.. "sideways, Fade cross-fades, Rise lifts the new page in, Slide over lays it on "
-			.. "top of the old one. Theme default uses the theme's choice.",
-		widget = transition_dd.widget,
-	}
-	entries[#entries + 1] = {
-		label = "Follow system motion setting",
-		description = "Disable interface motion automatically when the system is set to "
-			.. "reduce animations (on Windows: Settings > Accessibility > Visual effects).",
-		widget = toggle("motion_respect_system", "respect_system"),
-	}
+	local function motion_index()
+		if settings:get("motion_enabled") == false then return 2 end
+		return settings:get("motion_respect_system") ~= false and 1 or 3
+	end
+	local motion_dd
+	motion_dd = FlatDropdown.new(iup, {
+		items = { "System", "Reduced", "Full" }, value = motion_index(), width = 180,
+		name = "appearance_motion",
+		on_change = function(index)
+			if settings:isLocked("motion_enabled") or settings:isLocked("motion_respect_system") then
+				motion_dd:setValue(motion_index()); return
+			end
+			-- Keep the legacy keys authoritative for existing installations and policies.
+			settings:set("motion_enabled", index ~= 2)
+			settings:set("motion_respect_system", index == 1)
+			settings:save()
+			motion:configure({ enabled = index ~= 2, respect_system = index == 1 })
+		end,
+	})
+	manage(motion_dd.widget, "motion_enabled")
+	manage(motion_dd.widget, "motion_respect_system")
+	entries[#entries + 1] = { label = "Motion", description = "Follow the system or choose reduced or full motion.", widget = motion_dd.widget }
+	entries[#entries + 1] = { label = "Advanced", children = {
+		{ label = "Motion speed", description = "Scale animation duration.", widget = speed },
+		{ label = "Tab transition", description = "Choose how pages change.", widget = transition_dd.widget },
+	} }
 
 	opts.host:addSettings("Appearance", { entries = entries, icon = "color-palette" })
 end

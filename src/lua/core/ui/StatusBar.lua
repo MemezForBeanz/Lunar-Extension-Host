@@ -31,11 +31,11 @@ StatusBar.UPDATE_STATES = {
 }
 StatusBar.UPDATE_CLICK_HINT = "\n\nClick to check for updates now."
 
-StatusBar.HEIGHT = 28
+StatusBar.HEIGHT = 24
 
 --- How wide the activity slot's text is. Fixed, so that progress ticking over doesn't
 -- lay the whole window out again.
-StatusBar.ACTIVITY_WIDTH = 220
+StatusBar.ACTIVITY_WIDTH = 64
 -- What the activity slot shows once work has ended (`Activity:status`'s states).
 local ACTIVITY_GLYPHS = {
 	ok = "activity_ok", failed = "activity_failed", cancelled = "activity_stopped", attention = "activity_dot",
@@ -56,7 +56,7 @@ local function call(fn) if fn then fn() end end
 
 local Settings = ui.memo(function(p)
 	local bar = p.bar
-	return ui.Button{ ref = bar._refs.settings, tooltip = "Settings (Ctrl+,)", focusable = true, size = { 48, 28 },
+	return ui.Button{ ref = bar._refs.settings, tooltip = "Settings (Ctrl+,)", focusable = true, size = { 32, 24 },
 		padding = 0, role = "statusbar_button", onClick = function() call(bar._on_settings) end }
 end, nil)
 
@@ -117,18 +117,16 @@ local function Bar(p)
 	local reveal = revealed and {
 		hidden = revealed == 0, height = revealed, minSize = { 1, revealed }, maxSize = { 65535, revealed },
 	} or { height = StatusBar.HEIGHT }
-	return ui.HBox{ uniform = true, height = reveal.height, hidden = reveal.hidden,
+	return ui.HBox{ height = reveal.height, hidden = reveal.hidden,
 		minSize = reveal.minSize, maxSize = reveal.maxSize,
 		bg = "240 240 240", role = "statusbar", padding = 0, gap = 0, align = "center", grow = "x",
-		ui.HBox{ grow = "x", align = "center", gap = 0,
-			Settings{ bar = bar }, Activity{ bar = bar }, StatusLine{ bar = bar } },
-		ui.HBox{ grow = "x", align = "center", ui.Spacer{}, CommandField{ bar = bar }, ui.Spacer{} },
-		ui.HBox{ grow = "x", align = "center", gap = L.px(2), padding = { 8, 0 },
-			ui.Spacer{},
-			bar._has_logo and Logo{ bar = bar },
+		ui.HBox{ grow = "x", align = "center", gap = L.px(2), padding = { L.px(2), 0 },
+			ui.Native{ handle = bar._status_icon:widget() }, StatusLine{ bar = bar } },
+		ui.HBox{ align = "center", gap = L.px(2), padding = { L.px(2), 0 },
+			Activity{ bar = bar },
 			-- extensions append their status elements here (HostAPI's status_box)
 			ui.HBox{ ref = bar._refs.ext_box, gap = L.px(2), align = "center" },
-			Focus{ bar = bar },
+			Settings{ bar = bar },
 		},
 	}
 end
@@ -148,6 +146,7 @@ function StatusBar.new(opts)
 	end
 	-- Registered with HostAPI by core.ui.UpdateCheck for every installation.
 	self._update_icon = StateIcon.new(iup, { kind = "refresh", size = 16 })
+	self._status_icon = StateIcon.new(iup, { kind = "row", size = 16 })
 	local seed_name
 	if self._has_logo then
 		-- Seed IMAGE before Map even when the startup theme has no logo variant.
@@ -183,8 +182,6 @@ function StatusBar.new(opts)
 	self._label = self._refs.label.current
 	if opts.bind_icon then
 		opts.bind_icon(self._refs.settings.current, "settings")
-		opts.bind_icon(self._refs.command.current, "search")
-		opts.bind_icon(self._refs.focus.current, "view")
 	end
 	return self
 end
@@ -257,7 +254,7 @@ end
 --- Set what a click on the activity slot does.
 function StatusBar:onActivity(fn) self._on_activity = fn end
 --- Where the activity panel opens from: the bar's left end, which nothing pushes along.
-function StatusBar:activityAnchor() return self._refs.settings.current end
+function StatusBar:activityAnchor() return self._refs.activity_box.current end
 --- The box extension status elements go in (HostAPI's `status_box`).
 function StatusBar:extBox() return self._refs.ext_box.current end
 --- The update indicator (a `core.ui.StateIcon`).
@@ -268,10 +265,45 @@ function StatusBar:setMotion(director)
 	self._motion = director
 end
 
+-- Tool messages are stored independently; switching pages never borrows a neighbour's status.
+function StatusBar:postStatus(tool, message, now)
+	self._messages = self._messages or {}
+	self._messages[tool or false] = { text = tostring(message or ""), expires = (now or os.time()) + 8 }
+	self:showTool(self._tool, now, self._work)
+end
+
+function StatusBar:clearTool(tool)
+	if self._messages then self._messages[tool or false] = nil end
+	self:showTool(self._tool)
+end
+
+function StatusBar:hasTransient(now)
+	local pending = false
+	for tool, message in pairs(self._messages or {}) do
+		if message.expires <= (now or os.time()) then self._messages[tool] = nil
+		else pending = true end
+	end
+	return pending
+end
+
+function StatusBar:showTool(tool, now, work)
+	self._tool, self._work = tool, work
+	local message = self._messages and self._messages[tool or false]
+	if message and message.expires <= (now or os.time()) then
+		self._messages[tool or false], message = nil, nil
+	end
+	local text = work and (work.message or work.title) or (message and message.text or "")
+	local state = work and "running" or "queued"
+	if self._shown_text ~= text or self._shown_state ~= state then
+		self._shown_text, self._shown_state = text, state
+		self:setStatus(text, state)
+	end
+end
+
 --- Show what `core.classes.Activity` says is going on.
 -- @tparam[opt] table view `{ state, text, tip }`; nil empties the slot
 function StatusBar:setActivity(view)
-	local key = view and (view.state .. "|" .. view.text .. "|" .. tostring(view.tip)) or ""
+	local key = view and (view.state .. "|" .. view.text .. "|" .. tostring(view.tip) .. "|" .. tostring(view.count)) or ""
 	if key == self._activity_key then return end
 	self._activity_key = key
 	local icon = self._activity_icon
@@ -289,7 +321,7 @@ function StatusBar:setActivity(view)
 		local next_view = { shown = shown, text = cur.text, tip = cur.tip }
 		if view then
 			-- A flat button reads & as a mnemonic.
-			next_view.text, next_view.tip = (view.text:gsub("&", "&&")), view.tip or ""
+			next_view.text, next_view.tip = tostring(view.count or 0), view.tip or view.text or ""
 		end
 		self:_set({ activity = next_view })
 		if shown ~= cur.shown then self._iup.Refresh(self._refs.activity_box.current) end
@@ -305,7 +337,8 @@ end
 -- background up to its resting colour, both read from the live widget so it
 -- follows the theme.
 -- @tparam string msg
-function StatusBar:setStatus(msg)
+function StatusBar:setStatus(msg, state)
+	self._status_icon:set(state or "queued")
 	local iup, label = self._iup, self._label
 	if not label then return end
 	local ok, rendered = pcall(self._set, self, { status = tostring(msg) })

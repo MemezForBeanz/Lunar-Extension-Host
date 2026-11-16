@@ -53,122 +53,52 @@ describe("AppearanceSettings", function()
         assert.is_nil(setup({ glass = false }).w["Glass effects"])
     end)
 
-	it("offers Dark mode, which flips the theme and follows it", function()
-		local dark, toggles, listeners = true, 0, {}
-		local ui = setup({ theme_manager = {
-			buildDropdown = function() return { kind = "dropdown" } end,
-			activeTheme = function() return { isDark = function() return dark end, palette = function() return { glass = true } end } end,
-			onApply = function(_, fn) listeners[#listeners + 1] = fn end,
-			toggleMode = function() toggles = toggles + 1; dark = not dark end,
-			counterpart = function() return "other" end,
-			current = function() return "theme" end,
-		} })
-		local toggle = ui.w["Dark mode"]
-		assert.equal("ON", toggle.VALUE)
-		toggle.VALUE = "OFF"
-		toggle:valuechanged_cb()
-		assert.equal(1, toggles)
-		assert.equal("OFF", toggle.VALUE)
-		dark = true -- the moon button, or the system
-		listeners[1]()
-		assert.equal("ON", toggle.VALUE)
-	end)
-
-	it("registers the Appearance section with theme and motion rows", function()
-		local s = setup()
-		assert.are.equal("Appearance", s.section.name)
-		assert.are.equal(7, #s.section.entries)
-		assert.are.equal("dropdown", s.w.Theme.kind)
-		assert.are.equal("ON", s.w["Interface motion"].VALUE)   -- unset means on
-	end)
-
-	it("saves and applies a toggle", function()
-		local s = setup()
-		s.w["Interface motion"].VALUE = "OFF"; s.w["Interface motion"]:valuechanged_cb()
-		assert.is_false(s.store.motion_enabled)
-		assert.are.equal(1, s.saved())
-		assert.are.same({ { enabled = false } }, s.configured)
-	end)
-	it("defaults glass on and persists a live change", function()
-		local s = setup()
-		local t = s.w["Glass effects"]
-		assert.equal("ON", t.VALUE)
-		t.VALUE = "OFF"; t:valuechanged_cb()
-		assert.is_false(s.store.glass_effects)
-		assert.equal(1, s.saved())
-		assert.is_false(require("core.ui.Glass").enabled())
-	end)
-
-	it("applies a speed choice from an owner-drawn dropdown", function()
-		local s = setup({ values = { motion_scale = 2.0 } })
-		local btn = s.w["Motion speed"]
-		assert.are.equal("dropbutton", btn.kind)          -- not a native iup.list
-		local list = drop_list(btn)
-		assert.are.equal("5", list.VALUE)
-		assert.are.equal(AppearanceSettings.SPEEDS[5], btn.TITLE)
-		list.VALUE = "2"                                   -- the user picks 0.75x
-		list:valuechanged_cb()
-		assert.are.equal(0.75, s.store.motion_scale)
-		assert.are.same({ { scale = 0.75 } }, s.configured)
-		assert.are.equal(AppearanceSettings.SPEEDS[2], btn.TITLE)
-	end)
-
-	it("applies a tab transition choice, listing every kind", function()
-		local s = setup()
-		local btn = s.w["Tab transition"]
-		assert.are.equal("dropbutton", btn.kind)
-		local labels, values = AppearanceSettings.transition_choices()
-		assert.are.equal("theme", values[1])
-		local fade
-		for i, v in ipairs(values) do if v == "fade" then fade = i end end
-		local list = drop_list(btn)
-		assert.are.equal("1", list.VALUE) -- unset: the theme's
-		list.VALUE = tostring(fade)
-		list:valuechanged_cb()
-		assert.are.equal("fade", s.store.motion_tab_transition)
-		assert.are.same({ { page_transition = "fade" } }, s.configured)
-		assert.are.equal(labels[fade], btn.TITLE)
-	end)
-
-	it("greys out a locked setting and changes nothing when it is toggled", function()
-		local s = setup({ locked = { motion_enabled = true, theme = true }, org_name = "Acme" })
-		local t = s.w["Interface motion"]
-		assert.are.equal("NO", t.ACTIVE)
-		assert.are.equal("Managed by Acme", t.TIP)
-		assert.are.equal("NO", s.w.Theme.ACTIVE)
-		t.VALUE = "OFF"; t:valuechanged_cb()
-		assert.are.same({}, s.configured)
-		assert.are.equal(0, s.saved())
-	end)
-
-	it("adds a Match system theme toggle that drives SystemTheme", function()
-		local calls = {}
-		local st = {
-			enabled = function() return false end,
-			setEnabled = function(_, on) calls[#calls + 1] = on; return true end,
-		}
-		local s = setup({ system_theme = st })
-		assert.are.equal(8, #s.section.entries)
-		assert.are.equal("Match system theme", s.section.entries[4].label)
-		local t = s.w["Match system theme"]
-		assert.are.equal("OFF", t.VALUE)
-		t.VALUE = "ON"; t:valuechanged_cb()
-		assert.are.same({ true }, calls)
-	end)
-
-	it("greys out Match system theme when the org locks the theme", function()
-		local st = { enabled = function() return false end, setEnabled = function() return false end }
-		local s = setup({ system_theme = st, locked = { theme = true }, org_name = "Acme" })
-		local t = s.w["Match system theme"]
-		assert.are.equal("NO", t.ACTIVE)
-		assert.are.equal("Managed by Acme", t.TIP)
-		t.VALUE = "ON"; t:valuechanged_cb()                                       -- refused: the toggle snaps back
-		assert.are.equal("OFF", t.VALUE)
-	end)
-
-	it("maps a scale to the nearest choice", function()
-		assert.are.equal(3, AppearanceSettings.speed_index(nil))
-		assert.are.equal(1, AppearanceSettings.speed_index(0.4))
-		assert.are.equal(4, AppearanceSettings.speed_index("1.4"))
-	end)
+ local function choose(button, index)
+  local list = drop_list(button); list.VALUE = tostring(index); list:valuechanged_cb()
+ end
+ it("consolidates mode and motion and nests advanced controls", function()
+  local s = setup()
+  assert.equal(5, #s.section.entries)
+  assert.equal("System", s.w.Motion.TITLE)
+  assert.equal("Dark", s.w.Mode.TITLE)
+  assert.equal("Advanced", s.section.entries[5].label)
+  assert.equal(2, #s.section.entries[5].children)
+ end)
+ it("migrates existing reduced and full preferences without changing keys", function()
+  assert.equal("Reduced", setup({values={motion_enabled=false}}).w.Motion.TITLE)
+  assert.equal("Full", setup({values={motion_respect_system=false}}).w.Motion.TITLE)
+ end)
+ it("saves both compatible motion keys and applies the choice", function()
+  local s = setup(); choose(s.w.Motion, 2)
+  assert.is_false(s.store.motion_enabled)
+  assert.is_false(s.store.motion_respect_system)
+  assert.same({{enabled=false,respect_system=false}},s.configured)
+  choose(s.w.Motion, 1)
+  assert.is_true(s.store.motion_enabled); assert.is_true(s.store.motion_respect_system)
+ end)
+ it("honours either motion policy lock", function()
+  local s=setup({locked={motion_respect_system=true}})
+  assert.equal("NO",s.w.Motion.ACTIVE)
+  choose(s.w.Motion,2); assert.equal(0,s.saved())
+ end)
+ it("changes mode and follows external theme changes", function()
+  local dark,follow,listener=true,false,nil
+  local s=setup({theme_manager={buildDropdown=function() return {} end,
+   activeTheme=function() return {isDark=function() return dark end} end,
+   toggleMode=function() dark=not dark end,onApply=function(_,fn) listener=fn end},
+   system_theme={enabled=function() return follow end,setEnabled=function(_,on) follow=on;return true end}})
+  choose(s.w.Mode,2);assert.is_false(dark);assert.is_false(follow)
+  choose(s.w.Mode,1);assert.is_true(follow)
+  follow=false;dark=true;listener();assert.equal("Dark",s.w.Mode.TITLE)
+ end)
+ it("keeps advanced speed and transition settings functional",function()
+  local s=setup();local children=s.section.entries[5].children
+  choose(children[1].widget,5);assert.equal(2,s.store.motion_scale)
+  local _,values=AppearanceSettings.transition_choices()
+  choose(children[2].widget,2);assert.equal(values[2],s.store.motion_tab_transition)
+ end)
+ it("persists glass changes",function()
+  local s=setup();local t=s.w["Glass effects"];t.VALUE="OFF";t:valuechanged_cb()
+  assert.is_false(s.store.glass_effects)
+ end)
 end)

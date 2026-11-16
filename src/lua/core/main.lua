@@ -229,8 +229,26 @@ local host
 local tab_groups
 -- Built with the chrome below; the menu bar needs set_status before that.
 local status_bar
+local status_timer
 local function set_status(msg)
-	if status_bar then status_bar:setStatus(msg) end
+	if not status_bar then return end
+	-- Legacy extensions share one HostAPI. Resolve their call site so an asynchronous
+	-- completion cannot claim whichever tool happens to be active now.
+	local owner
+	if host then
+		for level = 2, 16 do
+			local info = debug.getinfo(level, "S")
+			if not info then break end
+			local source = info.source:gsub("\\", "/"):lower()
+			for candidate in pairs(host._manifest_by_owner) do
+				local dir = type(candidate) == "table" and candidate.dir
+				if dir and source:find(tostring(dir):gsub("\\", "/"):lower() .. "/", 1, true) then owner = candidate; break end
+			end
+			if owner then break end
+		end
+	end
+	status_bar:postStatus(owner and host:_activityTab(owner) or nil, msg)
+	if status_timer then iup.SetAttribute(status_timer, "RUN", "YES") end
 end
 
 -- Generic host services
@@ -700,7 +718,7 @@ local commands = CommandRegistry:new({
 host:setCommands(commands)
 
 local command_palette = CommandPalette.new({
-	above = true,
+	above = false,
 	iup = iup,
 	registry = commands,
 	settings = settings_mgr,
@@ -711,16 +729,16 @@ local command_palette = CommandPalette.new({
 	muted = function()
 		return require("core.ui.ThemeReactor").palette().textMuted or "128 128 128"
 	end,
-	-- Anchor above the bottom field, keeping the popup inside the window.
+	-- Open below the title-bar field, keeping the popup inside the window.
 	anchor = function()
-		local field = status_bar:commandWidget()
+		local field = title_bar:commandWidget()
 		local x, y = tostring(iup.GetAttribute(field, "SCREENPOSITION") or ""):match("(-?%d+),(-?%d+)")
 		local w = tostring(iup.GetAttribute(field, "RASTERSIZE") or ""):match("^(%d+)x")
 		if not (x and w) then return nil end
-		return tonumber(x), tonumber(y) - 2, tonumber(w)
+		return tonumber(x), tonumber(y) + 32, tonumber(w)
 	end,
 })
-status_bar:onCommand(function() command_palette:toggle() end)
+title_bar:onCommand(function() command_palette:toggle() end)
 -- The application menu, on the palette's own surface: a native popup can't take the theme's
 -- type or colour, and every entry gains search for free.
 local function menu_entries(menu, group, out)
@@ -924,6 +942,31 @@ add_host_command("tasks", "Run Task", function() command_palette:open("task ") e
 
 -- Activity: background work, in the status bar and a panel above it.
 local activity_store = host:activityStore()
+	local function refresh_tool_status()
+		local active = host:_activeTab()
+		local tab = active and iup.GetAttribute(active, "HOSTTABOWNERID")
+		local work
+		for _, item in ipairs(activity_store:running()) do
+			if item.tab == tab then work = item; break end
+		end
+		status_bar:showTool(tab, nil, work)
+		if status_timer then iup.SetAttribute(status_timer, "RUN", status_bar:hasTransient() and "YES" or "NO") end
+	end
+	activity_store:subscribe(function(event, item)
+		if event == "ended" then status_bar:clearTool(item.tab) end
+		refresh_tool_status()
+	end)
+	host:onTabChange(refresh_tool_status)
+	status_timer = host:addTimer({ time = 1000, action = refresh_tool_status, run = status_bar:hasTransient() })
+	-- Keep ActivityPanel's existing update path, but pass only counts to the shell slot.
+	local activity_status = status_bar.setActivity
+	function status_bar:setActivity(view)
+		if view then
+			view = { state = view.state, text = view.text, tip = view.tip,
+				count = #activity_store:running() > 0 and #activity_store:running() or activity_store:unviewed() }
+		end
+		return activity_status(self, view)
+	end
 local activity_panel = ActivityPanel.new({
 	iup = iup,
 	store = activity_store,
@@ -1227,6 +1270,7 @@ end
 
 -- Anything that changes what the bar should show also re-scopes the tabs, so that's the hook.
 local function sync_title_bar()
+	refresh_tool_status()
 	tab_windows:sync()
 	title_bar:sync(tab_groups:_children(tabs))
 	tool_rail:refresh()
@@ -1352,8 +1396,18 @@ if not HARNESS then
 end
 if rawget(_G, "LUNAR_DEV_SHELL") then
 	_G.LUNAR_DEV_SHELL.pages = _G.LUNAR_DEV_SHELL.pages or {}
-	_G.LUNAR_DEV_SHELL.pages["Settings"] = { states = { "appearance", "background" }, show = function(name)
-		if name == "background" then settings_view:_goTo(background_panel.section) end
+	_G.LUNAR_DEV_SHELL.pages["Settings"] = { states = { "appearance", "advanced", "background" }, show = function(name)
+		local section = name == "background" and background_panel.section or settings_view._sections[1]
+		settings_view:_goTo(section)
+		if name ~= "background" then
+			for _, row in ipairs(section.rows) do
+				local entry = row.entry
+				if entry and entry._advanced_body then
+					if (entry._advanced_open == true) ~= (name == "advanced") then entry._advanced_button:flat_action() end
+				end
+			end
+			settings_view:_settle()
+		end
 	end }
 end
 
