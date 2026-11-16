@@ -29,6 +29,17 @@ describe("Carbon v11 modes", function()
             assert.equal(a, m:counterpart(b))
         end
     end)
+    it("uses neutral scrollbar tokens for every Carbon role", function()
+        for _, name in ipairs(names) do
+            local t = require("core.classes.Themes." .. name .. "Theme"):new()
+            local p, rules = t:palette(), t:rules()
+            for _, role in ipairs({"page_column", "outputlog", "list", "flatrows", "flatrows_plain", "flatgrid_plain"}) do
+                assert.equal(p.borderStrong01 or p.border, rules[role].scrollfg)
+                assert.equal(p.text, rules[role].scrollpress)
+                assert.equal(8, rules[role].scrollsize)
+            end
+        end
+    end)
     it("provides solid primary buttons and bottom-border fields", function()
         for _, name in ipairs(names) do
             local t = require("core.classes.Themes." .. name .. "Theme"):new()
@@ -68,6 +79,37 @@ describe("Carbon side-nav leading marker", function()
         local dc = { fill = function(_, x,y,w,h) drawn = {x,y,w,h} end }
         F.borderAttrib(e, dc, 10,20,0,99,0,39,3,"15 98 254","255 255 255",true)
         assert.same({10,20,3,40}, drawn)
+    end)
+end)
+
+describe("Carbon native scrollbar", function()
+    it("uses the whole track without arrow hit targets and paints a neutral thin thumb", function()
+        local iup = require("core.imgui.iup")
+        local Element = require("core.imgui.Element")
+        local Scroll = require("core.imgui.widgets.winscrollbar")
+        local widget = iup.text{ CARBONSTYLE="YES", SB_BACKCOLOR="244 244 244", SB_FORECOLOR="141 141 141" }
+        local bar = { x=0,y=0,w=17,h=100,max=1000,page=100,pos=0 }
+        Scroll.set(widget, bar)
+        assert.equal(0, Scroll.geometry(bar).arrow)
+        local fills = {}
+        Scroll.draw(widget, Element.state(widget), {fill=function(_,x,y,w,h,color) fills[#fills+1]={x,y,w,h,color} end})
+        assert.equal("244 244 244", fills[1][5])
+        assert.equal(4, fills[2][3])
+        assert.equal("141 141 141", fills[2][5])
+        iup.Destroy(widget)
+    end)
+end)
+
+describe("Carbon table density", function()
+    it("maps compact and two-line rows to the same two sizes across pages", function()
+        local iup = require("core.imgui.iup")
+        local Classes = require("core.imgui.Classes")
+        for requested, expected in pairs({[32]=32,[36]=32,[48]=48,[56]=48}) do
+            local widget = iup.flatrows{CARBONSTYLE="YES",ROWHEIGHT=tostring(requested)}
+            local _, height = Classes.get("flatrows").natural(widget)
+            assert.equal(expected*5, height)
+            iup.Destroy(widget)
+        end
     end)
 end)
 

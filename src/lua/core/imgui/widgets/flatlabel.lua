@@ -24,16 +24,18 @@ local function draw(e, st, dc)
 	local image, title = own(e, "IMAGE"), own(e, "TITLE")
 	local active = attr(e, "ACTIVE") ~= "NO"
 	local fgcolor = attr(e, "FGCOLOR")
-	local bgcolor = F.nativeParentBg(e)
+	-- Carbon layers include void layout boxes; native-parent lookup skips them.
+	local carbon = attr(e, "CARBONSTYLE") == "YES"
+	local bgcolor = carbon and attr(e, "BGCOLOR") or F.nativeParentBg(e)
 	local bgimage, fgimage = own(e, "BACKIMAGE"), own(e, "FRONTIMAGE")
 	local flags = F.textFlags(e, "TEXTALIGNMENT", "TEXTWRAP", "TEXTELLIPSIS")
 
-	F.parentBackground(e, dc, st)
+	if not carbon then F.parentBackground(e, dc, st) end
 	if bgimage then
 		local name, fade = F.imageName(e, "BACKIMAGE", bgimage, false, false, true)
 		if bool(attr(e, "BACKIMAGEZOOM")) then F.image(dc, x0, y0, name, fade, bgcolor, 0, 0, cw, ch)
 		else F.image(dc, x0, y0, name, fade, bgcolor, 0, 0) end
-	elseif not dc.material then
+	elseif not carbon and not dc.material then
 		F.boxAttrib(e, dc, x0, y0, 0, cw - 1, 0, ch - 1, bgcolor, nil, true)
 	end
 

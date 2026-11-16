@@ -20,6 +20,7 @@ local iup = require("core.imgui.iup")
 local FlatDraw = require("core.imgui.widgets.flatdraw")
 local FlatScrollbar = require("core.imgui.widgets.flatscrollbar")
 local U = require("core.imgui.widgets.rawutil")
+local L = require("core.lib.CarbonLayout")
 
 local M = {}
 
@@ -43,6 +44,9 @@ end
 
 local function rows_height(ih)
 	local height = U.int(ih, "ROWHEIGHT")
+	if U.attr(ih, "CARBONSTYLE") == "YES" then
+		return height < L.px(8) + L.px(2) and L.PAGE.control or L.px(9)
+	end
 	return height < 20 and 20 or height > 400 and 400 or height
 end
 local function rows_header(ih) return U.bool(ih, "HEADER") and U.int(ih, "HEADERHEIGHT") or 0 end
@@ -245,6 +249,11 @@ local function rows_redraw(ih, st, dc)
 				local value, bottom = math.min(atoi(progress), 100), y + rh - 4
 				U.fill(dc, ox, oy, x, bottom, right - 1, bottom + 1, secondaryc)
 				U.fill(dc, ox, oy, x, bottom, x + idiv((right - 1 - x) * value, 100), bottom + 1, markerc)
+			end
+			if U.attr(ih, "CARBONSTYLE") == "YES" then
+				-- One subtle divider for every compact table, independent of its role.
+				U.fill(dc, ox, oy, 0, y + rh - 1, w - 1, y + rh - 1,
+					U.strcolor(U.attr(ih, "BORDERCOLOR"), secondaryc))
 			end
 			if d.focused and pos == d.selected and U.int(ih, "FOCUSFEEDBACK") ~= 0 then
 				U.focusrect(dc, ox, oy, 4, y + 1, w - 5, y + rh - 2, fg)
