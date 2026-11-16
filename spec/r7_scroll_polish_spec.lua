@@ -32,7 +32,14 @@ describe("terminal output following", function()
 	it("follows new output on every transcript refresh, including process pumping", function()
 		local Terminal = require("core.ui.Terminal")
 		local calls = {}
+		local timer = {}
 		local terminal = setmetatable({
+			_follow_timer = timer,
+			_iup = { SetAttribute = function(widget, name, value)
+				assert.equal(timer, widget)
+				assert.equal("RUN", name)
+				calls[#calls + 1] = value
+			end },
 			_buffer = { snapshot = function() return "new output", {} end },
 			_output = {
 				setTranscript = function(_, text) calls[#calls + 1] = text end,
@@ -40,6 +47,6 @@ describe("terminal output following", function()
 			},
 		}, Terminal)
 		terminal:_render()
-		assert.same({"new output", "end"}, calls)
+		assert.same({"new output", "end", "YES"}, calls)
 	end)
 end)

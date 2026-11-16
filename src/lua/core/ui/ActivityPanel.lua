@@ -25,7 +25,7 @@ local Activity = require("core.classes.Activity")
 local ActivityPanel = {}
 ActivityPanel.__index = ActivityPanel
 
-local WIDTH, ROW_HEIGHT, MAX_ROWS = 420, 48, 7
+local WIDTH, ROW_HEIGHT, MAX_ROWS = 420, L.CARBON.table_row, 7
 local HEADER_HEIGHT, HINT_HEIGHT = 36, 28
 -- The header, its rule, the hint, the frame's edge and the padding around the rows.
 local CHROME = HEADER_HEIGHT + 1 + HINT_HEIGHT + 2 + L.SPACING[3]
