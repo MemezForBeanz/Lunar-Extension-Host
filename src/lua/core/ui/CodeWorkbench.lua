@@ -408,6 +408,8 @@ function Workbench:open(path, at)
 		if not text then return nil, read_err end
 		self:_buildCodePage()
 		local view = CodeView.new(iup, { language = CodeView.languageOf(normal), text = text, read_only = true })
+		-- A short split pane still reserves room for the notice and its action.
+		iup.SetAttribute(view:control(), "VISIBLELINES", "1")
 		local page = iup.vbox({ view:widget(), MARGIN = "0x0", GAP = "0", EXPAND = "YES" })
 		doc = { path = normal, key = key_of(normal), view = view, page = page, writable = is_writable(normal) }
 		iup.SetAttribute(page, "TABTITLE", (Workbench.splitPath(normal)))
