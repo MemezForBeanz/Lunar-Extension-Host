@@ -20,6 +20,19 @@ local function counted_text_size(b)
 end
 
 describe("imgui font measurement cache", function()
+    it("prefers Plex TrueType when an asset sync leaves the old CFF file", function()
+        local b = backend()
+        local box = require("spec.support.config_sandbox")
+        local stem = box.join(box.new_root("carbon_font"), "Plex")
+        local file = assert(io.open(stem .. ".ttf", "wb")); file:write("font"); file:close()
+        local loaded
+        b.font_find = function() return stem .. ".otf" end
+        b.font_load = function(path) loaded = path; return 1 end
+        Fonts.get("IBM Plex Sans, 11")
+        os.remove(stem .. ".ttf")
+        assert.equal(stem .. ".ttf", loaded)
+    end)
+
     it("registers bundled Plex before atlas loading and GDI measurement", function()
         local b = backend()
         local calls = {}

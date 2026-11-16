@@ -226,7 +226,16 @@ local function face_id(face, bold, italic)
 	end
 	-- Carbon bundles Plex rather than installing it. The GDI atlas loader and
 	-- GDI measurement must both resolve that same private face, never a substitute.
-	if path and face and face:match("^IBM Plex") and B.font_private then B.font_private(path) end
+	if path and face and face:match("^IBM Plex") then
+		-- Asset syncs may leave the old CFF alongside the new TrueType file.
+		-- Prefer the latter even if the backend's directory scan found CFF first.
+		local ttf = path:gsub("%.[oO][tT][fF]$", ".ttf")
+		if ttf ~= path then
+			local file = io.open(ttf, "rb")
+			if file then file:close(); path = ttf end
+		end
+		if B.font_private then B.font_private(path) end
+	end
 	local loaded = path and B.font_load and B.font_load(path)
 	face_ids[key] = loaded or false
 	return loaded or 0
