@@ -531,8 +531,10 @@ iup.MainLoop = function()
 			snap_window(dlg,"100-editor")
 			if shell.view_layout and shell.terminal then
 				shell.view_layout:toggleTerminal()
-				shell.terminal:execute("help")
 			end
+		elseif scene == 24 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			snap_window(dlg,"100-terminal-fitting")
+			if shell.terminal then shell.terminal:execute("help") end
 		elseif scene == 25 and not os.getenv("LUNAR_CAPTURE_CODE") then
 			snap_window(dlg,"101-terminal")
 			return false
