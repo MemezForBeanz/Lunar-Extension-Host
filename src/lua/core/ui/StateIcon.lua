@@ -67,7 +67,10 @@ local function path(d, fill, opacity, transform)
  return string.format('<path d="%s" fill="%s" stroke="black" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" opacity="%.3f" transform="%s"/>', d, fill or "none", opacity or 1, transform or "")
 end
 local function fade(body, opacity)
- return '<g opacity="' .. opacity .. '">' .. body .. '</g>'
+ -- NanoSVG resolves opacity per shape; a path's explicit opacity overrides its group.
+ body = body:gsub(' opacity="[%d%.]+"', '')
+ local attribute = ' opacity="' .. opacity .. '" '
+ return (body:gsub('<path ', '<path' .. attribute):gsub('<circle ', '<circle' .. attribute))
 end
 local function glyph(kind, name, phase, progress)
  local def = defs[kind].states[name]
@@ -167,7 +170,7 @@ function M:_draw()
  local t = math.floor(self.t*M.FRAMES+0.5)/M.FRAMES
  local phase = math.floor(self.phase*12)%12/12
  local progress = self.progress and math.floor(self.progress*16+0.5)/16
- local key = table.concat({"state-v7",self.kind,t == 1 and self.current or self.from,self.current,t,phase,progress or "ind"},"-")
+ local key = table.concat({"state-v8",self.kind,t == 1 and self.current or self.from,self.current,t,phase,progress or "ind"},"-")
  local path_name = cached_frame(self,key,function() return M.svg(self.kind,self.from,self.current,t,phase,progress) end)
  if self.paint then self.paint(path_name) return end
  local V = require("core.ui.VectorIcon")

@@ -45,7 +45,7 @@ iup.MainLoop=function()
    iup.Append(row,iup.label({TITLE=from .. " > " .. to,RASTERSIZE="230x",THEMEROLE="secondary_label"}))
    for _,size in ipairs({16,20,80}) do
     for step=0,4 do
-     local path=Animated.frame("probe-v7-" .. kind .. "-" .. from .. "-" .. to .. "-" .. step,StateIcon.svg(kind,from,to,step/4,step/4))
+     local path=Animated.frame("probe-v8-" .. kind .. "-" .. from .. "-" .. to .. "-" .. step,StateIcon.svg(kind,from,to,step/4,step/4))
      local role=def.states[to].role or "neutral"
      local image=V.imageHandle(iup,{path=path,size=size,color=V.roleColor(role)})
      iup.Append(row,iup.label({IMAGE=image,RASTERSIZE=size .. "x" .. size}))
