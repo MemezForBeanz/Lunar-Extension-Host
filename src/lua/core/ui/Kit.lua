@@ -24,7 +24,7 @@ function M.seekBar(iup, opts) return require("core.ui.SeekBar").new(iup, opts) e
 
 --- The edge a row list sits in: the look of a bordered list, and room for its rounded corners.
 function M.rowFrame(iup, widget)
-	return iup.flatframe({ widget, TITLE = "", EXPAND = "YES", MARGIN = "4x4", THEMEROLE = "list_bordered" })
+	return iup.vbox({ widget, EXPAND = "YES", MARGIN = L.margin(0), THEMEROLE = "page_column" })
 end
 
 M.ICON_BUTTON = 16
@@ -255,7 +255,7 @@ local function keep_hidden(iup, widget)
 	if not iup.GetChild then return end
 	local i, child = 0, iup.GetChild(widget, 0)
 	while child do
-		if iup.GetAttribute(child, "FLOATING") == "YES" then
+		if iup.GetAttribute(child, "FLOATING") == "YES" and not attr.get(iup, child, "_IUPLUNAR_OVERLAY") then
 			iup.SetAttribute(child, "VISIBLE", "NO")
 		else
 			keep_hidden(iup, child)
@@ -409,9 +409,9 @@ function M.emptyPane(iup, opts)
 	end
 	kids[#kids + 1] = iup.fill({})
 	kids.GAP, kids.EXPAND = L.gap(2), "YES"
-	local placeholder = iup.flatframe({
+	local placeholder = iup.vbox({
 		iup.vbox(kids),
-		TITLE = "", THEMEROLE = "page_surface", MARGIN = L.margin(5), EXPAND = "YES",
+		TITLE = "", THEMEROLE = "page_column", MARGIN = L.margin(5), EXPAND = "YES",
 	})
 	local pane = iup.zbox({ placeholder, opts.content or iup.vbox({}), EXPAND = "YES" })
 	local function set_empty(empty)
