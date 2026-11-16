@@ -1670,7 +1670,8 @@ local function tooltip(d)
 	local autopop = (tonumber(Element.getAttribute(hovered, "TIPDELAY")) or 5000) / 1000
 	if shown_for > autopop then return end
 	tip_shown = true
-	local font = Fonts.get(Element.getAttribute(hovered, "TIPFONT") or globals.TIPFONT)
+	local tip_palette = require("core.ui.ThemeReactor").palette()
+	local font = Fonts.get(Element.getAttribute(hovered, "TIPFONT") or tip_palette.font or globals.TIPFONT)
 	local bg = Element.getAttribute(hovered, "TIPBGCOLOR") or globals.TIPBGCOLOR or "255 255 255"
 	local fg = Element.getAttribute(hovered, "TIPFGCOLOR") or globals.TIPFGCOLOR or "0 0 0"
 	local border = Element.getAttribute(hovered, "TIPBORDERCOLOR") or globals.TIPBORDERCOLOR or "160 160 160"
@@ -1693,10 +1694,11 @@ local function tooltip(d)
 	end
 	if id then d:surface(id, sx, sy, sw, sh) end
 	d:layer("overlay")
-	local tip_palette = require("core.ui.ThemeReactor").palette()
 	if tip_palette.glass then require("core.ui.Glass").paint(d,x,y,pw,ph,"floating",tip_palette,12)
-	else d:fill(x, y, pw, ph, bg, { radius = 4 }) end
-	d:rect(x, y, pw, ph, border, { radius = 4 })
+	else
+		d:fill(x, y, pw, ph, bg, { radius = 4 })
+		d:rect(x, y, pw, ph, border, { radius = 4 })
+	end
 	d:text(tip, x + 6, y + 4, tw, th, fg, font, { wrap = tw >= 400 })
 	d:layer("main")
 	if id then d:surface_end() end

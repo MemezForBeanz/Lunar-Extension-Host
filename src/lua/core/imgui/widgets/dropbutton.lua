@@ -197,6 +197,14 @@ local function show_drop(e, st, rt, show)
 	Layout.natural(child)
 	local w = math.max(cs.nat_w or 0, st.w)
 	local h = cs.nat_h or 0
+	-- A floating choice list fits its rows, independently of a page's list minimum.
+	if cs.classname == "flatlist" then
+		local count = #(cs.data.items or {})
+		local lines = math.max(1, math.min(count, tonumber(attr(child, "VISIBLELINES")) or 12))
+		Element.setAttribute(child, "VISIBLELINES", tostring(lines))
+		local _, fitted = cs.class.natural(child, cs, Layout)
+		h = fitted
+	end
 	-- below the button, or above it when it would leave the window
 	local x, y = st.x, st.y + st.h
 	local R = require("core.imgui.Runtime")

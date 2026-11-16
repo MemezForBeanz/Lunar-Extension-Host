@@ -575,7 +575,7 @@ local function draw(e, st, dc, rt)
 	if behind and not dc.material then FlatDraw.fillRect(dc, ox, oy, 0, 0, width - 1, height - 1, Color.parse(behind)) end
 
 	-- Lunar fork: CORNERRADIUS (rounded list body)
-	FlatDraw.boxAttrib(e, dc, ox, oy, bw, width - bw - 1, bw, height - bw - 1, background_color, background_color, true)
+	if not dc.material then FlatDraw.boxAttrib(e, dc, ox, oy, bw, width - bw - 1, bw, height - bw - 1, background_color, background_color, true) end
 
 	if back_image then
 		if yes(own(e, "BACKIMAGEZOOM")) then
@@ -611,7 +611,7 @@ local function draw(e, st, dc, rt)
 		if item.selected and item_radius > 0 then
 			FlatDraw.box(dc, ox, oy, x, x + lw - 1, y, y + lh - 1, background_color, background_color, true)
 			FlatDraw.gradientBox(dc, ox, oy, x + 4, x + lw - 5, y + 1, y + lh - 2, item_radius, bgcolor, nil, true, background_color, true)
-		else
+		elseif not dc.material or item.selected or item.bg_color then
 			FlatDraw.box(dc, ox, oy, x, x + lw - 1, y, y + lh - 1, bgcolor, bgcolor, true)
 		end
 		-- text and image
@@ -634,7 +634,7 @@ local function draw(e, st, dc, rt)
 		end
 	end
 
-	if bw > 0 then
+	if bw > 0 and not dc.material then
 		FlatDraw.borderAttrib(e, dc, ox, oy, 0, width - 1, 0, height - 1, bw, attr(e, "BORDERCOLOR"), background_color, active)
 	end
 	dc:clip_pop()
@@ -674,7 +674,7 @@ local function draw_after(e, st, dc, rt)
 		WinScroll.draw(e, st, dc)
 		if rt then WinScroll.tick(e, native_owner(e, st), rt) end
 	end
-	if native_border(e) == 1 then
+	if native_border(e) == 1 and not require("core.ui.Glass").material(e,st) then
 		dc:rect(st.x, st.y, st.w, st.h, "100 100 100", { thickness = 1 }) -- COLOR_WINDOWFRAME
 	end
 end

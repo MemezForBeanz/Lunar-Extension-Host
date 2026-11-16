@@ -33,7 +33,7 @@ local function draw(e, st, dc)
 		local name, fade = F.imageName(e, "BACKIMAGE", bgimage, false, false, true)
 		if bool(attr(e, "BACKIMAGEZOOM")) then F.image(dc, x0, y0, name, fade, bgcolor, 0, 0, cw, ch)
 		else F.image(dc, x0, y0, name, fade, bgcolor, 0, 0) end
-	else
+	elseif not dc.material then
 		F.boxAttrib(e, dc, x0, y0, 0, cw - 1, 0, ch - 1, bgcolor, nil, true)
 	end
 
