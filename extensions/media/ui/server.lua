@@ -66,6 +66,8 @@ function M.new(ctx, opts)
 		if kind then semantic_numbers[key] = number end
 		local label = kind and Kit.statusLine(iup, "error", caption)
 			or iup.flatlabel({ TITLE = caption, THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL" })
+		iup.SetAttribute(label, "RASTERSIZE", L.size(nil, L.PAGE.control))
+		iup.SetAttribute(label, "ALIGNMENT", "ALEFT:ACENTER")
 		local jump = Kit.button(iup, { title = "View", role = "link_btn", action = function()
 			if targets[kind] then iup.SetFocus(targets[kind]) end
 		end })
