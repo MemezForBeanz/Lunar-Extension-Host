@@ -321,6 +321,9 @@ function M.new(iup, opts)
             else
                 iup.SetAttribute(self.inspector, "_IUPLUNAR_OVERLAY", nil)
                 iup.SetAttribute(self.inspector, "RASTERSIZE", L.size(1))
+                -- A closed inspector takes no part in layout: its details would otherwise
+                -- still size the body, and the page would scroll with nothing to show.
+                if not self.inspectorOpen then iup.SetAttribute(self.inspector, "FLOATING", "IGNORE") end
             end
             iup.SetAttribute(self.inspectorSplit, "BARSIZE", (not self.inspectorOpen or drawer) and "0" or self.inspectorBar)
             iup.SetAttribute(self.inspectorSplit, "VALUE", (not self.inspectorOpen or drawer) and "1000" or tostring(math.floor((1 - self.inspectorSize / math.max(P.control, width - P.padding * 2 - ((self.config and (not narrow or self.configOpen)) and self.configSize + P.gutter or 0))) * 1000)))
