@@ -265,7 +265,7 @@ function M.new(ctx, opts)
     function api:_afterThemePass()
         local p = Reactor.palette()
         -- Carbon's tool page sits on layer 01 (Gray 10 in White mode).
-        local bg = p.focusInset and p.layer01 or (iup.GetAttribute(content, "BGCOLOR") or p.layer02 or p.surface or p.bg)
+        local bg = p.focusInset and p.layer01 or (p.layer02 or p.surface or p.bg)
         if not bg then return end
         if iup.GetAttribute(hero.widget,"BGCOLOR") == bg and iup.GetAttribute(more.widget,"BGCOLOR") == bg then return end
         local function paint(node)

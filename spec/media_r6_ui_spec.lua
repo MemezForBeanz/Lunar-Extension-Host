@@ -43,16 +43,17 @@ describe("round 6 media details", function()
             on_play=function() end, on_mark=function() end,
         })
         local page = require("core.ui.Page").fromWidget(api.widget)
-        iup.SetAttribute(page.main,"BGCOLOR","11 22 33")
+        local reactor = require("core.ui.ThemeReactor")
+        local palette = reactor.palette
+        reactor.palette = function() return {layer02="11 22 33"} end
         api:_afterThemePass()
+        reactor.palette = palette
         local body = iup.GetChild(page.main,2) -- flat scrollbox's user child
         if not body then body = iup.GetChild(page.main,0) end
         local identity = iup.GetChild(iup.GetChild(body,1),0)
         local shelf = iup.GetChild(body,iup.GetChildCount(body)-1)
         assert.equals("11 22 33",iup.GetAttribute(identity,"BGCOLOR"))
         assert.equals("11 22 33",iup.GetAttribute(shelf,"BGCOLOR"))
-        local reactor = require("core.ui.ThemeReactor")
-        local palette = reactor.palette
         reactor.palette = function() return {focusInset="255 255 255",layer01="44 44 44",layer02="255 255 255"} end
         api:_afterThemePass()
         reactor.palette = palette
