@@ -252,7 +252,7 @@ function Workbench:_buildCodePage()
 	local footer = L.row(iup, { self._message, self._settings_link, EXPAND = "HORIZONTAL" })
 
 	self._page = L.page(iup, {
-		toolbar, body, footer,
+		toolbar, footer, body,
 		MARGIN = L.margin(L.ROLE.page, 3), GAP = L.gap(3), EXPAND = "YES",
 	})
 	self._anchor = body
