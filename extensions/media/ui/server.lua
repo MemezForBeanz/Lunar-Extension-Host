@@ -64,16 +64,17 @@ function M.new(ctx, opts)
 		local key, caption, kind = entry[1], entry[2], entry[3]
 		local number = iup.flatlabel({ TITLE = "0", THEMEROLE = "pagetitle", EXPAND = "HORIZONTAL" })
 		if kind then semantic_numbers[key] = number end
-		local label = kind and Kit.statusLine(iup, "error", caption)
-			or iup.flatlabel({ TITLE = caption, THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL" })
+		local label = iup.flatlabel({ TITLE = caption, THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL" })
 		iup.SetAttribute(label, "RASTERSIZE", L.size(nil, L.PAGE.control))
 		iup.SetAttribute(label, "ALIGNMENT", "ALEFT:ACENTER")
+		local caption_row = { label, GAP = L.gap(2), EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER" }
+		if kind then table.insert(caption_row, 1, iup.flatlabel({ TITLE = "", IMAGE = Kit.icon(iup, "error--filled", Kit.ICON_STATUS, "error"), RASTERSIZE = L.size(Kit.ICON_STATUS, L.PAGE.control) })) end
 		local jump = Kit.button(iup, { title = "View", role = "link_btn", action = function()
 			if targets[kind] then iup.SetFocus(targets[kind]) end
 		end })
 		Kit.show(iup, jump, kind ~= nil)
 		setters[key] = function(value) iup.SetAttribute(number, "TITLE", grouped(value)) end
-		iup.Append(metrics, iup.vbox({ number, iup.hbox({ label, jump, ALIGNMENT = "ACENTER", RASTERSIZE = L.size(nil, L.PAGE.control) }),
+		iup.Append(metrics, iup.vbox({ number, iup.hbox({ iup.hbox(caption_row), jump, ALIGNMENT = "ACENTER", RASTERSIZE = L.size(nil, L.PAGE.control) }),
 			GAP = L.gap(1), MARGIN = "12x8", EXPAND = "HORIZONTAL" }))
 	end
 	local function rows_for(libraries)
