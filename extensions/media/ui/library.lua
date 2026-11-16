@@ -897,6 +897,10 @@ function M.new(ctx, opts)
 
 	function api.fit(width)
 		api.last_width = width
+        -- Keep the title and identifying columns usable; full file metadata stays in the inspector.
+        local widths = width < (L.PAGE.main_min + L.PAGE.config + L.PAGE.inspector + 2 * L.PAGE.padding + L.px(13))
+            and { 72, 112, 0, 0, 0, 0 } or { 72, 112, 88, 128, 128, 80 }
+        for column, pixels in ipairs(widths) do iup.SetAttribute(ledger.widget, "COLUMN" .. column .. "WIDTH", tostring(pixels)) end
         workspace:fit(width)
         Kit.show(iup,workspace.header,not opened,sources.widget)
         workspace:openInspector(source_id ~= "home" and not opened and workspace.inspectorOpen)

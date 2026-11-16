@@ -522,7 +522,8 @@ function M:register(ctx)
 		shell.pages = shell.pages or {}
 		shell.pages["Media"] = { states = { "home", "sheet", "filtered", "collection", "ledger", "shows", "title", "show", "source" }, show = self.library.go }
 		shell.pages["Metadata"] = { states = { "selected" }, show = self.metadata_page.capture }
-		shell.pages["Sources"] = { states = { "disconnected", "connected" }, show = self.sources_page.capture }
+		shell.pages["Sources"] = { states = os.getenv("LUNAR_CAPTURE_SOURCE_MANAGE_ONLY") and { "manage" } or { "disconnected", "connected", "manage" }, show = self.sources_page.capture }
+		if os.getenv("LUNAR_CAPTURE_SOURCE_MANAGE_ONLY") then shell.toolPages["Sources"] = nil end
 		local states = { "wait", "paused" }
 		if os.getenv("LUNAR_MEDIA_SERVER") then states = { "wait", "paused", "play", "playing", "playing2", "playing3" } end
 		for i = 1, tonumber(os.getenv("LUNAR_CAPTURE_LINGER") or "0") do states[#states + 1] = "linger" .. i end

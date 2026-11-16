@@ -153,7 +153,10 @@ function M.new(ctx, opts)
 		GAP = L.gap(2), MARGIN = "0x0" }), pages,
 		GAP = L.gap(3), MARGIN = L.margin(4), EXPAND = "YES" })
 	api.tick = discovery.tick
-    api.capture = discovery.capture
+    api.capture = function(state)
+        iup.SetAttribute(pages, "VALUEPOS", state == "manage" and "1" or "0")
+        if state ~= "manage" then discovery.capture(state) end
+    end
 
 	--- Show what the server says.
 	function api.setData(next_sources, next_providers, next_libraries)
