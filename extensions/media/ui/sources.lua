@@ -137,7 +137,8 @@ function M.new(ctx, opts)
 	iup.SetAttribute(left, "EXPAND", "YES")
 	iup.SetAttribute(right, "EXPAND", "YES")
 
-    local manage_page = Kit.page(iup, { id = "media-source-management", title = "Manage sources", primary = { widget = add },
+    local manage_toolbar = iup.hbox({ EXPAND = "HORIZONTAL" })
+    local manage_page = Kit.page(iup, { id = "media-source-management", title = "Sources", toolbar = manage_toolbar, primary = { widget = add },
         nav = { title = "Your sources", widget = source_list.widget },
         main = right, secondary = { { title = "Sync now", action = function() if chosen_source then opts.on_sync(chosen_source) end end },
             { title = "Remove", action = function() if chosen_source then opts.on_remove(chosen_source) end end } },
@@ -147,14 +148,22 @@ function M.new(ctx, opts)
 
 	local discovery = require("ui.discover").new(ctx, opts)
 	local pages = iup.zbox({ discovery.widget, manage, EXPAND = "YES", VALUEPOS = "0" })
-	api.widget = iup.vbox({ iup.hbox({
-		Kit.button(iup, { title = "Discover", role = "actionbutton", action = function() iup.SetAttribute(pages, "VALUEPOS", "0") end }),
-		Kit.button(iup, { title = "Manage sources", role = "actionbutton", action = function() iup.SetAttribute(pages, "VALUEPOS", "1") end }),
-		GAP = L.gap(2), MARGIN = "0x0" }), pages,
-		GAP = L.gap(3), MARGIN = L.margin(4), EXPAND = "YES" })
+	local switches = {}
+	for _, toolbar in ipairs({ discovery.page.opts.toolbar, manage_toolbar }) do
+		local switch = RowList.segmented(iup, { labels = { "Discover", "Manage sources" }, value_pos = 0,
+			on_change = function(pos)
+				iup.SetAttribute(pages, "VALUEPOS", tostring(pos))
+				for _, peer in ipairs(switches) do iup.SetAttribute(peer, "VALUEPOS", tostring(pos)) end
+			end })
+		iup.SetAttribute(switch, "RASTERSIZE", L.size(L.PAGE.config, L.PAGE.toolbar))
+		switches[#switches + 1] = switch
+		iup.Insert(toolbar, iup.GetChild(toolbar, 0), switch)
+	end
+	api.widget = pages
 	api.tick = discovery.tick
     api.capture = function(state)
         iup.SetAttribute(pages, "VALUEPOS", state == "manage" and "1" or "0")
+        for _, switch in ipairs(switches) do iup.SetAttribute(switch, "VALUEPOS", state == "manage" and "1" or "0") end
         if state ~= "manage" then discovery.capture(state) end
     end
 

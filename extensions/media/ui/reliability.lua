@@ -1,11 +1,39 @@
 --- One quiet route back to a failing source, shared by Home and library views.
 local Kit = require("core.ui.Kit")
+local Reactor = require("core.ui.ThemeReactor")
 local M = {}
 function M.new(ctx, model, open)
 	local iup = ctx.iup
 	local notice = Kit.notification(iup, { kind = "error", title = "", action = { title = "Manage sources", action = open } })
 	local line = notice.widget
-	local api = { widget = line }
+	-- One surface behind the message and both actions, including the support rail.
+	local rail = (iup.canvas or iup.flatlabel)({ TITLE = "", BORDER = "NO", CANFOCUS = "NO", RASTERSIZE = "3x", EXPAND = "VERTICAL", THEMEROLE = "toast_bar_error" })
+	local surface = iup.flatframe and iup.flatframe({ iup.hbox({rail, line, GAP="0", MARGIN="0x0", EXPAND="HORIZONTAL"}), TITLE = "", FRAME = "NO", MARGIN = "0x0", EXPAND = "HORIZONTAL", THEMEROLE = "page_column" }) or line
+	local api = { widget = surface }
+	if iup.GetChild then
+		local dismiss = iup.GetChild(line, 2)
+		if dismiss then dismiss.flat_action = function()
+			Kit.show(iup, surface, false)
+			if iup.Refresh then iup.Refresh(surface) end
+			return iup.DEFAULT
+		end end
+	end
+	function api:_afterThemePass()
+		local p = Reactor.palette()
+		local bg = p.layer03 or p.layer02 or p.bg
+		if not bg then return end
+		if iup.GetAttribute(rail, "BGCOLOR") == p.error and iup.GetAttribute(surface, "BGCOLOR") == bg then return end
+		iup.SetAttribute(line, "BGCOLOR", bg)
+		iup.SetAttribute(surface, "BGCOLOR", bg)
+		if iup.GetChild then
+			for n = 0, 2 do
+				local child = iup.GetChild(line, n)
+				if child then iup.SetAttribute(child, "BGCOLOR", bg) end
+			end
+		end
+		iup.SetAttribute(rail, "BGCOLOR", p.error)
+	end
+	Reactor.register(api)
 	function api.setModel(data)
 		local text
 		for _, problem in ipairs(data.attention or {}) do
@@ -17,8 +45,11 @@ function M.new(ctx, model, open)
 			end
 		end
 		notice:setTitle(text or "")
-		Kit.show(iup, line, text ~= nil)
+		api.message = text
+		Kit.show(iup, surface, text ~= nil)
+		api:_afterThemePass()
 	end
+	api.tick = function() api:_afterThemePass() end
 	api.setModel(model)
 	return api
 end

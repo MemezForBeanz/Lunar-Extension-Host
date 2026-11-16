@@ -239,7 +239,6 @@ function M.new(ctx, opts)
 
 	-- A scroll box sizes to its content, so the page is told how wide it is.
 	local page_width
-	local holder = iup.hbox({ RASTERSIZE = "400x" })
 	local metadata = require('ui.metadata_match').new(ctx, { on_metadata = opts.on_metadata, on_changed = opts.on_metadata_changed })
 	local matching = false
 	local fix_match = Kit.button(iup, { title = 'Fix match', role = 'actionbutton', action = function()
@@ -254,7 +253,7 @@ function M.new(ctx, opts)
     end })
     local reliability = require("ui.reliability").new(ctx, opts.model or {}, opts.on_sources)
     api.setModel = reliability.setModel
-    local body = L.stack(iup, { holder, reliability.widget, aligned(hero.widget), aligned(fix_match), aligned(metadata.widget),
+    local body = L.stack(iup, { reliability.widget, aligned(hero.widget), aligned(fix_match), aligned(metadata.widget),
         aligned(fact_box), episode_section, aligned(disclosure), aligned(technical), more_section }, 4)
     local content = iup.flatscrollbox({ body, EXPAND = "YES", SCROLLBAR = "VERTICAL", XHIDDEN = "YES", THEMEROLE = "tabscroll" })
     local page = Kit.page(iup, { id = "media-title", title = "Library / Title", main = content, primary = { widget = hero.primary } })
@@ -262,7 +261,6 @@ function M.new(ctx, opts)
     local breadcrumb = iup.hbox({library_crumb, L.hint(iup, "/"), GAP = L.gap(2), ALIGNMENT = "ACENTER"})
     require("core.lib.tree").place(iup, page.header, breadcrumb, page.title)
     require("core.lib.tree").place(iup, breadcrumb, page.title)
-    Kit.show(iup, page.stateLine, false)
     api.widget = page:widget()
     iup.SetAttribute(api.widget, "THEMEROLE", "page_column")
 
@@ -283,8 +281,8 @@ function M.new(ctx, opts)
 		page:fit(width)
         iup.SetAttribute(page.title, "MAXSIZE", L.maxSize(math.max(L.PAGE.control, width - L.PAGE.padding * 2 - L.PAGE.config)))
 		page_width = math.max(L.PAGE.control, width - L.PAGE.padding * 2 - SCROLLBAR)
-		iup.SetAttribute(holder, "RASTERSIZE", page_width .. "x")
-		iup.SetAttribute(hero.widget, "RASTERSIZE", (page_width - 2 * RING) .. "x" .. spotlight.HEIGHT)
+		iup.SetAttribute(body, "RASTERSIZE", page_width .. "x")
+		iup.SetAttribute(hero.widget, "RASTERSIZE", L.size(page_width - 2 * RING, L.px(12) + L.px(5)))
 		iup.Refresh(api.widget)
 	end
 
@@ -299,7 +297,7 @@ function M.new(ctx, opts)
         iup.SetAttribute(library_crumb, "TITLE", item.kind == "show" and "Shows" or "Films")
         iup.SetAttribute(page.title, "TITLE", item.title)
         iup.SetAttribute(page.title, "TIP", item.title)
-        page:setState("info", "")
+        page:setState(reliability.message and "error" or "info", reliability.message or "Ready to play")
 		metadata.open(item)
 		matching = false
 		Kit.show(iup, metadata.widget, false, back)
@@ -343,6 +341,7 @@ function M.new(ctx, opts)
 	end
 
 	function api.tick()
+		reliability.tick()
 		metadata.tick()
 		hero.tick()
 		if drain then drain() end

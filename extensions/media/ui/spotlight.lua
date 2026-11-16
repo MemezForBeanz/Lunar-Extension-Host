@@ -91,10 +91,11 @@ function M.new(ctx, opts)
 	local composed = { key = nil, buffer = nil }
 
 	-- A title page shows the poster whole and sharp; only the wide art on Home dissolves.
-	local ART_WIDTH = opts.compact and POSTER_WIDTH or WIDE_WIDTH
+	local art_height = opts.compact and L.px(12) or ART_HEIGHT
+	local ART_WIDTH = opts.compact and math.floor(art_height * 2 / 3) or WIDE_WIDTH
 	local art = CellGrid.new(iup, { count = 1, cell_width = ART_WIDTH, aspect = opts.compact and "2:3" or "16:9", show_text = false,
 		gutter = 0, padding = 0, value = function() return nil end, role = "flatgrid_plain" })
-	iup.SetAttribute(art.widget, "RASTERSIZE", L.size(ART_WIDTH + 2 * RING, ART_HEIGHT + 2 * RING))
+	iup.SetAttribute(art.widget, "RASTERSIZE", L.size(ART_WIDTH + 2 * RING, art_height + 2 * RING))
 	iup.SetAttribute(art.widget, "EXPAND", "NO")
 	iup.SetAttribute(art.widget, "CANFOCUS", "NO")
 	iup.SetAttribute(art.widget, "FLATSCROLLBAR", "NO")
@@ -135,6 +136,14 @@ function M.new(ctx, opts)
 	})
 
 	local painted = { title, meta, overview, eyebrow, art.widget, dots }
+	if opts.compact then
+		-- The breadcrumb owns identity; this is an unboxed poster and synopsis.
+		Kit.show(iup, title, false)
+		Kit.show(iup, eyebrow, false)
+		iup.SetAttribute(api.widget, "THEMEROLE", "page_column")
+		iup.SetAttribute(api.widget, "FRAME", "NO")
+		iup.SetAttribute(api.widget, "RASTERSIZE", L.size(nil, art_height + L.px(5)))
+	end
 
 	local function recolour()
 		if base then colour = tint.surface(base[1], base[2], base[3], light)
@@ -144,6 +153,7 @@ function M.new(ctx, opts)
 
 	-- A theme change paints over these, so they are put back on the next tick.
 	local function wear()
+		if opts.compact then return end
 		local page_light = tint.isLight(ThemeReactor.palette().bg)
 		if page_light ~= light then
 			light = page_light
