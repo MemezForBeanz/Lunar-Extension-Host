@@ -41,7 +41,28 @@ describe("Carbon v11 modes", function()
             assert.equal(p.focus, r.text.focuscolor)
             assert.equal(p.text, r.flatrows.seltext)
             assert.equal(0, r.flatrows.itemradius)
+            assert.equal("16x4", r.flatlist.padding)
+            assert.equal("16x8", r.flattabs_sub.tabspadding)
+            assert.equal(p.toggleOff, r.flattoggle.switchoff)
+            assert.equal(p.layerSelected01, r.flattoggle.pressed)
+            assert.equal(p.text, r.flattoggle.pressedtext)
+            assert.equal(p.layer01, r.actionbutton.bg)
+            assert.equal(p.layerSelected01, r.flatrows_plain.selbg)
+            assert.equal(p.text, r.flatrows_plain.seltext)
+            assert.equal("LEADING", r.settings_nav_on.borderstyle)
         end
+    end)
+end)
+
+describe("Carbon side-nav leading marker", function()
+    it("draws the accent only on the leading edge", function()
+        local iup = require("core.imgui.iup")
+        local F = require("core.imgui.widgets.flatdraw")
+        local e = iup.flatbutton{ CARBONSTYLE = "YES", BORDERSTYLE = "LEADING" }
+        local drawn
+        local dc = { fill = function(_, x,y,w,h) drawn = {x,y,w,h} end }
+        F.borderAttrib(e, dc, 10,20,0,99,0,39,3,"15 98 254","255 255 255",true)
+        assert.same({10,20,3,40}, drawn)
     end)
 end)
 

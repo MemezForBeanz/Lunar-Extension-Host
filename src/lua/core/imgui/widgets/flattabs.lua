@@ -11,6 +11,7 @@ local PageTransitions = require("core.lib.PageTransitions")
 local Color = require("core.imgui.Color")
 
 local M = {}
+local CARBON_TAB_HEIGHT = require("core.lib.CarbonLayout").CARBON.input_height
 local CLOSE_SIZE, CLOSE_GAP, CLOSE_BORDER = 13, 12, 8
 
 local function attr(el, name) return Element.getAttribute(el, name) end
@@ -156,7 +157,7 @@ local function tabSize(el, pos, child)
 	if yes(attr(el, "SHOWCLOSE")) then
 		w = w + CLOSE_GAP + CLOSE_SIZE + CLOSE_BORDER
 	end
-	return w + px * 2, h + py * 2
+	return w + px * 2, attr(el, "CARBONSTYLE") == "YES" and (tonumber(attr(el, "CONTROLHEIGHT")) or CARBON_TAB_HEIGHT) or h + py * 2
 end
 local extraSize
 local function metrics(el)
@@ -232,7 +233,7 @@ function extraSize(el, id)
 	local w = math.max(tw, iw)
 	local h = math.max(th, ih)
 	if image and title then w = iw + spacing + tw end
-	return w + px * 2, h + py * 2
+	return w + px * 2, attr(el, "CARBONSTYLE") == "YES" and (tonumber(attr(el, "CONTROLHEIGHT")) or CARBON_TAB_HEIGHT) or h + py * 2
 end
 -- Where each extra button goes. IUP puts them all at the far end of the band (the
 -- right of a top strip, the bottom of a side one). Lunar adds EXTRAFOLLOWn=YES: that

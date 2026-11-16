@@ -255,9 +255,12 @@ function M.build(p)
     end
     rules.primary_btn = button(p.buttonPrimary or p.accent, p.textOnColor or p.accentText,
         p.buttonPrimaryHover or p.accent, p.buttonPrimaryActive or p.accent)
-    rules.actionbutton = button(p.buttonSecondary or elevated, p.textOnColor or p.accentText,
+    rules.secondary_btn = button(p.buttonSecondary or elevated, p.textOnColor or p.accentText,
         p.buttonSecondaryHover or hover, p.buttonSecondaryActive or selected)
-    rules.secondary_btn = rules.actionbutton
+    -- Supporting actions are ghost; only the page primary carries a solid fill.
+    rules.actionbutton = button(layer1, p.linkPrimary or p.accent, hover, selected)
+    rules.actionbutton.inactivebg = layer1
+    rules.actionbutton.inactivefg = p.textDisabled or p.textMuted
     rules.tertiary_btn = button(p.bg, p.buttonTertiary or p.accent, p.buttonTertiaryHover or hover,
         p.buttonTertiaryActive or selected, p.buttonTertiary or p.accent)
     rules.tertiary_btn.hovertext = p.textInverse or p.accentText
@@ -270,36 +273,54 @@ function M.build(p)
     for _, role in ipairs({ "primary_btn", "actionbutton", "tertiary_btn", "danger_btn" }) do
         rules[role].alignment = "ALEFT:ACENTER"
         rules[role].imageposition = "RIGHT"
-        rules[role].spacing = L.px(7)
-        rules[role].textRightPadding = L.px(10)
+        rules[role].spacing = L.px(5)
+        rules[role].textRightPadding = L.px(5)
     end
     rules.warning_btn = rules.tertiary_btn
     rules.info_btn = rules.tertiary_btn
     local field = p.field01 or layer1
-    for _, role in ipairs({ "text", "multiline", "list", "dropbutton" }) do
+    for _, role in ipairs({ "text", "multiline", "list", "dropbutton", "dropbutton_quiet" }) do
         rules[role] = { bg = field, fg = p.text, font = p.font,
             border = p.borderStrong01 or p.border, borderwidth = 1, borderstyle = "BOTTOM",
-            padding = L.margin(5, 3), controlheight = L.px(8), radius = 0,
+            padding = L.margin(5, 0), controlheight = L.px(8), radius = 0,
             focuscolor = p.focus, focusinset = p.focusInset }
     end
-    for _, role in ipairs({ "flatrows", "flatlist", "list_plain", "list_bordered", "dropdown_list", "palette_rows" }) do
+    for _, role in ipairs({ "flatrows", "flatrows_plain", "flatlist", "list_plain", "list_bordered", "dropdown_list", "palette_rows" }) do
         local r = rules[role]
         r.selbg, r.seltext, r.selalpha = selected, p.text, "0"
         r.itemradius, r.itemmarker, r.header = 0, p.borderInteractive or p.accent, p.layerAccent01 or selected
         r.hover = hover
+        r.padding = L.margin(5, 2)
     end
     for k,v in pairs(rules.list_bordered) do if k ~= "font" then rules.list_mono[k] = v end end
     for _, role in ipairs({ "toggle", "flattoggle", "flattoggle_noborder" }) do
+        rules[role].checkbg = p.field01 or layer1
+        rules[role].checkfg = p.iconOnColor
+        rules[role].checkon = p.supportSuccess
+        rules[role].pressed = selected
+        rules[role].pressedtext = p.text
+        rules[role].switchoff = p.toggleOff
+        rules[role].switchon = p.supportSuccess
+        rules[role].switchknob = p.iconOnColor
         rules[role].switchwidth, rules[role].switchheight, rules[role].switchknobsize = L.px(9), L.px(6), 18
     end
     rules.flatsegmented.bg, rules.flatsegmented.selbg = p.layerAccent01 or selected, p.layerSelectedInverse or p.text
     rules.flatsegmented.seltext = p.textInverse or p.accentText
+    -- Labels containing vector icons must not inherit the surrounding field padding.
+    rules.label.padding = "0x0"
+    rules.settings_nav_on.borderstyle = "LEADING"
+    rules.settings_nav_on.showborder = true
+    rules.settings_nav_on.borderwidth = 3
+    rules.settings_nav_on.border = p.borderInteractive or p.accent
+    rules.flattabs.tabspadding = L.margin(5, 3)
+    rules.flattabs.controlheight = L.px(8)
     rules.flattabs.activeline = p.borderInteractive or p.accent
     rules.flattabs_sub = {}
     for k,v in pairs(rules.flattabs) do rules.flattabs_sub[k] = v end
     rules.flattabs_sub.tabsbg, rules.flattabs_sub.selbg = p.bg, p.bg
     for _, r in pairs(rules) do
         r.radius = 0
+        r.carbonstyle = true
 
     end
     rules.flatsegmented.radius = 4 -- Carbon content switcher is a rounded exception.

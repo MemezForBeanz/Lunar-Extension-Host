@@ -48,6 +48,8 @@ end
 local function draw_text_image(e, st, dc, fg, x, y, w, h)
 	local title, im = attr(e, "TITLE") or "", image(e, "IMAGE")
 	local px, py = pad(e)
+	-- Carbon field padding belongs to the field, not its fixed-size SVG label.
+	if im and title == "" and attr(e, "CARBONSTYLE") == "YES" then px, py = 0, 0 end
 	x, y, w, h = x + px, y + py, w - px * 2, h - py * 2
 	if im then
 		local iw, ih = Draw.imageSize(im)

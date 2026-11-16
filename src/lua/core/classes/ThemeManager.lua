@@ -727,6 +727,7 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 	-- vertical padding -- and unlike RASTERSIZE it does not pin the width, so a
 	-- long label still grows the button instead of being clipped.
     if rawget(self._iup or {}, "_IMGUI") then
+        if r.carbonstyle then attrs.CARBONSTYLE = "YES" end
         if r.textRightPadding then attrs.TEXTRIGHTPADDING = tostring(r.textRightPadding) end
         if r.switchwidth then attrs.SWITCHWIDTH = tostring(r.switchwidth) end
         if r.switchheight then attrs.SWITCHHEIGHT = tostring(r.switchheight) end

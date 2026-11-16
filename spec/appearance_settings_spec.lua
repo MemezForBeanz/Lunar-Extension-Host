@@ -35,7 +35,7 @@ local function setup(opts)
 		host = { addSettings = function(_, name, s) section = { name = name, entries = s.entries } end },
 		theme_manager = opts.theme_manager or {
 			buildDropdown = function() return { kind = "dropdown" } end,
-			activeTheme = function() return { isDark = function() return true end } end,
+			activeTheme = function() return { isDark = function() return true end, palette = function() return { glass = opts.glass ~= false } end } end,
 			onApply = function() end,
 		},
 		motion = { configure = function(_, c) configured[#configured + 1] = c end },
@@ -49,11 +49,15 @@ local function setup(opts)
 end
 
 describe("AppearanceSettings", function()
+    it("omits Glass effects for themes without glass", function()
+        assert.is_nil(setup({ glass = false }).w["Glass effects"])
+    end)
+
 	it("offers Dark mode, which flips the theme and follows it", function()
 		local dark, toggles, listeners = true, 0, {}
 		local ui = setup({ theme_manager = {
 			buildDropdown = function() return { kind = "dropdown" } end,
-			activeTheme = function() return { isDark = function() return dark end } end,
+			activeTheme = function() return { isDark = function() return dark end, palette = function() return { glass = true } end } end,
 			onApply = function(_, fn) listeners[#listeners + 1] = fn end,
 			toggleMode = function() toggles = toggles + 1; dark = not dark end,
 			counterpart = function() return "other" end,

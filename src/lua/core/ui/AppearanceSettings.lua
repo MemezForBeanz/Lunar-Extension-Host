@@ -132,7 +132,9 @@ function M.register(opts)
 		end
 		return iup.DEFAULT
 	end
+	if opts.theme_manager:activeTheme() and opts.theme_manager:activeTheme():palette().glass == true then
 	entries[#entries + 1] = { label = "Glass effects", description = "Frosted chrome and floating surfaces in Lunar themes.", widget = manage(glass, "glass_effects") }
+	end
 	local themes = opts.theme_manager
 	local function is_dark()
 		local theme = themes:activeTheme()

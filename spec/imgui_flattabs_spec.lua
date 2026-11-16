@@ -29,6 +29,15 @@ local function layout(tab)
 end
 
 describe("imgui flattabs", function()
+    it("keeps Carbon line tabs at 40px with readable content space", function()
+        setup()
+        local page = iup.user{}
+        local tabs = iup.flattabs{page, TABTITLE0 = "Details", CARBONSTYLE = "YES", TABSPADDING = "16x8", CONTROLHEIGHT = "40"}
+        layout(tabs)
+        assert.equal(41, Element.state(page).y) -- 40px band plus its divider
+        assert.equal(59, Element.state(page).h)
+    end)
+
 	it("places follow buttons after visible tabs in either orientation", function()
 		for _, side in ipairs({ "TOP", "LEFT" }) do
 			setup()
