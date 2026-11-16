@@ -206,7 +206,7 @@ end
 -- ---------------------------------------------------------------------------
 --
 -- Fallback hex values match the original tools/render_icons.py palette (Carbon
--- Gray-10/Classic theme's own support colors), so anything that resolves a role
+-- Carbon Gray 10 theme's own support colors), so anything that resolves a role
 -- before a theme has ever been applied looks identical to the old baked PNGs.
 local ROLE_FALLBACK = {
 	success = "#24a148",
@@ -245,7 +245,7 @@ local function rgb_string_to_hex(s)
 end
 
 --- Resolve a semantic color role to a `"#RRGGBB"` hex color from the active theme palette.
--- Falls back to Classic-theme-equivalent colors when no theme has been applied yet or
+-- Falls back to Carbon-equivalent colors when no theme has been applied yet or
 -- `ThemeReactor` is unavailable.
 --
 -- Supported roles: `"success"`, `"warning"`, `"error"`, `"info"`, `"neutral"`, `"accent"`.

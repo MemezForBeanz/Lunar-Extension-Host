@@ -40,7 +40,7 @@ describe("SettingsManager welcome tour flags", function()
 	it("migrates a legacy onboarding_dismissed flag", function()
 		-- Mirrors a real settings.json written by the buggy build.
 		local dir = sandbox(cjson.encode({
-			theme = "classic",
+			theme = "carbon_white",
 			welcome_tour_completed = false,
 			welcome_tour_dismissed = false,
 			onboarding_dismissed = true,
@@ -87,7 +87,7 @@ describe("SettingsManager welcome tour flags", function()
 		lfs.mkdir(legacy)
 		lfs.mkdir(J(legacy, "logparser"))
 		local f = assert(io.open(J(legacy, "settings.json"), "w"))
-		f:write(cjson.encode({ theme = "classic", welcome_tour_completed = true }))
+		f:write(cjson.encode({ theme = "carbon_white", welcome_tour_completed = true }))
 		f:close()
 		f = assert(io.open(J(legacy, "logparser", "history.jsonl"), "w"))
 		f:write("{}\n")
@@ -98,7 +98,7 @@ describe("SettingsManager welcome tour flags", function()
 			assert.are.equal(legacy, s.migrated_from)
 			assert.is_true(s.migration_complete)
 			s:load()
-			assert.are.equal("classic", s:get("theme"))
+			assert.are.equal("carbon_white", s:get("theme"))
 			assert.is_true(s:get("welcome_tour_completed"))
 			assert.are.equal("file",
 				lfs.attributes(J(box.app_dir(dir), "logparser", "history.jsonl"), "mode"))
@@ -126,7 +126,7 @@ describe("SettingsManager welcome tour flags", function()
 		lfs.mkdir(legacy)
 		lfs.mkdir(J(legacy, "history"))
 		local f = assert(io.open(J(legacy, "settings.json"), "w"))
-		f:write(cjson.encode({ theme = "classic" }))
+		f:write(cjson.encode({ theme = "carbon_white" }))
 		f:close()
 		f = assert(io.open(J(legacy, "history", "runs.jsonl"), "w"))
 		f:write("{}\n")

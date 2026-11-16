@@ -45,7 +45,7 @@ local function natural(e, st, L)
 		w = w + arrow_size(e)
 	end
 	local bw = border_width(e)
-	return w + 2 * bw, h + 2 * bw
+	return w + 2 * bw, math.max(h + 2 * bw, tonumber(attr(e, "CONTROLHEIGHT")) or 0)
 end
 
 --- iupFlatDrawArrow (bottom-pointing), filled and stroked as IUP draws it.
@@ -71,7 +71,7 @@ local function draw(e, st, dc)
 	local bgimage, fgimage = own(e, "BACKIMAGE"), own(e, "FRONTIMAGE")
 	local flags = F.textFlags(e, "TEXTALIGNMENT", "TEXTWRAP", "TEXTELLIPSIS")
 	local bw = border_width(e)
-	local draw_border = bool(own(e, "SHOWBORDER"))
+	local draw_border = bool(own(e, "SHOWBORDER")) or attr(e, "BORDERSTYLE") == "BOTTOM"
 	local drop_onarrow = bool(attr(e, "DROPONARROW"))
 	local arrow_active = bool(attr(e, "ARROWACTIVE"))
 	local arrow_images = int(attr(e, "ARROWIMAGES"), 0)

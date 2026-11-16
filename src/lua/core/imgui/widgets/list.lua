@@ -36,7 +36,7 @@ local function dropdown_natural(e, st, L)
 		for _, v in ipairs(items(e)) do w = math.max(w, font:measure(v)) end
 		if w == 0 then w = font:measure("WWWWW") end
 	end
-	return w + 8 + 3 + SB, math.max(SB, ch + 8)
+	return w + 8 + 3 + SB, tonumber(Element.getAttribute(e, "CONTROLHEIGHT")) or math.max(SB, ch + 8)
 end
 -- The combo box's system colours (core.imgui.syscolors): Windows' light ones under the
 -- classic theme, the theme's own otherwise. Looked up at draw time.
@@ -60,6 +60,20 @@ local function dropdown_draw(e, st, dc, rt)
 	local bg = Element.getAttribute(e, "BGCOLOR") or C.window
 	local fg = Element.getAttribute(e, "FGCOLOR") or C.text
 	if not Element.isTrue(Element.getAttribute(e, "ACTIVE") or "YES") then fg = C.grayed end
+    if Element.getAttribute(e, "BORDERSTYLE") == "BOTTOM" then
+        local focused = rt and rt.focused and rt.focused() == e
+        dc:fill(x, y, w, h, bg)
+        local edge = Element.getAttribute(e, "BORDERCOLOR")
+        if focused then
+            dc:rect(x, y, w, h, Element.getAttribute(e, "FOCUSCOLOR") or edge, { thickness = 2 })
+        else dc:line(x, y + h - 1, x + w, y + h - 1, edge, 1) end
+        local n = current(st)
+        if n > 0 then dc:text(own(e, tostring(n)) or "", x + 16, y + math.floor((h - ch) / 2), math.max(0, w - 64), ch, fg, font, { clip = true }) end
+        local ax, ay = x + w - 24, y + math.floor(h / 2)
+        dc:line(ax - 4, ay - 2, ax, ay + 2, fg, 1)
+        dc:line(ax, ay + 2, ax + 4, ay - 2, fg, 1)
+        return
+    end
 	-- EDGE_SUNKEN
 	bevel(dc, x, y, w, h, C.shadow, C.highlight, C.dkshadow, C.light)
 	dc:fill(x + 2, y + 2, w - 4, h - 4, bg)

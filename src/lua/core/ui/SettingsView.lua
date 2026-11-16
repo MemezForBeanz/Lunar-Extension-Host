@@ -8,7 +8,7 @@
 --     +-- (scrollable) --------------------------------------+
 --     | v  Appearance                                        |  <- collapsible
 --     | ---------------------------------------------------- |
---     |    Theme                      [ Classic Dark    v ]  |  <- fixed control column
+--     |    Theme                      [ Carbon / Gray 100 v ]  |  <- fixed control column
 --     |    Interface motion                            [x]   |
 --     |    > Motion speed                              [x]   |  <- expandable row
 --     | >  Hello Extension                                   |  <- collapsed section

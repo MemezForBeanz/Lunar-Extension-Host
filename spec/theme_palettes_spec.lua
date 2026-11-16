@@ -76,12 +76,12 @@ describe("ThemeManager palettes", function()
 end)
 
 describe("every built-in palette", function()
-	local Themes = { "Classic", "ClassicDark", "LunarDark", "LunarLight", "OneDarkPro", "OneLight" }
+	local Themes = { "CarbonWhite", "CarbonG100", "LunarDark", "LunarLight", "OneDarkPro", "OneLight" }
 	it("has both modes", function()
 		local list = {}
 		for i, name in ipairs(Themes) do list[i] = require("core.classes.Themes." .. name .. "Theme"):new() end
 		local palettes = manager(list):palettes()
-		assert.equal(3, #palettes)
+		assert.equal(4, #palettes)
 		for _, palette in ipairs(palettes) do
 			assert.is_string(palette.dark)
 			assert.is_string(palette.light)

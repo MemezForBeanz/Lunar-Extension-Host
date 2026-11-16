@@ -24,7 +24,7 @@ end
 
 local PROFILE = {
 	id = "acme",
-	settings = { backend_url = "https://lunar.acme.example", theme = "classic", theme_light = "lunar_light" },
+	settings = { backend_url = "https://lunar.acme.example", theme = "carbon_white", theme_light = "lunar_light" },
 	locked = { backend_url = true },
 }
 
@@ -41,12 +41,12 @@ describe("SettingsManager layers", function()
 	end)
 
 	it("resolves locked > user > org default > built-in default", function()
-		with_appdata({ backend_url = "https://mine.example", theme = "classic_dark" }, function()
+		with_appdata({ backend_url = "https://mine.example", theme = "carbon_g100" }, function()
 			local s = SettingsManager:new()
 			s:load()
 			s:applyProfile(PROFILE)
 			assert.are.equal("https://lunar.acme.example", s:get("backend_url")) -- locked beats user
-			assert.are.equal("classic_dark", s:get("theme"))                   -- user beats org default
+			assert.are.equal("carbon_g100", s:get("theme"))                   -- user beats org default
 			assert.are.equal("lunar_light", s:get("theme_light"))          -- org default beats built-in
 			assert.is_true(s:get("motion_enabled"))                            -- built-in
 			assert.is_true(s:isLocked("backend_url"))
@@ -168,14 +168,14 @@ describe("SettingsManager layers", function()
 	end)
 
 	it("replaces an existing settings file on save", function()
-		with_appdata({ theme = "classic" }, function(path)
+		with_appdata({ theme = "carbon_white" }, function(path)
 			local s = SettingsManager:new()
 			s:load()
 			s:set("theme", "fluent")
 			assert.is_true(s:save())
-			s:set("theme", "classic_dark")
+			s:set("theme", "carbon_g100")
 			assert.is_true(s:save())
-			assert.are.equal("classic_dark", read_json(path).theme)
+			assert.are.equal("carbon_g100", read_json(path).theme)
 			assert.is_nil(io.open(path .. ".tmp", "r"))
 		end)
 	end)

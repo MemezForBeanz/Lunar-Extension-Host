@@ -226,6 +226,11 @@ end
 --- iupFlatDrawBorderAttrib: rounded when CORNERRADIUS is set, with BORDERSHEENCOLOR
 -- (read locally, so a frame's sheen does not reach the controls inside it).
 function M.borderAttrib(el, dc, ox, oy, xmin, xmax, ymin, ymax, border_width, color, bgcolor, active)
+    if attr(el, "BORDERSTYLE") == "BOTTOM" then
+        local c = color_of(color, bgcolor, active)
+        if c and border_width > 0 then dc:line(ox + xmin, oy + ymax, ox + xmax, oy + ymax, c, border_width) end
+        return
+    end
 	local radius = M.int(attr(el, "CORNERRADIUS"), 0)
 	if radius > 0 then
 		local sheen = own(el, "BORDERSHEENCOLOR")

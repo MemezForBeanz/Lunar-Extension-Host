@@ -25,8 +25,7 @@ significant moments where the movement itself carries meaning â€” creating a tab
 group, a system alert. It is slower and more pronounced, and overusing it is the
 fastest way to make an interface feel sluggish.
 
-In the shipped host, everything is productive except one thing: combining two tabs
-into a group.
+The host uses expressive motion for group creation, modals and notifications; repeated interactions remain productive.
 
 ## Duration tokens
 
@@ -602,3 +601,51 @@ build\bin\Lunar.exe scripts\motion_check.lua
 
 That probes the clock, the FFI easing table, compositor creation, snapshot capture
 (including a 200-cycle leak check) and a live transition.
+
+
+## Carbon v11 audit (UI council U2)
+
+Source: https://carbondesignsystem.com/elements/motion/overview/ and
+https://carbondesignsystem.com/elements/motion/choreography/ (retrieved 2026-11-16).
+Carbon supplies the timing scale and curve selection principles; the role assignments
+below are the host's application of those principles, not component-specific timing
+claims from Carbon. Entrances ease out, permanent exits ease in, visible changes use
+standard. A returning side panel is the documented standard-curve exception.
+
+| Element | Role | Duration token | Curve / style | Carbon guidance |
+| --- | --- | --- | --- | --- |
+| Tab page push | tab_transition | moderate_02, 240 ms | standard / productive | Overview: productive navigation |
+| Tab indicator | tab_indicator | distance-derived, 110–400 ms | standard / productive | Duration: distance |
+| Tab colors | tab_select | fast_02, 110 ms | standard / productive | Duration: fade |
+| Drag insertion caret | tab_drag_caret | fast_02, 110 ms | standard / productive | Feedback on user input |
+| Drag combine hint | tab_drag_combine | fast_02, 110 ms | entrance / expressive | Meaningful grouping |
+| Group creation | tab_group_merge | slow_01, 400 ms | entrance / expressive | Significant moments |
+| Disclosure chevron | settings_expand, settings_collapse, disclosure | fast_02, 110 ms | standard / productive | Visible at both ends; corrected expand |
+| Hover | hover | fast_01, 70 ms | standard / productive | Duration: buttons |
+| Focus, toggle | focus, toggle | fast_01, 70 ms | standard / productive | Duration: microinteractions |
+| Scrim in | scrim_in | slow_02, 700 ms | entrance / productive | Duration: background dimming |
+| Scrim out | scrim_out | moderate_02, 240 ms | exit / productive | Exit easing |
+| Modal in | modal_enter | moderate_02, 240 ms | entrance / expressive | Significant moment |
+| Modal submit | modal_exit | fast_02, 110 ms | exit / expressive | Permanent exit |
+| Modal cancel | modal_cancel | moderate_02, 240 ms | standard / productive | Nearby surface exception |
+| Toast in/out | toast_enter, toast_exit | moderate_02, 240 ms | entrance / exit, expressive | System communication |
+| Inline notification in/out | notification_enter, notification_exit | moderate_02, 240 ms | entrance / exit, expressive | System communication |
+| Menu / dropdown in | menu_enter, dropdown_enter | moderate_01, 150 ms | entrance / productive | Revealing information |
+| Menu / dropdown out | menu_exit, dropdown_exit | fast_02, 110 ms | exit / productive | Permanent exit |
+| Tooltip in/out | tooltip_enter, tooltip_exit | fast_02, 110 ms; 500 ms delay | entrance / exit, productive | Fade; delay is host policy |
+| List row entry | list_stagger | fast_02, 110 ms | entrance / productive | Choreography: 20 ms stagger, 500 ms cap |
+| Progress values | progress_advance | moderate_01, 150 ms | standard / productive | Visible at both ends |
+| Theme fade | theme_transition | slow_01, 400 ms | standard / productive | Large change |
+| Moon/sun | theme_mode_icon | slow_01, 400 ms | standard / expressive | Meaningful state; no longer uses dimming token |
+| Status/copy morph | status_change | fast_02, 110 ms | standard / productive | Fade |
+
+Inventory reviewed: MotionDirector, imgui.motion, PageTransitions, SettingsView,
+Toast, Modal, ThemeTransition, ModeIcon, AnimatedIcon, SplitView and widget motion
+call sites. Reduced motion is still governed by the shared director; none of these
+role additions introduces a timer or an idle animation.
+
+Integration limits: the added focus/toggle, popup, tooltip and inline-notification
+roles establish the timing contract but do not by themselves animate these surfaces.
+The current popup and tooltip lifecycles still swap visibility instantly. Settings
+disclosure animates its chevron, not layout height. AnimatedIcon's 1200 ms work loop
+remains a real-work indicator. New StateIcon loops are owned by U4.

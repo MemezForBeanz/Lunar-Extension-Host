@@ -26,9 +26,9 @@ local function fixture(opts)
 		save = function(self) self.saved = self.saved + 1 end,
 		isLocked = function(_, k) return (opts.locked or {})[k] == true end,
 	}
-	local themes = { applied = {}, current_id = opts.current or "classic" }
+	local themes = { applied = {}, current_id = opts.current or "carbon_white" }
 	local by_id = {
-		classic = theme("classic", false), classic_dark = theme("classic_dark", true),
+		carbon_white = theme("carbon_white", false), carbon_g100 = theme("carbon_g100", true),
 		one_dark_pro = theme("one_dark_pro", true),
 	}
 	function themes.apply(self, id) self.applied[#self.applied + 1] = id; self.current_id = id end
@@ -99,7 +99,7 @@ describe("SystemTheme", function()
 		assert.are.equal("one_dark_pro", store.theme_dark)
 		assert.are.same({ "one_dark_pro" }, themes.applied)
 		-- A light theme on screen while the system is dark isn't seeded as the dark choice.
-		local st2, store2, themes2 = fixture({ system = true, current = "classic" })
+		local st2, store2, themes2 = fixture({ system = true, current = "carbon_white" })
 		st2:setEnabled(true)
 		assert.is_nil(store2.theme_dark)
 		assert.are.same({ "lunar_dark" }, themes2.applied)
@@ -118,12 +118,12 @@ end)
 
 describe("SystemTheme review fixes", function()
 	it("refuses a pick for a mode whose theme the org locked, and snaps the selector back", function()
-		local st, store, themes = fixture({ follow = true, system = true, dark = "classic_dark",
+		local st, store, themes = fixture({ follow = true, system = true, dark = "carbon_g100",
 			locked = { theme_dark = true } })
 		st:sync(true)
 		assert.is_false(st:choose("one_dark_pro"))
-		assert.are.equal("classic_dark", store.theme_dark)
-		assert.are.equal("classic_dark", themes.current_id)
+		assert.are.equal("carbon_g100", store.theme_dark)
+		assert.are.equal("carbon_g100", themes.current_id)
 		assert.are.equal(1, themes.synced)
 	end)
 
@@ -274,8 +274,8 @@ describe("Theme:isDark", function()
 	end)
 
 	it("classifies the shipped themes", function()
-		assert.is_false(require("core.classes.Themes.ClassicTheme"):new():isDark())
-		assert.is_true(require("core.classes.Themes.ClassicDarkTheme"):new():isDark())
+		assert.is_false(require("core.classes.Themes.CarbonWhiteTheme"):new():isDark())
+		assert.is_true(require("core.classes.Themes.CarbonG100Theme"):new():isDark())
 		assert.is_true(require("core.classes.Themes.OneDarkProTheme"):new():isDark())
 	end)
 end)

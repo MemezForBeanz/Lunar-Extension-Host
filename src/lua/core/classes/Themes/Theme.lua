@@ -42,7 +42,7 @@ function Theme:initialize(spec)
     self._family_label = spec.family_label
 end
 
---- Return the theme's stable identifier string (e.g. `"classic_dark"`).
+--- Return the theme's stable identifier string (e.g. `"carbon_g100"`).
 -- Used as the settings key and `ThemeManager` lookup key.
 -- @treturn string The theme id.
 function Theme:id()
@@ -50,7 +50,7 @@ function Theme:id()
 end
 
 --- Return the human-readable theme label shown in the Theme menu and dropdown.
--- @treturn string The display label (e.g. `"Classic Dark"`).
+-- @treturn string The display label (e.g. `"Gray 100"`).
 function Theme:label()
     return self._label
 end
@@ -89,10 +89,10 @@ function Theme:isDark()
     return (0.2126 * tonumber(r) + 0.7152 * tonumber(g) + 0.0722 * tonumber(b)) < 128
 end
 
---- Return `true` if this theme is the Classic (no-override) theme.
+--- Return `true` if this theme is the internal native (no-override) theme.
 -- `ThemeManager` uses this to decide whether to clear the native global theme and
 -- restore original widget attributes rather than applying new ones.
--- @treturn bool Always `false` in the base class; override in Classic subclass.
+-- @treturn bool Always `false` in the base class; override for an internal native fallback.
 function Theme:isClassic()
     return false
 end

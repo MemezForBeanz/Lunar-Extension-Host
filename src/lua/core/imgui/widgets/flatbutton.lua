@@ -76,7 +76,11 @@ local function natural(e, st, L)
 			own(e, "IMAGE"), own(e, "TITLE"), nil, focus_room)
 	end
 	local bw = border_width(e)
-	return w + 2 * bw, h + 2 * bw
+    if not own(e, "IMAGE") and own(e, "TITLE") then
+        local hp = F.intint(attr(e, "PADDING"))
+        w = w + math.max(0, int(attr(e, "TEXTRIGHTPADDING"), hp) - hp)
+    end
+	return w + 2 * bw, tonumber(attr(e, "CONTROLHEIGHT")) or (h + 2 * bw)
 end
 
 local function draw(e, st, dc)
@@ -163,7 +167,11 @@ local function draw(e, st, dc)
 	if d.has_focus and focus_feedback then
 		local fb = inner - 1
 		local radius = int(attr(e, "CORNERRADIUS"), 0)
-		if radius > 0 then
+		if attr(e, "FOCUSCOLOR") then
+            local x, y, w, h = x0 + 2, y0 + 2, cw - 4, ch - 4
+            dc:rect(x, y, w, h, attr(e, "FOCUSCOLOR"), { thickness = 2 })
+            if attr(e, "FOCUSINSETCOLOR") then dc:rect(x + 2, y + 2, w - 4, h - 4, attr(e, "FOCUSINSETCOLOR"), { thickness = 1 }) end
+        elseif radius > 0 then
 			F.roundBorder(dc, x0, y0, fb, cw - 1 - fb, fb, ch - 1 - fb, radius > fb and radius - fb or 1, 1, fgcolor, nil, active)
 		else
 			F.focusRect(dc, x0, y0, fb, fb, cw - 1 - fb, ch - 1 - fb, fgcolor)

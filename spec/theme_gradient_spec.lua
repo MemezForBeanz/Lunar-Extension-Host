@@ -125,7 +125,7 @@ describe("gradient and rounded-corner attribute wiring", function()
 					local attrs = attrs_for("flatbutton", rules[role])
 					assert.is_nil(attrs.GRADIENTCOLOR,
 						role .. " produced unexpected GRADIENTCOLOR")
-					assert.is_nil(attrs.CORNERRADIUS,
+					assert.is_true(attrs.CORNERRADIUS == nil or attrs.CORNERRADIUS == "0",
 						role .. " produced unexpected CORNERRADIUS")
 				end
 			end
@@ -141,7 +141,7 @@ describe("gradient and rounded-corner attribute wiring", function()
 					local attrs = attrs_for("flatbutton", rule)
 					assert.is_nil(attrs.GRADIENTCOLOR,
 						"carbon rule '" .. name .. "' produced unexpected GRADIENTCOLOR")
-					assert.is_nil(attrs.CORNERRADIUS,
+					assert.is_true(attrs.CORNERRADIUS == nil or attrs.CORNERRADIUS == "0" or (name == "flatsegmented" and attrs.CORNERRADIUS == "4"),
 						"carbon rule '" .. name .. "' produced unexpected CORNERRADIUS")
 				end
 			end

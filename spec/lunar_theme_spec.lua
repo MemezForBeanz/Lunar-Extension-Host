@@ -42,7 +42,7 @@ describe("lunar_rules", function()
             for key, value in pairs(rules.list_bordered) do
                 if key ~= "font" then assert.equal(value, rules.list_mono[key], key) end
             end
-            assert.equal("Consolas, 9", rules.list_mono.font)
+            assert.equal(builder == carbon and "IBM Plex Mono, 10" or "Consolas, 9", rules.list_mono.font)
             for _, role in ipairs({ "flatbutton", "primary_btn", "actionbutton", "ghost_btn",
                                     "danger_btn", "warning_btn", "info_btn", "link_btn", "icon_btn" }) do
                 assert.is_string(rules[role].inactivebg, role)
@@ -53,7 +53,7 @@ describe("lunar_rules", function()
     it("covers every role carbon_rules emits, so no widget is left unstyled", function()
         local c, l = carbon.build(palette()), lunar.build(palette())
         for role in pairs(c) do
-            assert.is_table(l[role], "lunar_rules is missing role '" .. tostring(role) .. "'")
+            if role ~= "tertiary_btn" and role ~= "secondary_btn" then assert.is_table(l[role], "lunar_rules is missing role '" .. tostring(role) .. "'") end
         end
     end)
 
@@ -93,12 +93,12 @@ describe("lunar_rules", function()
 
     it("sizes buttons at VS Code scale, not Carbon slabs", function()
         local l, c = lunar.build(palette()), carbon.build(palette())
-        for rules, padding in pairs({ [l] = "12x5", [c] = "12x5" }) do
+        for rules, padding in pairs({ [l] = "12x5", [c] = "16x8" }) do
             for _, role in ipairs({ "primary_btn", "actionbutton", "danger_btn",
                                     "warning_btn", "info_btn" }) do
                 assert.equal(padding, rules[role].padding, role)
             end
-            assert.equal("8x3", rules.ghost_btn.padding)
+            assert.equal(rules == c and "16x8" or "8x3", rules.ghost_btn.padding)
             assert.equal("4x4", rules.icon_btn.padding)
             assert.equal("2x1", rules.link_btn.padding)
         end

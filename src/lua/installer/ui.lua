@@ -382,7 +382,7 @@ function M.run(backend, iup)
 		if okn and tm then
 			pcall(tm.setRoot, tm, dlg)
 			local dark = platform.system_dark and platform.system_dark()
-			pcall(tm.apply, tm, dark and "classic_dark" or "classic", { skip_save = true })
+			pcall(tm.apply, tm, dark and "carbon_g100" or "carbon_white", { skip_save = true })
 		end
 	end
 
