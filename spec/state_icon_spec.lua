@@ -19,6 +19,31 @@ describe("StateIcon", function()
   end
  end)
  it("rejects unknown states",function() assert.has_error(function() icon:set("wat") end) end)
+ it("keeps the outgoing row colour until the incoming glyph appears",function()
+  local roles={}
+  local row=StateIcon.new({}, {kind="row",visible=function() return true end,
+   frame=function(_,svg) return svg end,paint=function(_,role) roles[#roles+1]=role end})
+  row.current,row.from,row.t="ok","failed",.25; row:_draw()
+  assert.equals("error",roles[#roles])
+  row.t=.75; row:_draw(); assert.equals("success",roles[#roles])
+  row.current,row.from,row.t="skipped","skipped",1; row:_draw()
+  assert.equals("neutral",roles[#roles]); row:destroy()
+ end)
+ it("shares finished row glyphs with legacy status handles",function()
+  local V=require("core.ui.VectorIcon")
+  local available,render,color=V.available,V.imageHandle,V.roleColor
+  V.available=true; V.imageHandle=function(_,opts) return opts end; V.roleColor=function(role) return role end
+  local ok,err=pcall(function()
+   local status=assert(loadfile("src/lua/core/ui/StatusIcon.lua"))()
+   local failed=status.imageHandle({},"unused","build_error",16)
+   local f=assert(io.open(failed.path,"rb")); local svg=f:read("*a"); f:close()
+   assert.equals(StateIcon.svg("row","failed","failed",1),svg)
+   local skipped=status.imageHandle({},"unused","build_skip",16)
+   assert.equals(V.roleColor("neutral"),skipped.color)
+  end)
+  V.available,V.imageHandle,V.roleColor=available,render,color
+  assert.is_true(ok,tostring(err))
+ end)
  it("shows only one glyph on either side of the transition midpoint",function()
   for _,t in ipairs({.25,.5,.75}) do
    local svg=StateIcon.svg("copy","ready","copied",t)

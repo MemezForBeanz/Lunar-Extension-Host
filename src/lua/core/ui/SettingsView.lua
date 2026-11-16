@@ -1019,7 +1019,8 @@ function SettingsView:filter(query)
         for _, section in ipairs(self._sections) do
             local any = false
             for _, row in ipairs(section.rows) do
-                local show = (not searching) or (row.text:find(query, 1, true) ~= nil)
+                local show = ((not searching) or (row.text:find(query, 1, true) ~= nil))
+                    and (not row.entry or not row.entry.visible or row.entry.visible())
                 Kit.show(iup, row.box, show, self._search)
                 if row.entry and row.entry._advanced_body then
                     Kit.show(iup, row.entry._advanced_body, searching or row.entry._advanced_open == true, self._search)

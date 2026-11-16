@@ -63,7 +63,7 @@ describe("lunar_rules", function()
             assert.is_table(l[role], "missing " .. role)
         end
         assert.equal("220 30 40", l.error_label.fg)
-        assert.truthy(l.mono.font:find("Consolas"))
+        assert.truthy(l.mono.font:find("IBM Plex Mono"))
     end)
 
     it("gives every button role a complete, stateful definition", function()

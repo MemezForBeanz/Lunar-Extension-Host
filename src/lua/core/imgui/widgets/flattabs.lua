@@ -337,7 +337,7 @@ local function draw(el, st, dc)
 	local R = package.loaded["core.imgui.Runtime"]
 	st.data.painted_frame = R and R.frameNo and R.frameNo() or nil
 	local bg = attr(el, "BGCOLOR")
-	if bg then dc:fill(st.x, st.y, st.w, st.h, bg, { radius = integer(attr(el, "CORNERRADIUS"), 0) }) end
+	if bg and not dc.material then dc:fill(st.x, st.y, st.w, st.h, bg, { radius = integer(attr(el, "CORNERRADIUS"), 0) }) end
 	if not yes(attr(el, "SHOWTABS")) then
 		if yes(attr(el, "SHOWLINES")) then dc:rect(st.x, st.y, st.w, st.h, attr(el, "TABSLINECOLOR"), {}) end
 		return
@@ -347,7 +347,7 @@ local function draw(el, st, dc)
 	local stripx, stripy, stripw, striph = st.x, st.y, st.w, st.h
 	if t == "TOP" then striph = bh elseif t == "BOTTOM" then stripy = st.y + st.h - bh; striph = bh
 	elseif t == "LEFT" then stripw = bw elseif t == "RIGHT" then stripx = st.x + st.w - bw; stripw = bw end
-	dc:fill(stripx, stripy, stripw, striph, attr(el, "TABSBACKCOLOR") or bg)
+	if not dc.material then dc:fill(stripx, stripy, stripw, striph, attr(el, "TABSBACKCOLOR") or bg) end
 	local current_child = current(el)
 	local offset = 0
 	-- Motion (core.imgui.motion): a tab's colours ease to their new state, at the

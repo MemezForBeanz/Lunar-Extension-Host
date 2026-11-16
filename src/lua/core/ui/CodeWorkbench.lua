@@ -242,6 +242,7 @@ function Workbench:_buildCodePage()
 	-- no language server.
 	self._message = Kit.statusLine(iup, nil, "")
 	iup.SetAttribute(self._message, "ELLIPSIS", "YES")
+	iup.SetAttribute(self._message, "MINSIZE", "1x1")
 	self._settings_link = iup.flatbutton({ TITLE = "Language server settings", THEMEROLE = "link_btn", CANFOCUS = "NO" })
 	function self._settings_link:flat_action()
 		bench._host:dispatchRoute("lunar://host/settings")
@@ -304,7 +305,9 @@ function Workbench:_activated(doc)
 	end
 	local name, folder = Workbench.splitPath(doc.path)
 	iup.SetAttribute(self._name, "TITLE", name)
-	iup.SetAttribute(self._folder, "TITLE", folder)
+	local short = folder:match("([^/\\]+[/\\][^/\\]+)$") or folder
+	iup.SetAttribute(self._folder, "TITLE", "…" .. package.config:sub(1, 1) .. short)
+	iup.SetAttribute(self._folder, "TIP", doc.path)
 	iup.SetAttribute(self._edit, "TITLE", doc.view:isReadOnly() and "Edit" or "Editing")
 	iup.SetAttribute(self._edit, "ACTIVE", doc.writable and "YES" or "NO")
 	iup.SetAttribute(self._edit, "TIP", doc.writable and "Turn editing on or off for this file"
@@ -345,7 +348,9 @@ function Workbench:_showMessage(doc)
 		if here.source then text = text .. "  (" .. here.source .. (here.code and (" " .. here.code) or "") .. ")" end
 		Kit.setStatus(iup, self._message, kinds[here.severity] or "error", text)
 	elseif state == "unavailable" or state == "failed" then
-		Kit.setStatus(iup, self._message, state == "failed" and "error" or "warning", binder.message)
+		Kit.setStatus(iup, self._message, state == "failed" and "error" or "warning",
+			state == "failed" and "Language server stopped." or "Language server not installed.")
+		iup.SetAttribute(self._message, "TIP", binder.message)
 		link = true
 	elseif state == "none" and binder and binder._reason then
 		Kit.setStatus(iup, self._message, "idle", binder._reason)

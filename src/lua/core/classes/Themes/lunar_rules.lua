@@ -114,8 +114,8 @@ function M.build(p)
         success_label = { fg = p.success, font = p.font },
         warning_label = { fg = p.warning, font = p.font },
         info_label    = { fg = p.info,    font = p.font },
-        mono          = { fg = p.text,      font = "Consolas, 10" },
-        mono_hint     = { fg = p.textMuted, font = "Consolas, 9" },
+        mono          = { fg = p.text,      font = "IBM Plex Mono, 10" },
+        mono_hint     = { fg = p.textMuted, font = "IBM Plex Mono, 9" },
 
         -- Shell. The one soft gradient surface: the app's floor shades gently
         -- darker toward the content, Obsidian-style depth without a drawn line.
@@ -308,7 +308,7 @@ function M.build(p)
             selbg = chosen, seltext = p.text, selalpha = "0",
         }),
         outputlog     = {
-            font = "Consolas, 9",
+            font = "IBM Plex Mono, 10",
             bg = layer1, fg = p.text, border = layer1,
             scrollbg = layer1, scrollfg = borderS,
         },

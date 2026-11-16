@@ -65,7 +65,7 @@ describe("ImGui CodeView through real input", function()
 		local v, st = view("local value = 1\nprint(value)")
 		local seen = {}
 		v:onHover(function(line, column) seen[#seen + 1] = line and { line, column } or "end" end)
-		local _, ch = require("core.imgui.Fonts").forElement(v:control()):charsize()
+		local _, ch = require("core.imgui.widgets.scintilla")._style_font(v:control(), st, 32):charsize()
 		B.queue({ events = { { type = "move", x = st.x + 80, y = st.y + 2 } } }); R.frame()
 		assert.equal(0, #seen)
 		B.advance(1); R.step(0)

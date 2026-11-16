@@ -507,7 +507,7 @@ iup.MainLoop = function()
 				R.frame()
 			end
 			if shell._capture_restore_input then shell._capture_restore_input() end
-			if shell.code then assert(shell.code:open(LUNAR_SOURCE_DIR .. "/src/lua/core/ui/Glass.lua", {line=1})) end
+			if shell.code then assert(shell.code:open(LUNAR_SOURCE_DIR .. "/src/lua/core/ui/Glass.lua", {line=0})) end
 		elseif scene == 23 and not os.getenv("LUNAR_CAPTURE_CODE") then
 			snap_window(dlg,"100-editor")
 			if shell.view_layout and shell.terminal then

@@ -54,8 +54,21 @@ local STATES = {
 }
 local SPINNER_FILE = "in-progress.svg"
 local SPINNER_ROLE = "info"
+local ROW_STATES = { build_ok = "ok", build_warn = "warning", build_skip = "skipped", build_error = "failed" }
+local row_paths = {}
 
 local function state_path(dir, basename)
+	-- Older extension lists request static handles. Share the sheet glyphs with
+	-- StateIcon instead of keeping a second set of filled progress wedges.
+	local row = ROW_STATES[basename]
+	if row then
+		local S = require("core.ui.StateIcon")
+		if not row_paths[row] then
+			row_paths[row] = require("core.ui.AnimatedIcon").frame("state-row-static-v9-" .. row, S.svg("row", row, row, 1))
+		end
+		local role = S.definition("row").states[row].role
+		return row_paths[row], role == "muted" and "neutral" or role
+	end
 	local s = STATES[basename]
 	if not s or not dir then
 		return nil

@@ -132,10 +132,13 @@ function M.register(opts)
 		end
 		return iup.DEFAULT
 	end
-	local active = opts.theme_manager:activeTheme()
-	if active and active.palette and (active:palette() or {}).glass == true then
-	entries[#entries + 1] = { label = "Glass effects", description = "Frosted chrome and floating surfaces in Lunar themes.", widget = manage(glass, "glass_effects") }
+	local function lunar_glass()
+		local active = opts.theme_manager:activeTheme()
+		return active and active.palette and (active:palette() or {}).glass == true
 	end
+	local glass_entry = { label = "Glass effects", description = "Frosted chrome and floating surfaces in Lunar themes.",
+		widget = manage(glass, "glass_effects"), visible = lunar_glass }
+	entries[#entries + 1] = glass_entry
 	local themes = opts.theme_manager
 	local function is_dark()
 		local theme = themes:activeTheme()
@@ -163,7 +166,6 @@ function M.register(opts)
 	manage(mode_dd.widget, "theme")
 	manage(mode_dd.widget, "theme_follow_system")
 	entries[#entries + 1] = { label = "Mode", description = "Follow the system or choose light or dark.", widget = mode_dd.widget }
-	themes:onApply(function() mode_dd:setValue(mode_index()) end)
 
 	local function motion_index()
 		if settings:get("motion_enabled") == false then return 2 end
@@ -192,7 +194,14 @@ function M.register(opts)
 		{ label = "Tab transition", description = "Choose how pages change.", widget = transition_dd.widget },
 	} }
 
-	opts.host:addSettings("Appearance", { entries = entries, icon = "color-palette" })
+	local section = opts.host:addSettings("Appearance", { entries = entries, icon = "color-palette" })
+	local function sync_glass_row()
+		for _, row in ipairs(section and section.rows or {}) do
+			if row.entry == glass_entry then require("core.ui.Kit").show(iup, row.box, lunar_glass()) end
+		end
+	end
+	sync_glass_row()
+	themes:onApply(function() mode_dd:setValue(mode_index()); sync_glass_row() end)
 end
 
 return M

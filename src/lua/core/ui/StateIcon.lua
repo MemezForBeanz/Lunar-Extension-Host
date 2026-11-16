@@ -170,13 +170,15 @@ function M:_draw()
  local t = math.floor(self.t*M.FRAMES+0.5)/M.FRAMES
  local phase = math.floor(self.phase*12)%12/12
  local progress = self.progress and math.floor(self.progress*16+0.5)/16
- local key = table.concat({"state-v8",self.kind,t == 1 and self.current or self.from,self.current,t,phase,progress or "ind"},"-")
+ local key = table.concat({"state-v9",self.kind,t == 1 and self.current or self.from,self.current,t,phase,progress or "ind"},"-")
  local path_name = cached_frame(self,key,function() return M.svg(self.kind,self.from,self.current,t,phase,progress) end)
- if self.paint then self.paint(path_name) return end
+ -- The first half fades the outgoing glyph; keep its semantic colour too.
+ local shown = t < .5 and self.from or self.current
+ local role = (self.role == "on-accent" or self.role == "on_accent") and "on_accent" or (defs[self.kind].states[shown].role or self.role)
+ if role == "muted" then role="neutral" end
+ if self.paint then self.paint(path_name, role) return end
  local V = require("core.ui.VectorIcon")
  if not V.available or not self.target then return end
- local role = (self.role == "on-accent" or self.role == "on_accent") and "on_accent" or (defs[self.kind].states[self.current].role or self.role)
- if role == "muted" then role="neutral" end
  local handle = V.imageHandle(self.iup,{ path=path_name, size=self.size, color=V.roleColor(role) })
  if handle then self.iup.SetAttribute(self.target,self.attribute,handle) end
 end

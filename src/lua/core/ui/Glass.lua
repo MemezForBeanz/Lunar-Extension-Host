@@ -142,7 +142,10 @@ function M.paint(dc,x,y,w,h,kind,p,radius)
             dc:fill(x,y,w,h,Color.alpha(Color.parse(tint),alpha),options)
         end
     end
-    if kind=="floor" and tex and c.stars then
+    -- Stars belong to the chrome sample too: painting only the floor let the
+    -- opaque chrome undercoat erase them before the glass was composited.
+    if tex and c.stars and not floating then
+        dc:clip_push(x,y,w,h)
         for _,star in ipairs(c.stars) do
             if star[1]>=x and star[1]<x+w and star[2]>=y and star[2]<y+h then
                 local extent=star[4] and 1 or 0
@@ -150,8 +153,9 @@ function M.paint(dc,x,y,w,h,kind,p,radius)
                 if star[4] then dc:line(star[1],star[2]-1,star[1],star[2]+1,star[3],1) end
             end
         end
+        dc:clip_pop()
     end
-    if kind~="floor" and kind~="content" and kind~="chrome_content" then
+    if tex and kind~="floor" and kind~="content" and kind~="chrome_content" then
         dc:rect(x,y,w,h,p.glassDark and "255 255 255 15" or "0 0 0 20",options)
         dc:line(x+options.radius,y+0.5,x+w-options.radius,y+0.5,p.glassDark and "255 255 255 36" or "255 255 255 204")
     end
