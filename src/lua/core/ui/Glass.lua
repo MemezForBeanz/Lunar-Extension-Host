@@ -6,7 +6,7 @@ local enabled, cache, theme, rules, floating_dialog = true
 local floor, ceil, exp = math.floor, math.ceil, math.exp
 local shapes = setmetatable({}, {__index=function(t,r) local v={radius=r}; rawset(t,r,v); return v end})
 local shadows={}
-for i=1,12 do shadows[i]={radius=12+i/2,thickness=1} end
+for i=1,12 do shadows[i]={radius=12+i,thickness=1} end
 local function sample(dc,c,tex,left,top,right,bottom)
     dc:_emit("image",tex,left+dc.ox,top+dc.oy,right+dc.ox,bottom+dc.oy,
         (left+dc.ox)/c.w,(top+dc.oy)/c.h,(right+dc.ox)/c.w,(bottom+dc.oy)/c.h,dc:_color(0xFFFFFFFF))
@@ -29,23 +29,14 @@ function M.pixels(p, w, h)
     local ffi = require("ffi") -- optional: paint falls back to opaque without it
     local sw, sh = ceil(w / 2), ceil(h / 2)
     local r,g,b = Color.unpack(Color.parse(p.bg))
-    local stars, seed = {}, 731
-    local function random() seed = (seed * 48271) % 2147483647; return seed / 2147483647 end
-    if p.glassDark then
-        for _ = 1, floor(w*h/12000) do
-            local x,y = floor(random()*sw), floor(random()*sh)
-            stars[y*sw+x] = 0.12 + random()*0.23
-        end
-    end
     local bw,bh = ceil(sw/2),ceil(sh/2)
     local sharp, data = {}, ffi.new("float[?]",bw*bh*3)
     for y=0,sh-1 do
         local row = {}
         for x=0,sw-1 do
-            local glow = 18 * exp(-((x/sw/0.30)^2 + (y/sh/0.60)^2)*2)
-            local star = stars[y*sw+x] or 0
+            local glow = (p.glassDark and 64 or 90) * exp(-((x/sw/0.42)^2 + (y/sh/0.85)^2)*2)
             local rr,gg,bb = math.min(255,r+glow),math.min(255,g+glow),math.min(255,b+glow)
-            rr,gg,bb = floor(rr+(255-rr)*star),floor(gg+(255-gg)*star),floor(bb+(255-bb)*star)
+            rr,gg,bb = floor(rr),floor(gg),floor(bb)
             row[#row+1] = string.char(rr,gg,bb,255)
             if x%2==0 and y%2==0 then
                 local i=(floor(y/2)*bw+floor(x/2))*3
@@ -88,6 +79,17 @@ local function textures(dc,p)
     if cache and cache.p==p and cache.w==w and cache.h==h and cache.B==dc.B then return cache end
     release()
     local c={p=p,w=w,h=h,B=dc.B}
+    -- Subpixel stars stay at window resolution, independent of the half-size glow.
+    -- Cached geometry avoids six-pixel stars after texture upsampling.
+    if p.glassDark then
+        c.stars={}
+        local seed=731
+        local function random() seed=(seed*48271)%2147483647; return seed/2147483647 end
+        for i=1,floor(w*h/12000) do
+            c.stars[i]={floor(random()*w)+.5,floor(random()*h)+.5,
+                Color.pack(255,255,255,31+floor(random()*58)),random()>.55}
+        end
+    end
     cache=c
     if not dc.B.texture then return c end
     local ok,a,sw,sh,b,bw,bh=pcall(M.pixels,p,w,h)
@@ -108,15 +110,15 @@ function M.paint(dc,x,y,w,h,kind,p,radius)
         dc:rect(x,y,w,h,p.glassDark and "255 255 255 15" or "0 0 0 15",shapes[12])
         return
     end
-    local floating=kind=="floating"
+    local floating=kind=="floating" or kind=="content"
     local bg=kind=="floor" and p.bg or (floating and (p.layer03 or p.layer02) or p.layer01)
     if not bg then return end
     local c=enabled and p.glass and textures(dc,p)
     local tex=c and (kind=="floor" and c.sharp or c.blur)
-    local options=shapes[radius or (floating and 12 or 0)]
-    if floating and tex then
+    local options=shapes[kind=="content" and 0 or radius or (floating and 12 or 0)]
+    if kind=="floating" and p.glass then
         for i=12,1,-1 do
-            dc:rect(x-i/2,y+4-i/2,w+i,h+i,Color.pack(0,0,0,p.glassDark and 7 or 3),shadows[i])
+            dc:rect(x-i,y+4-i,w+2*i,h+2*i,Color.pack(0,0,0,p.glassDark and 7 or 3),shadows[i])
         end
     end
     dc:fill(x,y,w,h,bg,options)
@@ -140,9 +142,18 @@ function M.paint(dc,x,y,w,h,kind,p,radius)
             dc:fill(x,y,w,h,Color.alpha(Color.parse(tint),alpha),options)
         end
     end
-    if kind~="floor" then
+    if kind=="floor" and tex and c.stars then
+        for _,star in ipairs(c.stars) do
+            if star[1]>=x and star[1]<x+w and star[2]>=y and star[2]<y+h then
+                local extent=star[4] and 1 or 0
+                dc:line(star[1]-extent,star[2],star[1]+extent,star[2],star[3],1)
+                if star[4] then dc:line(star[1],star[2]-1,star[1],star[2]+1,star[3],1) end
+            end
+        end
+    end
+    if kind~="floor" and kind~="content" and kind~="chrome_content" then
         dc:rect(x,y,w,h,p.glassDark and "255 255 255 15" or "0 0 0 20",options)
-        dc:line(x+(radius or 0),y+0.5,x+w-(radius or 0),y+0.5,p.glassDark and "255 255 255 36" or "255 255 255 204")
+        dc:line(x+options.radius,y+0.5,x+w-options.radius,y+0.5,p.glassDark and "255 255 255 36" or "255 255 255 204")
     end
 end
 

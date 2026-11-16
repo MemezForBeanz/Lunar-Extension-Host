@@ -72,10 +72,12 @@ local function menu_draw(menu, state, dc)
 	local c = colors(menu)
 	local bg, fg = c.bg, c.fg
 	local radius = c.radius
-	dc:fill(state.x + 2, state.y + 3, w, h, "0 0 0 50", { radius = radius })
 	if c.palette.glass then require("core.ui.Glass").paint(dc,state.x,state.y,w,h,"floating",c.palette,radius)
-	else dc:fill(state.x, state.y, w, h, bg, { radius = radius }) end
-	dc:rect(state.x, state.y, w, h, c.border, { radius = radius })
+	else
+		dc:fill(state.x + 2, state.y + 3, w, h, "0 0 0 50", { radius = radius })
+		dc:fill(state.x, state.y, w, h, bg, { radius = radius })
+		dc:rect(state.x, state.y, w, h, c.border, { radius = radius })
+	end
 	local y = state.y + 4
 	for i, item in ipairs(children(menu)) do
 		local ist = Element.state(item)

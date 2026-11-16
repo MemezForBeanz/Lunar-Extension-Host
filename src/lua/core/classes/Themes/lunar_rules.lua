@@ -143,8 +143,8 @@ function M.build(p)
         toast_bar_success = { bg = p.success },
         toast_bar_warning = { bg = p.warning },
         toast_bar_error   = { bg = p.error },
-        toast_title       = { bg = elevated, fg = p.text },
-        toast_body        = { bg = elevated, fg = p.textMuted },
+        toast_title       = { bg = elevated, fg = p.text, font = sized(HEADING, 10) },
+        toast_body        = { bg = elevated, fg = p.textMuted, font = sized(p.font, 10) },
         toast_close       = { bg = elevated, fg = p.textMuted, border = elevated, borderwidth = 0,
             hover = hover, hovertext = p.text, pressed = selected },
 
@@ -435,6 +435,10 @@ function M.build(p)
             rules[role].gradcolor = nil
         end
         rules.dialog.glass = "floor"
+        rules.toast_title.glass, rules.toast_body.glass = "content", "content"
+        rules.palette_prompt.glass, rules.palette_hint.glass = "content", "content"
+        rules.contextmenu = { radius = 12 }
+        rules.dropdown_list.padding, rules.dropdown_list.itemradius = ROW_PAD, R
         for _, role in ipairs({ "dropdown_list", "palette_frame", "toast_bg_info", "toast_bg_success", "toast_bg_warning", "toast_bg_error" }) do
             rules[role].glass, rules[role].radius = "floating", 12
         end
@@ -444,7 +448,8 @@ function M.build(p)
         rules.titlebar_tabs.selbg = selected
         rules.titlebar_button.bg = p.layer01
         -- Only the enclosing chrome gets rims, not the text and tab rectangles.
-        rules.statusbar_text.glass, rules.titlebar_tabs.glass = nil, nil
+        rules.statusbar_text.glass, rules.titlebar_tabs.glass = "chrome_content", "chrome_content"
+        rules.titlebar_button.glass, rules.statusbar_button.glass = "chrome_content", "chrome_content"
         for _, role in ipairs({ "primary_btn", "actionbutton", "ghost_btn", "danger_btn", "warning_btn", "info_btn", "icon_btn", "dropbutton", "text" }) do
             rules[role].focuscolor = p.accent
             rules[role].controlheight = 32

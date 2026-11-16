@@ -17,8 +17,8 @@ CommandPalette.__index = CommandPalette
 
 -- Nine whole rows of 32px, plus the field, the rule and the hint. A height chosen any
 -- other way leaves a sliced row above the hint line.
-local WIDTH, ROW_HEIGHT, ROWS, CHROME = 640, 32, 8, 92
-local CATEGORY_WIDTH, SHORTCUT_WIDTH, RECENT_MAX = 120, 72, 5
+local WIDTH, ROW_HEIGHT, ROWS, CHROME = 720, 32, 8, 92
+local CATEGORY_WIDTH, SHORTCUT_WIDTH, RECENT_MAX = 120, 112, 5
 local HEIGHT = ROW_HEIGHT * ROWS + CHROME
 
 -- A click on the list moves focus from the field to the list, and that fires the
@@ -72,12 +72,14 @@ function CommandPalette:_build()
 	-- Focus stays in the field, so the keyboard keeps typing whichever way a row is chosen.
 	self._rows = Kit.rowList(iup, {
 		role = "palette_rows",
+		row_height = ROW_HEIGHT,
 		column_widths = { CATEGORY_WIDTH, SHORTCUT_WIDTH, 0 },
 		on_part = function(pos) palette:_scheduleActivate(pos) end,
 		empty_title = "", empty_hint = "",
 	})
 	local list = self._rows.widget
-	iup.SetAttribute(list, "EXPAND", "YES")
+	iup.SetAttribute(list, "EXPAND", "HORIZONTAL")
+	iup.SetAttribute(list, "RASTERSIZE", "x" .. ROW_HEIGHT * ROWS)
 	iup.SetAttribute(list, "CANFOCUS", "NO")
 	local hint = iup.flatlabel({
 		EXPAND = "HORIZONTAL",

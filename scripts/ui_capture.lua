@@ -404,10 +404,17 @@ iup.MainLoop = function()
 		elseif scene == 5 then -- one tick later: pages recentre after the panes settle
 			snap("91-split")
 		elseif scene == 6 then
-			shell.open_menu()
+			-- Exercise the actual overflow renderer, rather than the menu search palette.
+			if IMGUI then
+				local menu = iup.menu({ iup.item({TITLE="Open file...\tCtrl+O"}),
+					iup.item({TITLE="Settings\tCtrl+,"}), iup.separator({}),
+					iup.item({TITLE="Check for updates"}), iup.item({TITLE="Show activity"}) })
+				shell._capture_menu = require("core.imgui.widgets.menu").popupMenu(menu, 300, 64, require("core.imgui.Runtime"))
+			else shell.open_menu() end
 		elseif scene == 7 then
 			snap("92-menu")
 			snap_overlays("92-menu-window")
+			if IMGUI then for _,o in ipairs(require("core.imgui.Runtime").overlays()) do if o.open then o:close() end end end
 			shell.palette:close()
 			-- Another window taking focus would dismiss the panel between shots.
 			shell.activity._hasFocus = function() return true end
@@ -427,6 +434,9 @@ iup.MainLoop = function()
 			activity_scene.finish(shell)
 		elseif scene == 12 then
 			snap_window(dlg, "96-activity-result")
+			local toasts=shell.host:toasts()
+			local pending={}; for _,rec in ipairs(toasts and toasts._stack or {}) do pending[#pending+1]=rec end
+			for _,rec in ipairs(pending) do if rec.alive then toasts:_exitToast(rec) end end
 			-- LUNAR_CAPTURE_CODE=path: a real file in the Code tab, against whatever language
 			-- server this machine has, through the path a user takes.
 			local code_file = os.getenv("LUNAR_CAPTURE_CODE")
@@ -440,6 +450,7 @@ iup.MainLoop = function()
 			snap("96-toast")
 			local toasts=shell.host:toasts()
 			for i,rec in ipairs(toasts and toasts._stack or {}) do if rec.alive then snap_window(rec.dlg,"96-toast-window-"..i) end end
+			snap("97-glass-on")
 			require("core.ui.Glass").setEnabled(false)
 			iup.Update(dlg)
 		elseif scene == 14 and not os.getenv("LUNAR_CAPTURE_CODE") then
@@ -457,7 +468,16 @@ iup.MainLoop = function()
 				for _,c in ipairs(E.children(h)) do local result=find(c); if result then return result end end
 			end
 			shell._capture_dropdown=find(dlg)
-			if shell._capture_dropdown then iup.SetAttribute(shell._capture_dropdown,"SHOWDROPDOWN","YES") end
+			if shell._capture_dropdown then
+				local list=iup.GetHandle(iup.GetAttribute(shell._capture_dropdown,"DROPCHILD"))
+				if list then
+					for i,label in ipairs({"Local build logs", "Nightly validation", "Release qualification"}) do iup.SetAttribute(list,tostring(i),label) end
+					iup.SetAttribute(list,"4",nil)
+					iup.SetAttribute(list,"VISIBLELINES","3")
+					iup.SetAttribute(list,"VALUE","1")
+				end
+				iup.SetAttribute(shell._capture_dropdown,"SHOWDROPDOWN","YES")
+			end
 		elseif scene == 17 and not os.getenv("LUNAR_CAPTURE_CODE") then
 			snap("98-dropdown-over-app")
 			snap_overlays("98-dropdown")
@@ -467,11 +487,17 @@ iup.MainLoop = function()
 			local widget=shell._capture_dropdown
 			if widget then
 				iup.SetAttribute(widget,"TIP","Choose the application colour palette")
+				iup.SetAttribute(widget,"TIP","Choose a location to scan")
 				local st=E.state(widget); local B=R.backend()
 				local surface=B.surface
 				B.surface=function(id) if id and id~=0 then shell._capture_tip_surface=id end; return surface(id) end
-				local hwnd=ffi.cast("void*",ffi.cast("uintptr_t",tonumber(B.window("hwnd"))))
-				user32.PostMessageW(hwnd,0x200,0,math.floor(st.x+10)+math.floor(st.y+10)*65536)
+				local begin=B.frame_begin
+				shell._capture_restore_input=function() B.frame_begin=begin end
+				B.frame_begin=function()
+					local input=begin()
+					input.events={{type="move",x=st.x+10,y=st.y+10,mods={}}}
+					return input
+				end
 			end
 		elseif scene == 21 and not os.getenv("LUNAR_CAPTURE_CODE") then
 			local R=require("core.imgui.Runtime")
@@ -480,6 +506,17 @@ iup.MainLoop = function()
 				R.backend().screenshot(string.format("%s/%s-99-tooltip.bmp",out_dir,prefix),0,0,0,0,shell._capture_tip_surface)
 				R.frame()
 			end
+			if shell._capture_restore_input then shell._capture_restore_input() end
+			if shell.code then assert(shell.code:open(LUNAR_SOURCE_DIR .. "/src/lua/core/ui/Glass.lua", {line=1})) end
+		elseif scene == 23 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			snap_window(dlg,"100-editor")
+			if shell.view_layout and shell.terminal then
+				shell.view_layout:toggleTerminal()
+				shell.terminal:execute("help")
+			end
+		elseif scene == 25 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			if shell.terminal then shell.terminal._output:goTo(0,0) end
+			snap_window(dlg,"101-terminal")
 			return false
 		elseif scene == 34 then -- about 20 seconds: a server has to index before it reports
 			io.stderr:write("ui_capture: servers ", tostring(shell.code:_serverSummary()), string.char(10))

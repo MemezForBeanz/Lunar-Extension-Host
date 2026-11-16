@@ -58,11 +58,7 @@ local STATUS_BAR_W  = 3
 -- Top offset: just below the Carbon 48 px shell bar.
 local TOP_OFFSET    = 48 + MARGIN
 
--- Carbon type-scale token names used in FONT attribute strings.
--- heading-compact-01: IBMPlexSans 14/18 SemiBold
--- body-compact-01:    IBMPlexSans 14/18 Regular
-local FONT_TITLE = "IBM Plex Sans, SemiBold 11"
-local FONT_BODY  = "IBM Plex Sans, 11"
+-- Typography follows the active theme through the title/body roles.
 
 -- THEMEROLE constants — resolved to colours by ThemeManager. The left status bar
 -- gets a role per kind so each maps to the theme's semantic palette token.
@@ -378,14 +374,14 @@ function ToastHost:show(spec)
 	local ok_build = pcall(function()
 		local title_label = iup.flatlabel({
 			TITLE    = title,
-			FONT     = FONT_TITLE,
+
 			EXPAND   = "HORIZONTAL",
 			THEMEROLE = "toast_title",
 		})
 
 		close_btn = iup.flatbutton({
 			TITLE    = "✕",
-			FONT     = "IBM Plex Sans, 9",
+
 			PADDING  = "2x2",
 			THEMEROLE = "toast_close",
 		})
@@ -405,7 +401,7 @@ function ToastHost:show(spec)
 		if has_body then
 			local body_label = iup.flatlabel({
 				TITLE    = body_txt,
-				FONT     = FONT_BODY,
+
 				EXPAND   = "HORIZONTAL",
 				THEMEROLE = "toast_body",
 			})
@@ -457,6 +453,7 @@ function ToastHost:show(spec)
 			TOOLBOX      = "YES",
 			-- Parented so it minimises and z-orders with the app.
 			PARENTDIALOG = self._dialog,
+			THEMEROLE = ROLE_BG[kind] or "toast_bg_info",
 		})
 	end)
 
