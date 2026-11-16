@@ -2,8 +2,9 @@
 -- Positions are byte offsets, as in Scintilla (SC_CP_UTF8).
 local Element = require("core.imgui.Element")
 local Scintilla = require("core.imgui.widgets.scintilla")
-local Fonts = require("core.imgui.Fonts")
 
+local Document = require("core.imgui.scintilla.document")
+local View = require("core.imgui.scintilla.view")
 local M = {}
 local function st_of(el)
 	local st = Element.state(el)
@@ -29,8 +30,11 @@ local function line_end(s, line)
 end
 local function line_count(s) return select(2, s:gsub("\n", "\n")) + 1 end
 local function line_of(s, p) return select(2, s:sub(1, clamp({ text = s }, p)):gsub("\n", "\n")) end
-local function font(el) return Fonts.forElement(el) end
-local function char_width(el) return font(el):charsize() end
+local function char_width(el)
+	local st = Element.state(el)
+	local cw, ch = Scintilla._style_font(el, st, 32):charsize()
+	return cw, ch + (st.data.extra_ascent or 0) + (st.data.extra_descent or 0)
+end
 local function utf8_size(b)
 	if not b or b < 128 then return 1 end
 	if b < 224 then return 2 end
@@ -58,29 +62,7 @@ local function visual_column(el, s, p, tab)
 	end
 	return col
 end
-local function snapshot(d)
-	return { text = d.text, caret = d.caret, anchor = d.anchor, modified = d.modified }
-end
-local function restore(d, x)
-	d.text, d.caret, d.anchor, d.modified = x.text, x.caret, x.anchor, x.modified
-	Scintilla._tokenize(d._element_state)
-end
-local function changed(el, st)
-	Scintilla._tokenize(st)
-	Element.call(el, "VALUECHANGED_CB")
-end
-local function edit(el, st, a, b, value)
-	local d = st.data
-	if d.readonly then return false end
-	d.undo = d.undo or {}
-	d.redo = {}
-	d.undo[#d.undo + 1] = snapshot(d)
-	d.text = d.text:sub(1, a) .. value .. d.text:sub(b + 1)
-	d.caret, d.anchor, d.modified = a + #value, a + #value, true
-	changed(el, st)
-	Element.call(el, "CARET_CB", line_of(d.text, d.caret), d.caret - line_start(d.text, line_of(d.text, d.caret)))
-	return true
-end
+local function edit(el, st, a, b, value) return View.edit(st, a, b, value) end
 local function word_char(c) return c and c:match("[%w_]") ~= nil end
 local function word_boundary(s, p, right)
 	if right then
@@ -98,20 +80,79 @@ local function text_width(el, text, style)
 	return f:measure(tostring(text or ""))
 end
 
+local wrap_fields = { [2460] = "wrap_flags", [2462] = "wrap_flags_location", [2464] = "wrap_indent", [2472] = "wrap_indent_mode" }
+
+local settings = { [2035] = "buffered_draw", [2611] = "font_quality", [2130] = "hscrollbar", [2280] = "vscrollbar",
+		[2037] = "code_page", [2371] = "popup_mode", [2516] = "scroll_width_tracking", [2031] = "eol_mode",
+		[2655] = "caret_line_always", [2525] = "extra_ascent", [2527] = "extra_descent", [2040] = "marker_symbol" }
+
 function M.send(el, msg, w, l)
-	local st, d = st_of(el), st_of(el).data
+	local st = st_of(el)
+	local d = st.data
 	d._element_state = st
+	local raw_w = w
 	w = tonumber(w) or 0
 	local text = d.text
+	local wrapped = (d.wrap or 0) ~= 0
+	if msg == 2269 then return d.wrap or 0 end
+
+	if wrap_fields[msg] then d[wrap_fields[msg]] = w; return 0 end
+	if wrap_fields[msg - 1] then return d[wrap_fields[msg - 1]] or 0 end
+	if msg == 2235 then return wrapped and #Scintilla._layout(el, st):line(w) or 1 end
+	if msg == 2220 or msg == 2221 then
+		if not wrapped then return math.max(0, math.min(w, d.doc:lines_total())) end
+		local wrap = Scintilla._layout(el, st)
+		if msg == 2220 then return wrap:visible(w) end
+		local _, line = wrap:row(w); return line
+	end
+	if msg == 2370 then return math.max(1, math.floor(st.h / select(2, char_width(el)))) end
+	if msg == 2164 or msg == 2165 then
+		if wrapped then
+			local wrap, margin = Scintilla._layout(el, st)
+			local display, x = wrap:position(clamp(d, l))
+			return msg == 2164 and x + margin or (display - (d.first_line or 0)) * wrap.ch
+		end
+	end
+	if msg == 2022 or (msg == 2023 and wrapped) then
+		local wrap, margin = Scintilla._layout(el, st)
+		if msg == 2023 and (w < margin or w >= st.w or (tonumber(l) or 0) < 0 or (tonumber(l) or 0) >= st.h) then return -1 end
+		return wrap:hit((d.first_line or 0) + math.floor((tonumber(l) or 0) / wrap.ch), w - margin + (wrapped and 0 or (d.x_offset or 0)))
+	end
+	if msg == 2613 or msg == 2232 then
+		local n = wrapped and Scintilla._layout(el, st):visible(d.doc:lines_total()) or d.doc:lines_total()
+		local target = msg == 2232 and (wrapped and Scintilla._layout(el, st):visible(w) or w) or w
+		d.first_line = math.max(0, math.min(target, n - 1)); Element.call(el, "UPDATEVSCROLL_CB"); return 0
+	end
+	if msg == 2349 or msg == 2450 or msg == 2345 or msg == 2346 or msg == 2451 or msg == 2452 or msg == 2347 or msg == 2348 then
+		local wrap = Scintilla._layout(el, st)
+		local _, _, row = wrap:position(d.caret)
+		local ending = msg == 2347 or msg == 2348 or msg == 2451 or msg == 2452
+		local pos = ending and row.finish or row.start
+		if (msg == 2349 or msg == 2450) and d.caret <= pos then pos = d.doc:line_start(row.line) end
+		if (msg == 2451 or msg == 2452) and d.caret >= pos then pos = d.doc:line_end(row.line) end
+		d.caret = pos
+		if msg ~= 2450 and msg ~= 2346 and msg ~= 2452 and msg ~= 2348 then d.anchor = pos end
+		Scintilla._ensure_caret_visible(el, st); return 0
+	end
+	if msg == 2168 then Scintilla._ensure_caret_visible(el, st); return 0 end
+	if msg == 2373 then d.zoom = w; d.fonts = nil; d.wrap_cache = nil; return 0 end
+	if msg == 2374 then return d.zoom or 0 end
+
+	if settings[msg] then
+		if msg == 2037 or msg == 2031 then d.doc[settings[msg]] = w
+		elseif msg == 2040 then d.marker_symbol = d.marker_symbol or {}; d.marker_symbol[w] = l
+		else d[settings[msg]] = w end
+		return 0
+	end
+	if msg == 2290 or msg == 2291 then d[msg == 2290 and "fold_margin_color" or "fold_margin_hi_color"] = w ~= 0 and Scintilla._bgr_to_rgb(l) or nil; return 0 end
 	if msg == 2181 then -- SETTEXT
-		d.text, d.caret, d.anchor, d.modified = tostring(l or ""), 0, 0, false
-		d.undo, d.redo = {}, {}; Scintilla._tokenize(st); Element.call(el, "VALUECHANGED_CB"); return 0
+		edit(el, st, 0, #text, tostring(l or "")); d.caret, d.anchor = 0, 0; return 0
 	elseif msg == 2282 then return edit(el, st, #text, #text, tostring(l or "")) and 0 or 0 -- APPENDTEXT
 	elseif msg == 2006 then return #text -- GETLENGTH
-	elseif msg == 2154 then return line_count(text) -- GETLINECOUNT
-	elseif msg == 2167 then return line_start(text, w) -- POSITIONFROMLINE
-	elseif msg == 2166 then return line_of(text, w) -- LINEFROMPOSITION
-	elseif msg == 2136 then return line_end(text, w) -- GETLINEENDPOSITION
+	elseif msg == 2154 then return d.doc:lines_total() -- GETLINECOUNT
+	elseif msg == 2167 then return w < 0 and -1 or d.doc:line_start(w) -- POSITIONFROMLINE
+	elseif msg == 2166 then return d.doc:line_from_position(w) -- LINEFROMPOSITION
+	elseif msg == 2136 then return d.doc:line_end(w) -- GETLINEENDPOSITION
 	elseif msg == 2008 then return d.caret -- GETCURRENTPOS
 	elseif msg == 2009 then return d.anchor -- GETANCHOR
 	elseif msg == 2025 then
@@ -120,6 +161,7 @@ function M.send(el, msg, w, l)
 		local moved = next ~= d.caret
 		d.caret, d.anchor = next, next
 		if moved then
+			Scintilla._ensure_caret_visible(el, st)
 			Element.call(el, "CARET_CB", line_of(text, d.caret), d.caret - line_start(text, line_of(text, d.caret)), d.caret)
 		end
 		return 0
@@ -128,49 +170,47 @@ function M.send(el, msg, w, l)
 	elseif msg == 2145 then return math.max(d.anchor, d.caret)
 	elseif msg == 2007 then return text:byte(w + 1) or 0
 	elseif msg == 2171 then d.readonly = w ~= 0; return 0
-	elseif msg == 2159 then return d.modified and 1 or 0
-	elseif msg == 2014 then d.modified = false; return 0
-	elseif msg == 2175 then d.undo, d.redo = {}, {}; return 0
-	elseif msg == 2174 then return d.undo and #d.undo > 0 and 1 or 0
-	elseif msg == 2016 then return d.redo and #d.redo > 0 and 1 or 0
-	elseif msg == 2176 then
-		if d.undo and #d.undo > 0 then d.redo[#d.redo + 1] = snapshot(d); restore(d, table.remove(d.undo)); Element.call(el, "VALUECHANGED_CB") end
-		return 0
-	elseif msg == 2011 then
-		if d.redo and #d.redo > 0 then d.undo[#d.undo + 1] = snapshot(d); restore(d, table.remove(d.redo)); Element.call(el, "VALUECHANGED_CB") end
+	elseif msg == 2159 then return d.doc:is_save_point() and 0 or 1
+	elseif msg == 2014 then d.doc:set_save_point(); return 0
+	elseif msg == 2175 then d.doc:delete_undo_history(); return 0
+	elseif msg == 2174 then return d.doc:can_undo() and 1 or 0
+	elseif msg == 2016 then return d.doc:can_redo() and 1 or 0
+	elseif msg == 2078 then d.doc:begin_undo(); return 0
+	elseif msg == 2079 then d.doc:end_undo(); return 0
+	elseif msg == 2012 then d.doc:set_undo_collection(w ~= 0); return 0
+	elseif msg == 2019 then return d.doc.collecting and 1 or 0
+	elseif msg == 2176 or msg == 2011 then
+		local pos = msg == 2176 and d.doc:undo() or d.doc:redo()
+		if pos >= 0 then d.caret, d.anchor = pos, pos end
 		return 0
 	elseif msg == 2190 then d.target_start = clamp(d, w); return 0
 	elseif msg == 2192 then d.target_end = clamp(d, w); return 0
 	elseif msg == 2194 then
 		local a, b = math.min(d.target_start or 0, d.target_end or 0), math.max(d.target_start or 0, d.target_end or 0)
 		local value = tostring(l or ""); if edit(el, st, a, b, value) then d.target_start, d.target_end = a + #value, a + #value; return #value end; return 0
-	elseif msg == 4006 then d.lexer = tostring(l or ""); Scintilla._tokenize(st); return 0
-	elseif msg == 4005 then d.keywords[w] = tostring(l or ""); Scintilla._tokenize(st); return 0
-	elseif msg == 4003 then Scintilla._tokenize(st); return 0
-	elseif msg == 4004 then d.properties[tostring(w)] = tostring(l or ""); return 0
+	elseif msg == 4006 then d.doc:set_lexer(tostring(l or ""), d.lexer_id); return 0
+	elseif msg == 4005 then d.doc:set_keywords(w, l); return 0
+	elseif msg == 4003 then d.doc:colourise(w, tonumber(l) or -1); return 0
+	elseif msg == 4004 then d.properties[tostring(raw_w)] = tostring(l or ""); return 0
 	elseif msg == 2010 then return Scintilla._style_at(st, w)
-	elseif msg == 2032 then d.styling_pos = clamp(d, w); return 0
-	elseif msg == 2033 then d.style_ranges[#d.style_ranges + 1] = { d.styling_pos, d.styling_pos + w, tonumber(l) or 0 }; d.styling_pos = d.styling_pos + w; return 0
+	elseif msg == 2032 then d.doc:start_styling(clamp(d, w)); return 0
+	elseif msg == 2033 then d.doc:set_style_for(w, tonumber(l) or 0); return 0
 	elseif msg == 2051 then d.style_fore[w] = Scintilla._bgr_to_rgb(l); d.style[w] = d.style_fore[w]; return 0
 	elseif msg == 2052 then d.style_back[w] = Scintilla._bgr_to_rgb(l); return 0
-	elseif msg == 2053 then d.style_bold[w] = w ~= 0 and (l or 0) ~= 0 or d.style_bold[w]; d.fonts = nil; return 0
-	elseif msg == 2054 then d.style_italic[w] = (l or 0) ~= 0; return 0
-	elseif msg == 2055 then d.style_size[w] = tonumber(l); d.fonts = nil; return 0
-	elseif msg == 2056 then d.style_face[w] = tostring(l or ""); d.fonts = nil; return 0
+	elseif msg == 2053 then d.style_bold[w] = (l or 0) ~= 0; d.fonts = nil; d.wrap_cache = nil; return 0
+	elseif msg == 2054 then d.style_italic[w] = (l or 0) ~= 0; d.fonts = nil; d.wrap_cache = nil; return 0
+	elseif msg == 2055 then d.style_size[w] = tonumber(l); d.fonts = nil; d.wrap_cache = nil; return 0
+	elseif msg == 2056 then d.style_face[w] = tostring(l or ""); d.fonts = nil; d.wrap_cache = nil; return 0
 	elseif msg == 2050 then Scintilla._style_clear(st); return 0
 	elseif msg == 2242 then d.margin_width[w] = math.max(0, tonumber(l) or 0); return 0
 	elseif msg == 2240 then d.margin_type[w] = l; return 0
 	elseif msg == 2244 then d.margin_mask[w] = l; return 0
 	elseif msg == 2155 then d.margin_left = w; return 0
 	elseif msg == 2157 then d.margin_right = w; return 0
-	elseif msg == 2275 then return d.scroll_width or 0
+	elseif msg == 2275 then return wrapped and 0 or (d.scroll_width or 0)
 	elseif msg == 2398 then return d.x_offset or 0
-	elseif msg == 2397 then d.x_offset = math.max(0, w); Element.call(el, "UPDATEHSCROLL_CB"); return 0
+	elseif msg == 2397 then d.x_offset = wrapped and 0 or math.max(0, w); Element.call(el, "UPDATEHSCROLL_CB"); return 0
 	elseif msg == 2152 then return d.first_line or 0
-	elseif msg == 2613 then d.first_line = math.max(0, math.min(w, math.max(0, line_count(text) - 1))); Element.call(el, "UPDATEVSCROLL_CB"); return 0
-	elseif msg == 2370 then return math.max(1, math.floor((tonumber(tostring(Element.getAttribute(el, "RASTERSIZE") or ""):match("x(%d+)")) or 0) / char_width(el)))
-	elseif msg == 2220 then return math.max(0, math.min(w, line_count(text) - 1))
-	elseif msg == 2232 then d.first_line = math.max(0, math.min(w, math.max(0, line_count(text) - (M.send(el, 2370) or 1)))); return 0
 	elseif msg == 2164 then
 		local p = clamp(d, l)
 		return visual_column(el, text, p, d.tab_width) * char_width(el) - (d.x_offset or 0) + (d.margin_width[0] or 0) + (d.margin_width[1] or 0)
@@ -190,29 +230,43 @@ function M.send(el, msg, w, l)
 		return math.min(i - 1, line_end(text, line))
 	elseif msg == 2266 then return word_boundary(text, clamp(d, w), false)
 	elseif msg == 2267 then return word_boundary(text, clamp(d, w), true)
-	elseif msg == 2043 then d.markers[l] = w; return 0
+	elseif msg == 2043 then return d.doc:marker_add(w, tonumber(l) or 0)
 	elseif msg == 2041 then d.marker_fore[w] = Scintilla._bgr_to_rgb(l); return 0
 	elseif msg == 2042 then d.marker_back[w] = Scintilla._bgr_to_rgb(l); return 0
-	elseif msg == 2045 then d.markers = {}; return 0
+	elseif msg == 2045 then d.doc:marker_delete_all(w); return 0
+	elseif msg == 2044 then d.doc:marker_delete(w, tonumber(l) or 0); return 0
+	elseif msg == 2046 then return d.doc:marker_get(w)
+	elseif msg == 2047 then return d.doc:marker_next(w, tonumber(l) or 0, 1)
+	elseif msg == 2048 then return d.doc:marker_next(w, tonumber(l) or 0, -1)
+	elseif msg == 2017 then return d.doc:marker_line_from_handle(w)
+	elseif msg == 2018 then d.doc:marker_delete_handle(w); return 0
 	elseif msg == 2080 then d.indic_style[w] = l; return 0
 	elseif msg == 2082 then d.indic_fore[w] = Scintilla._bgr_to_rgb(l); return 0
 	elseif msg == 2510 then d.indic_under[w] = l ~= 0; return 0
 	elseif msg == 2500 then d.indicator_current = w; return 0
-	elseif msg == 2504 then d.indicators[d.indicator_current] = d.indicators[d.indicator_current] or {}; d.indicators[d.indicator_current][#d.indicators[d.indicator_current] + 1] = { w, w + (l or 0) }; return 0
-	elseif msg == 2505 then d.indicators[d.indicator_current] = {}; return 0
+	elseif msg == 2504 then d.doc:indicator_fill(d.indicator_current or 0, w, tonumber(l) or 0, d.indicator_value); return 0
+	elseif msg == 2505 then d.doc:indicator_clear(d.indicator_current or 0, w, tonumber(l) or 0); return 0
 	elseif msg == 2631 then return d.technology or 0
 	elseif msg == 2630 then d.technology = w; return 0
 	elseif msg == 2036 then d.tab_width = math.max(1, w); return 0
 	elseif msg == 2188 then d.caret_width = math.max(0, w); return 0
 	elseif msg == 2274 then d.scroll_width = math.max(0, w); return 0
-	elseif msg == 2268 then d.wrap = w; return 0
+	elseif msg == 2268 then d.wrap = w; if w ~= 0 then d.x_offset = 0 end; return 0
 	elseif msg == 2096 then d.caret_line_visible = w ~= 0; return 0
 	elseif msg == 2098 then d.caret_line_back = Scintilla._bgr_to_rgb(w); return 0
 	elseif msg == 2067 then d.sel_fore = Scintilla._bgr_to_rgb(l); return 0
 	elseif msg == 2068 then d.sel_back = Scintilla._bgr_to_rgb(l); return 0
 	elseif msg == 2069 then d.caret_fore = Scintilla._bgr_to_rgb(w); return 0
-	elseif msg == 2357 then d.document = d.document or {}; return d.document
-	elseif msg == 2375 then return {} -- independent document handle is opaque to Lua
+	elseif msg == 2357 then return d.doc.handle
+	elseif msg == 2375 then local doc = Document.new(); doc:add_ref(); return doc.handle
+	elseif msg == 2358 then
+		local doc = (l == nil or l == 0) and Document.new() or Document.from_handle(l)
+		if doc then View.attach(el, st, doc) end
+		return 0
+	elseif msg == 2376 or msg == 2377 then
+		local doc = Document.from_handle(l)
+		if doc then if msg == 2376 then doc:add_ref() else doc:release() end end
+		return 0
 	elseif msg == 4001 then d.lexer_id = w; return 0
 	elseif msg == 2100 then
 		d.autoc.visible, d.autoc.items, d.autoc.current, d.autoc.pos = true, {}, 1, d.caret
