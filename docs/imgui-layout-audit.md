@@ -103,7 +103,7 @@ The tour now dumps the IUP build's dialogs too (it records the dialogs the app s
 - The command palette, the folder dialog, and the theming and fonts of IUP's separate
   windows above (a probe of those windows' resolved attributes, like ui_probe's A lines,
   would settle it).
-- Settings sub-pages beyond the first: the probe walks tab strips only.
+- Settings sub-pages beyond the first: now walked (`LUNAR_PROBE_SETTINGS=1`), see G1-G3 below.
 - A dialog's RASTERSIZE getter: IUP answers the window size (1400x900), the host the client
   (1384x892); both report the same CLIENTSIZE. Left as is (no app code reads it).
 
@@ -181,6 +181,7 @@ and records the shell's state. Both builds run this worktree's Lua.
 | B14 | F10, then Esc; Alt+F | no menu opens, the focus stays | same | matches (Lunar's bar has no keyboard mnemonics on either build) |
 | B15 | SC_MAXIMIZE, SC_RESTORE, SC_MINIMIZE, SC_RESTORE | IsZoomed/IsIconic go 1, 0, 1, 0 | same | states match. The sizes do not compare: on the private desktop the IUP window stays 1384x884 when maximised and restores to 960x540, the host's fills 1920x1080; not established which work area each sees there |
 | B16 | WM_NCHITTEST 1 px inside the client's top-left corner | `winframe_wrap.c` `hit_test`: HTTOP across the whole 5 px top band | HTTOPLEFT/HTTOPRIGHT within 10 px of each end (`lunarimgui.cpp` `hit_test`) | differs; left as is: the host only adds a diagonal grip where the IUP build resizes vertically (top, sides, bottom and caption codes match) |
+| B18 | the shell probe's click pass on Black Duck Scan: the host clicks "Sign in...", IUP does not | the button is shown (VISIBLE) only once the extension's network check of the Ravenclaw share leaves "checking"; the IUP run probed it still hidden, the host's shown, same rectangle 551,89 84x36 | network timing, not the host (reproduced twice) |
 | B17 | the terminal after Ctrl+\` | the input does not take the focus; typed text goes nowhere, Enter reaches the page's DEFAULTENTER ("No tools selected") | same | matches (both builds; an app behaviour, not the host's) |
 
 ### Secondary dialogs (`scripts/ui_tour.lua`, now with A lines: FONT, PADDING, SIZE, RASTERSIZE, THEMEROLE, CHARSIZE, NATURALSIZE, BORDER, BGCOLOR and the flatframe title/frame attributes; `LUNAR_TOUR_TRACE=<NAME>` logs every write of one attribute with a traceback)
