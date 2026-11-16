@@ -131,6 +131,11 @@ function M.new(iup, opts)
     function self:ensureDock(spec)
         if self.dock then return end
         iup.Detach(self.body)
+        -- A late dock must be able to take height from a tall configuration form.
+        -- Preserve access to that form instead of letting its natural minimum
+        -- squeeze the failure transcript down to zero lines in a short pane.
+        body = iup.scrollbox{ self.body, EXPAND="YES", CANVASBOX="YES", SCROLLBAR="VERTICAL", BORDER="NO", THEMEROLE="page_column" }
+        self.body = body
         iup.Append(self.root, buildDock(spec))
         self:openDock(false)
     end

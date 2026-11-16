@@ -3,7 +3,7 @@ describe("declarative tool page", function()
     local iup
     before_each(function()
         iup = { DEFAULT = 0 }
-        for _, kind in ipairs({ "text", "flatlabel", "flatbutton", "vbox", "hbox", "fill", "split", "zbox", "flatframe" }) do
+        for _, kind in ipairs({ "scrollbox", "text", "flatlabel", "flatbutton", "vbox", "hbox", "fill", "split", "zbox", "flatframe" }) do
             iup[kind] = function(attrs) attrs.kind = kind; return attrs end
         end
         iup.SetAttribute = function(w, k, v) w[k] = v end
@@ -109,6 +109,17 @@ describe("declarative tool page", function()
 end)
 
 describe("tool page header geometry", function()
+    it("keeps a late failure dock readable beside a tall configuration form", function()
+        local iup = require("core.lui.test").boot({})
+        local fields = {EXPAND="YES"}
+        for n=1,20 do fields[n]=iup.flatlabel{TITLE="Configuration",RASTERSIZE="200x32"} end
+        local page = Kit.page(iup,{title="Log Parser",config={widget=iup.vbox(fields)}})
+        page:ensureDock{widget=iup.text{MULTILINE="YES",EXPAND="YES"}}
+        page:setDockSummary("error","Access denied")
+        page:fit(1036,586)
+        require("core.imgui.Layout").run(page.root,1036,586)
+        assert.is_true(require("core.imgui.Element").state(page.dockContent).h >= 100)
+    end)
     it("pins native and grouped primaries to the page padding at every pane width", function()
         local iup = require("core.lui.test").boot({})
         local Layout = require("core.imgui.Layout")
