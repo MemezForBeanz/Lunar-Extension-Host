@@ -241,22 +241,43 @@ function M.new(ctx, opts)
 	local page_width
 	local metadata = require('ui.metadata_match').new(ctx, { on_metadata = opts.on_metadata, on_changed = opts.on_metadata_changed })
 	local matching = false
-	local fix_match = Kit.button(iup, { title = 'Fix match', role = 'actionbutton', action = function()
+	local function fix_match()
 		matching = not matching
 		Kit.show(iup, metadata.widget, matching, back)
 		iup.Refresh(api.widget)
-	end })
+	end
     local technical = L.stack(iup, { copies_section, forecast_section }, 4)
     Kit.show(iup, technical, false, back)
     local disclosure = Kit.disclosure(iup, { title = "Technical details", on_change = function(open)
         Kit.show(iup, technical, open, back); iup.Refresh(api.widget)
     end })
     local reliability = require("ui.reliability").new(ctx, opts.model or {}, opts.on_sources)
-    api.setModel = reliability.setModel
-    local body = L.stack(iup, { reliability.widget, aligned(hero.widget), aligned(fix_match), aligned(metadata.widget),
+    local body = L.stack(iup, { reliability.widget, aligned(hero.widget), aligned(metadata.widget),
         aligned(fact_box), episode_section, aligned(disclosure), aligned(technical), more_section }, 4)
     local content = iup.flatscrollbox({ body, EXPAND = "YES", SCROLLBAR = "VERTICAL", XHIDDEN = "YES", THEMEROLE = "tabscroll" })
     local page = Kit.page(iup, { id = "media-title", title = "Library / Title", main = content, primary = { widget = hero.primary } })
+    function api.setModel(model)
+        reliability.setModel(model)
+        page:setState(reliability.summary and "error" or "info", reliability.summary or "Ready to play")
+    end
+    -- The compact identity and shelf share the page surface, including native labels.
+    local Reactor = require("core.ui.ThemeReactor")
+    function api:_afterThemePass()
+        local p = Reactor.palette()
+        -- Carbon's tool page sits on layer 01 (Gray 10 in White mode).
+        local bg = p.focusInset and p.layer01 or (p.layer02 or p.surface or p.bg)
+        if not bg then return end
+        if iup.GetAttribute(hero.widget,"BGCOLOR") == bg and iup.GetAttribute(more.widget,"BGCOLOR") == bg then return end
+        local function paint(node)
+            local class = iup.GetClassName(node)
+            if class == "flatlabel" or class == "flatframe" or class == "flatgrid" or class == "vbox" or class == "hbox" then
+                iup.SetAttribute(node, "BGCOLOR", bg)
+            end
+            for n = 0, iup.GetChildCount(node)-1 do paint(iup.GetChild(node,n)) end
+        end
+        paint(hero.widget); paint(more_section)
+    end
+    Reactor.register(api)
     local library_crumb = Kit.button(iup, { title = "Films", role = "link_btn", action = opts.on_back })
     local breadcrumb = iup.hbox({library_crumb, L.hint(iup, "/"), GAP = L.gap(2), ALIGNMENT = "ACENTER"})
     require("core.lib.tree").place(iup, page.header, breadcrumb, page.title)
@@ -287,7 +308,13 @@ function M.new(ctx, opts)
 	end
 
 	function api.refresh()
-		if current then hero.show(current, true) end
+		if current then
+            hero.show(current, true)
+            page:setSecondary({
+                {title = iup.GetAttribute(hero.secondary, "TITLE"), action = function() hero.secondary:flat_action() end},
+                opts.on_metadata and {title = "Fix match", action = fix_match} or nil,
+            })
+        end
 	end
 
 	--- Show a title.
@@ -297,12 +324,11 @@ function M.new(ctx, opts)
         iup.SetAttribute(library_crumb, "TITLE", item.kind == "show" and "Shows" or "Films")
         iup.SetAttribute(page.title, "TITLE", item.title)
         iup.SetAttribute(page.title, "TIP", item.title)
-        page:setState(reliability.message and "error" or "info", reliability.message or "Ready to play")
+        page:setState(reliability.summary and "error" or "info", reliability.summary or "Ready to play")
 		metadata.open(item)
 		matching = false
 		Kit.show(iup, metadata.widget, false, back)
-		Kit.show(iup, fix_match, opts.on_metadata ~= nil, back)
-		hero.show(item, true)
+		api.refresh()
 		for i, value in ipairs(fact_values(item)) do
 			iup.SetAttribute(fact_rows[i].value, "TITLE", value)
 			Kit.show(iup, fact_rows[i].row, value ~= "", back)
@@ -341,6 +367,7 @@ function M.new(ctx, opts)
 	end
 
 	function api.tick()
+		api:_afterThemePass()
 		reliability.tick()
 		metadata.tick()
 		hero.tick()

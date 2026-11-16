@@ -23,6 +23,7 @@ function M.new(ctx,opts)
  local query=FlatField.new(iup,{cue='Search titles, or paste a video webpage URL'})
  local status=Kit.statusLine(iup,'info','Choose a source to browse its catalog.')
  local description=iup.flatlabel({TITLE='',THEMEROLE='reading_muted',TEXTWRAP='YES',EXPAND='HORIZONTAL',RASTERSIZE='x38'})
+ Kit.show(iup,description,false)
  local download_info=iup.flatlabel({TITLE='',THEMEROLE='reading_muted',TEXTWRAP='YES',EXPAND='HORIZONTAL'})
  local function download_value(pos,field)
   local row=downloads[pos];if not row then return end
@@ -58,6 +59,7 @@ function M.new(ctx,opts)
   results:setProvider(#items,item_value);if selected then results:select(1) end;selection()
   local result=job.result
   iup.SetAttribute(description,'TITLE',result.overview or result.title or '')
+  Kit.show(iup,description,(result.overview or result.title or '')~='')
   Kit.setStatus(iup,status,'ok',tostring(#items)..' results'..(result.truncated and ' — page limit reached' or '')..(result.search_mode=='page' and ' — search filters this page' or ''))
  end
  local function download_status()

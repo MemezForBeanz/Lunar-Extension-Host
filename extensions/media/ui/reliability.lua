@@ -36,6 +36,10 @@ function M.new(ctx, model, open)
 	Reactor.register(api)
 	function api.setModel(data)
 		local text
+		local count = 0
+		for _, origin in ipairs(data.origins or {}) do
+			if origin.status == "failed" then count = count + 1 end
+		end
 		for _, problem in ipairs(data.attention or {}) do
 			if problem.kind == "source" then text = problem.title:gsub(": source failed$", "") .. ": " .. problem.wrong; break end
 		end
@@ -46,6 +50,8 @@ function M.new(ctx, model, open)
 		end
 		notice:setTitle(text or "")
 		api.message = text
+		count = text and math.max(1, count) or 0
+		api.summary = count > 0 and (count .. (count == 1 and " source unavailable" or " sources unavailable")) or nil
 		Kit.show(iup, surface, text ~= nil)
 		api:_afterThemePass()
 	end

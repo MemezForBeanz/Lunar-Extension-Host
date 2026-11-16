@@ -296,6 +296,7 @@ function M.build(p)
     end
     for k,v in pairs(rules.list_bordered) do if k ~= "font" then rules.list_mono[k] = v end end
     for _, role in ipairs({ "toggle", "flattoggle", "flattoggle_noborder" }) do
+        rules[role].bg, rules[role].fg = page_bg, p.text
         rules[role].checkbg = p.field01 or layer1
         rules[role].checkfg = p.iconOnColor
         rules[role].checkon = p.iconPrimary or p.text

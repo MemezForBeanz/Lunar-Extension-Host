@@ -42,6 +42,8 @@
 -- @module core.ui.Toast
 
 local Tokens = require("core.lib.MotionTokens")
+local L = require("core.lib.CarbonLayout")
+local Kit = require("core.ui.Kit")
 
 -- ==========================================================================
 -- CONSTANTS — all Carbon or derived from Carbon
@@ -377,7 +379,10 @@ function ToastHost:show(spec)
 
 			EXPAND   = "HORIZONTAL",
 			THEMEROLE = "toast_title",
+			IMAGEPOSITION = "LEFT", SPACING = L.gap(3),
 		})
+		local status = Kit.STATUS[kind == "success" and "ok" or kind]
+		Kit.bindIcon(iup, title_label, status.icon, {size=Kit.ICON_STATUS, role=status.role})
 
 		close_btn = iup.flatbutton({
 			TITLE    = "✕",
@@ -416,24 +421,28 @@ function ToastHost:show(spec)
 		end
 
 		-- 3 px status bar on the left edge, coloured by kind
-		local status_bar = iup.flatlabel({
+		local status_bar = (iup.canvas or iup.flatlabel)({
 			TITLE    = "",
+			BORDER = "NO", CANFOCUS = "NO", EXPAND = "VERTICAL",
 			RASTERSIZE = tostring(STATUS_BAR_W) .. "x" .. tostring(toast_h),
+			MINSIZE = L.size(STATUS_BAR_W, 1), MAXSIZE = L.size(STATUS_BAR_W, toast_h),
 			THEMEROLE = ROLE_BAR[kind] or "toast_bar_info",
 		})
 
+		-- Padding belongs to the content; the support rail runs flush along the edge.
+		local padded = iup.vbox({content, MARGIN=L.margin(4,3), EXPAND="YES"})
 		-- main row: status bar + text area
 		local body_row = iup.hbox({
 			status_bar,
-			content,
-			GAP    = "8",
+			padded,
+			GAP    = "0",
 			MARGIN = "0x0",
 			EXPAND = "YES",
 		})
 
 		local panel = iup.vbox({
 			body_row,
-			MARGIN   = "12x10",
+			MARGIN   = "0x0",
 			EXPAND   = "YES",
 			THEMEROLE = ROLE_BG[kind] or "toast_bg_info",
 		})

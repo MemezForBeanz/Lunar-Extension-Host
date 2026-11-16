@@ -845,10 +845,10 @@ function M.new(ctx, opts)
         inspector = { widget = inspector_body, title = "Selected title", width = L.PAGE.inspector },
         state = { kind = "info", text = "Choose a library or collection" } })
     page_stack = iup.zbox({workspace:widget(), details.widget, EXPAND = "YES"})
-	workspace.feedMessage = reliability.message
+	workspace.feedMessage = reliability.summary
     api.widget = page_stack
     local drawer = require("ui.drawer").new(iup, workspace)
-    workspace.mediaCaptureState = function() workspace:setState(reliability.message and "error" or "info", reliability.message or "Browse your library") end
+    workspace.mediaCaptureState = function() workspace:setState(reliability.summary and "error" or "info", reliability.summary or "Browse your library") end
 
 	local fill_spotlight
 	choose(continuing[1] or model.films[1])
@@ -1012,7 +1012,7 @@ function M.new(ctx, opts)
 		model = next_model
 		details.setModel(model)
 		reliability.setModel(model)
-		workspace.feedMessage = reliability.message
+		workspace.feedMessage = reliability.summary
 		refill(films, model.films)
 		refill(shows, model.shows)
 		refill(continuing, model.continuing or {})

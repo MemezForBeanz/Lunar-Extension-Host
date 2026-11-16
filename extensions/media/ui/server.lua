@@ -42,7 +42,7 @@ function M.new(ctx, opts)
 	for _, entry in ipairs({ { "failed", "Failed", "analysis" }, { "missing", "Offline", "offline" },
 		{ "playing", "Now playing" }, { "analysing", "Being analysed" }, { "files", "Files" } }) do
 		local key, caption, kind = entry[1], entry[2], entry[3]
-		local number = iup.flatlabel({ TITLE = "0", THEMEROLE = kind and "sectiontitle" or "reading", EXPAND = "HORIZONTAL" })
+		local number = iup.flatlabel({ TITLE = "0", THEMEROLE = "pagetitle", EXPAND = "HORIZONTAL" })
 		if kind then semantic_numbers[key] = number end
 		local label = kind and Kit.statusLine(iup, key == "failed" and "error" or "warning", caption)
 			or iup.flatlabel({ TITLE = caption, THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL" })
@@ -96,7 +96,7 @@ function M.new(ctx, opts)
         return iup.vbox({ L.sectionTitle(iup, title), children, GAP = L.gap(3), EXPAND = "HORIZONTAL" })
     end
     local content = iup.vbox({ service_box, metadata_status, runtime_status, metrics,
-        section("Attention", iup.hbox({attention.widget, iup.fill({}), EXPAND = "HORIZONTAL"})), feedback,
+        section("Attention", attention.widget), feedback,
         iup.hbox({ section("Sessions", sessions.widget), section("Libraries", libraries.widget),
             HOMOGENEOUS = "YES", GAP = L.gap(5), EXPAND = "HORIZONTAL" }),
         iup.fill({}), require('ui.credits').new(iup), GAP = L.gap(5), EXPAND = "YES" })
@@ -153,7 +153,7 @@ function M.new(ctx, opts)
         end
         page:setState(#problems > 0 and "warning" or "ok", server.name .. " · " .. (#problems > 0 and (#problems .. " items need attention") or "Healthy") .. " · analysis " .. server.analysis)
         attention:setRows(repair_rows)
-        iup.SetAttribute(attention.widget, "MAXSIZE", L.maxSize(L.PAGE.main_min + L.PAGE.config))
+        iup.SetAttribute(attention.widget, "EXPAND", "HORIZONTAL")
         attention:setEmpty(model.attention_error and "Could not load attention" or "Everything looks healthy", model.attention_error or "No repairs needed.")
         iup.SetAttribute(attention.widget, "RASTERSIZE", L.size(nil, L.PAGE.toolbar + L.PAGE.control * 1.5 * math.max(1,#repair_rows)))
 
