@@ -15,17 +15,28 @@ end
 function M.new(ctx, opts)
 	local iup, model = ctx.iup, opts.model
 	local api, targets = {}, {}
+	local problems, repairing = {}, {}
 	local feedback = Kit.statusLine(iup, "info", "")
 	Kit.show(iup, feedback, false)
-	local attention = iup.vbox({ GAP = L.gap(2), EXPAND = "HORIZONTAL", MARGIN = "0x0" })
+    local attention
+
 	local function act(action, button)
-		iup.SetAttribute(button, "ACTIVE", "NO")
+		if repairing[action] then return end
+		repairing[action] = true
+		if button then iup.SetAttribute(button, "ACTIVE", "NO") end
 		opts.on_repair(action, function(answer, why)
-			iup.SetAttribute(button, "ACTIVE", "YES")
+			repairing[action] = nil
+			if button then iup.SetAttribute(button, "ACTIVE", "YES") end
 			Kit.show(iup, feedback, true)
 			Kit.setStatus(iup, feedback, answer and "ok" or "warning", answer and "Queued. The server will update after the work finishes." or why)
 		end)
 	end
+    attention = RowList.new(iup, { rows = {}, row_height = L.PAGE.control + L.px(5), role = "flatrows_plain",
+        column_widths = { L.PAGE.config_min },
+        header = { title = "Issue / next step", columns = { "Repair" } },
+        empty_title = "Everything looks healthy", empty_hint = "No repairs needed.",
+        on_part = function(pos, part) local problem = problems[pos]; if part == "action" and problem and problem.action then act(problem.action) end end,
+        on_activate = function(pos) local problem = problems[pos]; if problem and problem.action then act(problem.action) end end })
 	local metrics = iup.hbox({ HOMOGENEOUS = "YES", GAP = L.gap(3), EXPAND = "HORIZONTAL", MARGIN = "0x0" })
 	local setters, semantic_numbers = {}, {}
 	for _, entry in ipairs({ { "failed", "Failed", "analysis" }, { "missing", "Offline", "offline" },
@@ -80,24 +91,19 @@ function M.new(ctx, opts)
 	end })
 	local service_box = iup.hbox({ service_line, service_button, GAP = L.gap(2), ALIGNMENT = "ACENTER" })
 	Kit.show(iup, service_box, service_refresh() ~= nil)
-	local function section(title, children)
-		local box = iup.vbox({ L.sectionTitle(iup, title), children, MARGIN = "12x8", GAP = L.gap(2), EXPAND = "HORIZONTAL" })
-		return iup.flatframe({ box, TITLE = "", MARGIN = "0x0", THEMEROLE = "settingspanel", EXPAND = "HORIZONTAL" })
-	end
-	local health = section("Health", iup.vbox({ metrics, L.sectionTitle(iup, "Attention"), attention, feedback,
-		GAP = L.gap(2), EXPAND = "HORIZONTAL" }))
-	api.widget = iup.vbox({
-		iup.hbox({ iup.vbox({ iup.flatlabel({ TITLE = "Media server", THEMEROLE = "pagetitle" }), status, metadata_status, runtime_status,
-			GAP = L.gap(1) }), iup.fill({}), service_box, ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL", MARGIN = "15x0" }),   -- 15: the sections' margin and their frame's inset
-		Kit.button(iup, { title = 'Refresh all metadata', role = 'actionbutton', action = function()
-			if opts.on_refresh_metadata then opts.on_refresh_metadata() end
-		end }),
-		require('ui.credits').new(iup),
-		health,
-		iup.hbox({ section("Activity", sessions.widget), section("Libraries", libraries.widget),
-			HOMOGENEOUS = "YES", GAP = L.gap(4), EXPAND = "HORIZONTAL" }),
-		iup.fill({}), GAP = L.gap(3), MARGIN = L.margin(4), EXPAND = "YES",
-	})
+    local function section(title, children)
+        return iup.vbox({ L.sectionTitle(iup, title), children, GAP = L.gap(3), EXPAND = "HORIZONTAL" })
+    end
+    local content = iup.vbox({ service_box, metadata_status, runtime_status, metrics,
+        section("Attention", attention.widget), feedback,
+        iup.hbox({ section("Sessions", sessions.widget), section("Libraries", libraries.widget),
+            HOMOGENEOUS = "YES", GAP = L.gap(5), EXPAND = "HORIZONTAL" }),
+        iup.fill({}), require('ui.credits').new(iup), GAP = L.gap(5), EXPAND = "YES" })
+    local page = Kit.page(iup, { id = "media-server", title = "Media server", icon = "data--base",
+        main = iup.scrollbox({content, EXPAND = "YES", SCROLLBAR = "VERTICAL"}),
+        secondary = { { title = "Refresh metadata", action = opts.on_refresh_metadata } } })
+    api.widget = page:widget()
+
 	-- Flat labels need an explicit background on Windows in light themes. Keep it
 	-- local to this page, and reapply after each host theme pass.
 	function api:_afterThemePass()
@@ -122,8 +128,8 @@ function M.new(ctx, opts)
 		model = next_model
 		local server = model.server
 		for key, setter in pairs(setters) do setter(key == "playing" and #(server.sessions or {}) or server[key]) end
-		Kit.setStatus(iup, status, model.sample and "info" or "ok", server.name .. " · analysis " .. server.analysis ..
-			(model.sample and " · all examples below are made up" or ""))
+        page:setState("ok", server.name .. " · analysis " .. server.analysis)
+
 		local meta = server.metadata
 		Kit.show(iup, metadata_status, meta ~= nil)
 		if meta then Kit.setStatus(iup, metadata_status, meta.configured and "info" or "warning", meta.configured and
@@ -132,23 +138,23 @@ function M.new(ctx, opts)
 		local runtime = server.runtime
 		Kit.show(iup, runtime_status, runtime ~= nil and runtime.state ~= "ready")
 		if runtime then Kit.setStatus(iup, runtime_status, runtime.state == "failed" and "error" or "info", runtime.message or "Media tools ready") end
-		while iup.GetChild(attention, 0) do iup.Destroy(iup.GetChild(attention, 0)) end
-		targets = {}
-		local problems = {}
-		for _, problem in ipairs(model.attention or {}) do problems[#problems + 1] = problem end
-		table.sort(problems, function(a, b) return a.severity < b.severity end)
-		for _, problem in ipairs(problems) do
-			local line = Kit.statusLine(iup, problem.severity <= 2 and "error" or "warning", problem.title .. " — " .. problem.wrong)
-			local next_step = iup.flatlabel({ TITLE = "Next: " .. problem.next_step, THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL" })
-			local button = Kit.button(iup, { title = problem.action and problem.action.label or "", role = "actionbutton" })
-			function button:flat_action() act(problem.action, button) end
-			Kit.show(iup, button, problem.action ~= nil)
-			if problem.action and not targets[problem.kind] then targets[problem.kind] = button end
-			iup.Append(attention, iup.hbox({ iup.vbox({ line, next_step, GAP = L.gap(1), EXPAND = "HORIZONTAL" }), button,
-				GAP = L.gap(3), ALIGNMENT = "ACENTER", MARGIN = "0x5", EXPAND = "HORIZONTAL" }))
-		end
-		if #problems == 0 then iup.Append(attention, Kit.statusLine(iup, model.attention_error and "warning" or "ok",
-			model.attention_error and ("Could not load attention: " .. model.attention_error) or "Everything looks healthy.")) end
+        targets = {}
+        problems = {}
+        for _, problem in ipairs(model.attention or {}) do problems[#problems + 1] = problem end
+        table.sort(problems, function(a,b) return a.severity < b.severity end)
+        local repair_rows = {}
+        for i,problem in ipairs(problems) do
+            repair_rows[i] = { title = problem.title .. " — " .. problem.wrong, secondary = "Next: " .. problem.next_step,
+                image = Kit.icon(iup, problem.severity <= 2 and "error--filled" or "warning--alt--filled", Kit.ICON_STATUS, problem.severity <= 2 and "error" or "warning"),
+                column1 = problem.action and problem.action.label or "",
+                action = problem.action and problem.action.label or nil }
+            if problem.action then targets[problem.kind] = attention.widget end
+        end
+        page:setState(#problems > 0 and "warning" or "ok", server.name .. " · " .. (#problems > 0 and (#problems .. " items need attention") or "Healthy") .. " · analysis " .. server.analysis)
+        attention:setRows(repair_rows)
+        attention:setEmpty(model.attention_error and "Could not load attention" or "Everything looks healthy", model.attention_error or "No repairs needed.")
+        iup.SetAttribute(attention.widget, "RASTERSIZE", L.size(nil, L.PAGE.toolbar + L.PAGE.control * 1.5 * math.max(1,#repair_rows)))
+
 		libraries:setRows(rows_for(model.libraries))
 		iup.SetAttribute(libraries.widget, "RASTERSIZE", "x" .. (40 + 44 * math.max(1, #(model.libraries or {}))))
 		local rows = {}
@@ -160,7 +166,7 @@ function M.new(ctx, opts)
 		iup.Refresh(api.widget)
 	end
 	api.setModel(model)
-	api.widget = iup.scrollbox({ api.widget, EXPAND = "YES", SCROLLBAR = "VERTICAL" })
+	if ctx.fitPage then ctx:fitPage(api.widget, function(w) page:fit(w) end) end
 	if ctx.addTimer then ctx:addTimer({ time = 2000, run = true, action = function() service_refresh(); api:_afterThemePass() end }, opts.owner) end
 	return api
 end

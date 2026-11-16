@@ -9,6 +9,12 @@ function M.new(ctx,opts)
  local libraries=opts.libraries or {}
  local generation=0;local pending;local history={};local download_id;local downloads={};local download_wait=0
  local download_busy=false
+ local page, save, add_menu, find
+ local activities={}
+ local capture_connected
+ local function selection()
+  if page then page:openInspector(selected~=nil); Kit.show(iup,add_menu,selected~=nil,status) end
+ end
  local query=FlatField.new(iup,{cue='Search titles, or paste a video webpage URL'})
  local status=Kit.statusLine(iup,'info','Choose a source to browse its catalog.')
  local description=iup.flatlabel({TITLE='',THEMEROLE='reading_muted',TEXTWRAP='YES',EXPAND='HORIZONTAL',RASTERSIZE='x38'})
@@ -39,10 +45,12 @@ function M.new(ctx,opts)
  end
  local results=RowList.new(iup,{count=0,value=item_value,row_height=64,column_widths={85},role='flatrows_plain',
   empty_title='Browse a source',empty_hint='Search first; save only the titles you want in your library.',
-  on_select=function(pos) selected=items[pos] end})
+  header={title="Title",columns={"Year / type"}},
+  on_select=function(pos) selected=items[pos];selection() end})
  local function show(job)
+  if find then iup.SetAttribute(find,'TITLE','Search / Browse') end
   current=job;items=job.result.items or {};selected=items[1]
-  results:setProvider(#items,item_value);if selected then results:select(1) end
+  results:setProvider(#items,item_value);if selected then results:select(1) end;selection()
   local result=job.result
   iup.SetAttribute(description,'TITLE',result.overview or result.title or '')
   Kit.setStatus(iup,status,'ok',tostring(#items)..' results'..(result.truncated and ' — page limit reached' or '')..(result.search_mode=='page' and ' — search filters this page' or ''))
@@ -58,12 +66,27 @@ function M.new(ctx,opts)
    end
    downloads=rows or {}
    local active,failed,total=0,0,#downloads
+   local retry_menu={}
    local selected_pos
    for pos,row in ipairs(downloads) do
+    if ctx.activity then
+     local key=tostring(row.id)
+     local handle=activities[key]
+     if not handle then
+      local id=row.id
+      handle=ctx:activity({title=row.title or 'Media download',cancel=(row.state=='queued' or row.state=='running') and function()
+       if opts.on_cancel_download then opts.on_cancel_download(id,function() download_wait=0 end) end
+      end or nil,retry=function() if opts.on_retry_download then opts.on_retry_download(id,function() activities[key]=nil;download_wait=0 end) end end},opts.owner)
+      activities[key]=handle
+     end
+     if row.state=='queued' or row.state=='running' then handle:progress(row.bytes,row.total_bytes,row.state)
+     else handle:finish(row.state=='complete' or row.state=='completed',row.error or row.state) end
+    end
     if row.state=='queued' or row.state=='running' then active=active+1 end
-    if row.state=='failed' then failed=failed+1 end
+    if row.state=='failed' then failed=failed+1;local id=row.id;retry_menu[#retry_menu+1]={title='Retry '..(row.title or 'download'),action=function() if opts.on_retry_download then opts.on_retry_download(id,function() activities[tostring(id)]=nil;download_wait=0 end) end end} end
     if tostring(row.id)==tostring(download_id) then selected_pos=pos end
    end
+   if page then page.opts.menu=retry_menu;page:setSecondary({}) end
    download_list:setProvider(total,download_value)
    selected_pos=selected_pos or (downloads[1] and 1)
    download_id=selected_pos and downloads[selected_pos].id or nil
@@ -78,20 +101,22 @@ function M.new(ctx,opts)
   if not opts.on_discover then return end
   generation=generation+1;local own=generation
   if remember and current then history[#history+1]=current end
-  pending=nil;selected=nil
+  pending=nil;selected=nil;items={};results:setProvider(0,item_value);selection()
+  results:setEmpty('Searching the catalog','Waiting for the source to respond.')
   Kit.setStatus(iup,status,'info','Fetching from '..(provider and provider.name or 'source')..'…')
   opts.on_discover(body,function(job,why)
    if own~=generation then return end
    if not job then return Kit.setStatus(iup,status,'error',why or 'Could not start discovery.') end
    if job.state=='ready' and job.result then return show(job) end
-   pending={id=job.id,wait=0,attempts=0,generation=own}
+   pending={id=job.id,wait=0,attempts=0,generation=own};iup.SetAttribute(find,'TITLE','Stop')
   end)
  end
  local provider_list=RowList.new(iup,{count=0,value=provider_value,row_height=64,column_widths={},role='flatrows_plain',
   empty_title='Connect to your server',empty_hint='Available source adapters are supplied by the server.',
-  on_select=function(pos) provider=providers[pos];generation=generation+1;pending=nil;current=nil;history={};items={};selected=nil;results:setProvider(0,item_value);Kit.setStatus(iup,status,'info',provider and provider.summary or '') end})
+  on_select=function(pos) provider=providers[pos];generation=generation+1;pending=nil;current=nil;history={};items={};selected=nil;results:setProvider(0,item_value);selection();Kit.setStatus(iup,status,'info',provider and provider.summary or '') end})
  iup.SetAttribute(provider_list.widget,'RASTERSIZE','260x')
- local find=Kit.button(iup,{title='Search / Browse',role='primary_btn',action=function()
+ find=Kit.button(iup,{title='Search / Browse',role='primary_btn',action=function()
+  if pending then generation=generation+1;pending=nil;iup.SetAttribute(find,'TITLE','Search / Browse');return Kit.setStatus(iup,status,'idle','Search stopped') end
   if not provider then return end
   local text=query:value();history={}
   local generic=provider.id=='video-page'
@@ -100,7 +125,7 @@ function M.new(ctx,opts)
  local open=Kit.button(iup,{title='Open page / episodes',role='actionbutton',action=function()
   if provider and selected and selected.is_page then search({provider=provider.id,url=selected.url,details=true},true) end
  end})
- local save=Kit.button(iup,{title='Save to library',icon='add',role='primary_btn',action=function()
+ save=Kit.button(iup,{title='Stream from source',icon='add',role='actionbutton',action=function()
   if not selected or not current or not opts.on_import then return end
   local job,key=current.id,selected.key
   opts.on_import(job,key,function(answer,why)
@@ -125,7 +150,7 @@ function M.new(ctx,opts)
   end
   iup.SetAttribute(destination,'VALUE',#libraries>0 and tostring(chosen) or '0')
  end
- local download=Kit.button(iup,{title='Download to library',icon='download',role='primary_btn',action=function()
+ local download=Kit.button(iup,{title='Download to library',icon='download',role='actionbutton',action=function()
   local pos=tonumber(iup.GetAttribute(destination,'VALUE') or '0')
   local library=libraries[pos]
   if not selected or not current or not library or not opts.on_download then
@@ -159,13 +184,55 @@ function M.new(ctx,opts)
  local next_page=Kit.button(iup,{title='Next page',role='actionbutton',action=function()
   if provider and current and current.result.has_more then search({provider=provider.id,query=query:value(),page=(current.result.page or 1)+1},true) end
  end})
- api.widget=iup.hbox({provider_list.widget,iup.vbox({
-  iup.hbox({query.widget,find,GAP=L.gap(2),EXPAND='HORIZONTAL'}),status,description,results.widget,
-  iup.hbox({back,open,save,iup.fill({}),next_page,GAP=L.gap(2),EXPAND='HORIZONTAL'}),
-  iup.hbox({destination,download,GAP=L.gap(2),EXPAND='HORIZONTAL'}),
-  download_info,download_list.widget,
-  iup.hbox({cancel_download,retry_download,GAP=L.gap(2),EXPAND='HORIZONTAL'}),
-  GAP=L.gap(3),MARGIN='0x0',EXPAND='YES'}),GAP=L.gap(5),MARGIN='0x0',EXPAND='YES'})
+ local choices=iup.vbox({save,destination,download,GAP=L.gap(3),EXPAND='HORIZONTAL'})
+ Kit.show(iup,choices,false,status)
+ add_menu=Kit.disclosure(iup,{title='Add to library',on_change=function(on) Kit.show(iup,choices,on,status) end})
+ local empty=Kit.button(iup,{title='Connect',action=function() if opts.on_connect then opts.on_connect() end end})
+ local welcome=iup.vbox({L.sectionTitle(iup,'Connect to your media server'),
+  L.hint(iup,'Connect to browse source catalogs and add titles to your library.'),empty,GAP=L.gap(3),EXPAND='YES'})
+ local catalog=iup.vbox({description,results.widget,
+  iup.hbox({back,open,iup.fill({}),next_page,GAP=L.gap(3),EXPAND='HORIZONTAL'}),GAP=L.gap(3),EXPAND='YES'})
+ local main=iup.vbox({welcome,catalog,EXPAND='YES'})
+ page=Kit.page(iup,{id='media-sources',title='Sources',icon='globe',
+  nav={title='Sources',widget=provider_list.widget}, main=main,
+  toolbar=iup.hbox({query.widget,GAP=L.gap(3),EXPAND='HORIZONTAL'}),
+  primary={widget=find},inspector={title='Add selected title',widget=iup.vbox({add_menu,choices,GAP=L.gap(3),EXPAND='YES'})}})
+ -- Keep asynchronous status callbacks on the page's one state line.
+ status=page.stateLine
+ api.widget=page:widget()
+ local last_connected,last_provider
+ local function connection()
+  local connected=capture_connected or not opts.is_connected or opts.is_connected()
+  if connected==last_connected and provider==last_provider then return end
+  last_connected,last_provider=connected,provider
+  Kit.show(iup,welcome,not connected,status);Kit.show(iup,catalog,connected,status)
+  Kit.show(iup,page.toolbar,connected,status);Kit.show(iup,find,connected,status)
+  iup.SetAttribute(find,'ACTIVE',connected and provider and 'YES' or 'NO')
+  Kit.show(iup,page.config,connected,status)
+  if page.configSplit then iup.SetAttribute(page.configSplit,'VALUE',connected and tostring(math.floor(page.configSize/page.width*1000)) or '0') end
+  if not connected then page:setState('idle','Not connected');page:openInspector(false)
+  end
+ end
+ api.refreshConnection=connection
+ page.mediaCaptureState=function(state)
+  capture_connected=true;connection()
+  items={};selected=nil;current=nil;results:setProvider(0,item_value);selection()
+  if state=='working' then
+   page:setState('working','Searching Internet Archive…');iup.SetAttribute(find,'TITLE','Stop')
+   results:setEmpty('Searching the catalog','Waiting for Internet Archive to respond.')
+  else
+   page:setState('error','Internet Archive could not be reached. Try searching again.');iup.SetAttribute(find,'TITLE','Search / Browse')
+   results:setEmpty('Could not load the catalog','Check your connection and search again.')
+  end
+ end
+ api.capture=function(state)
+  if state=='connected' then
+   capture_connected=true;api.setProviders(opts.providers);connection()
+   show({id='catalog',result={items={{key='1',title='The General',year=1926,overview='A railway engineer follows his stolen locomotive across enemy lines.'},{key='2',title='Sherlock Jr.',year=1924,overview='A projectionist dreams of becoming a detective.'}}}})
+  else capture_connected=false;current=nil;items={};selected=nil;results:setProvider(0,item_value);connection();selection() end
+ end
+ if ctx.fitPage then ctx:fitPage(api.widget,function(w) page:fit(w) end) end
+
  function api.setProviders(list)
   local old=provider and provider.id;providers={}
   for _,p in ipairs(list or {}) do if p.kind=='website' or p.kind=='archive' then providers[#providers+1]=p end end
@@ -173,10 +240,13 @@ function M.new(ctx,opts)
   provider=nil
   for i,p in ipairs(providers) do if p.id==old then provider=p;provider_list:select(i);break end end
   if not provider and providers[1] then provider=providers[1];provider_list:select(1) end
+  connection()
  end
  api.setLibraries=set_libraries
  set_libraries(libraries)
+ connection();selection()
  function api.tick()
+  connection()
   download_wait=download_wait-1
   if download_wait<=0 then download_wait=100;download_status() end
   local request=pending;if not request then return end
@@ -185,9 +255,9 @@ function M.new(ctx,opts)
   opts.on_discovery(request.id,function(job,why)
    if pending~=request or generation~=request.generation then return end
    request.busy=false
-   if not job or job.state=='failed' then pending=nil;return Kit.setStatus(iup,status,'error',why or (job and job.error) or 'Discovery failed.') end
+   if not job or job.state=='failed' then pending=nil;iup.SetAttribute(find,'TITLE','Search / Browse');return Kit.setStatus(iup,status,'error',why or (job and job.error) or 'Discovery failed.') end
    if job.state=='ready' then pending=nil;return show(job) end
-   if request.attempts>=90 then pending=nil;return Kit.setStatus(iup,status,'error','Source timed out. Try again.') end
+   if request.attempts>=90 then pending=nil;iup.SetAttribute(find,'TITLE','Search / Browse');return Kit.setStatus(iup,status,'error','Source timed out. Try again.') end
    request.wait=20
   end)
  end

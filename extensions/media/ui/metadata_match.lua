@@ -1,4 +1,5 @@
 -- Inline, asynchronous metadata correction for a title page.
+local L = require('core.lib.CarbonLayout')
 local Kit = require('core.ui.Kit')
 local Field = require('core.ui.FlatField')
 local Rows = require('core.ui.RowList')
@@ -7,12 +8,12 @@ local Metadb = require('libs.metadb')
 local M = {}
 function M.new(ctx, opts)
  local iup=ctx.iup
- local api={}; local item,selected,pending; local generation=0
+ local api={}; local item,selected,pending; local match,rows,preview; local generation=0
  local candidates={}
  local provider_ids,provider_names={},{}
  for _,p in ipairs(Metadb.providers) do provider_ids[#provider_ids+1]=p.id;provider_names[#provider_names+1]=p.name end
  local provider_index=1
- local provider=Dropdown.new(iup,{items=provider_names,value=1,width=240,on_change=function(index) provider_index=index;generation=generation+1;pending=nil;candidates={};selected=nil end})
+ local provider=Dropdown.new(iup,{items=provider_names,value=1,width=240,on_change=function(index) provider_index=index;generation=generation+1;pending=nil;candidates={};selected=nil;if rows then rows:setRows({}) end;if match then iup.SetAttribute(match,'ACTIVE','NO') end end})
  local query=Field.new(iup,{cue='Movie or TV title'})
  local status=Kit.statusLine(iup,'info','Search, then choose the correct title and year.')
  local function value(pos,field)
@@ -21,12 +22,13 @@ function M.new(ctx, opts)
   if field=='SECONDARY' then return row.overview or '' end
   if field=='COLUMN1' then return tostring(row.year or '') end
  end
- local rows=Rows.new(iup,{count=0,value=value,row_height=64,column_widths={70},role='flatrows_plain',
-  empty_title='Find the correct match',empty_hint='Choose a metadata provider and search.',on_select=function(pos) selected=candidates[pos] end})
+ rows=Rows.new(iup,{count=0,value=value,row_height=64,column_widths={70},role='flatrows_plain',
+  empty_title='Find the correct match',empty_hint='Choose a metadata provider and search.',header={title='Title',columns={'Year'}},on_select=function(pos) selected=candidates[pos];if match then iup.SetAttribute(match,'ACTIVE',selected and 'YES' or 'NO') end;if preview then iup.SetAttribute(preview,'TITLE',selected and ((selected.title or '')..' — '..(selected.overview or '')) or 'Select a result') end end})
  iup.SetAttribute(rows.widget,'RASTERSIZE','x240')
  local function start(method,arg)
   if not item or not opts.on_metadata then return end
   generation=generation+1;local own=generation;pending=nil
+  if method=='search' then candidates={};selected=nil;rows:setProvider(0,value);iup.SetAttribute(match,'ACTIVE','NO') end
   Kit.setStatus(iup,status,'info',method=='search' and 'Searching provider...' or 'Loading selected metadata...')
   opts.on_metadata(method,item,arg,function(job,why)
    if own~=generation then return end
@@ -35,19 +37,36 @@ function M.new(ctx, opts)
   end)
  end
  local search=Kit.button(iup,{title='Search',role='actionbutton',action=function() start('search',{query=query:value(),provider=provider_ids[provider_index]}) end})
- local match=Kit.button(iup,{title=opts.lookup and 'Load details' or 'Use selected match',role='primary_btn',action=function() if selected then start('match',{id=selected.id,provider=selected.provider}) end end})
+ match=Kit.button(iup,{title='Apply match',role='primary_btn',action=function() if selected then start('match',{id=selected.id,provider=selected.provider}) end end})
  local refresh=Kit.button(iup,{title='Refresh metadata',role='actionbutton',action=function()
   if opts.lookup then return start('search',{query=query:value(),provider=provider_ids[provider_index]}) end
   if item and opts.on_metadata then opts.on_metadata('refresh',item,nil,function(answer,why)
    Kit.setStatus(iup,status,answer and 'ok' or 'error',answer and 'Metadata refresh queued.' or why)
   end) end
  end})
- api.widget=iup.vbox({provider.widget,iup.hbox({query.widget,search,GAP='8',EXPAND='HORIZONTAL'}),status,rows.widget,
-  iup.hbox({match,refresh,GAP='8'}),GAP='8',EXPAND='HORIZONTAL'})
+ local function labelled(text,widget) return iup.vbox({L.hint(iup,text),widget,GAP=L.gap(2),EXPAND='HORIZONTAL'}) end
+ preview=iup.flatlabel({TITLE='Select a result to check its title and year.',TEXTWRAP='YES',EXPAND='HORIZONTAL',THEMEROLE='reading_muted'})
+ api.widget=iup.vbox({iup.hbox({opts.type_widget and labelled('Type',opts.type_widget) or iup.fill({}),labelled('Provider',provider.widget),labelled('Search',query.widget),search,GAP=L.gap(3),ALIGNMENT='ACENTER',EXPAND='HORIZONTAL'}),status,rows.widget,
+  iup.hbox({preview,match,refresh,GAP=L.gap(3),ALIGNMENT='ACENTER',EXPAND='HORIZONTAL'}),GAP=L.gap(3),EXPAND='HORIZONTAL'})
+ function api.bindStatus(line) Kit.show(iup,status,false);status=line end
+ api.controls={provider=provider.widget,query=query.widget,search=search,status=status}
+ iup.SetAttribute(match,'ACTIVE','NO')
+
  function api.open(next_item)
   generation=generation+1;pending=nil;item=next_item;selected=nil;candidates={}
-  query:setValue(item.title or '');rows:setProvider(0,value)
+  query:setValue(item.title or '');rows:setProvider(0,value);iup.SetAttribute(match,'ACTIVE','NO')
   Kit.setStatus(iup,status,'info','Search, then choose the correct title and year.')
+ end
+ function api.capture(state)
+  generation=generation+1;pending=nil;candidates={};selected=nil
+  if state=='selected' then
+   candidates={{id='126',title='The General',year=1926,provider='tmdb',overview='A railway engineer crosses enemy lines to recover his locomotive.'}}
+   selected=candidates[1];query:setValue('The General')
+   iup.SetAttribute(preview,'TITLE',selected.title..' (1926) — '..selected.overview)
+  end
+  rows:setProvider(#candidates,value);if selected then rows:select(1) end
+  iup.SetAttribute(match,'ACTIVE',selected and 'YES' or 'NO')
+  Kit.setStatus(iup,status,state=='failed' and 'error' or 'info',state=='working' and 'Searching metadata providers…' or state=='failed' and 'Provider did not respond. Search again to retry.' or '1 match. Check the title and year before choosing.')
  end
  function api.tick()
   local job=pending;if not job or job.busy then return end
@@ -65,6 +84,7 @@ function M.new(ctx, opts)
     else
      candidates=answer.result or {};selected=nil;rows:setProvider(#candidates,value)
      if candidates[1] then selected=candidates[1];rows:select(1) end
+     iup.SetAttribute(match,'ACTIVE',selected and 'YES' or 'NO')
      Kit.setStatus(iup,status,'info',tostring(#candidates)..' matches. Check the title and year before choosing.')
     end
    elseif job.attempts>=90 then pending=nil;Kit.setStatus(iup,status,'error','Metadata request timed out.')

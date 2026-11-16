@@ -137,13 +137,14 @@ function M.new(ctx, opts)
 	iup.SetAttribute(left, "EXPAND", "YES")
 	iup.SetAttribute(right, "EXPAND", "YES")
 
-	local manage = iup.vbox({
-		iup.hbox({ iup.vbox({ iup.flatlabel({ TITLE = "Sources", THEMEROLE = "pagetitle" }),
-			L.hint(iup, "Every library here joins one view, with one card for each title."), GAP = L.gap(1), MARGIN = "0x0" }),
-			MARGIN = INSET .. "x0" }),
-		iup.hbox({ left, right, GAP = L.gap(8), MARGIN = "0x0", EXPAND = "YES", HOMOGENEOUS = "YES" }),
-		GAP = L.gap(6), MARGIN = L.margin(5), EXPAND = "YES",
-	})
+    local manage_page = Kit.page(iup, { id = "media-source-management", title = "Manage sources",
+        nav = { title = "Your sources", widget = source_list.widget },
+        main = right, secondary = { { title = "Sync now", action = function() if chosen_source then opts.on_sync(chosen_source) end end },
+            { title = "Remove", action = function() if chosen_source then opts.on_remove(chosen_source) end end } },
+        state = { kind = "info", text = "Choose a provider to add a source" } })
+    local manage = manage_page:widget()
+    if ctx.fitPage then ctx:fitPage(manage, function(w) manage_page:fit(w) end) end
+
 	local discovery = require("ui.discover").new(ctx, opts)
 	local pages = iup.zbox({ discovery.widget, manage, EXPAND = "YES", VALUEPOS = "0" })
 	api.widget = iup.vbox({ iup.hbox({
@@ -152,6 +153,7 @@ function M.new(ctx, opts)
 		GAP = L.gap(2), MARGIN = "0x0" }), pages,
 		GAP = L.gap(3), MARGIN = L.margin(4), EXPAND = "YES" })
 	api.tick = discovery.tick
+    api.capture = discovery.capture
 
 	--- Show what the server says.
 	function api.setData(next_sources, next_providers, next_libraries)

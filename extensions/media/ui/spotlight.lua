@@ -12,8 +12,8 @@ local tint = require("libs.tint")
 
 local M = {}
 
-M.HEIGHT = 240
-local ART_HEIGHT = 228
+M.HEIGHT = 200
+local ART_HEIGHT = M.HEIGHT - L.px(4)
 local WIDE_WIDTH = math.floor(ART_HEIGHT * 16 / 9)
 local POSTER_WIDTH = math.floor(ART_HEIGHT * 2 / 3)
 local RING = 6
@@ -117,12 +117,13 @@ function M.new(ctx, opts)
 	end })
 	iup.SetAttribute(info, "RASTERSIZE", (opts.secondary and "168" or "112") .. "x40")
 
+	api.primary = play
 	local dots = iup.hbox({ GAP = L.gap(1), MARGIN = "0x0", ALIGNMENT = "ACENTER" })
 	local dot_widgets = {}
 
 	local words = iup.vbox({
 		iup.fill({}), eyebrow, title, meta, overview,
-		iup.hbox({ play, info, GAP = L.gap(2), MARGIN = "0x" .. L.gap(2) }),
+		iup.hbox({ opts.header_action and iup.fill({}) or play, info, GAP = L.gap(2), MARGIN = "0x" .. L.gap(2) }),
 		iup.fill({}), dots,
 		GAP = L.gap(1), MARGIN = L.gap(3) .. "x" .. L.gap(3), EXPAND = "YES",
 	})

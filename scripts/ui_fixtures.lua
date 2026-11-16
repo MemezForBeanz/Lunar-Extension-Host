@@ -189,6 +189,10 @@ end
 
 -- Deterministic presentation states: never start jobs or make network requests.
 function M.tool_state(page, state)
+	if page.opts and tostring(page.opts.id):match("^media%-") then
+		if page.mediaCaptureState then page.mediaCaptureState(state) end
+		return
+	end
 	if state == "working" then
 		page:setState("working", "Processing fixture data — 50% complete")
 		page:setRunState("working", 0.5)

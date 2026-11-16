@@ -1,10 +1,12 @@
+local Kit=require('core.ui.Kit')
+local L=require('core.lib.CarbonLayout')
 -- Provider lookup remains available when there is no media-server extension.
 local Dropdown=require('core.ui.FlatDropdown')
 local Match=require('ui.metadata_match')
 local M={}
 function M.new(ctx,opts)
  local iup=ctx.iup;local item={kind='movie',title=''}
- local title=iup.flatlabel({TITLE='Metadata lookup',THEMEROLE='pagetitle',EXPAND='HORIZONTAL'})
+ local title=iup.flatlabel({TITLE='Preview',THEMEROLE='sectiontitle',EXPAND='HORIZONTAL'})
  local details=iup.flatlabel({TITLE='Search movies, TV shows, and anime without connecting a media server.',THEMEROLE='reading',TEXTWRAP='YES',EXPAND='HORIZONTAL',RASTERSIZE='x135'})
  local source=iup.link({TITLE='',URL='https://www.tvmaze.com',EXPAND='HORIZONTAL'})
  local function changed(next_item)
@@ -12,9 +14,15 @@ function M.new(ctx,opts)
   details.title=(item.overview or 'No description supplied.')..'\n\n'..table.concat(item.genres or {},', ')..'\nCast: '..table.concat(item.people or {},', ')
   source.title=(item.provider or '')..' - '..(item.source_url or '');source.url=item.source_url or ''
  end
- local match=Match.new(ctx,{lookup=true,on_metadata=opts.on_metadata,on_changed=changed})
+ local match
  local kind=Dropdown.new(iup,{items={'Movies','TV shows / anime'},value=1,width=220,on_change=function(index) item={kind=index==1 and 'movie' or 'show',title=''};match.open(item) end})
+ match=Match.new(ctx,{lookup=true,on_metadata=opts.on_metadata,on_changed=changed,type_widget=kind.widget})
  match.open(item)
- return {widget=iup.vbox({title,kind.widget,match.widget,details,source,require('ui.credits').new(iup),GAP='12',MARGIN='16x16',EXPAND='YES'}),tick=match.tick}
+ local content=iup.vbox({match.widget,title,details,source,iup.fill({}),require('ui.credits').new(iup),GAP=L.gap(4),EXPAND='YES'})
+ local page=Kit.page(iup,{id='media-metadata',title='Metadata',icon='search',main=content,state={kind='info',text='Search a provider, select a result, then load its details'}})
+ match.bindStatus(page.stateLine)
+ page.mediaCaptureState=match.capture
+ if ctx.fitPage then ctx:fitPage(page:widget(),function(w) page:fit(w) end) end
+ return {widget=page:widget(),tick=match.tick,capture=match.capture}
 end
 return M
