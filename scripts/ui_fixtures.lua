@@ -220,7 +220,7 @@ function M.tool_state(page, state)
     local queue = page.opts.title == "Build Queue" and rawget(_G, "LUNAR_DEV_SHELL").pages["Build Queue"] or nil
     if queue then
         for n,entry in ipairs(queue.panel.get_queued_entries()) do
-            entry.status = state == "working" and (n == 1 and "running" or "pending") or (n == 1 and "fail" or "skip")
+            entry.status = state == "working" and (n == 1 and "running" or "pending") or (n < 3 and "ok" or (n == 3 and "fail" or "skip"))
             entry.duration = nil
         end
         queue.panel.refresh_queue_list()
