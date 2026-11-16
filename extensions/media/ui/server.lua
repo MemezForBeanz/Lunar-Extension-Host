@@ -76,6 +76,7 @@ function M.new(ctx, opts)
 	local function service_refresh()
 		local state = ctx.controlLocalService and ctx:controlLocalService(opts.owner)
 		if state then
+			if model.sample then state = { running = true } end
 			iup.SetAttribute(service_line, "TITLE", "This computer's service: " .. (state.running and "running" or "stopped"))
 			iup.SetAttribute(service_button, "TITLE", state.running and "Stop" or "Start")
 		end
@@ -95,7 +96,7 @@ function M.new(ctx, opts)
         return iup.vbox({ L.sectionTitle(iup, title), children, GAP = L.gap(3), EXPAND = "HORIZONTAL" })
     end
     local content = iup.vbox({ service_box, metadata_status, runtime_status, metrics,
-        section("Attention", attention.widget), feedback,
+        section("Attention", iup.hbox({attention.widget, iup.fill({}), EXPAND = "HORIZONTAL"})), feedback,
         iup.hbox({ section("Sessions", sessions.widget), section("Libraries", libraries.widget),
             HOMOGENEOUS = "YES", GAP = L.gap(5), EXPAND = "HORIZONTAL" }),
         iup.fill({}), require('ui.credits').new(iup), GAP = L.gap(5), EXPAND = "YES" })
@@ -152,6 +153,7 @@ function M.new(ctx, opts)
         end
         page:setState(#problems > 0 and "warning" or "ok", server.name .. " · " .. (#problems > 0 and (#problems .. " items need attention") or "Healthy") .. " · analysis " .. server.analysis)
         attention:setRows(repair_rows)
+        iup.SetAttribute(attention.widget, "MAXSIZE", L.maxSize(L.PAGE.main_min + L.PAGE.config))
         attention:setEmpty(model.attention_error and "Could not load attention" or "Everything looks healthy", model.attention_error or "No repairs needed.")
         iup.SetAttribute(attention.widget, "RASTERSIZE", L.size(nil, L.PAGE.toolbar + L.PAGE.control * 1.5 * math.max(1,#repair_rows)))
 

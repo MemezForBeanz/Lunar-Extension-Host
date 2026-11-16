@@ -3,8 +3,8 @@ local Kit = require("core.ui.Kit")
 local M = {}
 function M.new(ctx, model, open)
 	local iup = ctx.iup
-	local line = iup.flatbutton({ TITLE = "", THEMEROLE = "link_btn", EXPAND = "HORIZONTAL",
-		ALIGNMENT = "ALEFT:ACENTER", flat_action = function() if open then open() end end })
+	local notice = Kit.notification(iup, { kind = "error", title = "", action = { title = "Manage sources", action = open } })
+	local line = notice.widget
 	local api = { widget = line }
 	function api.setModel(data)
 		local text
@@ -16,7 +16,7 @@ function M.new(ctx, model, open)
 				if origin.status == "failed" then text = origin.name .. ": " .. (origin.error or "could not connect"); break end
 			end
 		end
-		iup.SetAttribute(line, "TITLE", text or "")
+		notice:setTitle(text or "")
 		Kit.show(iup, line, text ~= nil)
 	end
 	api.setModel(model)

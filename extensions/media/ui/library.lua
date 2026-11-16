@@ -270,7 +270,7 @@ function M.new(ctx, opts)
 	drains[#drains + 1] = inspector_posters
 
 	local shelves, sheet, ledger, hero
-	local workspace
+	local workspace, opened, page_stack
 	local sources_anchor
 
 	local function position_in(list, item)
@@ -292,6 +292,7 @@ function M.new(ctx, opts)
 		if not item then return end
 		chosen = item
 		if workspace and source_id ~= "home" and not opened then workspace:openInspector(true) end
+		if api.last_width then api.fit(api.last_width) end
 		show_item(item)
 		mark_chosen()
 		if source_id == "home" and hero then hero.show(item, true) end
@@ -473,8 +474,8 @@ function M.new(ctx, opts)
 	set_empty(true)
 
 	-- A title opens over the collection and goes back to it, so nothing is lost by looking.
-	local opened
 	local details = title_page.new(ctx, { cache = cache, art = wide_art, poster = art_of,
+		model = model, on_sources = opts.on_sources,
 		on_metadata = opts.on_metadata, on_metadata_changed = opts.on_metadata_changed,
 		on_back = function()
 			opened = nil
@@ -495,7 +496,7 @@ function M.new(ctx, opts)
 		on_open = function(item) api.open(item) end })
 	drains[#drains + 1] = details.tick
 
-	local stack = iup.zbox({ home, sheet.widget, ledger.widget, empty, details.widget, EXPAND = "YES" })
+	local stack = iup.zbox({ home, sheet.widget, ledger.widget, empty, EXPAND = "YES" })
 
 	-- The jump bar: letters that scroll the sheet. Slots stay for good; a list only retitles them.
 	local jump_slots = {}
@@ -533,7 +534,7 @@ function M.new(ctx, opts)
 		local index = 0
 		if source_id ~= "home" then index = view == "ledger" and 2 or 1 end
 		if #active == 0 and source_id ~= "home" then index = 3 end
-		if opened then index = 4 end
+		if page_stack then iup.SetAttribute(page_stack, "VALUEPOS", opened and "1" or "0") end
 		iup.SetAttribute(stack, "VALUEPOS", tostring(index))
 		fill_jump()
 	end
@@ -580,7 +581,7 @@ function M.new(ctx, opts)
 			refilter()
 		end })
 	local controls = iup.hbox({ segmented, sort_box.widget, GAP = L.gap(3), ALIGNMENT = "ACENTER" })
-	local toolbar = iup.hbox({ heading, count, iup.fill({}), controls, GAP = L.gap(3), ALIGNMENT = "ACENTER",
+	local toolbar = iup.hbox({ GAP = L.gap(3), ALIGNMENT = "ACENTER",
 		EXPAND = "HORIZONTAL", MARGIN = RING .. "x0" })
 
 	local WATCH_VALUES = { false, "unwatched", "progress", "watched" }
@@ -795,7 +796,10 @@ function M.new(ctx, opts)
 			if source.id == id then title = source.title end
 		end
 		iup.SetAttribute(heading, "TITLE", title)
-        if workspace then workspace:setState("info", title); workspace:openInspector(false) end
+        if workspace then
+            workspace:setState("info", id == "home" and "" or (#base .. (id == "shows" and " shows" or id == "films" and " films" or " titles")))
+            workspace:openInspector(false)
+        end
 		if api.fit and api.last_width then api.fit(api.last_width) end
 		Kit.show(iup, toolbar, id ~= "home", sources.widget)
 		Kit.show(iup, filter_bar, id ~= "home", sources.widget)
@@ -815,13 +819,32 @@ function M.new(ctx, opts)
 	end
 
 	local reliability = require("ui.reliability").new(ctx, model, opts.on_sources)
-	local main = iup.vbox({ reliability.widget, toolbar, filter_bar, iup.hbox({ stack, jump_box, GAP = "0", MARGIN = "0x0", EXPAND = "YES" }),
+	local browser_options = Kit.button(iup, { title = "View options", action = function()
+        local menu = require("core.ui.ContextMenu"):new(iup, {})
+        local items = {
+            { title = "Grid", action = function() view = "sheet"; apply_view() end },
+            { title = "Table", action = function() view = "ledger"; apply_view() end },
+        }
+        for index, label in ipairs({"Sort by title", "Sort by date added", "Sort by year"}) do
+            local chosen_sort = index
+            items[#items + 1] = {title = label, action = function() sort = chosen_sort; refilter() end}
+        end
+        for _, pixels in ipairs({DENSITY_LEAST, CELL, DENSITY_LEAST + DENSITY_RANGE}) do
+            local size = pixels
+            items[#items + 1] = { title = "Poster size " .. size, action = function() ideal_cell = size; api.refit() end }
+        end
+        menu:setItems(items); menu:popup()
+    end })
+    require("core.lib.tree").place(iup, toolbar, search.widget)
+    for _, widget in ipairs({filters_button, clear_button, save_button, segmented, sort_box.widget, density_box, browser_options}) do require("core.lib.tree").place(iup, toolbar, widget) end
+    local main = iup.vbox({ reliability.widget, toolbar, iup.hbox({ stack, jump_box, GAP = "0", MARGIN = "0x0", EXPAND = "YES" }),
 		GAP = L.gap(3), MARGIN = "0x0", EXPAND = "YES" })
 	workspace = Kit.page(iup, { id = "media-browser", title = "Media", icon = "media--library",
         nav = { widget = source_rail, title = "Browse" }, main = main,
         inspector = { widget = inspector_body, title = "Selected title", width = L.PAGE.inspector },
         state = { kind = "info", text = "Choose a library or collection" } })
-    api.widget = workspace:widget()
+    page_stack = iup.zbox({workspace:widget(), details.widget, EXPAND = "YES"})
+    api.widget = page_stack
     workspace.mediaCaptureState = function() workspace:setState("info", "Browse your library") end
 
 	local fill_spotlight
@@ -902,8 +925,25 @@ function M.new(ctx, opts)
             and { 72, 112, 0, 0, 0, 0 } or { 72, 112, 88, 128, 128, 80 }
         for column, pixels in ipairs(widths) do iup.SetAttribute(ledger.widget, "COLUMN" .. column .. "WIDTH", tostring(pixels)) end
         workspace:fit(width)
-        Kit.show(iup,workspace.header,not opened,sources.widget)
+        details.setWidth(width)
+        local compact = width < L.PAGE.drawer_break + L.PAGE.config + L.PAGE.inspector
+        Kit.show(iup, segmented, not compact, sources.widget)
+        Kit.show(iup, sort_box.widget, not compact, sources.widget)
+        Kit.show(iup, density_box, not compact and view == "sheet", sources.widget)
+        Kit.show(iup, browser_options, compact, sources.widget)
         workspace:openInspector(source_id ~= "home" and not opened and workspace.inspectorOpen)
+        -- The drawer is positioned relative to main, after the navigation column.
+        if workspace.inspector and workspace.inspectorOpen and width < L.PAGE.config + L.PAGE.main_min + L.PAGE.inspector + L.PAGE.padding * 2 + L.PAGE.gutter * 2 and rawget(iup, "_IMGUI") then
+            local available = width - L.PAGE.padding * 2 - (width - L.PAGE.padding * 2 >= L.PAGE.config_break and workspace.configSize + L.PAGE.gutter or 0)
+            require("core.lib.tree").place(iup, workspace.inspectorOverlay, workspace.inspector)
+            iup.SetAttribute(workspace.inspector, "_IUPLUNAR_OVERLAY", "YES")
+            iup.SetAttribute(workspace.inspector, "FLOATING", "YES")
+            iup.SetAttribute(workspace.inspector, "VISIBLE", "YES")
+            local height = tonumber((iup.GetAttribute(workspace.inspectorFrame, "RASTERSIZE") or ""):match("x(%d+)$")) or L.PAGE.dock
+            iup.SetAttribute(workspace.inspector, "RASTERSIZE", L.size(workspace.inspectorSize, height))
+            iup.SetAttribute(workspace.inspectorSplit, "VALUE", "1000")
+            iup.SetAttribute(workspace.inspector, "POSITION", tostring(math.max(0, available - workspace.inspectorSize)) .. ",0")
+        end
 
 	end
 
@@ -913,7 +953,6 @@ function M.new(ctx, opts)
 		local width = tonumber((iup.GetAttribute(stack, "RASTERSIZE") or ""):match("^(%d+)"))
 		if not width or width == last_width or width < CELL then return end
 		last_width = width
-		details.setWidth(width)
 		sheet:setCellWidth(fitted_cell(width - 2 * RING - SCROLLBAR, ideal_cell))
 		local shelf_cell = fitted_cell(width - 3 * RING - SCROLLBAR, ideal_cell)
 		local wide_cell = fitted_cell(width - 3 * RING - SCROLLBAR, WIDE_CELL)
@@ -959,6 +998,7 @@ function M.new(ctx, opts)
 	function api.setModel(next_model, preserve)
 		local old_source, old_collection, old_title = source_id, collection, opened and opened.id
 		model = next_model
+		details.setModel(model)
 		reliability.setModel(model)
 		refill(films, model.films)
 		refill(shows, model.shows)
