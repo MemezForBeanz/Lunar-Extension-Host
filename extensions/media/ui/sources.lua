@@ -39,7 +39,7 @@ function M.new(ctx, opts)
 		local source = sources[pos]
 		if not source then return nil end
 		if field == "TITLE" then return source.name end
-		if field == "SECONDARY" then return source.provider_name or "" end
+		if field == "SECONDARY" then local _, words = M.health(source); return words .. " · " .. tostring(source.items or 0) .. " items" end
 		if field == "IMAGE" then
 			local tone = M.health(source)
 			local status = Kit.STATUS[tone] or Kit.STATUS.idle
@@ -52,8 +52,8 @@ function M.new(ctx, opts)
 		end
 	end
 	local source_list = RowList.new(iup, { value = source_value, count = #sources, row_height = ROW,
-		column_widths = { 72, 200 }, role = "flatrows_plain",
-		header = { title = "Source", columns = { "Items", "Health" } },
+		column_widths = {}, role = "flatrows_plain",
+		header = { title = "Source", columns = {} },
 		empty_title = "Only this server so far", empty_hint = "Add a provider to bring in another library.",
 		on_select = function(pos) chosen_source = sources[pos] end })
 	iup.SetAttribute(source_list.widget, "EXPAND", "YES")
@@ -97,7 +97,7 @@ function M.new(ctx, opts)
 	end })
 	iup.SetAttribute(add, "RASTERSIZE", "x36")
 	local form = L.stack(iup, { iup.flatseparator({ ORIENTATION = "HORIZONTAL", STYLE = "LINE", BARSIZE = "1" }),
-		form_title, summary, field_box, notice, iup.hbox({ add, MARGIN = "0x0" }) }, 2)
+		form_title, summary, field_box, notice }, 2)
 	iup.SetAttribute(form, "EXPAND", "HORIZONTAL")
 
 	local function choose_provider(provider)
@@ -137,7 +137,7 @@ function M.new(ctx, opts)
 	iup.SetAttribute(left, "EXPAND", "YES")
 	iup.SetAttribute(right, "EXPAND", "YES")
 
-    local manage_page = Kit.page(iup, { id = "media-source-management", title = "Manage sources",
+    local manage_page = Kit.page(iup, { id = "media-source-management", title = "Manage sources", primary = { widget = add },
         nav = { title = "Your sources", widget = source_list.widget },
         main = right, secondary = { { title = "Sync now", action = function() if chosen_source then opts.on_sync(chosen_source) end end },
             { title = "Remove", action = function() if chosen_source then opts.on_remove(chosen_source) end end } },
