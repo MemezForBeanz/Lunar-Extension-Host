@@ -227,8 +227,10 @@ function M.tool_state(page, state)
         queue.panel.refresh_queue_list()
     end
     if page.inspector then page:openInspector(false) end
-    Kit.show(iup, page.main, queue ~= nil, page.stateLine)
-    Kit.show(iup, page.capturePlaceholder, queue == nil, page.stateLine)
+    -- a dashboard keeps its content when a request fails: the failure is in the header and dock
+    local keep = queue ~= nil or page.opts.archetype == "dashboard"
+    Kit.show(iup, page.main, keep, page.stateLine)
+    Kit.show(iup, page.capturePlaceholder, not keep, page.stateLine)
     local working = state == "working"
     local sentence = working and (name .. " in progress") or (name .. " failed. Review the output and retry.")
     Kit.setStatus(iup, page.capturePlaceholder, "idle", working and "Waiting for results..." or "Results will appear here after a completed run.")
