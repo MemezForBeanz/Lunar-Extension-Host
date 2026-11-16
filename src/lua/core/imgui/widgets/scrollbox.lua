@@ -25,14 +25,14 @@ local function visible_bottom(e)
 		local b = visible_bottom(child)
 		if b then bottom = math.max(bottom or b, b) end
 	end
-	return bottom
+	return bottom and bottom + (s.data.my or 0)
 end
 
 local function content_height(c, fallback)
 	local s = Element.state(c)
 	-- Mock layout adapters need not populate child geometry.
 	if not s or #s.children == 0 then return fallback end
-	return math.max(0, (visible_bottom(c) or s.y) - s.y + (s.data.my or 0))
+	return math.max(0, (visible_bottom(c) or s.y) - s.y)
 end
 -- IupRefresh lays out at once; this host defers it to Runtime.layoutNow, so anything that
 -- reads or moves the scroll range lays a pending dialog out first (the Log Parser sets
