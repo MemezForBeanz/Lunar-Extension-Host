@@ -37,4 +37,22 @@ describe("round 6 media details", function()
         assert.equals("link_btn", iup.GetAttribute(iup.GetChild(header,2),"THEMEROLE"))
         iup.Destroy(page:widget())
     end)
+    it("flattens title identity and recommendations onto their actual scroll surface", function()
+        local api = require("ui.title").new({iup=iup}, {
+            pool=function() return {} end, on_back=function() end,
+            on_play=function() end, on_mark=function() end,
+        })
+        local page = require("core.ui.Page").fromWidget(api.widget)
+        iup.SetAttribute(page.main,"BGCOLOR","11 22 33")
+        api:_afterThemePass()
+        local body = iup.GetChild(page.main,2) -- flat scrollbox's user child
+        if not body then body = iup.GetChild(page.main,0) end
+        local identity = iup.GetChild(iup.GetChild(body,1),0)
+        local shelf = iup.GetChild(body,iup.GetChildCount(body)-1)
+        assert.equals("11 22 33",iup.GetAttribute(identity,"BGCOLOR"))
+        assert.equals("11 22 33",iup.GetAttribute(shelf,"BGCOLOR"))
+        api.setModel({origins={{name="Feed",status="failed",error="Offline"}}})
+        assert.equals("1 source unavailable",iup.GetAttribute(page.stateLine,"TITLE"))
+        iup.Destroy(api.widget)
+    end)
 end)
