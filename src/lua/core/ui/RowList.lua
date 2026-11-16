@@ -129,8 +129,16 @@ function M.new(iup, opts)
         sort_column, sort_descending = column, descending or false
         set_sort(sort_column, sort_descending)
     end
-    function api:setRows(next_rows)
-        self:destroyStateIcons()
+    function api:setRows(next_rows, keep_states)
+        if keep_states then
+            -- A model refresh must not restart unchanged rows' state transitions.
+            for pos, icon in pairs(state_icons) do
+                if pos > #(next_rows or {}) then
+                    icon:destroy()
+                    state_icons[pos], state_images[pos], states[pos] = nil, nil, nil
+                end
+            end
+        else self:destroyStateIcons() end
         rows = next_rows or {}
         value = nil
         iup.SetAttribute(widget, "COUNT", tostring(#rows))

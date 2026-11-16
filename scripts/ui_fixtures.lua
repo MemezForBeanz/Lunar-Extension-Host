@@ -67,7 +67,8 @@ function M.build_queue(page)
 	}) do
 		for _, item in ipairs(bq.items) do
 			if item.name == row[1] then
-				entries[#entries + 1] = { tool = item, status = row[2], _rebuild = not row[3] }
+				local duration = ({ AcpiTables = 12.4, MemTrain = 38.7, PcieLink = 4.2 })[item.name]
+				entries[#entries + 1] = { tool = item, status = row[2], duration = duration, _rebuild = not row[3] }
 			end
 		end
 	end
@@ -221,7 +222,7 @@ function M.tool_state(page, state)
     if queue then
         for n,entry in ipairs(queue.panel.get_queued_entries()) do
             entry.status = state == "working" and (n == 1 and "running" or "pending") or (n < 3 and "ok" or (n == 3 and "fail" or "skip"))
-            entry.duration = nil
+            entry.duration = state ~= "working" and ({12.4, 38.7, 4.2})[n] or nil
         end
         queue.panel.refresh_queue_list()
     end
