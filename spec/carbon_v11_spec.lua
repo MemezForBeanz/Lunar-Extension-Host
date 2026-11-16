@@ -109,3 +109,21 @@ describe("Carbon motion audit", function()
         assert.equal(500, Tokens.role("tooltip_enter").delay)
     end)
 end)
+
+
+describe("Carbon field icon", function()
+    it("keeps a fixed-size magnifier inside the label despite field padding", function()
+        local iup = require("core.imgui.iup")
+        local Element = require("core.imgui.Element")
+        local Classes = require("core.imgui.Classes")
+        local icon = iup.user{ WIDTH = "16", HEIGHT = "16" }
+        iup.SetHandle("carbon_search_icon_spec", icon)
+        local label = iup.label{ IMAGE = "carbon_search_icon_spec", TITLE = "", PADDING = "16x8", CARBONSTYLE = "YES" }
+        local st = Element.state(label)
+        st.x, st.y, st.w, st.h = 0, 0, 16, 16
+        local drawn
+        local dc = { image = function(_, _, x,y,w,h) drawn = {x,y,w,h} end }
+        Classes.get("label").draw(label, st, dc)
+        assert.same({0,0,16,16}, drawn)
+    end)
+end)
