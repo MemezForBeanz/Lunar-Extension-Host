@@ -93,6 +93,14 @@ function Terminal.new(opts)
 	end)
 	self._timer = iup.timer({ TIME = "40" })
 	function self._timer:action_cb() terminal:_pump(); return iup.DEFAULT end
+	-- Output may arrive before a newly opened/resized pane has been laid out.
+	-- Follow once on the next UI tick, when its final visible line count is known.
+	self._follow_timer = iup.timer({ TIME = "1" })
+	function self._follow_timer:action_cb()
+		iup.SetAttribute(self, "RUN", "NO")
+		terminal._output:scrollToEnd()
+		return iup.DEFAULT
+	end
 	function self._widget:destroy_cb() terminal:destroy() end
 	Reactor.register(self)
 	self:write("Lunar terminal\nType help for commands; script.lua [args] runs the bundled Lunar CLI.\n\n", "comment")
@@ -110,6 +118,7 @@ function Terminal:setHeight(height)
 	iup.SetAttribute(widget, "RASTERSIZE", "x" .. height)
 	iup.SetAttribute(widget, "MINSIZE", "1x" .. height)
 	iup.SetAttribute(widget, "MAXSIZE", "65535x" .. height)
+	if height > 0 and self._follow_timer then iup.SetAttribute(self._follow_timer, "RUN", "YES") end
 end
 function Terminal:_beginDrag(y)
 	self._drag_y, self._drag_height = y, self._layout:terminalHeight()
@@ -182,6 +191,7 @@ function Terminal:_render()
 	local text, fragments = self._buffer:snapshot()
 	self._output:setTranscript(text, fragments)
 	self._output:scrollToEnd()
+	if self._follow_timer then self._iup.SetAttribute(self._follow_timer, "RUN", "YES") end
 end
 function Terminal:clear()
 	self._generation = self._generation + 1
@@ -308,5 +318,7 @@ function Terminal:destroy()
 	self._requests = {}
 	self._iup.SetAttribute(self._timer, "RUN", "NO")
 	self._iup.Destroy(self._timer)
+	self._iup.SetAttribute(self._follow_timer, "RUN", "NO")
+	self._iup.Destroy(self._follow_timer)
 end
 return Terminal
