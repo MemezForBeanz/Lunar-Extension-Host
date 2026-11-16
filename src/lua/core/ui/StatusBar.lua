@@ -74,7 +74,7 @@ end)
 local StatusLine = ui.memo(function(p)
 	local bar = p.bar
 	local text = ui.useStore(bar._store, function(s) return s.status end)
-	-- The literals are the Classic (no-override) look; every real theme restyles the bar
+	-- The literals are the native fallback (no-override) look; every real theme restyles the bar
 	-- through the statusbar/statusbar_text roles. The width is a floor, not a size: long
 	-- text ends in an ellipsis, it doesn't widen the window.
 	return ui.Label{ text, ref = bar._refs.label, grow = "x", width = 40, ellipsis = true,

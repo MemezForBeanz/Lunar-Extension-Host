@@ -294,7 +294,7 @@ One owner per widget's colours:
 
 - **A widget with a `role` belongs to the theme.** The ThemeManager styles it on every
   pass. `bg`/`fg` literals on it are only the look when the active theme has no rule (the
-  Classic look the status bar keeps); the theme replaces them. A `role` together with a
+  native fallback look the status bar keeps); the theme replaces them. A `role` together with a
   palette *token* colour is a development-mode error: a token means the component wants to
   own the colour, which the theme would fight.
 - **Explicit colours on a widget without a role belong to the component.** Literal or

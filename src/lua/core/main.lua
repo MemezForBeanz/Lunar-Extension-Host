@@ -1425,7 +1425,7 @@ update_check:startup()
 host:_markShown()
 
 -- Apply the saved theme now that the full widget tree is mapped. The app ships with
--- the IBM Carbon Design System look; Classic Dark (Carbon Gray 100) is the default
+-- the IBM Carbon Design System look; Carbon Gray 100 is the default
 -- when the user has not yet chosen a theme.
 -- With "Match system theme" on, the system's mode decides; otherwise (or when the
 -- system can't say) the saved theme.

@@ -266,7 +266,7 @@ end
 -- @treturn[1] boolean `true` when the value was set.
 -- @treturn[2] boolean `false` when the key is locked.
 -- @treturn[2] string `"locked"`.
--- @usage settings:set("theme", "classic"); settings:save()
+-- @usage settings:set("theme", "carbon_white"); settings:save()
 function SettingsManager:set(key, value)
     if self._locked[key] then return false, "locked" end
     self._user[key] = value
