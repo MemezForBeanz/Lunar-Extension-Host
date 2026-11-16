@@ -424,6 +424,7 @@ function ToastHost:show(spec)
 		local status_bar = (iup.canvas or iup.flatlabel)({
 			TITLE    = "",
 			RASTERSIZE = tostring(STATUS_BAR_W) .. "x" .. tostring(toast_h),
+			MINSIZE = L.size(STATUS_BAR_W, 1), MAXSIZE = L.size(STATUS_BAR_W, toast_h),
 			THEMEROLE = ROLE_BAR[kind] or "toast_bar_info",
 		})
 
