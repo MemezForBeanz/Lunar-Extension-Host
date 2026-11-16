@@ -123,6 +123,7 @@ function M.new(iup, opts)
         -- the same flat scrolling container as the org-pack output viewers.
         local function outputStyle(w)
             if iup.GetClassName(w) == "text" then
+                iup.SetAttribute(w, "THEMEROLE", "outputlog")
                 iup.SetAttribute(w, "FONT", "IBM Plex Mono, 10")
                 iup.SetAttribute(w, "SCROLLBAR", "NO")
                 iup.SetAttribute(w, "VISIBLELINES", "6")
