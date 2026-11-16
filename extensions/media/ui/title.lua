@@ -257,8 +257,12 @@ function M.new(ctx, opts)
     local body = L.stack(iup, { holder, reliability.widget, aligned(hero.widget), aligned(fix_match), aligned(metadata.widget),
         aligned(fact_box), episode_section, aligned(disclosure), aligned(technical), more_section }, 4)
     local content = iup.flatscrollbox({ body, EXPAND = "YES", SCROLLBAR = "VERTICAL", XHIDDEN = "YES", THEMEROLE = "tabscroll" })
-    local page = Kit.page(iup, { id = "media-title", title = "Library / Title", main = content, primary = { widget = hero.primary },
-        secondary = { { title = "Back to library", action = opts.on_back } } })
+    local page = Kit.page(iup, { id = "media-title", title = "Library / Title", main = content, primary = { widget = hero.primary } })
+    local library_crumb = Kit.button(iup, { title = "Films", role = "link_btn", action = opts.on_back })
+    local breadcrumb = iup.hbox({library_crumb, L.hint(iup, "/"), GAP = L.gap(2), ALIGNMENT = "ACENTER"})
+    require("core.lib.tree").place(iup, page.header, breadcrumb, page.title)
+    require("core.lib.tree").place(iup, breadcrumb, page.title)
+    Kit.show(iup, page.stateLine, false)
     api.widget = page:widget()
     iup.SetAttribute(api.widget, "THEMEROLE", "page_column")
 
@@ -277,6 +281,7 @@ function M.new(ctx, opts)
 	--- Take the width the page really has.
 	function api.setWidth(width)
 		page:fit(width)
+        iup.SetAttribute(page.title, "MAXSIZE", L.maxSize(math.max(L.PAGE.control, width - L.PAGE.padding * 2 - L.PAGE.config)))
 		page_width = math.max(L.PAGE.control, width - L.PAGE.padding * 2 - SCROLLBAR)
 		iup.SetAttribute(holder, "RASTERSIZE", page_width .. "x")
 		iup.SetAttribute(hero.widget, "RASTERSIZE", (page_width - 2 * RING) .. "x" .. spotlight.HEIGHT)
@@ -291,7 +296,9 @@ function M.new(ctx, opts)
 	-- @tparam table item
 	function api.open(item)
 		current = item
-        iup.SetAttribute(page.title, "TITLE", (item.kind == "show" and "Shows / " or "Films / ") .. item.title)
+        iup.SetAttribute(library_crumb, "TITLE", item.kind == "show" and "Shows" or "Films")
+        iup.SetAttribute(page.title, "TITLE", item.title)
+        iup.SetAttribute(page.title, "TIP", item.title)
         page:setState("info", "")
 		metadata.open(item)
 		matching = false

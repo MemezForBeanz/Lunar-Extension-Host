@@ -60,3 +60,42 @@ describe("metadata action availability", function()
         assert.equals("Select a result to apply its metadata",buttons["Apply match"].TIP)
     end)
 end)
+
+describe("media detail breadcrumb", function()
+    it("returns to the library from a real header link and keeps Play in that header", function()
+        local old_path=package.path
+        local old_raw=package.loaded.iupraw
+        package.loaded.iupraw=require("core.imgui.native.iupraw")
+        local R=require("core.imgui.Runtime")
+        R.init(require("core.imgui.backend.Null").new())
+        package.path="extensions/media/?.lua;"..old_path
+        local ok,err=pcall(function()
+            local iup=require("core.imgui.iup")
+            local sample=require("libs.sample")
+            local model=sample.library()
+            local returned=0
+            local api=require("ui.title").new({iup=iup},{model=model,
+                art=function() return nil end,
+                on_back=function() returned=returned+1 end,on_play=function() end,on_mark=function() end,
+                pool=function() return {} end,load_seasons=function(_,done) done({}) end,
+                decide=function(_,_,done) done({mode="direct"}) end})
+            api.setWidth(1036)
+            api.open(model.films[6])
+            local header=iup.GetChild(api.widget,0)
+            local breadcrumb=iup.GetChild(header,0)
+            local link=iup.GetChild(breadcrumb,0)
+            assert.equals("Films",iup.GetAttribute(link,"TITLE"))
+            assert.equals(model.films[6].title,iup.GetAttribute(iup.GetChild(breadcrumb,2),"TITLE"))
+            link:flat_action()
+            assert.equals(1,returned)
+            local primary=iup.GetChild(header,iup.GetChildCount(header)-1)
+            assert.equals("primary_btn",iup.GetAttribute(primary,"THEMEROLE"))
+            api.open(model.shows[1])
+            assert.equals("Shows",iup.GetAttribute(link,"TITLE"))
+            iup.Destroy(api.widget)
+        end)
+        package.path=old_path
+        package.loaded.iupraw=old_raw
+        assert.is_true(ok,tostring(err))
+    end)
+end)

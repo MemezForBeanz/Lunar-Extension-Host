@@ -543,7 +543,7 @@ function M.new(ctx, opts)
 		on_change = function(pos)
 			view = pos == 1 and "ledger" or "sheet"
 			apply_view()
-			Kit.show(iup, density_box, view == "sheet", sources_anchor())
+			Kit.show(iup, density_box, view == "sheet" and (not api.last_width or api.last_width >= L.PAGE.drawer_break + L.PAGE.config + L.PAGE.inspector), sources_anchor())
 			iup.Refresh(api.widget)
 		end })
 	-- A filter in use looks in use, so the bar says at a glance what is hiding things.
@@ -881,7 +881,7 @@ function M.new(ctx, opts)
 		if state == "filtered" then
 			pick_view("sheet", 2)
 			go_source("films")
-			Kit.show(iup, density_box, true, sources_anchor())
+			Kit.show(iup, density_box, not api.last_width or api.last_width >= L.PAGE.drawer_break + L.PAGE.config + L.PAGE.inspector, sources_anchor())
 			filters = { watch = "unwatched" }
 			fill_pickers()
 			watch_box:setItems({ "Any status", "Unwatched", "In progress", "Watched" }, 2)
