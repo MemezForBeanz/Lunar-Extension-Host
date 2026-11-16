@@ -1,43 +1,4 @@
--- lunar_rules.lua
--- Shared, token-driven rules() builder for Lunar's own design language (Lunar
--- Dark / Lunar Light): Carbon's structure and role discipline, Obsidian's dim
--- lines and soft depth, VS Code's selective rounding. Like carbon_rules and
--- fluent_rules this is a plain module -- NOT a Theme subclass -- so
--- ThemeManager's auto-discovery skips it.
---
--- The language, in four rules:
---
---   1. DIM LINES. Structural borders are one step above the surface they sit
---      on (`borderSubtle01`) -- visible, never loud. Vivid color is reserved
---      for interactive emphasis: the primary action's fill, a semantic
---      button's outline, selection.
---   2. GENEROUS, LIT ROUNDING. Interactive controls get a 6px radius and
---      container surfaces (frames, lists, panes) 10px, and the corners of a
---      container catch a little light (`sheen`, fork patch 0005). CORNERRADIUS
---      exists only on the fork-patched flat classes, so rules never emit a
---      radius a class cannot honour (ThemeManager also guards this).
---   3. SOFT GRADIENTS, SPARINGLY. The shell header and the accent strip carry
---      the only gradients. Buttons are flat fills: the fork keeps
---      GRADIENTCOLOR fixed while HLCOLOR fills on hover, so a gradient button
---      muddies its own hover state.
---   4. STATES ARE STEPS. Rest, hover and pressed are three distinct steps of
---      the same ramp (hover one step lighter, pressed one step darker), via
---      the `pressed`/`pressedtext` rule keys ThemeManager maps to PSCOLOR.
---
--- Button hierarchy (every button in the app is one of these):
---   primary_btn   the page's main verb: solid accent fill, at most one per page
---   actionbutton  standard action: raised surface + dim border
---   ghost_btn     inline row action: borderless, reveals itself on hover
---   danger_btn / warning_btn / info_btn
---                 semantic outline at rest, semantic fill on hover
---
--- Expected palette tokens (all "R G B" strings unless noted): the carbon_rules
--- token set (bg, layer01, layer02, layerHover01, layerSelected01,
--- borderSubtle01, borderStrong01, text, textMuted, accent, accentText,
--- error/success/warning/warningText/info, font) plus `accentHover`,
--- `accentPressed`, `gradTop`, `gradBottom`, and the numbers `radius` (controls)
--- and `radiusFrame` (frames).
-
+-- Shared Lunar rules. Glass palettes opt in; legacy palettes keep their mapping.
 local fluent = require("core.classes.Themes.fluent_rules")
 local shade = fluent.shade
 
@@ -80,7 +41,7 @@ M.contrast = contrast
 function M.build(p)
     local hover    = p.layerHover01    or p.surface2
     local selected = p.layerSelected01 or p.surface2
-    local elevated = p.layer02         or p.surface2
+    local elevated = p.layer03 or p.layer02         or p.surface2
     local layer1   = p.layer01         or p.surface
     local border   = p.borderSubtle01  or p.border
     local borderS  = p.borderStrong01  or p.borderStrong or border
@@ -436,10 +397,59 @@ function M.build(p)
         rules[role] = { bg = page_bg, fg = p.text, font = p.font, borderwidth = 0 }
     end
     -- End U3 page-template roles.
-    return require("core.classes.Themes.shell_rules")(rules, p, {
+    rules = require("core.classes.Themes.shell_rules")(rules, p, {
         well = well, hover = hover, selected = selected, border = border, radius = R,
         font = p.font, small_font = sized(p.font, 9),
     })
+    -- Fix shared switch semantics: the off track must differ from the primary fill.
+    for _, role in ipairs({ "flattoggle", "flattoggle_noborder" }) do
+        rules[role].switchoff = p.fieldBorder or switch_off
+    end
+    if p.glass then
+        local surface = p.layer02
+        for _, role in ipairs({ "flattabs", "flattabs_sub", "settingspanel", "settingscard", "settingsheader", "settingsrow", "flatlist", "flatrows", "flatgrid", "list_plain", "well" }) do
+            rules[role].bg = surface
+        end
+        rules.settings_nav_group.fg = p.textMuted
+        rules.page_surface.radius = 12
+        rules.page_surface.glass = "card"
+        rules.page_surface.border = border
+        rules.page_surface.borderwidth = 1
+        rules.pagetitle.font = sized(HEADING, 16)
+        rules.sectiontitle.font = sized(HEADING, 12)
+        for _, role in ipairs({ "actionbutton", "warning_btn", "info_btn" }) do
+            rules[role].borderwidth, rules[role].showborder = 0, false
+        end
+        for _, role in ipairs({ "danger_btn", "warning_btn", "info_btn" }) do
+            local r = rules[role]
+            r.fg = role == "danger_btn" and p.error or (role == "warning_btn" and p.warning or p.info)
+            r.hover, r.pressed, r.hovertext, r.pressedtext = hover, selected, r.fg, r.fg
+        end
+        rules.link_btn.fg, rules.link_btn.hovertext, rules.link_btn.pressedtext = p.text, p.text, p.text
+        for _, role in ipairs({ "flattabs", "flattabs_sub" }) do
+            rules[role].tabsbg, rules[role].activeline = surface, p.accent
+        end
+        rules.flatgrid.hover = hover
+        for _, role in ipairs({ "statusbar", "statusbar_text", "titlebar_window", "titlebar_tabs", "tool_rail", "shellheader" }) do
+            rules[role].bg, rules[role].glass = p.layer01, "chrome"
+            rules[role].gradcolor = nil
+        end
+        rules.dialog.glass = "floor"
+        for _, role in ipairs({ "dropdown_list", "palette_frame", "toast_bg_info", "toast_bg_success", "toast_bg_warning", "toast_bg_error" }) do
+            rules[role].glass, rules[role].radius = "floating", 12
+        end
+        rules.statusbar_button.bg = p.layer01
+        rules.statusbar_text.fg = p.textMuted
+        rules.titlebar_tabs.tabsbg = p.layer01
+        rules.titlebar_tabs.selbg = selected
+        rules.titlebar_button.bg = p.layer01
+        -- Only the enclosing chrome gets rims, not the text and tab rectangles.
+        rules.statusbar_text.glass, rules.titlebar_tabs.glass = nil, nil
+        for _, role in ipairs({ "primary_btn", "actionbutton", "ghost_btn", "danger_btn", "warning_btn", "info_btn", "icon_btn", "dropbutton", "text" }) do
+            rules[role].focuscolor = p.accent
+        end
+    end
+    return rules
 end
 
 return M

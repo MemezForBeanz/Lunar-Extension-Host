@@ -1,11 +1,4 @@
---- Lunar Light — the host's own design language, light variant.
---
--- The daylight counterpart of `LunarDarkTheme` ("Match system theme" pairs
--- them): the same structure and violet accent on paper-white layers, with
--- semantic colors deepened for contrast on light surfaces. Role mapping lives
--- in the shared `core.classes.Themes.lunar_rules` builder.
---
--- @classmod core.classes.Themes.LunarLightTheme
+--- Lunar: graphite, pearl and silver glass. Hue is reserved for state.
 local Theme = require("core.classes.Themes.Theme")
 local lunar = require("core.classes.Themes.lunar_rules")
 local rgb   = lunar.rgb
@@ -14,41 +7,43 @@ local LunarLightTheme = Theme:subclass("LunarLightTheme")
 
 function LunarLightTheme:initialize()
     local p = {
-        bg              = rgb("#f2f2f7"),
-        layer01         = rgb("#f6f6f9"),
-        layer02         = rgb("#ffffff"),
-        layerHover01    = rgb("#ececf3"),
-        layerSelected01 = rgb("#d6d6e6"),
-        borderSubtle01  = rgb("#d0d0da"),
-        borderStrong01  = rgb("#b8b8c8"),
-        text            = rgb("#27272f"),
-        textMuted       = rgb("#565a63"),  -- 4.5:1 on every fill it sits on, a chosen row included
-        accent          = rgb("#6a5ae0"),  -- violet, deepened for light surfaces
-        accentText      = rgb("#ffffff"),
-        error           = rgb("#b3243d"),
-        success         = rgb("#3a7d44"),
-        warning         = rgb("#946200"),
-        warningText     = rgb("#ffffff"),
-        info            = rgb("#0b6a78"),
-        font            = "Segoe UI, 10",
-        fieldBorder     = rgb("#8a8f9c"),  -- field edges: 3:1 on the page
-        well            = rgb("#ffffff"),   -- recessed: lists, fields, output
-        accentSoft      = rgb("#d6d0f8"),   -- a chosen row
-        gradShellWell   = rgb("#e9e9f1"),   -- tab strip: a whisper off the page, never a grey band
-
-        gradTop         = rgb("#6a5ae0"),
-        gradBottom      = rgb("#8d9ac9"),
-
-        radius          = 6,
-        radiusFrame     = 8,
+        bg              = rgb("#E6E9ED"),
+        layer01         = rgb("#F1F3F5"),
+        layer02         = rgb("#FFFFFF"),
+        layer03         = rgb("#EDF0F3"),
+        layerHover01    = rgb("#E3E7EC"),
+        layerSelected01 = rgb("#D7DDE5"),
+        borderSubtle01  = rgb("#D3D8DE"),
+        borderStrong01  = rgb("#AEB6C0"),
+        fieldBorder     = rgb("#747C87"),
+        text            = rgb("#15181D"),
+        textMuted       = rgb("#4E5661"),
+        textFaint       = rgb("#7A828C"),
+        accent          = rgb("#20252C"),
+        accentText      = rgb("#FFFFFF"),
+        accentHover     = rgb("#343B45"),
+        accentPressed   = rgb("#0F1216"),
+        accentBright    = rgb("#20252C"),
+        accentSoft      = rgb("#DDE2E9"),
+        success         = rgb("#176C3A"),
+        warning         = rgb("#805400"),
+        error           = rgb("#B3263A"),
+        info            = rgb("#155F91"),
+        well            = rgb("#F6F7F9"),
+        font = "Segoe UI, 10",
+        glass = true,
+        glassDark = false,
+        radius = 6, radiusFrame = 8,
     }
+    p.warningText = p.accentText
+    p.gradTop, p.gradBottom = p.layer01, p.layer01
     p.surface      = p.layer01
     p.surface2     = p.layerHover01
     p.border       = p.borderSubtle01
     p.borderStrong = p.borderStrong01
     p.listBg       = p.layer01
     p.listText     = p.text
-    p.listSelText  = p.accent
+    p.listSelText  = p.text
 
     Theme.initialize(self, {
         id      = "lunar_light",

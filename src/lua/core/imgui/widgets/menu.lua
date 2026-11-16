@@ -17,6 +17,7 @@ local function colors(menu)
 	local rules = theme and theme.rules and theme:rules() or {}
 	local r = rules.contextmenu or rules.dropdown_list or {}
 	return {
+		palette = p,
 		bg = Element.own(menu, "BGCOLOR") or r.bg or p.layer02 or p.layer01 or p.surface or attr(menu, "BGCOLOR"),
 		fg = Element.own(menu, "FGCOLOR") or r.fg or p.text or attr(menu, "FGCOLOR"),
 		hover = Element.own(menu, "HLCOLOR") or r.selbg or r.hover or p.layerHover01 or p.surface2 or attr(menu, "HLCOLOR"),
@@ -72,7 +73,8 @@ local function menu_draw(menu, state, dc)
 	local bg, fg = c.bg, c.fg
 	local radius = c.radius
 	dc:fill(state.x + 2, state.y + 3, w, h, "0 0 0 50", { radius = radius })
-	dc:fill(state.x, state.y, w, h, bg, { radius = radius })
+	if c.palette.glass then require("core.ui.Glass").paint(dc,state.x,state.y,w,h,"floating",c.palette,radius)
+	else dc:fill(state.x, state.y, w, h, bg, { radius = radius }) end
 	dc:rect(state.x, state.y, w, h, c.border, { radius = radius })
 	local y = state.y + 4
 	for i, item in ipairs(children(menu)) do

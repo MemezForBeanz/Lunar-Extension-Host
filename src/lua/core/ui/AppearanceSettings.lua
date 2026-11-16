@@ -49,6 +49,8 @@ end
 -- @tparam[opt] string opts.org_name shown on locked settings ("Managed by ...")
 function M.register(opts)
 	local iup, settings, motion = opts.iup, opts.settings, opts.motion
+	local Glass = require("core.ui.Glass")
+	Glass.setEnabled(rawget(iup, "_IMGUI") and settings:get("glass_effects") ~= false)
 
 	local function manage(widget, key)
 		if settings:isLocked(key) then
@@ -120,6 +122,17 @@ function M.register(opts)
 			widget = manage(opts.theme_manager:buildDropdown(), "theme"),
 		},
 	}
+	local glass = iup.flattoggle({ TITLE = "", THEMEROLE = "flattoggle", VALUE = settings:get("glass_effects") ~= false and "ON" or "OFF" })
+	function glass:valuechanged_cb()
+		local on = iup.GetAttribute(glass, "VALUE") == "ON"
+		if set_and_save("glass_effects", on) then
+			Glass.setEnabled(rawget(iup, "_IMGUI") and on)
+			local root = iup.GetDialog and iup.GetDialog(glass)
+			if root then iup.Update(root) end
+		end
+		return iup.DEFAULT
+	end
+	entries[#entries + 1] = { label = "Glass effects", description = "Frosted chrome and floating surfaces in Lunar themes.", widget = manage(glass, "glass_effects") }
 	local themes = opts.theme_manager
 	local function is_dark()
 		local theme = themes:activeTheme()

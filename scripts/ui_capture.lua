@@ -30,6 +30,14 @@ do
 	end
 end
 
+-- The executable boots the ImGui runtime before it invokes this script. Reload
+-- paint code from this checkout before any widgets exist, just as we reload UI
+-- modules above; otherwise draw-context/runtime edits silently use embedded Lua.
+if rawget(iup, "_IMGUI") then
+	package.loaded["core.imgui.Draw"] = nil
+	package.loaded["core.imgui.Runtime"] = nil
+	require("core.imgui.Runtime").init(require("core.imgui.backend.Native"))
+end
 
 -- Nobody is there to dismiss a dialog, and one would stop the run with nothing to show for it.
 iup.Message = function(title, text)
@@ -60,6 +68,7 @@ int GetDIBits(void*, void*, unsigned, unsigned, void*, CAP_BMIH*, unsigned);
 int DeleteObject(void*);
 int DeleteDC(void*);
 long DwmGetWindowAttribute(void*, unsigned, void*, unsigned);
+int PostMessageW(void*, unsigned, uintptr_t, intptr_t);
 ]]
 local user32, gdi32, dwmapi = ffi.load("user32"), ffi.load("gdi32"), ffi.load("dwmapi")
 
@@ -363,6 +372,14 @@ iup.MainLoop = function()
 			save_bmp(window_of(window),
 				string.format("%s/%s-%s.bmp", out_dir, prefix, name), false)
 		end
+		local function snap_overlays(name)
+			if not IMGUI then return end
+			local R=require("core.imgui.Runtime")
+			for i,o in ipairs(R.overlays()) do
+				if o.open and o.win then R.backend().screenshot(string.format("%s/%s-%s-%d.bmp",out_dir,prefix,name,i),0,0,0,0,o.win) end
+			end
+			R.frame()
+		end
 		if scene == 1 then
 			if os.getenv("LUNAR_CAPTURE_NEST") then
 				local groups = shell.groups()
@@ -390,6 +407,7 @@ iup.MainLoop = function()
 			shell.open_menu()
 		elseif scene == 7 then
 			snap("92-menu")
+			snap_overlays("92-menu-window")
 			shell.palette:close()
 			-- Another window taking focus would dismiss the panel between shots.
 			shell.activity._hasFocus = function() return true end
@@ -412,9 +430,57 @@ iup.MainLoop = function()
 			-- LUNAR_CAPTURE_CODE=path: a real file in the Code tab, against whatever language
 			-- server this machine has, through the path a user takes.
 			local code_file = os.getenv("LUNAR_CAPTURE_CODE")
-			if not (code_file and shell.code) then return false end
+			if not (code_file and shell.code) then
+				if shell.host.notify then shell.host:notify({ kind = "info", title = "Settings saved", body = "Your appearance preferences are up to date.", timeout = 1500 }) end
+				return true
+			end
 			local opened, why = shell.code:open(code_file, { line = 1 })
 			io.stderr:write("ui_capture: open ", tostring(opened), " ", tostring(why), string.char(10))
+		elseif scene == 13 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			snap("96-toast")
+			local toasts=shell.host:toasts()
+			for i,rec in ipairs(toasts and toasts._stack or {}) do if rec.alive then snap_window(rec.dlg,"96-toast-window-"..i) end end
+			require("core.ui.Glass").setEnabled(false)
+			iup.Update(dlg)
+		elseif scene == 14 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			snap("97-glass-off")
+			require("core.ui.Glass").setEnabled(true)
+		elseif scene == 15 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			for _,page in ipairs(leaves(find_strip(dlg),{},{})) do
+				if page.title:lower()=="settings" then for _,s in ipairs(page.path) do iup.SetAttribute(s.strip,"VALUEPOS",tostring(s.pos)) end end
+			end
+			iup.Refresh(dlg)
+		elseif scene == 16 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			local R,E=require("core.imgui.Runtime"),require("core.imgui.Element")
+			local function find(h)
+				if class(h)=="dropbutton" and R.isVisible(h) then return h end
+				for _,c in ipairs(E.children(h)) do local result=find(c); if result then return result end end
+			end
+			shell._capture_dropdown=find(dlg)
+			if shell._capture_dropdown then iup.SetAttribute(shell._capture_dropdown,"SHOWDROPDOWN","YES") end
+		elseif scene == 17 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			snap("98-dropdown-over-app")
+			snap_overlays("98-dropdown")
+			if shell._capture_dropdown then iup.SetAttribute(shell._capture_dropdown,"SHOWDROPDOWN","NO") end
+		elseif scene == 18 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			local R,E=require("core.imgui.Runtime"),require("core.imgui.Element")
+			local widget=shell._capture_dropdown
+			if widget then
+				iup.SetAttribute(widget,"TIP","Choose the application colour palette")
+				local st=E.state(widget); local B=R.backend()
+				local surface=B.surface
+				B.surface=function(id) if id and id~=0 then shell._capture_tip_surface=id end; return surface(id) end
+				local hwnd=ffi.cast("void*",ffi.cast("uintptr_t",tonumber(B.window("hwnd"))))
+				user32.PostMessageW(hwnd,0x200,0,math.floor(st.x+10)+math.floor(st.y+10)*65536)
+			end
+		elseif scene == 21 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			local R=require("core.imgui.Runtime")
+			snap("99-tooltip-over-app")
+			if shell._capture_tip_surface then
+				R.backend().screenshot(string.format("%s/%s-99-tooltip.bmp",out_dir,prefix),0,0,0,0,shell._capture_tip_surface)
+				R.frame()
+			end
+			return false
 		elseif scene == 34 then -- about 20 seconds: a server has to index before it reports
 			io.stderr:write("ui_capture: servers ", tostring(shell.code:_serverSummary()), string.char(10))
 			snap_window(dlg, "97-code")
@@ -482,6 +548,11 @@ iup.MainLoop = function()
 			dlg = main_dialog()
 			if not dlg then return iup.DEFAULT end
 			pages = leaves(find_strip(dlg), {}, {})
+			local pattern=os.getenv("LUNAR_CAPTURE_PAGE_PATTERN")
+			if pattern then
+				local selected={}; for _,page in ipairs(pages) do if page.title:lower():match(pattern:lower()) then selected[#selected+1]=page end end
+				pages=selected
+			end
 			if os.getenv("LUNAR_CAPTURE_TOOLS_ONLY") then
 				local tools = { ["Build Queue"] = true, ["iLO Redfish"] = true, ["Log Parser"] = true,
 					["Scan Chain"] = true, ["Black Duck"] = true, ["Time Clock"] = true }

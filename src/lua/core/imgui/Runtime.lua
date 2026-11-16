@@ -1576,11 +1576,17 @@ local function paint(el, d)
 	local class = st.class
 	local culled = not d:visible(st.x, st.y, st.w, st.h)
 	if culled and class.clip then return end
+	local material, material_palette = require("core.ui.Glass").material(el, st)
+	if not culled and material then
+		require("core.ui.Glass").paint(d, st.x, st.y, st.w, st.h, material.glass, material_palette, material.radius)
+	end
 	if not culled and class.draw then
 		if st.classname == "videohost" then
 			video_rects[#video_rects + 1] = { surface = d.surface_id or 0, x = st.x+d.ox, y = st.y+d.oy, w = st.w, h = st.h }
 		end
+		d.material, d.material_palette = material, material_palette
 		local ok, err = xpcall(class.draw, debug.traceback, el, st, d, M)
+		d.material, d.material_palette, d.painting_material = nil, nil, false
 		if not ok then warn(err) end
 	end
 	local kids = children_shown(el, st)
@@ -1687,7 +1693,9 @@ local function tooltip(d)
 	end
 	if id then d:surface(id, sx, sy, sw, sh) end
 	d:layer("overlay")
-	d:fill(x, y, pw, ph, bg, { radius = 4 })
+	local tip_palette = require("core.ui.ThemeReactor").palette()
+	if tip_palette.glass then require("core.ui.Glass").paint(d,x,y,pw,ph,"floating",tip_palette,12)
+	else d:fill(x, y, pw, ph, bg, { radius = 4 }) end
 	d:rect(x, y, pw, ph, border, { radius = 4 })
 	d:text(tip, x + 6, y + 4, tw, th, fg, font, { wrap = tw >= 400 })
 	d:layer("main")

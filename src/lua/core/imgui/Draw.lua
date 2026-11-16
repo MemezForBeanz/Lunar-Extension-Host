@@ -54,6 +54,7 @@ end
 
 --- Reset per-frame state (called by the runtime before painting).
 function DC:begin(w, h)
+	self.window_w, self.window_h = w, h
 	self.ox, self.oy, self.alpha = 0, 0, 1
 	self.alphas, self.clips, self.offsets = {}, {}, {}
 	self.cx1, self.cy1, self.cx2, self.cy2 = 0, 0, w or 1e9, h or 1e9
@@ -101,6 +102,10 @@ function DC:visible(x, y, w, h)
 end
 
 function DC:fill(x, y, w, h, color, opts)
+	local m = self.material
+	if m and not self.painting_material and w > 16 and h > 8 and self:_color(color) == self:_color(m.bg) then
+		return
+	end
 	local c = self:_color(color)
 	if not c or w <= 0 or h <= 0 then return end
 	x, y = x + self.ox, y + self.oy
@@ -376,7 +381,8 @@ function DC:image(img, x, y, w, h, opts)
 	if opts and opts.tint then tint = Color.parse(opts.tint) or tint end
 	if a < 1 then tint = Color.alpha(tint, a) end
 	x, y = x + self.ox, y + self.oy
-	self:_emit("image", tex, x, y, x + w, y + h, 0, 0, 1, 1, tint)
+	self:_emit("image", tex, x, y, x + w, y + h,
+		opts and opts.u1 or 0, opts and opts.v1 or 0, opts and opts.u2 or 1, opts and opts.v2 or 1, tint)
 end
 
 -- Provider pixels (iupdrvDrawBits) ------------------------------------------------------

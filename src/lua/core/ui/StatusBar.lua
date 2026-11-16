@@ -315,6 +315,16 @@ function StatusBar:setStatus(msg)
 		return
 	end
 	local motion = self._motion
+	-- Resolve the theme's resting colour after a store update. A component fallback
+	-- or an interrupted fade must never become the next message's final colour.
+	local reactor = require("core.ui.ThemeReactor")
+	local manager = reactor.themeManager()
+	local theme = manager and manager:activeTheme()
+	local palette = theme and theme:palette()
+	if palette and palette.textMuted then
+		pcall(iup.SetAttribute, label, "FGCOLOR", palette.textMuted)
+		self._fade = nil
+	end
 	if not motion then return end
 
 	-- While a fade runs, FGCOLOR holds an in-between colour; reading it then would

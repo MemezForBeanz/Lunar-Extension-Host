@@ -276,6 +276,19 @@ end
 local function status_label(sb) return iup.GetChild(iup.GetChild(sb:widget(), 0), 2) end
 
 describe("StatusBar.setStatus", function()
+	it("resolves the theme colour instead of preserving a stale fallback", function()
+		local sb = bar()
+		local motion, frame = director()
+		sb:setMotion(motion)
+		local reactor = require("core.ui.ThemeReactor")
+		local manager = stub(reactor, "themeManager", function()
+			return { activeTheme = function() return { palette = function() return { textMuted = "174 181 191" } end } end }
+		end)
+		sb:setStatus("Ready")
+		frame(1)
+		assert.equal("174 181 191", own(status_label(sb), "FGCOLOR"))
+		manager:revert()
+	end)
 	it("fades the text in from the bar colour to its resting colour", function()
 		local sb = bar()
 		local motion, frame = director()

@@ -89,6 +89,7 @@ function TitleBar.new(opts)
 		ALIGNMENT = "ACENTER", GAP = tostring(GAP), MARGIN = SIDE_MARGIN .. "x0",
 	})
 	self._widget = iup.hbox({
+		THEMEROLE = "titlebar_window",
 		-- The strut holds the bar's height: a box takes its height from its children.
 		iup.label({ TITLE = "", RASTERSIZE = "0x" .. TitleBar.HEIGHT }),
 		self._left, iup.fill({}), self._menu, self._bars, self._terminal, self._reserved,
