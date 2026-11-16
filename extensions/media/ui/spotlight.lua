@@ -119,6 +119,7 @@ function M.new(ctx, opts)
 	iup.SetAttribute(info, "RASTERSIZE", (opts.secondary and "168" or "112") .. "x40")
 
 	api.primary = play
+	api.secondary = info
 	local dots = iup.hbox({ GAP = L.gap(1), MARGIN = "0x0", ALIGNMENT = "ACENTER" })
 	local dot_widgets = {}
 
@@ -143,6 +144,7 @@ function M.new(ctx, opts)
 		iup.SetAttribute(api.widget, "THEMEROLE", "page_column")
 		iup.SetAttribute(api.widget, "FRAME", "NO")
 		iup.SetAttribute(api.widget, "RASTERSIZE", L.size(nil, art_height + L.px(5)))
+		if opts.header_action then Kit.show(iup, iup.GetParent(info), false) end
 	end
 
 	local function recolour()

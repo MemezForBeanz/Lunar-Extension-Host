@@ -291,6 +291,7 @@ function M.build(p)
         },
         dropdown_list = {
             bg = elevated, fg = p.text, font = p.font,
+            itemmarker = p.accent,
             border = border, borderwidth = 1, radius = R,
             scrollbg = elevated, scrollfg = borderS,
             selbg = chosen, seltext = p.text, selalpha = "0",

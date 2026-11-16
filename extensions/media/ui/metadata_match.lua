@@ -20,7 +20,7 @@ function M.new(ctx, opts)
  for _,p in ipairs(Metadb.providers) do provider_ids[#provider_ids+1]=p.id;provider_names[#provider_names+1]=p.name end
  local provider_index=1
  local provider=Dropdown.new(iup,{items=provider_names,value=1,width=240,on_change=function(index) provider_index=index;generation=generation+1;pending=nil;candidates={};selected=nil;if rows then rows:setRows({}) end;if match then match_enabled(false) end end})
- local query=Field.new(iup,{cue='Movie or TV title'})
+ local query=Field.new(iup,{cue='Movie or TV title', toolbar=true})
  local status=Kit.statusLine(iup,'info','Search, then choose the correct title and year.')
  local function value(pos,field)
   local row=candidates[pos]; if not row then return end
@@ -52,7 +52,7 @@ function M.new(ctx, opts)
  end})
  local function labelled(text,widget) return iup.vbox({L.hint(iup,text),widget,GAP=L.gap(2),EXPAND='HORIZONTAL'}) end
  preview=iup.flatlabel({TITLE='Select a result to check its title and year.',TEXTWRAP='YES',EXPAND='HORIZONTAL',THEMEROLE='reading_muted'})
- api.widget=iup.vbox({iup.hbox({opts.type_widget and labelled('Type',opts.type_widget) or iup.fill({}),labelled('Provider',provider.widget),labelled('Search',query.widget),search,GAP=L.gap(3),ALIGNMENT='ACENTER',EXPAND='HORIZONTAL'}),status,rows.widget,
+ api.widget=iup.vbox({iup.hbox({opts.type_widget and labelled('Type',opts.type_widget) or iup.fill({}),labelled('Provider',provider.widget),labelled('Search',query.widget),search,GAP=L.gap(3),ALIGNMENT='ABOTTOM',EXPAND='HORIZONTAL'}),status,rows.widget,
   iup.hbox({preview,match,refresh,GAP=L.gap(3),ALIGNMENT='ACENTER',EXPAND='HORIZONTAL'}),GAP=L.gap(3),EXPAND='HORIZONTAL'})
  function api.bindStatus(line) Kit.show(iup,status,false);status=line end
  api.controls={provider=provider.widget,query=query.widget,search=search,status=status}

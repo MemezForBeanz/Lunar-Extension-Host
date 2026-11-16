@@ -7,6 +7,14 @@ local tint = require("libs.tint")
 local M = {}
 function M.new(iup, page)
     local api = {}
+    -- Inspector dismissals use the same unfilled action as other media disclosures.
+    if page.inspector then
+        local function quiet(node)
+            if iup.GetAttribute(node, "TITLE") == "Close" then iup.SetAttribute(node, "THEMEROLE", "link_btn") end
+            for n=0,iup.GetChildCount(node)-1 do quiet(iup.GetChild(node,n)) end
+        end
+        quiet(page.inspector)
+    end
     if not rawget(iup, "_IMGUI") then
         function api:fit() end
         function api:sync() end
