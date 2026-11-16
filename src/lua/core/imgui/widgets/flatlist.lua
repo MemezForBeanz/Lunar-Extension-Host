@@ -572,7 +572,7 @@ local function draw(e, st, dc, rt)
 	local lw, lh, sp = d.line_width, d.line_height, spacing(e)
 
 	local behind = behind_color(e)
-	if behind then FlatDraw.fillRect(dc, ox, oy, 0, 0, width - 1, height - 1, Color.parse(behind)) end
+	if behind and not dc.material then FlatDraw.fillRect(dc, ox, oy, 0, 0, width - 1, height - 1, Color.parse(behind)) end
 
 	-- Lunar fork: CORNERRADIUS (rounded list body)
 	FlatDraw.boxAttrib(e, dc, ox, oy, bw, width - bw - 1, bw, height - bw - 1, background_color, background_color, true)

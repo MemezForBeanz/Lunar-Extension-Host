@@ -54,4 +54,22 @@ describe("Lunar glass",function()
         assert.equal(.1,found[7]); assert.equal(.8,found[10])
         E.destroy(img)
     end)
+    it("keeps native-parent fills from overwriting a prepainted glass surface",function()
+        local E=require("core.imgui.Element")
+        require("core.imgui.widgets.flatlabel")
+        local original=E.globals.DLGBGCOLOR
+        E.globals.DLGBGCOLOR="240 240 240"
+        local el=E.new("flatlabel",{TITLE="Popup"})
+        local count=0
+        local dc={material={glass="floating"},fill=function() count=count+1 end}
+        local st={x=0,y=0,w=100,h=30}
+        local F=require("core.imgui.widgets.flatdraw")
+        F.parentBackground(el,dc,st)
+        assert.equal(0,count)
+        dc.material=nil
+        F.parentBackground(el,dc,st)
+        assert.equal(1,count)
+        E.globals.DLGBGCOLOR=original
+        E.destroy(el)
+    end)
 end)

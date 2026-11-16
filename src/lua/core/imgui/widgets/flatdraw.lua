@@ -464,6 +464,7 @@ end
 
 --- iupDrawParentBackground: the whole control in its native parent's colour.
 function M.parentBackground(el, dc, st)
+	if dc.material then return end -- the material already painted the enclosing surface
 	local bg = M.nativeParentBg(el)
 	if bg then dc:fill(st.x, st.y, st.w, st.h, bg) end
 end
