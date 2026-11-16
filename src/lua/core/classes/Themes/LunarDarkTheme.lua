@@ -33,6 +33,9 @@ function LunarDarkTheme:initialize()
         font = "Segoe UI, 10",
         glass = true,
         glassDark = true,
+        glassBloom = 0.07, glassBloomWidth = 0.60, glassBloomHeight = 1.4,
+        glassChromeAlpha = 0.78, glassFloatingAlpha = 0.88,
+        glassTopRim = "255 255 255 36", glassRim = "255 255 255 15",
         radius = 6, radiusFrame = 8,
     }
     p.warningText = p.accentText

@@ -7,6 +7,14 @@ local floor, ceil, exp = math.floor, math.ceil, math.exp
 local shapes = setmetatable({}, {__index=function(t,r) local v={radius=r}; rawset(t,r,v); return v end})
 local shadows={}
 for i=1,12 do shadows[i]={radius=12+i,thickness=1} end
+local function linear(c)
+    c=c/255
+    return c<=0.04045 and c/12.92 or ((c+0.055)/1.055)^2.4
+end
+local function srgb(c)
+    c=math.min(1,c)
+    return floor(255*(c<=0.0031308 and c*12.92 or 1.055*c^(1/2.4)-0.055)+0.5)
+end
 local function sample(dc,c,tex,left,top,right,bottom)
     dc:_emit("image",tex,left+dc.ox,top+dc.oy,right+dc.ox,bottom+dc.oy,
         (left+dc.ox)/c.w,(top+dc.oy)/c.h,(right+dc.ox)/c.w,(bottom+dc.oy)/c.h,dc:_color(0xFFFFFFFF))
@@ -29,14 +37,18 @@ function M.pixels(p, w, h)
     local ffi = require("ffi") -- optional: paint falls back to opaque without it
     local sw, sh = ceil(w / 2), ceil(h / 2)
     local r,g,b = Color.unpack(Color.parse(p.bg))
+    r,g,b=linear(r),linear(g),linear(b)
     local bw,bh = ceil(sw/2),ceil(sh/2)
     local sharp, data = {}, ffi.new("float[?]",bw*bh*3)
     for y=0,sh-1 do
         local row = {}
         for x=0,sw-1 do
-            local glow = (p.glassDark and 64 or 90) * exp(-((x/sw/0.42)^2 + (y/sh/0.85)^2)*2)
-            local rr,gg,bb = math.min(255,r+glow),math.min(255,g+glow),math.min(255,b+glow)
-            rr,gg,bb = floor(rr),floor(gg),floor(bb)
+            -- The spec's +7% is luminance, not 7% of an sRGB byte. A broad
+            -- crescent bloom reaches the rail's foot and fades out by 60% width.
+            -- Generate in linear light so tinting does not erase its shoulder.
+            local u=math.min(1,x/sw/(p.glassBloomWidth or 0.60))
+            local glow=(p.glassBloom or (p.glassDark and 0.07 or 0.18))*(1-u^4)^2*exp(-0.5*(y/sh/(p.glassBloomHeight or 1.4))^2)
+            local rr,gg,bb=srgb(r+glow),srgb(g+glow),srgb(b+glow)
             row[#row+1] = string.char(rr,gg,bb,255)
             if x%2==0 and y%2==0 then
                 local i=(floor(y/2)*bw+floor(x/2))*3
@@ -138,7 +150,8 @@ function M.paint(dc,x,y,w,h,kind,p,radius)
         dc:clip_pop()
         if kind~="floor" then
             local tint=floating and (p.glassDark and p.layer03 or "255 255 255") or p.layer01
-            local alpha=floating and (p.glassDark and 0.88 or 0.90) or (p.glassDark and 0.78 or 0.82)
+            local alpha=floating and (p.glassFloatingAlpha or (p.glassDark and 0.88 or 0.90))
+                or (p.glassChromeAlpha or (p.glassDark and 0.78 or 0.82))
             dc:fill(x,y,w,h,Color.alpha(Color.parse(tint),alpha),options)
         end
     end
@@ -156,8 +169,8 @@ function M.paint(dc,x,y,w,h,kind,p,radius)
         dc:clip_pop()
     end
     if tex and kind~="floor" and kind~="content" and kind~="chrome_content" then
-        dc:rect(x,y,w,h,p.glassDark and "255 255 255 15" or "0 0 0 20",options)
-        dc:line(x+options.radius,y+0.5,x+w-options.radius,y+0.5,p.glassDark and "255 255 255 36" or "255 255 255 204")
+        dc:rect(x,y,w,h,p.glassRim or (p.glassDark and "255 255 255 15" or "0 0 0 20"),options)
+        dc:line(x+options.radius,y+0.5,x+w-options.radius,y+0.5,p.glassTopRim or (p.glassDark and "255 255 255 36" or "255 255 255 204"))
     end
 end
 
