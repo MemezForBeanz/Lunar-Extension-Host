@@ -304,7 +304,7 @@ local function text_natural(e, st, L)
 		if sb == "YES" or sb == "HORIZONTAL" then natural_h = natural_h + size end
 		if sb == "YES" or sb == "VERTICAL" then natural_w = natural_w + size end
 	end
-	return natural_w, natural_h
+	return natural_w, math.max(natural_h, tonumber(attr(e, "CONTROLHEIGHT")) or 0)
 end
 local function draw(e, st, dc, rt)
 	local font = Fonts.forElement(e)
@@ -363,7 +363,13 @@ local function draw(e, st, dc, rt)
 		elseif rt.animate then rt.animate() end
 	end
 	dc:clip_pop()
-	if bw > 0 then dc:rect(st.x, st.y, st.w, st.h, focused and (attr(e, "FOCUSCOLOR") or attr(e, "BORDERCOLOR")) or attr(e, "BORDERCOLOR"), { thickness = bw }) end
+	if bw > 0 then
+        if attr(e, "BORDERSTYLE") == "BOTTOM" and not focused then
+            dc:line(st.x, st.y + st.h - 1, st.x + st.w, st.y + st.h - 1, attr(e, "BORDERCOLOR"), bw)
+        else
+            dc:rect(st.x, st.y, st.w, st.h, focused and (attr(e, "FOCUSCOLOR") or attr(e, "BORDERCOLOR")) or attr(e, "BORDERCOLOR"), { thickness = focused and 2 or bw })
+        end
+    end
 end
 local function event(e, st, ev, rt)
 	local text = st.data.text

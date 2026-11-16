@@ -14,7 +14,7 @@ end
 
 describe("org theme adoption", function()
 	it("adopts once per theme value, preserves later choices and other markers", function()
-		local s = manager({ theme = "classic_dark", theme_light = "classic", theme_dark = "classic_dark",
+		local s = manager({ theme = "carbon_g100", theme_light = "carbon_white", theme_dark = "carbon_g100",
 			org_theme_applied = { other = "other_dark" } })
 		s:applyProfile(profile())
 		assert.equal("acme_light", s:get("theme"))

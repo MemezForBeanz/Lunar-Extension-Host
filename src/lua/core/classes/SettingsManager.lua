@@ -25,12 +25,12 @@ local SettingsManager = class("SettingsManager")
 -- The host's own settings. Extensions keep theirs in the same file and supply
 -- their own defaults (`get` returns nil for a key nobody set).
 local DEFAULTS = {
-    theme               = "classic_dark",
+    theme               = "carbon_g100",
     -- "Match system theme" (core.lib.SystemTheme): when on, theme_light is shown
     -- while the OS is in light mode and theme_dark while it is in dark mode.
     theme_follow_system = false,
-    theme_light         = "classic",
-    theme_dark          = "classic_dark",
+    theme_light         = "carbon_white",
+    theme_dark          = "carbon_g100",
     welcome_tour_completed = false,
     welcome_tour_dismissed = false,
     -- Shared backend (feedback; extensions may use it too). Empty in the neutral
@@ -198,6 +198,10 @@ function SettingsManager:load()
     -- legacy flag over once so users who finished or dismissed the tour don't
     -- see it again.
     local user = self._user
+    local theme_ids = { classic = "carbon_white", classic_dark = "carbon_g100" }
+    for _, key in ipairs({ "theme", "theme_light", "theme_dark" }) do
+        if theme_ids[user[key]] then user[key] = theme_ids[user[key]]; migrated = true end
+    end
     -- Written before Lunar: org profiles may retire defaults those builds saved.
     -- Recorded in the file, so it survives until a profile that retires values has
     -- actually been applied and saved (see applyProfile).

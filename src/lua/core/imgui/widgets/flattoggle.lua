@@ -137,7 +137,7 @@ local function draw(e, st, dc)
 	-- SWITCHPOS (0 to 100) lets an animation move the knob; without it the knob follows
 	-- the value.
 	if bool(attr(e, "SWITCH")) then
-		local track_w, track_h, knob = 36, 20, 14
+		local track_w, track_h, knob = int(attr(e, "SWITCHWIDTH"), 36), int(attr(e, "SWITCHHEIGHT"), 20), int(attr(e, "SWITCHKNOBSIZE"), 14)
 		local track_x = floor((cw - track_w) / 2)
 		local track_y = floor((ch - track_h) / 2)
 		local pos = attr(e, "SWITCHPOS") and int(attr(e, "SWITCHPOS"), 0) or (selected ~= 0 and 100 or 0)

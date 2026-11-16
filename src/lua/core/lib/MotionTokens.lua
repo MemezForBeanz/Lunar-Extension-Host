@@ -247,11 +247,11 @@ M.ROLES = {
 	-- The duration is explicit because the sweep is a fixed 90 degrees whatever
 	-- the section contains, not derived from the body's height.
 	--
-	-- Entrance easing: the chevron arrives at its open position and slows to a
+	-- Standard easing: the chevron remains visible as it rotates to a
 	-- stop, matching content appearing in a seam.
 	settings_expand = {
 		duration = M.DURATION.fast_02,
-		curve    = "entrance",
+		curve    = "standard",
 		style    = "productive",
 	},
 
@@ -386,7 +386,7 @@ M.ROLES = {
 	-- purpose: the old window is fading out on top of this button, and the end of
 	-- the turn is what should be seen clearly.
 	theme_mode_icon = {
-		duration = M.DURATION.slow_02,
+		duration = M.DURATION.slow_01,
 		curve    = "standard",
 		style    = "expressive",
 	},
@@ -427,6 +427,17 @@ M.ROLES = {
 		curve    = "standard",
 		style    = "productive",
 	},
+	focus = { duration = M.DURATION.fast_01, curve = "standard", style = "productive" },
+	toggle = { duration = M.DURATION.fast_01, curve = "standard", style = "productive" },
+	disclosure = { duration = M.DURATION.fast_02, curve = "standard", style = "productive" },
+	menu_enter = { duration = M.DURATION.moderate_01, curve = "entrance", style = "productive" },
+	menu_exit = { duration = M.DURATION.fast_02, curve = "exit", style = "productive" },
+	dropdown_enter = { duration = M.DURATION.moderate_01, curve = "entrance", style = "productive" },
+	dropdown_exit = { duration = M.DURATION.fast_02, curve = "exit", style = "productive" },
+	tooltip_enter = { duration = M.DURATION.fast_02, curve = "entrance", style = "productive", delay = 500 },
+	tooltip_exit = { duration = M.DURATION.fast_02, curve = "exit", style = "productive" },
+	notification_enter = { duration = M.DURATION.moderate_02, curve = "entrance", style = "expressive" },
+	notification_exit = { duration = M.DURATION.moderate_02, curve = "exit", style = "expressive" },
 }
 
 -- Two Carbon moments are deliberately absent, and it is worth recording why so

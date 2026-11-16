@@ -19,6 +19,16 @@ describe("imgui flatbutton", function()
 		assert.is_true(w >= 4 + 2 * 4 + 2 * 2)
 		assert.is_true(h >= 13 + 2 * 2 + 2 * 2)
 	end)
+    it("honours an explicit control height and trailing text allowance", function()
+        local b = iup.flatbutton{ TITLE = "Save", PADDING = "16x8", CONTROLHEIGHT = "40" }
+        local c, st = Classes.get("flatbutton"), Element.state(b)
+        local w, h = c.natural(b, st, {})
+        assert.equal(40, h)
+        b.TEXTRIGHTPADDING = "64"
+        local wide, same = c.natural(b, st, {})
+        assert.equal(w + 48, wide)
+        assert.equal(40, same)
+    end)
 	it("fires action only for a release inside after an inside press", function()
 		local count = 0
 		local b = iup.flatbutton{ TITLE = "Run", flat_action = function() count = count + 1 end }
