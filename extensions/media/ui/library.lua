@@ -270,7 +270,7 @@ function M.new(ctx, opts)
 	drains[#drains + 1] = inspector_posters
 
 	local shelves, sheet, ledger, hero
-	local workspace, opened, page_stack
+	local workspace, opened, page_stack, last_inspector_open
 	local sources_anchor
 
 	local function position_in(list, item)
@@ -797,7 +797,8 @@ function M.new(ctx, opts)
 		end
 		iup.SetAttribute(heading, "TITLE", title)
         if workspace then
-            workspace:setState("info", id == "home" and "" or (#base .. (id == "shows" and " shows" or id == "films" and " films" or " titles")))
+			local failure = workspace.feedMessage
+			workspace:setState(failure and "error" or "info", failure or (id == "home" and "Pick something to watch" or (#base .. (id == "shows" and " shows" or id == "films" and " films" or " titles"))))
             workspace:openInspector(false)
         end
 		if api.fit and api.last_width then api.fit(api.last_width) end
@@ -844,8 +845,10 @@ function M.new(ctx, opts)
         inspector = { widget = inspector_body, title = "Selected title", width = L.PAGE.inspector },
         state = { kind = "info", text = "Choose a library or collection" } })
     page_stack = iup.zbox({workspace:widget(), details.widget, EXPAND = "YES"})
+	workspace.feedMessage = reliability.message
     api.widget = page_stack
-    workspace.mediaCaptureState = function() workspace:setState("info", "Browse your library") end
+    local drawer = require("ui.drawer").new(iup, workspace)
+    workspace.mediaCaptureState = function() workspace:setState(reliability.message and "error" or "info", reliability.message or "Browse your library") end
 
 	local fill_spotlight
 	choose(continuing[1] or model.films[1])
@@ -925,6 +928,13 @@ function M.new(ctx, opts)
             and { 72, 112, 0, 0, 0, 0 } or { 72, 112, 88, 128, 128, 80 }
         for column, pixels in ipairs(widths) do iup.SetAttribute(ledger.widget, "COLUMN" .. column .. "WIDTH", tostring(pixels)) end
         workspace:fit(width)
+		-- Clamp the browser before natural sizes from its poster grid can widen it.
+		local nav_width = width - L.PAGE.padding * 2 >= L.PAGE.config_break and workspace.configSize + L.PAGE.gutter or 0
+		local client = math.max(L.PAGE.control, width - L.PAGE.padding * 2 - nav_width)
+		local drawer_break = L.PAGE.config + L.PAGE.main_min + L.PAGE.inspector + L.PAGE.padding * 2 + L.PAGE.gutter * 2
+		if workspace.inspectorOpen and (width >= drawer_break or not rawget(iup, "_IMGUI")) then client = client - workspace.inspectorSize - L.PAGE.gutter end
+		iup.SetAttribute(main, "MAXSIZE", L.maxSize(client))
+		iup.SetAttribute(main, "RASTERSIZE", L.size(client))
         details.setWidth(width)
         local compact = width < L.PAGE.drawer_break + L.PAGE.config + L.PAGE.inspector
         Kit.show(iup, segmented, not compact, sources.widget)
@@ -932,6 +942,8 @@ function M.new(ctx, opts)
         Kit.show(iup, density_box, not compact and view == "sheet", sources.widget)
         Kit.show(iup, browser_options, compact, sources.widget)
         workspace:openInspector(source_id ~= "home" and not opened and workspace.inspectorOpen)
+        last_inspector_open = workspace.inspectorOpen
+        drawer:fit(width)
         -- The drawer is positioned relative to main, after the navigation column.
         if workspace.inspector and workspace.inspectorOpen and width < L.PAGE.config + L.PAGE.main_min + L.PAGE.inspector + L.PAGE.padding * 2 + L.PAGE.gutter * 2 and rawget(iup, "_IMGUI") then
             local available = width - L.PAGE.padding * 2 - (width - L.PAGE.padding * 2 >= L.PAGE.config_break and workspace.configSize + L.PAGE.gutter or 0)
@@ -1000,6 +1012,7 @@ function M.new(ctx, opts)
 		model = next_model
 		details.setModel(model)
 		reliability.setModel(model)
+		workspace.feedMessage = reliability.message
 		refill(films, model.films)
 		refill(shows, model.shows)
 		refill(continuing, model.continuing or {})
@@ -1078,6 +1091,9 @@ function M.new(ctx, opts)
 	end
 
 	function api.tick()
+		reliability.tick()
+		if last_inspector_open ~= workspace.inspectorOpen and api.last_width then api.fit(api.last_width) end
+		drawer:sync()
 		fit_cells()
 		for _, drain in ipairs(drains) do drain() end
 	end

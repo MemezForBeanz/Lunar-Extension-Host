@@ -58,7 +58,7 @@ function M.new(ctx, opts)
 		local rows = {}
 		for _, library in ipairs(libraries or {}) do
 			rows[#rows + 1] = { title = library.name, secondary = library.root,
-				column1 = tostring(#(library.items or {})), column2 = library.scanned_at and os.date("%b %d %H:%M", library.scanned_at) or "Not scanned" }
+				column1 = tostring(#(library.items or {})), column2 = library.scanned_at and os.date("%b %d %H:%M", library.scanned_at) or (#(library.items or {}) > 0 and "Time unknown" or "Not scanned") }
 		end
 		return rows
 	end

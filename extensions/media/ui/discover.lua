@@ -201,17 +201,18 @@ function M.new(ctx,opts)
  page=Kit.page(iup,{id='media-sources',title='Sources',icon='globe',
   nav={title='Sources',widget=provider_list.widget}, main=main,
   toolbar=iup.hbox({query.widget,GAP=L.gap(3),EXPAND='HORIZONTAL'}),
-  primary={widget=find},inspector={title='Add selected title',widget=iup.vbox({add_menu,choices,GAP=L.gap(3),EXPAND='YES'})}})
+  primary={widget=find,run='run'},inspector={title='Add selected title',widget=iup.vbox({add_menu,choices,GAP=L.gap(3),EXPAND='YES'})}})
  -- Keep asynchronous status callbacks on the page's one state line.
  status=page.stateLine
  api.widget=page:widget()
+ api.page=page
  local last_connected,last_provider
  local function connection()
   local connected=capture_connected or not opts.is_connected or opts.is_connected()
   if connected==last_connected and provider==last_provider then return end
   last_connected,last_provider=connected,provider
   Kit.show(iup,welcome,not connected,status);Kit.show(iup,catalog,connected,status)
-  Kit.show(iup,page.toolbar,connected,status);Kit.show(iup,find,connected,status)
+  Kit.show(iup,query.widget,connected,status);Kit.show(iup,find,connected,status)
   iup.SetAttribute(find,'ACTIVE',connected and provider and 'YES' or 'NO')
   iup.SetAttribute(find,'TIP',connected and provider and 'Search the selected source' or 'Connect and choose a source first')
   if ctx.notifyTreeChange then ctx:notifyTreeChange(find) end
