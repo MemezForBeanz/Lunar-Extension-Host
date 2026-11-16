@@ -241,11 +241,11 @@ function M.new(ctx, opts)
 	local page_width
 	local metadata = require('ui.metadata_match').new(ctx, { on_metadata = opts.on_metadata, on_changed = opts.on_metadata_changed })
 	local matching = false
-	local fix_match = Kit.button(iup, { title = 'Fix match', role = 'actionbutton', action = function()
+	local function fix_match()
 		matching = not matching
 		Kit.show(iup, metadata.widget, matching, back)
 		iup.Refresh(api.widget)
-	end })
+	end
     local technical = L.stack(iup, { copies_section, forecast_section }, 4)
     Kit.show(iup, technical, false, back)
     local disclosure = Kit.disclosure(iup, { title = "Technical details", on_change = function(open)
@@ -312,7 +312,7 @@ function M.new(ctx, opts)
             hero.show(current, true)
             page:setSecondary({
                 {title = iup.GetAttribute(hero.secondary, "TITLE"), action = function() hero.secondary:flat_action() end},
-                opts.on_metadata and {title = "Fix match", action = function() fix_match:flat_action() end} or nil,
+                opts.on_metadata and {title = "Fix match", action = fix_match} or nil,
             })
         end
 	end
@@ -328,7 +328,6 @@ function M.new(ctx, opts)
 		metadata.open(item)
 		matching = false
 		Kit.show(iup, metadata.widget, false, back)
-		Kit.show(iup, fix_match, opts.on_metadata ~= nil, back)
 		api.refresh()
 		for i, value in ipairs(fact_values(item)) do
 			iup.SetAttribute(fact_rows[i].value, "TITLE", value)
