@@ -49,8 +49,10 @@ local function setup(opts)
 end
 
 describe("AppearanceSettings", function()
-    it("omits Glass effects for themes without glass", function()
-        assert.is_nil(setup({ glass = false }).w["Glass effects"])
+    it("keeps the Glass row conditional so a later theme switch can reveal it", function()
+        local s = setup({ glass = false })
+        assert.is_false(s.section.entries[2].visible())
+        assert.is_true(setup().section.entries[2].visible())
     end)
 
  local function choose(button, index)

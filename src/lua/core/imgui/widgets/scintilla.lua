@@ -201,6 +201,7 @@ local function draw(e, st, dc, rt)
 	local caret_line = line_from(text, st.data.caret)
 	for i = first + 1, math.min(#lines, first + math.ceil(st.h / ch) + 1) do
 		local y = st.y + (i - first - 1) * ch
+		if attr(e, "FULLLINESONLY") == "YES" and y + ch > st.y + st.h then break end
 		-- SCI_SETCARETLINEBACK (CodeView themes it), then the IUP attribute, then Scintilla's default
 		if st.data.caret_line_visible and i - 1 == caret_line then dc:fill(st.x, y, st.w, ch, st.data.caret_line_back or attr(e, "CARETLINEBACKCOLOR") or "240 240 240") end
 		if (st.data.margin_width[0] or 0) > 0 then
@@ -594,8 +595,12 @@ M._bgr_to_rgb = bgr_to_rgb
 M._style_at = style_at
 M._style_clear = function(st)
 	st.data.style_ranges = {}
-	st.data.style_fore, st.data.style_back = {}, {}
-	st.data.style_bold, st.data.style_italic, st.data.style_size, st.data.style_face = {}, {}, {}, {}
+	-- SCI_STYLECLEARALL resets styles to STYLE_DEFAULT; it must not erase
+	-- that default (including the editor's Mono face) along with the lexer.
+	for _, key in ipairs({ "style_fore", "style_back", "style_bold", "style_italic", "style_size", "style_face" }) do
+		local default = st.data[key] and st.data[key][32]
+		st.data[key] = { [32] = default }
+	end
 	st.data.fonts = nil
 end
 return M

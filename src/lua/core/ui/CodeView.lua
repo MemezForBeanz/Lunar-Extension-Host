@@ -294,7 +294,7 @@ end
 -- A monospaced face from a theme font (`"Segoe UI, 10"`): the size follows the theme.
 function CodeView.font(theme_font)
 	local size = tonumber(tostring(theme_font or ""):match("(%d+)%s*$")) or 10
-	return WINDOWS and "Consolas" or "DejaVu Sans Mono", size
+	return "IBM Plex Mono", size
 end
 
 local function bgr(color)
@@ -356,7 +356,7 @@ function CodeView:_buildPlain()
 	local iup = self._iup
 	self._control = iup.text({
 		MULTILINE = self._single_line and "NO" or "YES", READONLY = self._read_only and "YES" or "NO", EXPAND = "YES",
-		WORDWRAP = self._wrap and "YES" or "NO", BORDER = "NO", FONT = "Consolas, 10",
+		WORDWRAP = self._wrap and "YES" or "NO", BORDER = "NO", FONT = "IBM Plex Mono, 10",
 		VALUE = self._text, THEMEROLE = "outputlog",
 	})
 	-- Match the org-pack log viewers: set this after construction so IUP's
@@ -666,7 +666,10 @@ function CodeView:_applyTheme()
 	local colors = CodeView.colors(p)
 	self._colors = colors
 	if not self._ready then return end
-	if not sci then return end
+	if not sci then
+		self._iup.SetAttribute(self._control, "FONT", "IBM Plex Mono, 10")
+		return
+	end
 	local face, size = CodeView.font(p.font)
 	sci.sends(self._control, SCI.STYLESETFONT, STYLE_DEFAULT, face)
 	self:_send(SCI.STYLESETSIZE, STYLE_DEFAULT, size)

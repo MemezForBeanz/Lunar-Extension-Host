@@ -4,6 +4,28 @@ local iup = require("core.imgui.iup")
 local sci = require("core.imgui.native.sci")
 
 describe("ImGui scintilla compatibility", function()
+	it("leaves a partial terminal row blank rather than cutting its text", function()
+		local B = require("core.imgui.backend.Null").new()
+		local R = require("core.imgui.Runtime"); R.init(B)
+		local c = iup.scintilla{ VALUE = "first\nsecond\nthird", FULLLINESONLY = "YES" }
+		local st = Element.state(c)
+		local _, ch = require("core.imgui.widgets.scintilla")._style_font(c, st, 32):charsize()
+		st.x, st.y, st.w, st.h = 0, 0, 300, ch * 1.5
+		local shown = {}
+		local dc = require("core.imgui.Draw").new(B); dc:begin(300,100)
+		dc.text = function(_, text) shown[#shown+1] = text end
+		Classes.get("scintilla").draw(c, st, dc, R)
+		assert.same({"first"},shown)
+	end)
+	it("retains the default Mono face when clearing lexer styles", function()
+		local c = iup.scintilla{}
+		sci.sends(c, 2056, 32, "IBM Plex Mono")
+		sci.send(c, 2055, 32, 10)
+		sci.send(c, 2050)
+		local st = Element.state(c)
+		assert.equal("IBM Plex Mono", st.data.style_face[32])
+		assert.equal(10, st.data.style_size[32])
+	end)
 	it("paints the caret line with the colour supplied by CodeView", function()
 		local B = require("core.imgui.backend.Null").new()
 		local R = require("core.imgui.Runtime")

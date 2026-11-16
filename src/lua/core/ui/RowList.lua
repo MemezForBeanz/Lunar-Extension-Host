@@ -109,11 +109,11 @@ function M.new(iup, opts)
                     local R = package.loaded["core.imgui.Runtime"]
                     return R and R.isVisible(widget) and height > 0 and pos >= first and pos <= last
                 end,
-                paint = function(path)
+                paint = function(path, role)
                     local V = require("core.ui.VectorIcon")
                     if not V.available then return end
                     state_images[pos] = V.imageHandle(iup, { path = path, size = tonumber(opts.image_size) or 16,
-                        color = V.roleColor(({ok="success",warning="warning",failed="error"})[states[pos]] or "neutral") })
+                        color = V.roleColor(role) })
                     iup.Update(widget)
                 end })
             state_icons[pos] = icon

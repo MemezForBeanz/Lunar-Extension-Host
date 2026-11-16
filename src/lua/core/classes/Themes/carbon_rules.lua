@@ -281,6 +281,7 @@ function M.build(p)
     local field = p.field01 or layer1
     for _, role in ipairs({ "text", "multiline", "list", "dropbutton", "dropbutton_quiet" }) do
         rules[role] = { bg = field, fg = p.text, font = p.font,
+            hover = p.layerHover01, pressed = field, hovertext = p.text, pressedtext = p.text,
             border = p.borderStrong01 or p.border, borderwidth = 1, borderstyle = "BOTTOM",
             padding = L.margin(5, 0), controlheight = L.px(8), radius = 0,
             focuscolor = p.focus, focusinset = p.focusInset }
@@ -296,7 +297,7 @@ function M.build(p)
     for _, role in ipairs({ "toggle", "flattoggle", "flattoggle_noborder" }) do
         rules[role].checkbg = p.field01 or layer1
         rules[role].checkfg = p.iconOnColor
-        rules[role].checkon = p.supportSuccess
+        rules[role].checkon = p.iconPrimary or p.text
         rules[role].pressed = selected
         rules[role].pressedtext = p.text
         rules[role].switchoff = p.toggleOff

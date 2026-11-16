@@ -19,6 +19,7 @@ function Terminal.new(opts)
 	local self = setmetatable({ _iup = iup, _opts = opts, _shell = Shell.new(), _buffer = Buffer.new(),
 		_cwd = lfs.currentdir(), _requests = {}, _generation = 0 }, Terminal)
 	self._output = CodeView.new(iup, { line_numbers = false, framed = false, wrap = false })
+	if rawget(iup, "_IMGUI") then iup.SetAttribute(self._output:control(), "FULLLINESONLY", "YES") end
 	self._input = CodeView.new(iup, { line_numbers = false, framed = false, read_only = false, single_line = true })
 	iup.SetAttribute(self._input:widget(), "EXPAND", "HORIZONTAL")
 	iup.SetAttribute(self._input:widget(), "RASTERSIZE", "x28")
