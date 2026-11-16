@@ -30,7 +30,11 @@ struct Window {
     SDL_Window *native = nullptr;
     SDL_GLContext context = nullptr;
     ImDrawList *lists[2] = {};
+    SDL_Surface *capture = nullptr;
     bool visible = false, close = false, drawn = false, positioned = false;
+    bool overlay = false;
+    int owner = 0;
+    uint64_t order = 0;
 };
 struct Texture { GLuint gl; int refs = 1; };
 struct State {
@@ -53,6 +57,8 @@ struct State {
     ImDrawList *scratch = nullptr;
     std::string shot;
     int shot_window = 0;
+    bool shot_extend = false;
+    uint64_t overlay_order = 0;
 } g;
 
 Window *window(int id) {
@@ -101,6 +107,7 @@ void reset_list(Window *w) {
     w->drawn = false;
 }
 void destroy(Window *w) {
+    if(w->capture){SDL_DestroySurface(w->capture);w->capture=nullptr;}
     for (auto &dl : w->lists) { if (dl) IM_DELETE(dl); dl = nullptr; }
     if (w->context) SDL_GL_DestroyContext(w->context);
     if (w->native) SDL_DestroyWindow(w->native);
@@ -134,6 +141,7 @@ void process(const SDL_Event &e) {
     // The shared windowID is at the same offset in SDL's window/input events.
     if (e.type >= SDL_EVENT_WINDOW_FIRST && e.type <= SDL_EVENT_WINDOW_LAST) w = from_sdl(e.window.windowID);
     if (e.type == SDL_EVENT_QUIT) { g.main.close = true; return; }
+    if (e.type == SDL_EVENT_WINDOW_FOCUS_LOST && w && !w->overlay) emit(w, 11);
     if (e.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && w) { w->close = true; return; }
     if (e.type == SDL_EVENT_WINDOW_MOUSE_LEAVE) {
         if (!g.down[0] && !g.down[1] && !g.down[2]) { g.inside = false; g.mx = g.my = -1; emit(w, 8); }
@@ -263,13 +271,35 @@ int l_frame_begin(lua_State *L) {
     lua_pushlightuserdata(L,&f);return 1;
 }
 void screenshot(Window *w) {
-    if(g.shot.empty()||g.shot_window!=w->id)return;
+    if(g.shot.empty()||(g.shot_window!=w->id&&(!w->overlay||w->owner!=g.shot_window)))return;
     SDL_Surface *s=SDL_CreateSurface(w->w,w->h,SDL_PIXELFORMAT_RGBA32);
     if(s){glPixelStorei(GL_PACK_ALIGNMENT,1);glReadPixels(0,0,w->w,w->h,GL_RGBA,GL_UNSIGNED_BYTE,s->pixels);
         std::vector<unsigned char> row((size_t)s->pitch);
         for(int y=0;y<s->h/2;++y){auto a=(unsigned char*)s->pixels+y*s->pitch;auto b=(unsigned char*)s->pixels+(s->h-y-1)*s->pitch;
             std::memcpy(row.data(),a,s->pitch);std::memcpy(a,b,s->pitch);std::memcpy(b,row.data(),s->pitch);}
-        SDL_SaveBMP(s,g.shot.c_str());SDL_DestroySurface(s);}
+        if(w->capture)SDL_DestroySurface(w->capture);w->capture=s;}
+}
+void save_screenshot(){
+    if(g.shot.empty())return;
+    auto owner=window(g.shot_window);
+    if(owner&&owner->capture){
+        int x=owner->x,y=owner->y,x2=x+owner->w,y2=y+owner->h;
+        if(g.shot_extend)for(auto &p:g.windows)if(p->overlay&&p->visible&&p->owner==owner->id&&p->capture){x=std::min(x,p->x);y=std::min(y,p->y);x2=std::max(x2,p->x+p->w);y2=std::max(y2,p->y+p->h);}
+        auto image=SDL_CreateSurface(x2-x,y2-y,SDL_PIXELFORMAT_RGBA32);
+        if(image){
+            SDL_FillSurfaceRect(image,nullptr,SDL_MapSurfaceRGBA(image,64,0,64,255));
+            SDL_Rect dst={owner->x-x,owner->y-y,owner->w,owner->h};SDL_SetSurfaceBlendMode(owner->capture,SDL_BLENDMODE_NONE);SDL_BlitSurface(owner->capture,nullptr,image,&dst);
+            std::vector<Window*> overlays;
+            for(auto &p:g.windows)if(p->overlay&&p->visible&&p->owner==owner->id&&p->capture)overlays.push_back(p.get());
+            std::sort(overlays.begin(),overlays.end(),[](Window *a,Window *b){return a->order<b->order;});
+            for(auto p:overlays){
+                dst={p->x-x,p->y-y,p->w,p->h};SDL_SetSurfaceBlendMode(p->capture,SDL_BLENDMODE_BLEND_PREMULTIPLIED);SDL_BlitSurface(p->capture,nullptr,image,&dst);
+            }
+            SDL_SaveBMP(image,g.shot.c_str());SDL_DestroySurface(image);
+        }
+    }
+    if(g.main.capture){SDL_DestroySurface(g.main.capture);g.main.capture=nullptr;}
+    for(auto &p:g.windows)if(p->capture){SDL_DestroySurface(p->capture);p->capture=nullptr;}
     g.shot.clear();
 }
 void render(Window *w) {
@@ -282,12 +312,13 @@ void render(Window *w) {
     append(w->lists[0]);
     if(w->id==0)for(auto dl:ImGui::GetDrawData()->CmdLists)append(dl);
     append(w->lists[1]);
-    glViewport(0,0,w->w,w->h);glClearColor(0,0,0,1);glClear(GL_COLOR_BUFFER_BIT);
+    glViewport(0,0,w->w,w->h);glClearColor(0,0,0,w->overlay?0.0f:1.0f);glClear(GL_COLOR_BUFFER_BIT);
     ImGui_ImplOpenGL3_RenderDrawData(&dd);screenshot(w);SDL_GL_SwapWindow(w->native);
 }
 int l_frame_end(lua_State *) {
     if(!g.frame_open)return 0;
     ImGui::Render();render(&g.main);for(auto &w:g.windows)if(w->drawn)render(w.get());
+    save_screenshot();
     SDL_GL_MakeCurrent(g.main.native,g.main.context);
     for(auto t:g.retired_textures)glDeleteTextures(1,&t);
     g.retired_textures.clear();g.frame_open=false;return 0;
@@ -363,10 +394,43 @@ int l_cursor(lua_State *L){std::string name=luaL_checkstring(L,1);for(auto &ch:n
 }
 int l_renderer(lua_State *L){lua_newtable(L);lua_pushliteral(L,"opengl3");lua_setfield(L,-2,"backend");lua_pushstring(L,SDL_GetCurrentVideoDriver());lua_setfield(L,-2,"video_driver");
     if(g.open){lua_pushstring(L,(const char*)glGetString(GL_RENDERER));lua_setfield(L,-2,"adapter");}return 1;}
-int l_screenshot(lua_State *L){g.shot=luaL_checkstring(L,1);g.shot_window=(int)luaL_optinteger(L,6,0);lua_pushboolean(L,true);return 1;}
+int l_screenshot(lua_State *L){g.shot=luaL_checkstring(L,1);g.shot_window=(int)luaL_optinteger(L,6,0);g.shot_extend=lua_toboolean(L,7);lua_pushboolean(L,true);return 1;}
 
 int l_window(lua_State *L) {
     std::string op=luaL_checkstring(L,1);Window *w=&g.main;
+    if(op=="overlay_open"){
+        auto owner=window(field(L,2,"owner",0));if(!owner)return 0;
+        SDL_GL_MakeCurrent(g.main.native,g.main.context);SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT,1);
+        auto p=std::make_unique<Window>();p->id=g.next_window++;p->overlay=true;p->owner=owner->id;
+        auto kind=flag(L,2,"passthrough")?SDL_WINDOW_TOOLTIP:SDL_WINDOW_POPUP_MENU;
+        p->native=SDL_CreatePopupWindow(owner->native,0,0,1,1,SDL_WINDOW_OPENGL|SDL_WINDOW_HIDDEN|SDL_WINDOW_TRANSPARENT|kind);
+        if(p->native){SDL_SetWindowFocusable(p->native,false);p->context=SDL_GL_CreateContext(p->native);}
+        if(!p->native||!p->context){destroy(p.get());return 0;}
+        int id=p->id;g.windows.push_back(std::move(p));SDL_GL_MakeCurrent(g.main.native,g.main.context);
+        lua_pushinteger(L,id);return 1;
+    }
+    if(op=="overlay_close")op="popup_close";
+    if(op=="overlay_place"){
+        w=window((int)luaL_checkinteger(L,2));
+        if(!w||!w->overlay){lua_pushboolean(L,false);return 1;}
+        auto owner=window(w->owner);if(!owner){lua_pushboolean(L,false);return 1;}
+        int x=(int)luaL_checknumber(L,3),y=(int)luaL_checknumber(L,4);
+        float s=density(owner);
+        SDL_SetWindowPosition(w->native,(int)((x-owner->x)/s),(int)((y-owner->y)/s));
+        SDL_SetWindowSize(w->native,std::max(1,(int)std::ceil(luaL_checknumber(L,5)/s)),std::max(1,(int)std::ceil(luaL_checknumber(L,6)/s)));
+        w->x=x;w->y=y;bool visible=lua_toboolean(L,7);
+        w->order=++g.overlay_order;
+        if(visible&&!w->visible)SDL_ShowWindow(w->native);else if(!visible&&w->visible)SDL_HideWindow(w->native);
+        w->visible=visible;lua_pushboolean(L,true);return 1;
+    }
+    if(op=="monitor"){
+        SDL_Point p={(int)luaL_optnumber(L,2,0),(int)luaL_optnumber(L,3,0)};int mx=0,my=0;
+        if(!g.wayland)SDL_GetWindowPosition(g.main.native,&mx,&my);
+        float s=density(&g.main);p.x=mx+(int)(p.x/s);p.y=my+(int)(p.y/s);
+        auto display=g.wayland?SDL_GetDisplayForWindow(g.main.native):SDL_GetDisplayForPoint(&p);
+        SDL_Rect work={},full={};SDL_GetDisplayUsableBounds(display,&work);SDL_GetDisplayBounds(display,&full);
+        for(auto r:{work,full}){lua_pushnumber(L,(r.x-mx)*s);lua_pushnumber(L,(r.y-my)*s);lua_pushnumber(L,r.w*s);lua_pushnumber(L,r.h*s);}return 8;
+    }
     if((op=="screen"||op=="full"||op=="dpi"||op=="capabilities")&&!SDL_WasInit(SDL_INIT_VIDEO)){
         if(SDL_Init(SDL_INIT_VIDEO)){const char *driver=SDL_GetCurrentVideoDriver();g.wayland=driver&&std::strcmp(driver,"wayland")==0;}
     }
@@ -386,6 +450,8 @@ int l_window(lua_State *L) {
     }
     if(op.rfind("popup_",0)==0){w=window((int)luaL_checkinteger(L,2));if(!w)return 0;}
     if(op=="popup_close"){
+        for(auto &p:g.windows)if(p->overlay&&p->owner==w->id){destroy(p.get());p->visible=false;}
+        g.windows.erase(std::remove_if(g.windows.begin(),g.windows.end(),[](auto &p){return !p->native;}),g.windows.end());
         int id=w->id;destroy(w);g.windows.erase(std::remove_if(g.windows.begin(),g.windows.end(),[&](auto &p){return p->id==id;}),g.windows.end());
         SDL_GL_MakeCurrent(g.main.native,g.main.context);return 0;
     }
@@ -486,5 +552,5 @@ extern "C" int luaopen_lunarimgui(lua_State *L){
         {"texture",l_texture},{"texture_free",l_texture_free},{"texture_retain",l_texture_retain},
         {"clipboard_get",l_clipboard_get},{"clipboard_set",l_clipboard_set},{"cursor",l_cursor},{"cursor_pos",l_cursor_pos},
         {"renderer",l_renderer},{"screenshot",l_screenshot},{nullptr,nullptr}};
-    luaL_newlib(L,api);return 1;
+    luaL_newlib(L,api);lua_pushboolean(L,true);lua_setfield(L,-2,"overlay_windows");return 1;
 }

@@ -56,6 +56,17 @@ M.OPTIONAL = {
 	font_listing = { "font_names" },
 }
 
+--- Capabilities a backend declares with a flag (B[name] == true) on top of the calls
+-- they need. `overlay_windows`: a menu, a dropdown list or a tooltip that does not fit
+-- its owner's surface, or lies over a native video child, gets a borderless native
+-- window of its own (window("overlay_open"/"overlay_place"/"overlay_close"), drawn
+-- through `surface`, placed with window("monitor")). A backend without it (an embedding
+-- host, where Lunar draws into someone else's ImGui context) draws them on the owner's
+-- surface, clipped to it.
+M.FLAGS = {
+	overlay_windows = { "surface" },
+}
+
 --- window(op) calls every backend answers.
 M.WINDOW_REQUIRED = {
 	"title", "size", "pos", "client_origin", "show", "hide", "focus", "dpi", "screen", "full",
@@ -67,6 +78,11 @@ M.WINDOW_OPTIONAL = {
 	"tray", "traytip", "tray_image", "tray_balloon", "tray_balloon_title",
 	"videohost_create", "videohost", "videohost_frame", "videohost_destroy",
 	"popup_open", "popup_place", "popup_state", "popup_focus", "popup_hwnd", "popup_close",
+	-- overlay windows (M.FLAGS.overlay_windows); coordinates are the main window's client
+	"overlay_open",   -- ({ owner = surface id, passthrough = takes no mouse }) -> id | nil
+	"overlay_place",  -- (id, x, y, w, h, visible, inset) -> false when the window is gone
+	"overlay_close",  -- (id)
+	"monitor",        -- (x, y) -> work x, y, w, h, full x, y, w, h of the monitor there
 }
 
 --- The table frame_begin returns: field -> Lua type.
@@ -78,8 +94,10 @@ M.INPUT = {
 	keys = "table", chars = "table", files = "table", mods = "table",
 }
 --- An event in input.events (when the backend reports ordered events): field -> type.
+-- `dismiss`: the application lost activation, or the user pressed on a window frame (open
+-- menus and dropdowns close, as the system's do).
 M.EVENT_TYPES = { move = true, press = true, release = true, wheel = true, keydown = true,
-	keyup = true, char = true, leave = true, file = true, tray = true }
+	keyup = true, char = true, leave = true, file = true, tray = true, dismiss = true }
 
 --- What a backend lacks. Returns missing (list of required names) and caps (group ->
 -- true when the whole group is there).
@@ -93,6 +111,11 @@ function M.check(B)
 		local all = true
 		for _, name in ipairs(names) do if type(B[name]) ~= "function" then all = false end end
 		caps[group] = all
+	end
+	for flag, names in pairs(M.FLAGS) do
+		local all = B[flag] == true
+		for _, name in ipairs(names) do if type(B[name]) ~= "function" then all = false end end
+		caps[flag] = all
 	end
 	return missing, caps
 end
@@ -152,8 +175,38 @@ function M.exercise(B, opts)
 		local okd, errd = pcall(B.image, tex, 0, 0, 4, 4, 0, 0, 1, 1, white)
 		if not okd then fail("image() failed: %s", tostring(errd)) end
 	end
+	-- an overlay window: opened on the main surface, drawn on, presented with the frame
+	local _, caps = M.check(B)
+	local overlay
+	if caps.overlay_windows then
+		overlay = B.window("overlay_open", { owner = 0 })
+		if not overlay then fail("window('overlay_open') returned nil")
+		else
+			if B.window("overlay_place", overlay, 4, 4, 40, 30, true, 2) == false then
+				fail("window('overlay_place') refused a window it just opened")
+			end
+			local oko, erro = pcall(function()
+				B.surface(overlay); B.rect_filled(6, 6, 42, 32, white, 4, 0); B.surface(0)
+			end)
+			if not oko then fail("drawing on an overlay window failed: %s", tostring(erro)) end
+		end
+		local wx, wy, ww, wh, fx, fy, fw, fh = B.window("monitor", 0, 0)
+		if not (type(wx) == "number" and type(wy) == "number" and type(ww) == "number" and ww > 0
+			and type(wh) == "number" and wh > 0 and type(fx) == "number" and type(fy) == "number"
+			and type(fw) == "number" and fw >= ww and type(fh) == "number" and fh >= wh) then
+			fail("window('monitor') = %s, %s, %s, %s, %s, %s, %s, %s", tostring(wx), tostring(wy), tostring(ww),
+				tostring(wh), tostring(fx), tostring(fy), tostring(fw), tostring(fh))
+		end
+	end
 	local okf, errf = pcall(B.frame_end)
 	if not okf then fail("frame_end() failed: %s", tostring(errf)) end
+	if overlay then
+		if B.window("overlay_place", overlay, 0, 0, 1, 1, false, 0) == false then fail("hiding an overlay window failed") end
+		B.window("overlay_close", overlay)
+		if B.window("overlay_place", overlay, 0, 0, 1, 1, true, 0) ~= false then
+			fail("window('overlay_place') accepted a closed overlay window")
+		end
+	end
 	-- Layout and motion capture can issue clipping calls between frames.
 	-- The native adapter must redirect them away from already rendered lists.
 	local okclip, errclip = pcall(function() B.clip_push(0, 0, 8, 8); B.clip_pop() end)
