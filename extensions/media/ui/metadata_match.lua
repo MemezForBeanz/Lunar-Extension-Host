@@ -39,14 +39,20 @@ function M.new(ctx, opts)
  rows=Rows.new(iup,{count=0,value=value,row_height=64,column_widths={70},role='flatrows_plain',
   empty_title='Find the correct match',empty_hint='Choose a metadata provider and search.',header={title='Title',columns={'Year'}},on_select=function(pos) selected=candidates[pos];if match then match_enabled(selected ~= nil) end;selection_changed() end})
  iup.SetAttribute(rows.widget,'RASTERSIZE','x240')
+ -- The empty list says what the request did, never the idle prompt under a failure.
+ local EMPTY={idle={'Find the correct match','Choose a metadata provider and search.'},
+  working={'Searching','Results appear here as the provider answers.'},
+  failed={'No results','The provider did not answer. Search again to retry, or choose another provider.'},
+  none={'No matches','Try another title, a year, or another provider.'}}
+ local function results(state) local e=EMPTY[state] or EMPTY.idle;rows:setEmpty(e[1],e[2]) end
  local function start(method,arg)
   if not item or not opts.on_metadata then return end
   generation=generation+1;local own=generation;pending=nil
-  if method=='search' then candidates={};selected=nil;selection_changed();rows:setProvider(0,value);match_enabled(false) end
+  if method=='search' then candidates={};selected=nil;selection_changed();rows:setProvider(0,value);match_enabled(false);results('working') end
   Kit.setStatus(iup,status,'info',method=='search' and 'Searching provider...' or 'Loading selected metadata...')
   opts.on_metadata(method,item,arg,function(job,why)
    if own~=generation then return end
-   if not job then return Kit.setStatus(iup,status,'error',why or 'Could not start metadata request.') end
+   if not job then results('failed');return Kit.setStatus(iup,status,'error',why or 'Could not start metadata request.') end
    pending={id=job.id,method=method,generation=own,wait=0,attempts=0}
   end)
  end
@@ -68,7 +74,7 @@ function M.new(ctx, opts)
 
  function api.open(next_item)
   generation=generation+1;pending=nil;item=next_item;selected=nil;selection_changed();candidates={}
-  query:setValue(item.title or '');rows:setProvider(0,value);match_enabled(false)
+  query:setValue(item.title or '');rows:setProvider(0,value);match_enabled(false);results('idle')
   Kit.setStatus(iup,status,'info','Search, then choose the correct title and year.')
  end
  function api.capture(state)
@@ -79,6 +85,7 @@ function M.new(ctx, opts)
    if caption then iup.SetAttribute(preview,'TITLE',selected.title..' (1926) — '..selected.overview) end
   end
   rows:setProvider(#candidates,value);if selected then rows:select(1) end
+  results(state=='failed' and 'failed' or state=='working' and 'working' or 'idle')
   selection_changed()
   match_enabled(selected ~= nil)
   Kit.setStatus(iup,status,state=='failed' and 'error' or 'info',state=='working' and 'Searching metadata providers…' or state=='failed' and 'Provider did not respond. Search again to retry.' or '1 match. Check the title and year before choosing.')
@@ -90,7 +97,7 @@ function M.new(ctx, opts)
   opts.on_metadata('poll',item,job.id,function(answer,why)
    if pending~=job or generation~=job.generation then return end
    job.busy=false
-   if not answer or answer.state=='failed' then pending=nil;return Kit.setStatus(iup,status,'error',why or (answer and answer.error) or 'Request failed.') end
+   if not answer or answer.state=='failed' then pending=nil;results('failed');return Kit.setStatus(iup,status,'error',why or (answer and answer.error) or 'Request failed.') end
    if answer.state=='ready' then
     pending=nil
     if job.method=='match' then
@@ -98,12 +105,13 @@ function M.new(ctx, opts)
      if opts.on_changed then opts.on_changed(item) end
     else
      candidates=answer.result or {};selected=nil;selection_changed();rows:setProvider(#candidates,value)
+     if job.method=='search' then results(#candidates==0 and 'none' or 'idle') end
      if candidates[1] then selected=candidates[1];rows:select(1) end
      selection_changed()
      match_enabled(selected ~= nil)
      Kit.setStatus(iup,status,'info',tostring(#candidates)..' matches. Check the title and year before choosing.')
     end
-   elseif job.attempts>=90 then pending=nil;Kit.setStatus(iup,status,'error','Metadata request timed out.')
+   elseif job.attempts>=90 then pending=nil;results('failed');Kit.setStatus(iup,status,'error','Metadata request timed out.')
    else job.wait=20 end
   end)
  end

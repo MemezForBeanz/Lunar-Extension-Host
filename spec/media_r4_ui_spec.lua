@@ -35,7 +35,7 @@ end)
 
 describe("metadata action availability", function()
     it("rethemes Apply match on selection and disables it again when cleared", function()
-        local buttons, painted = {}, {}
+        local buttons, painted, empty = {}, {}, nil
         local widget=function(t) return t or {} end
         local iup={hbox=widget,vbox=widget,fill=widget,flatlabel=widget,
             SetAttribute=function(w,k,v) w[k]=v end}
@@ -46,7 +46,8 @@ describe("metadata action availability", function()
             ["core.ui.FlatField"]={new=function() return {widget={},setValue=function() end} end},
             ["core.ui.FlatDropdown"]={new=function() return {widget={}} end},
             ["libs.metadb"]={providers={}},
-            ["core.ui.RowList"]={new=function() return {widget={},setProvider=function() end,select=function() end} end},
+            ["core.ui.RowList"]={new=function() return {widget={},setProvider=function() end,select=function() end,
+                setEmpty=function(_,title,hint) empty={title,hint} end} end},
         }
         local chunk=assert(loadfile("extensions/media/ui/metadata_match.lua"))
         setfenv(chunk,setmetatable({require=function(name) return assert(modules[name],name) end},{__index=_G}))
@@ -58,6 +59,11 @@ describe("metadata action availability", function()
         assert.equals("NO",buttons["Apply match"].ACTIVE)
         assert.equals("NO",painted[#painted])
         assert.equals("Select a result to apply its metadata",buttons["Apply match"].TIP)
+        -- a failed search never keeps the idle prompt under it
+        api.capture("failed")
+        assert.equals("No results",empty[1])
+        api.open({title="Again"})
+        assert.equals("Find the correct match",empty[1])
     end)
 end)
 
