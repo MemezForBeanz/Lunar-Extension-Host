@@ -1715,17 +1715,21 @@ local function chrome_of(d, st)
 	return { top = caption + dw / 2 }
 end
 
+local SHADOW_DARK, SHADOW_LIGHT = Color.pack(0, 0, 0, 26), Color.pack(0, 0, 0, 10)
 local function paint_dialog_frame(d, st)
 	local ch = st.data.chrome
 	local bg = Element.getAttribute(d, "BGCOLOR")
 	local fg = Element.getAttribute(d, "FGCOLOR")
 	local x, y, w, h = st.data.ox or 0, st.data.oy or 0, st.w, st.h
 	local top = ch and ch.top or 0
-	-- soft shadow
+	-- soft shadow: on a dark surface a light one vanishes, and the window's edge then
+	-- reads as a cut through whatever it covers rather than a sheet above it
+	local dark = Color.isDark(Color.parse(bg) or 0)
+	local shade = dark and SHADOW_DARK or SHADOW_LIGHT
 	for i = 1, 6 do
-		dc:fill(x - i, y - top - i + 2, w + 2 * i, h + top + 2 * i, Color.pack(0, 0, 0, 10), { radius = 8 + i })
+		dc:fill(x - i, y - top - i + 2, w + 2 * i, h + top + 2 * i, shade, { radius = 8 + i })
 	end
-	dc:fill(x - 1, y - top - 1, w + 2, h + top + 2, Color.isDark(Color.parse(bg) or 0) and Color.pack(80, 80, 80) or Color.pack(170, 170, 170), { radius = 8 })
+	dc:fill(x - 1, y - top - 1, w + 2, h + top + 2, dark and Color.pack(80, 80, 80) or Color.pack(170, 170, 170), { radius = 8 })
 	dc:fill(x, y - top, w, h + top, bg, { radius = 7 })
 	if ch then
 		local font = Fonts.forElement(d)

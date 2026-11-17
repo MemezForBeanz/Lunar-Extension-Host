@@ -436,7 +436,8 @@ function M.build(p)
             rules[role].gradcolor = nil
         end
         rules.dialog.glass = "floor"
-        rules.toast_title.glass, rules.toast_body.glass = "content", "content"
+        -- The close button too: a solid fill on the frosted toast read as a grey square.
+        rules.toast_title.glass, rules.toast_body.glass, rules.toast_close.glass = "content", "content", "content"
         rules.palette_prompt.glass, rules.palette_hint.glass = "content", "content"
         rules.contextmenu = { radius = 12 }
         rules.dropdown_list.padding, rules.dropdown_list.itemradius = ROW_PAD, R
@@ -456,6 +457,10 @@ function M.build(p)
             rules[role].controlheight = 32
         end
     end
+    -- A disclosure ("Technical details") is a quiet button whose text starts at the
+    -- content edge it opens under.
+    rules.disclosure_btn = {}
+    for key, value in pairs(rules.actionbutton) do rules.disclosure_btn[key] = value end
     return rules
 end
 

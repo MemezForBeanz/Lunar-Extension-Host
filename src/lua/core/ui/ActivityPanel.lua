@@ -618,6 +618,8 @@ function ActivityPanel:_paintRow(row, y, w, colors, selected)
 			self:_text(title, x1, y1, chip_w, CHIP_HEIGHT, colors.text, colors.font_small, "ACENTER")
 			right = x1 - L.SPACING[1]
 		end
+		-- the elapsed time stands apart from the chips, not against their labels
+		if #row.actions > 0 then right = right - L.SPACING[4] end
 	end
 
 	local meta_x = right - ELAPSED_WIDTH
