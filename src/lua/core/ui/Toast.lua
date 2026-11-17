@@ -460,6 +460,9 @@ function ToastHost:show(spec)
 			-- focus from moving here on show. Sufficient because a toast only
 			-- accepts the close button — it does not need to be click-through.
 			TOOLBOX      = "YES",
+			-- The ImGui host focuses a dialog's first control on show unless told not to;
+			-- a toast must never take the keyboard (or show its close as focused).
+			SHOWNOFOCUS  = "YES",
 			-- Parented so it minimises and z-orders with the app.
 			PARENTDIALOG = self._dialog,
 			THEMEROLE = ROLE_BG[kind] or "toast_bg_info",
