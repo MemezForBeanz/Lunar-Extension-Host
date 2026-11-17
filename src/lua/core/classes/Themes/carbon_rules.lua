@@ -25,6 +25,37 @@ local function sized(font, points, bold)
     return string.format("%s, %s%d", family, bold and "Bold " or "", points)
 end
 
+--- Carbon's `text-disabled` on a given surface, as the colour to store on a disabled control.
+-- The token is translucent (25% of text-primary), so it is composed over the surface the
+-- label actually sits on. The flat controls then fade a disabled label halfway to its
+-- background again (IUP patch 0005, kept by the ImGui host); the stored colour is the one
+-- that fade lands on the token, instead of fading it twice into the surface.
+-- @tparam table p palette (with `carbonTokens`)
+-- @tparam string surface "r g b"
+-- @treturn string "r g b"
+function M.disabledText(p, surface)
+    local raw = p.carbonTokens and p.carbonTokens.textDisabled
+    local r, g, b, a = tostring(raw or ""):match("rgba%((%d+),%s*(%d+),%s*(%d+),%s*([%d%.]+)%)")
+    local sr, sg, sb = tostring(surface or ""):match("(%d+)%s+(%d+)%s+(%d+)")
+    if not (r and sr) then return p.textDisabled or p.textMuted end
+    a = tonumber(a)
+    local function channel(c, s)
+        local target = math.floor(c * a + s * (1 - a) + 0.5)
+        return math.max(0, math.min(255, 2 * target - s))
+    end
+    return string.format("%d %d %d", channel(tonumber(r), tonumber(sr)),
+        channel(tonumber(g), tonumber(sg)), channel(tonumber(b), tonumber(sb)))
+end
+
+--- The inline notification's fill (Carbon low-contrast inline notification): a layer fill
+-- with the support-colour leading border. Carbon's page sits on `background` and the notice
+-- on layer-01; this app's page floor is layer-01, so the notice is one layer up, layer-02.
+-- The same rule in White, Gray 10, 90 and 100 (Gray 100's `notification-background-*`
+-- equals layer-01 here, which would leave the notice without a visible surface).
+function M.notificationFill(p)
+    return p.layer02 or p.surface2 or p.bg
+end
+
 function M.build(p)
     local BTN_PAD = "12x5"
 
@@ -260,14 +291,14 @@ function M.build(p)
     -- Supporting actions are ghost; only the page primary carries a solid fill.
     rules.actionbutton = button(layer1, p.linkPrimary or p.accent, hover, selected)
     rules.actionbutton.inactivebg = layer1
-    rules.actionbutton.inactivefg = p.textDisabled or p.textMuted
+    rules.actionbutton.inactivefg = M.disabledText(p, layer1)
     rules.tertiary_btn = button(p.bg, p.buttonTertiary or p.accent, p.buttonTertiaryHover or hover,
         p.buttonTertiaryActive or selected, p.buttonTertiary or p.accent)
     rules.tertiary_btn.hovertext = p.textInverse or p.accentText
     rules.tertiary_btn.pressedtext = p.textInverse or p.accentText
     rules.ghost_btn = button(layer1, p.linkPrimary or p.accent, hover, selected)
     rules.ghost_btn.inactivebg = layer1
-    rules.ghost_btn.inactivefg = p.textDisabled or p.textMuted
+    rules.ghost_btn.inactivefg = M.disabledText(p, layer1)
     rules.flatbutton = rules.ghost_btn
     rules.button = rules.ghost_btn
     rules.danger_btn = button(p.buttonDangerPrimary or p.error, p.textOnColor or p.accentText,
@@ -297,6 +328,16 @@ function M.build(p)
         r.padding = L.margin(5, 2)
     end
     for k,v in pairs(rules.list_bordered) do if k ~= "font" then rules.list_mono[k] = v end end
+    -- Data table (https://carbondesignsystem.com/components/data-table/style/): on the
+    -- layer-01 page the table is one layer up. Header layer-accent-02, body layer-02, the
+    -- same rule in every Carbon theme (body was `background`: white in White, darker than
+    -- the page in Gray 100, so the empty body read differently in the two).
+    local table_rule = rules.flatrows_plain
+    local body = p.layer02 or elevated
+    table_rule.bg, table_rule.scrollbg = body, body
+    table_rule.header = p.layerAccent02 or table_rule.header
+    table_rule.hover = p.layerHover02 or table_rule.hover
+    table_rule.selbg = p.layerSelected02 or table_rule.selbg
     for _, role in ipairs({ "toggle", "flattoggle", "flattoggle_noborder" }) do
         rules[role].bg, rules[role].fg = page_bg, p.text
         rules[role].checkbg = p.field01 or layer1

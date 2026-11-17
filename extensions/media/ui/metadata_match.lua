@@ -9,6 +9,10 @@ local M = {}
 function M.new(ctx, opts)
  local iup=ctx.iup
  local api={}; local item,selected,pending; local match,rows,preview; local generation=0
+ -- A page that previews the selection itself (the Metadata tab) shows each field once,
+ -- there; the caption beside Apply match is only for the title page's Fix match. The empty
+ -- caption still holds its place, so the actions stay at the row's end.
+ local caption=not opts.on_selection
  local function match_enabled(on)
   if not match then return end
   iup.SetAttribute(match,'ACTIVE',on and 'YES' or 'NO')
@@ -16,7 +20,7 @@ function M.new(ctx, opts)
   if ctx.notifyTreeChange then ctx:notifyTreeChange(match) end
  end
  local function selection_changed()
-  if preview then iup.SetAttribute(preview,'TITLE',selected and ((selected.title or '')..' — '..(selected.overview or '')) or 'Select a result to check its title and year.') end
+  if preview then iup.SetAttribute(preview,'TITLE',not caption and '' or selected and ((selected.title or '')..' — '..(selected.overview or '')) or 'Select a result to check its title and year.') end
   if opts.on_selection then opts.on_selection(selected) end
  end
  local candidates={}
@@ -55,7 +59,7 @@ function M.new(ctx, opts)
   end) end
  end})
  local function labelled(text,widget) return iup.vbox({L.hint(iup,text),widget,GAP=L.gap(2),EXPAND='HORIZONTAL'}) end
- preview=iup.flatlabel({TITLE='Select a result to check its title and year.',TEXTWRAP='YES',EXPAND='HORIZONTAL',THEMEROLE='reading_muted'})
+ preview=iup.flatlabel({TITLE=caption and 'Select a result to check its title and year.' or '',TEXTWRAP='YES',EXPAND='HORIZONTAL',THEMEROLE='reading_muted'})
  api.widget=iup.vbox({iup.hbox({opts.type_widget and labelled('Type',opts.type_widget) or iup.fill({}),labelled('Provider',provider.widget),labelled('Search',query.widget),search,GAP=L.gap(3),ALIGNMENT='ABOTTOM',EXPAND='HORIZONTAL'}),status,rows.widget,
   iup.hbox({preview,match,refresh,GAP=L.gap(3),ALIGNMENT='ACENTER',EXPAND='HORIZONTAL'}),GAP=L.gap(3),EXPAND='HORIZONTAL'})
  function api.bindStatus(line) Kit.show(iup,status,false);status=line end
@@ -72,7 +76,7 @@ function M.new(ctx, opts)
   if state=='selected' then
    candidates={{id='126',title='The General',year=1926,provider='tmdb',overview='A railway engineer crosses enemy lines to recover his locomotive.'}}
    selected=candidates[1];query:setValue('The General')
-   iup.SetAttribute(preview,'TITLE',selected.title..' (1926) — '..selected.overview)
+   if caption then iup.SetAttribute(preview,'TITLE',selected.title..' (1926) — '..selected.overview) end
   end
   rows:setProvider(#candidates,value);if selected then rows:select(1) end
   selection_changed()

@@ -154,11 +154,18 @@ function M.inset(iup, widget, side)
 	return iup.hbox({ widget, air, EXPAND = "YES" })
 end
 
---- A button with a leading Carbon icon.
--- @tparam userdata iup
--- @tparam table opts `title`, `icon`, `role` (default actionbutton), `action`, `tip`,
---   `icon_role` (default: text-coloured on a primary, neutral otherwise)
--- @return flatbutton
+--- The fill behind an inline notification in the current theme: Carbon's low-contrast rule
+-- (a layer one step above the page) in Carbon, the raised layer elsewhere.
+-- @tparam[opt] table palette default: the active theme's
+-- @treturn string|nil "r g b"
+function M.notificationFill(palette)
+	local p = palette or (ThemeReactor and ThemeReactor.palette()) or {}
+	if p.carbonTokens then return require("core.classes.Themes.carbon_rules").notificationFill(p) end
+	return p.layer03 or p.layer02 or p.bg
+end
+
+--- An inline notification: status glyph and sentence, one recovery action, Dismiss.
+-- @tparam table opts `kind`, `title`, `action` (`{ title, action }`)
 function M.notification(iup, opts)
 	local title = M.statusLine(iup, opts.kind or "info", opts.title or "")
 	iup.SetAttribute(title, "TEXTELLIPSIS", "YES")
@@ -176,6 +183,11 @@ function M.notification(iup, opts)
 	end }
 end
 
+--- A button with a leading Carbon icon.
+-- @tparam userdata iup
+-- @tparam table opts `title`, `icon`, `role` (default actionbutton), `action`, `tip`,
+--   `icon_role` (default: text-coloured on a primary, neutral otherwise)
+-- @return flatbutton
 function M.button(iup, opts)
 	local btn = iup.flatbutton({
 		TITLE = opts.title or "",
