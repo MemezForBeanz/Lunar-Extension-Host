@@ -287,6 +287,27 @@ What happens on the ImGui host:
   were cropping the main window, so the Activity and palette shots compared the wrong
   pixels.
 
+## The fifth branch: `t3/imgui-port-5`
+
+One line with every ImGui branch in it: `t3/imgui-immediate-mode-port-1` (motion, themed
+native parts, the SDL3/OpenGL3 Linux host), `t3/imgui-immediate-mode-migration` (flatlist
+port, bundled fonts, this document), the functional parity sweep
+(`t3/imgui-immediate-mode-port`), native popup windows and shared Scintilla documents with
+rendered word wrap. Org packs: branch `imgui-port-5` in `lunar-orgpacks`.
+
+| Change | Where |
+|---|---|
+| One UTF-16 module, `core.lib.utf16` (invalid bytes, surrogate pairs), used by the text widget, CodeView and the command palette; `SELECTIONPOS` takes NONE/ALL, and it and `SELECTEDTEXT` answer nil for an empty selection (`iupwin_text.c`) | `widgets/text.lua`, `spec/imgui_text_utf16_spec.lua`, `spec/imgui_multiline_spec.lua` |
+| The modal scrim covers native video: click-through overlay windows over each video rectangle, stacked under the modal's window | `Runtime.lua`, `OverlayWindows.lua`, `lunarimgui.cpp`, `spec/imgui_scrim_video_spec.lua` |
+| Activity panel and command palette no longer depend on construction order for their title band (both builds 420x169) | `ActivityPanel.lua`, `CommandPalette.lua` |
+| Release 1.6.2 media flows driven on the emulator: player (play, seek, volume), show grouping into episodes, a discovered download reaching the queue | `spec/imgui_media_flows_spec.lua`, harness `exercise` hook |
+| Every org pack extension exercised on the emulator with all launchers stubbed | `hpe/spec/imgui_{iloredfish,logparser,scanchainparser}_spec.lua`, `microchip/spec/imgui_{blackduck,timeclock}_spec.lua` |
+
+Results: Lunar specs 2272 passing with `LUNAR_MEDIA_DEMO=1` (0 failures); HPE 118 and
+Microchip 89 passing. Page captures of both exes with the same Lua and packs (1400x900,
+Lunar Dark): every page within 0.8-4.4 % differing pixels, glyph rasterization being most
+of it; the Activity panel went from a size mismatch to 1.3 %.
+
 ## Verification
 
 | Check | Result |
