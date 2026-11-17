@@ -232,7 +232,7 @@ end
 function M.disclosure(iup, opts)
 	opts = opts or {}
 	local open = opts.open == true
-	local button, icon = M.button(iup, { title=opts.title, state_icon="chevron", animate=opts.animate })
+	local button, icon = M.button(iup, { title=opts.title, state_icon="chevron", animate=opts.animate, role="disclosure_btn" })
 	icon:set(open and "open" or "closed")
 	function button:flat_action()
 		open = not open

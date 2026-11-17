@@ -188,9 +188,10 @@ function M.new(ctx, opts)
 		for _, divider in ipairs(dividers) do iup.SetAttribute(divider, "BGCOLOR", rule) end
 		local header_height = tonumber(iup.GetAttribute(sessions.widget, "HEADERHEIGHT"))
 		set(attention_header, "RASTERSIZE", header_height and L.size(nil, header_height))
-		-- "Repair" sits over its buttons' labels, not over their padding.
-		local pad = actions[1] and tostring(iup.GetAttribute(actions[1], "PADDING") or ""):match("^(%d+)")
-		set(repair_header, "PADDING", pad and (pad .. "x0"))
+		-- "Repair" sits over its buttons' labels where the buttons are ghosts (Carbon: the
+		-- label is the edge), and over their fill's edge where they are filled (Lunar).
+		local pad = carbon_table and actions[1] and tostring(iup.GetAttribute(actions[1], "PADDING") or ""):match("^(%d+)")
+		set(repair_header, "PADDING", (pad or "0") .. "x0")
 
 	end
 	ThemeReactor.register(api)

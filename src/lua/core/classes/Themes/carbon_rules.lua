@@ -310,6 +310,12 @@ function M.build(p)
         rules[role].textRightPadding = L.px(5)
     end
     rules.warning_btn = rules.tertiary_btn
+    -- A disclosure ("Technical details") is a quiet button whose text starts at the
+    -- content edge it opens under.
+    rules.disclosure_btn = {}
+    for key, value in pairs(rules.actionbutton) do rules.disclosure_btn[key] = value end
+    -- Carbon's ghost has no fill to align by, so its text is the edge: no leading pad.
+    rules.disclosure_btn.padding = L.margin(0, 3)
     rules.info_btn = rules.tertiary_btn
     local field = p.field01 or layer1
     for _, role in ipairs({ "text", "multiline", "list", "dropbutton", "dropbutton_quiet" }) do

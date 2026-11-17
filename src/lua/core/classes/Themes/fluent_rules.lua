@@ -376,6 +376,10 @@ function M.build(p)
     M.addPlainRoles(rules, p.surface or p.bg)
     rules.flattabs_sub = rules.flattabs
     local floor = p.layer02 or p.surface2 or p.surface or p.bg
+    -- A disclosure ("Technical details") is a quiet button whose text starts at the
+    -- content edge it opens under.
+    rules.disclosure_btn = {}
+    for key, value in pairs(rules.actionbutton) do rules.disclosure_btn[key] = value end
     return require("core.classes.Themes.shell_rules")(rules, p, {
         well = p.layer01 or p.surface or p.bg,
         hover = p.layerHover01 or p.surface2 or floor,
