@@ -206,6 +206,11 @@ function ActivityPanel:_build()
 			MARGIN = "1x1",
 		}),
 		TITLE = "",
+		-- No title band. On IUP, IupCreate applies the DEFAULTTHEME global, whose flatframe
+		-- class rule (TITLEPADDING=12x4, for titled cards) gives an empty title 8 px when the
+		-- frame is built after the startup theme pass: a band above the header that depended
+		-- on build order. Saying it here makes both builds the same.
+		TITLEPADDING = "0x0",
 		EXPAND = "YES",
 		THEMEROLE = "palette_frame",
 	})

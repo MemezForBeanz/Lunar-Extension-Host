@@ -321,5 +321,11 @@ shared-originals bug (it wrote `FOCUSFEEDBACK=NO` and `PADDING=0x0` onto unrelat
 widgets), and the differences looked like emulator faults.
 
 Remaining known differences are listed at the end of [imgui-port.md](imgui-port.md),
-plus: the Activity window is 8 px shorter than on IUP, with its content 8 px higher (cause
-not yet found; the frame title and the panel's own height correction were ruled out).
+plus, resolved on `t3/imgui-port-5`: the Activity window was 8 px shorter than on IUP, with
+its content 8 px higher. The 8 px were IUP's: `IupCreate` applies the `DEFAULTTHEME` global,
+whose `flatframe` class rule (`TITLEPADDING=12x4`, meant for titled cards) gives a frame with
+`TITLE=""` a title band of 2x4 px whenever the frame is built after the startup theme pass,
+which is always the case for the lazily built Activity panel. The emulator leaves that step
+out on purpose (audit D1, the command palette's intermittent band). The two palette frames
+now set `TITLEPADDING=0x0` themselves, so neither build depends on construction order
+(found by dumping both builds' rectangles with `LUNAR_CAPTURE_TREE=1` in `ui_capture.lua`).
