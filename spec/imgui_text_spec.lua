@@ -15,7 +15,7 @@ describe("ImGui text controls", function()
 		local st = Element.state(t)
 		local r = rt()
 		Classes.get("text").event(t, st, { type = "key", key = iup.K_cA, mods = { ctrl = true } }, r)
-		assert.equal("1:7", iup.GetAttribute(t, "SELECTION")) -- byte positions (IUP counts characters)
+		assert.equal("1:6", iup.GetAttribute(t, "SELECTION")) -- Win32 EDIT UTF-16 positions
 		Classes.get("text").event(t, st, { type = "char", char = "世界" }, r)
 		assert.equal("世界", iup.GetAttribute(t, "VALUE"))
 	end)

@@ -395,7 +395,26 @@ local function hit(el, x, y)
 	if in_rect then return el end
 	return nil
 end
-M.hitTest = hit
+-- The three-argument form is used by widgets for coordinates local to an element.
+-- The two-argument form mirrors the runtime's top-level pointer hit test for specs and
+-- input tools, using the same retained-tree hit routine as route_input.
+function M.hitTest(a, b, c)
+	if c ~= nil then return hit(a, b, c) end
+	local x, y = a, b
+	for i = #dialogs, 1, -1 do
+		local dialog = dialogs[i]
+		local st = STATE[dialog]
+		if st and st.data.shown then
+			local ox, oy = 0, 0
+			if dialog ~= main_dialog then ox, oy = st.data.ox or 0, st.data.oy or 0 end
+			local lx, ly = x - ox, y - oy
+			if lx >= 0 and ly >= 0 and lx < st.w and ly < st.h then
+				return hit(dialog, lx, ly)
+			end
+		end
+	end
+	return nil
+end
 
 -- Focus --------------------------------------------------------------------------------
 local function is_active(el)
