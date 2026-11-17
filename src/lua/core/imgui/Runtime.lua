@@ -32,6 +32,8 @@ local main_dialog = nil   -- the dialog that owns the OS window
 local active_dialog = nil
 local timers = {}         -- running timer elements -> true
 local overlays = {}       -- rt.overlay handles, bottom to top
+local overlay_windows, tip_overlay
+local video_rects = {}
 local hovered, captured, focused = nil, nil, nil
 local loop_level = 0
 local exit_levels = {}
@@ -587,6 +589,8 @@ end
 local Overlay = {}
 Overlay.__index = Overlay
 function Overlay:close()
+	if overlay_windows then overlay_windows.release(self) end
+	if M._overlay_capture == self then M._overlay_capture = nil end
 	for i = #overlays, 1, -1 do
 		if overlays[i] == self then
 			table.remove(overlays, i)
@@ -613,6 +617,7 @@ function Overlay:isOpen() return self.open end
 -- the owner's dialog client space.
 function M.overlay(o)
 	local h = setmetatable(o, Overlay)
+	h.window_owner = dialog_of(h.owner) or active_dialog or main_dialog
 	local dx, dy = 0, 0
 	if h.owner then dx, dy = dialog_offset(h.owner) end
 	h.x, h.y = (h.x or 0) + dx, (h.y or 0) + dy
@@ -872,7 +877,7 @@ function M.hide(d)
 	if hovered and dialog_of(hovered) == d then hovered = nil end
 	for i = #overlays, 1, -1 do
 		local o = overlays[i]
-		if o.owner and dialog_of(o.owner) == d then o:close() end
+		if o.window_owner == d or (o.owner and dialog_of(o.owner) == d) then o:close() end
 	end
 	if d == main_dialog and B.window then B.window("hide") end
 	-- iDialogAfterHide: flush, then SHOW_CB
@@ -1302,6 +1307,16 @@ local function window_of(el)
 	return nil
 end
 
+local function prepare_overlay(o)
+	local owner = o.window_owner or o.owner
+	local ws = window_of(owner)
+	local st = ws or (main_dialog and STATE[main_dialog])
+	local bounds = ws and { ws.data.ox or 0, ws.data.oy or 0, ws.w, ws.h } or { 0, 0, st and st.w or 1280, st and st.h or 800 }
+	local id, x, y, w, h = overlay_windows.prepare(o, ws and ws.data.win or 0, bounds, video_rects)
+	if id then return id, x, y, w, h end
+	if ws then return ws.data.win, unpack(bounds) end
+end
+
 --- What is under the window point (x, y): an overlay, or an element and its dialog.
 -- With dialog windows, `win` is the window the pointer is over (0 the main one): only
 -- what is on that window can be under it, whatever the windows' stacking order.
@@ -1312,10 +1327,10 @@ end
 local function pick(x, y, win)
 	for i = #overlays, 1, -1 do
 		local o = overlays[i]
-		local ws = win and window_of(o.owner)
-		local here = not win or (ws and ws.data.win or 0) == win
-		if here and o.event and x >= o.x and y >= o.y and x < o.x + o.w and y < o.y + o.h then return nil, nil, o end
-		if o.modal then return nil, nil, o end
+		local ws = win and window_of(o.window_owner or o.owner)
+		local here = not win or (o.win or (ws and ws.data.win) or 0) == win
+		local ox, oy = o.x + (o.shift_x or 0), o.y + (o.shift_y or 0)
+		if here and o.event and x >= ox and y >= oy and x < ox + o.w and y < oy + o.h then return nil, nil, o end
 	end
 	local modal = modal_top()
 	for i = #dialogs, 1, -1 do
@@ -1372,7 +1387,7 @@ local function route(input)
 
 	local target, target_dialog, overlay, part = nil, nil, nil, nil
 	if input.inside or captured then
-		target, target_dialog, overlay, part = pick(mx, my, dialog_windows and input.win or nil)
+		target, target_dialog, overlay, part = pick(mx, my, (dialog_windows or overlay_windows.enabled) and input.win or nil)
 	end
 	local modal = modal_top()
 	if modal and target and dialog_of(target) ~= modal then target = nil end
@@ -1405,8 +1420,8 @@ local function route(input)
 	-- Overlays first
 	if over and over.event then
 		local function ov(ev)
-			ev.x, ev.y = mx - over.dx, my - over.dy
-			ev.lx, ev.ly = mx - over.x, my - over.y
+			ev.x, ev.y = mx - over.dx - (over.shift_x or 0), my - over.dy - (over.shift_y or 0)
+			ev.lx, ev.ly = mx - over.x - (over.shift_x or 0), my - over.y - (over.shift_y or 0)
 			local ok, r = pcall(over.event, ev)
 			if not ok then warn(r) end
 			return r
@@ -1528,6 +1543,10 @@ local function route_events(input)
 			if code then key_event(code) end
 		elseif t == "char" then
 			if ev.char then char_event(ev.char) end
+		elseif t == "dismiss" then
+			for n = #overlays, 1, -1 do local o = overlays[n]; if o.event and not o.sticky then o:close() end end
+			if tip_overlay then overlay_windows.release(tip_overlay); tip_overlay = nil end
+			hovered = nil
 		elseif t == "tray" then
 			local d = main_dialog
 			-- winDialogTrayMessage: TRAYCLICK_CB(but, pressed, dclick)
@@ -1578,6 +1597,9 @@ local function paint(el, d)
 	local culled = not d:visible(st.x, st.y, st.w, st.h)
 	if culled and class.clip then return end
 	if not culled and class.draw then
+		if st.classname == "videohost" then
+			video_rects[#video_rects + 1] = { surface = d.surface_id or 0, x = st.x+d.ox, y = st.y+d.oy, w = st.w, h = st.h }
+		end
 		local ok, err = xpcall(class.draw, debug.traceback, el, st, d, M)
 		if not ok then warn(err) end
 	end
@@ -1673,15 +1695,23 @@ local function tooltip(d)
 	local bx, by, W, H = 0, 0, win and win.w or 1280, win and win.h or 800
 	local ws = window_of(hovered)
 	if ws then bx, by, W, H = ws.data.ox or 0, ws.data.oy or 0, ws.w, ws.h end
-	if x + pw > bx + W then x = bx + W - pw - 2 end
-	if y + ph > by + H then y = last_mouse[2] - ph - 4 end
-	if ws then d:surface(ws.data.win, bx, by, W, H) end
+	local o = tip_overlay or { passthrough = true }
+	o.owner, o.x, o.y, o.w, o.h = hovered, x, y, pw, ph
+	local id, sx, sy, sw, sh = prepare_overlay(o)
+	if o.win then
+		tip_overlay = o; o.seen = true
+		x, y = x + (o.shift_x or 0), y + (o.shift_y or 0)
+	else
+		if x + pw > bx + W then x = bx + W - pw - 2 end
+		if y + ph > by + H then y = last_mouse[2] - ph - 4 end
+	end
+	if id then d:surface(id, sx, sy, sw, sh) end
 	d:layer("overlay")
 	d:fill(x, y, pw, ph, bg, { radius = 4 })
 	d:rect(x, y, pw, ph, border, { radius = 4 })
 	d:text(tip, x + 6, y + 4, tw, th, fg, font, { wrap = tw >= 400 })
 	d:layer("main")
-	if ws then d:surface_end() end
+	if id then d:surface_end() end
 end
 
 -- Chrome for dialogs drawn inside the main window (secondary dialogs): the caption band
@@ -1760,6 +1790,7 @@ function M.frame()
 	end
 
 	in_paint = true
+	video_rects = {}
 	dc:begin(input.w, input.h)
 	Draw.current = dc
 	for _, d in ipairs(dialogs) do
@@ -1809,18 +1840,21 @@ function M.frame()
 	end
 	for _, o in ipairs(overlays) do
 		if o.draw then
-			local ws = window_of(o.owner)
-			if ws then dc:surface(ws.data.win, ws.data.ox or 0, ws.data.oy or 0, ws.w, ws.h) end
+			local id, x, y, w, h = prepare_overlay(o)
+			if id then dc:surface(id, x, y, w, h) end
 			dc:layer("overlay")
-			dc:offset_push(o.dx or 0, o.dy or 0)
+			dc:offset_push((o.dx or 0) + (o.shift_x or 0), (o.dy or 0) + (o.shift_y or 0))
 			local okd, errd = xpcall(o.draw, debug.traceback, dc, o)
 			if not okd then warn(errd) end
 			dc:offset_pop()
 			dc:layer("main")
-			if ws then dc:surface_end() end
+			if id then dc:surface_end() end
 		end
 	end
+	if tip_overlay then tip_overlay.seen = false end
 	tooltip(dc)
+	if tip_overlay and not tip_overlay.seen then overlay_windows.release(tip_overlay); tip_overlay = nil end
+	overlay_windows.sweep()
 	in_paint = false
 	Draw.current = nil
 
@@ -1872,7 +1906,14 @@ end
 
 --- Start the runtime over a backend. Safe to call again (tests do, with a fresh Null).
 function M.init(backend)
+	if overlay_windows then
+		for _, o in ipairs(overlays) do overlay_windows.release(o) end
+		if tip_overlay then overlay_windows.release(tip_overlay) end
+		overlay_windows.sweep(true)
+	end
 	B = backend
+	overlay_windows = require("core.imgui.OverlayWindows").new(B, M.now, M.wakeAt)
+	tip_overlay, video_rects = nil, {}
 	dc = Draw.new(B)
 	Fonts.backend = B
 	Fonts.reset()
@@ -1945,6 +1986,8 @@ function M.close()
 	M.preRoute, M.postPaint = {}, {}
 	Draw.current, dc = nil, nil
 	Fonts.reset()
+	if tip_overlay then overlay_windows.release(tip_overlay); tip_overlay = nil end
+	overlay_windows.sweep(true)
 	if B and B.close then B.close() end
 end
 

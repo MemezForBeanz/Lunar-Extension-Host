@@ -348,6 +348,19 @@ function iup.Flush() return rt().flush() end
 function iup.NextField(h) return rt().nextField(h, 1) end
 function iup.PreviousField(h) return rt().nextField(h, -1) end
 function iup.ConvertXYToPos(h, x, y) return rt().convertXYToPos(h, x, y) end
+-- IupTextConvertLinColToPos / IupTextConvertPosToLinCol (the text classes' positions are UTF-16 units)
+local function text_class(h)
+	local st = Element.is(h) and Element.state(h)
+	return st and Classes.get(st.classname), st
+end
+function iup.TextConvertLinColToPos(h, lin, col)
+	local c, st = text_class(h)
+	if c and c.lincolToPos then return c.lincolToPos(h, st, lin, col) end
+end
+function iup.TextConvertPosToLinCol(h, pos)
+	local c, st = text_class(h)
+	if c and c.posToLincol then return c.posToLincol(h, st, pos) end
+end
 function iup.Open() return 0 end
 function iup.Close() rt().close() end
 function iup.Version() return "3.32" end

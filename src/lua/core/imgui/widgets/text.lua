@@ -4,7 +4,13 @@ local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
 local Fonts = require("core.imgui.Fonts")
 local iup = require("core.imgui.iup")
-local UTF16 = require("core.lib.utf16")
+local U = require("core.lib.utf16")
+
+-- The value is UTF-8 and the caret, anchor and selection are 0-based byte offsets that are
+-- always character boundaries. Positions cross the API (attributes, CARET_CB, xyToPos, the
+-- lin/col converters) in UTF-16 code units, as the Win32 EDIT control counts them (a line
+-- break is one unit, as IUP reports it). A unit position between the two halves of a
+-- surrogate pair reads as the pair's start; see core.lib.utf16.
 
 local M = {}
 local function attr(e, n) return Element.getAttribute(e, n) end
@@ -13,10 +19,11 @@ local function pair(v)
 	local a, b = tostring(v or "0x0"):match("^%s*([^xX]*)[xX]([^xX]*)")
 	return tonumber(a) or 0, tonumber(b) or 0
 end
+-- The character at byte index p (1-based) and the index after it; a byte that is not part
+-- of well-formed UTF-8 is a character of its own.
 local function utf8_char(s, p)
-	local b = s:byte(p)
-	if not b then return nil end
-	local n = b < 128 and 1 or b < 224 and 2 or b < 240 and 3 or 4
+	if p < 1 or p > #s then return nil end
+	local n = U.step(s, p)
 	return s:sub(p, p + n - 1), p + n
 end
 local function utf8_encode(n)
@@ -25,14 +32,7 @@ local function utf8_encode(n)
 	elseif n < 65536 then return string.char(224 + math.floor(n / 4096), 128 + math.floor(n / 64) % 64, 128 + n % 64)
 	else return string.char(240 + math.floor(n / 262144), 128 + math.floor(n / 4096) % 64, 128 + math.floor(n / 64) % 64, 128 + n % 64) end
 end
-local function previous(s, p)
-	p = math.max(0, p - 1)
-	while p > 0 and s:byte(p + 1) and s:byte(p + 1) >= 128 and s:byte(p + 1) < 192 do p = p - 1 end
-	return p
-end
-local function nextpos(s, p)
-	return utf8_char(s, p + 1) and (select(2, utf8_char(s, p + 1)) - 1) or #s
-end
+local previous, nextpos = U.prev, U.next
 local function word_left(s, p)
 	while p > 0 do
 		local q = previous(s, p)
@@ -60,25 +60,20 @@ local function word_right(s, p)
 	end
 	return p
 end
-local function clamp(st, p) return math.max(0, math.min(#st.data.text, math.floor(p or 0))) end
--- winTextGet/SetSelection and winTextRemoveExtraChars: public positions are the
--- normalized UTF-16 positions, while the EDIT's internal buffer has CRLF line breaks.
-local function native_to_byte(text, p)
-	return UTF16.units_to_byte(text or "", math.max(0, math.floor(p or 0)))
-end
-local function byte_to_native(text, p)
-	return UTF16.byte_to_units(text or "", math.max(0, math.floor(p or 0)))
-end
-local function native_length(text) return UTF16.length(text or "") end
+-- A position in UTF-16 units to a byte offset, clamped to the text.
+local function clamp(st, p) return U.to_bytes(st.data.text, math.max(0, math.floor(p or 0))) end
+-- A byte offset to a position in UTF-16 units.
+local function units_at(st, b) return U.to_units(st.data.text, b) end
 local function sorted_selection(st)
 	local a, b = st.data.anchor or st.data.caret, st.data.caret
 	return math.min(a, b), math.max(a, b)
 end
+-- The 0-based line of byte offset p and the UTF-16 units between the line's start and p.
 local function line_at(s, p)
 	local before = s:sub(1, p)
 	local line = select(2, before:gsub("\n", "\n"))
 	local start = before:match(".*\n()") or 1
-	return line, p - start + 1
+	return line, U.units(before:sub(start))
 end
 local function line_start(s, p)
 	local n = s:sub(1, p):match(".*\n()")
@@ -206,23 +201,20 @@ local function scroll_to_lincol(e, st, v)
 	local lin = tonumber(tostring(v or ""):match("^%s*(-?%d+)")) or 1
 	line_scroll_to(e, st, math.max(1, lin) - 1)
 end
--- winTextSetLinColToPosition: 1-based line and column to a position, the line clamped to
--- the last one and the column to just after the line's last character.
+-- winTextSetLinColToPosition: 1-based line and column (in UTF-16 units) to a byte offset,
+-- the line clamped to the last one and the column to just after the line's last character.
 local function rt_of() return package.loaded["core.imgui.Runtime"] end
 local function lincol_to_pos(text, lin, col)
-	local lines = lines_of(text or "")
+	text = text or ""
+	local lines = lines_of(text)
 	lin = math.max(1, math.min(#lines, math.floor(lin)))
 	local ln = lines[lin]
-	local max_col = byte_to_native(text, ln[2]) - byte_to_native(text, ln[1]) + 1
-	col = math.max(1, math.min(max_col, math.floor(col)))
-	return ln[1] + UTF16.units_to_byte((text or ""):sub(ln[1] + 1, ln[2]), col - 1)
+	return ln[1] + U.to_bytes(text:sub(ln[1] + 1, ln[2]), math.max(0, math.floor(col) - 1))
 end
--- winTextGetLinColFromPosition: a position to 1-based line and column.
+-- winTextGetLinColFromPosition: a byte offset to 1-based line and column (in UTF-16 units).
 local function pos_to_lincol(text, p)
-	local value = text or ""
-	local line, byte_col = line_at(value, p)
-	local start = line_start(value, p)
-	return line + 1, byte_to_native(value, start + byte_col) - byte_to_native(value, start) + 1
+	local line, col = line_at(text or "", p)
+	return line + 1, col + 1
 end
 local function action(e, old, proposed, from, to)
 	local c = proposed:sub(1, 1)
@@ -245,8 +237,13 @@ local function replace(e, st, from, to, insert, rt)
 	elseif filter:find("NUMBER", 1, true) then insert = insert:gsub("[^%d%.%-]", "") end
 	local mask = attr(e, "MASK")
 	if mask and mask ~= "" and insert ~= "" and not insert:match("^" .. tostring(mask) .. "$") then return false end
-	local nc = tonumber(attr(e, "NC")) -- 0: no limit (IUP's default)
-	if nc and nc > 0 and #text - (to - from) + #insert > nc then insert = insert:sub(1, math.max(0, nc - (#text - (to - from)))) end
+	-- NC is EM_LIMITTEXT: UTF-16 units, 0 for no limit (IUP's default). The bytes of a text
+	-- are at least its units, so a text within the limit in bytes needs no count.
+	local nc = tonumber(attr(e, "NC"))
+	if nc and nc > 0 and #text - (to - from) + #insert > nc then
+		local room = nc - (U.units(text) - U.units(text:sub(from + 1, to)))
+		if U.units(insert) > room then insert = insert:sub(1, U.to_bytes(insert, math.max(0, room))) end
+	end
 	local proposed = text:sub(1, from) .. insert .. text:sub(to + 1)
 	proposed = action(e, text, proposed, from, to)
 	if proposed == nil then return false end
@@ -265,10 +262,8 @@ end
 local function caret_cb(e, st)
 	if st.data.last_caret_pos == st.data.caret then return end
 	st.data.last_caret_pos = st.data.caret
-	local line, col = line_at(st.data.text, st.data.caret)
-	local start = line_start(st.data.text, st.data.caret)
-	local native_col = byte_to_native(st.data.text, start + col) - byte_to_native(st.data.text, start) + 1
-	Element.call(e, "CARET_CB", line + 1, native_col, byte_to_native(st.data.text, st.data.caret))
+	local lin, col = pos_to_lincol(st.data.text, st.data.caret)
+	Element.call(e, "CARET_CB", lin, col, units_at(st, st.data.caret))
 end
 -- After the caret moved: CARET_CB, EM_SCROLLCARET, and the blink restarts shown.
 local function moved(e, st, rt)
@@ -848,24 +843,19 @@ local common = {
 		end,
 		DELETERANGE = function(e, st, v)
 			local a, b = tostring(v or ""):match("^(%d+)%s*[,;:]%s*(%d+)$")
-			if a then replace(e, st, native_to_byte(st.data.text, a), native_to_byte(st.data.text, b), "") end
+			if a then replace(e, st, clamp(st, tonumber(a)), clamp(st, tonumber(b)), "") end
 			return false
 		end,
 		-- winTextSetCaretPosAttrib: EM_SETSEL, then EM_SCROLLCARET
-		CARETPOS = function(e, st, v) st.data.caret = native_to_byte(st.data.text, tonumber(v) or 0); st.data.anchor = st.data.caret; M.scrollCaret(e, st); return false end,
+		CARETPOS = function(e, st, v) st.data.caret = clamp(st, tonumber(v) or 0); st.data.anchor = st.data.caret; M.scrollCaret(e, st); return false end,
 		SELECTIONPOS = function(e, st, v)
-			local s = tostring(v or ""):upper()
-			if s == "NONE" then st.data.anchor = st.data.caret
-			elseif s == "ALL" then st.data.anchor, st.data.caret = 0, #st.data.text
-			else
-				local a, b = s:match("^(%d+)%s*[,;:]%s*(%d+)$")
-				if a then st.data.anchor, st.data.caret = native_to_byte(st.data.text, a), native_to_byte(st.data.text, b) end
-			end
+			local a, b = tostring(v or ""):match("^(%d+)%s*[,;:]%s*(%d+)$")
+			if a then st.data.anchor, st.data.caret = clamp(st, tonumber(a)), clamp(st, tonumber(b)) end
 			return false
 		end,
 		-- winTextSetScrollToPosAttrib: the position's line, as SCROLLTO
 		SCROLLTOPOS = function(e, st, v)
-			local p = native_to_byte(st.data.text, tonumber(v) or 0)
+			local p = clamp(st, tonumber(v) or 0)
 			local line = select(2, (st.data.text or ""):sub(1, p):gsub("\n", "\n"))
 			line_scroll_to(e, st, line)
 			return false
@@ -881,7 +871,7 @@ local common = {
 				lin = tonumber(lin) or tonumber(tostring(v or ""):match("^%s*(-?%d+)")) or 1
 				p = lincol_to_pos(text, lin, tonumber(col) or 1)
 			else
-				p = native_to_byte(text, (tonumber(tostring(v or ""):match("^%s*(-?%d+)")) or 1) - 1)
+				p = clamp(st, (tonumber(tostring(v or ""):match("^%s*(-?%d+)")) or 1) - 1)
 			end
 			st.data.caret, st.data.anchor = p, p
 			st.data.last_caret_pos = p -- a programmatic move fires no CARET_CB
@@ -904,7 +894,7 @@ local common = {
 			else
 				local a, b = s:match("^%s*(%d+)%s*:%s*(%d+)")
 				if not a or tonumber(a) < 1 or tonumber(b) < 1 then return false end
-				st.data.anchor, st.data.caret = native_to_byte(text, tonumber(a) - 1), native_to_byte(text, tonumber(b) - 1)
+				st.data.anchor, st.data.caret = clamp(st, tonumber(a) - 1), clamp(st, tonumber(b) - 1)
 			end
 			return false
 		end,
@@ -916,7 +906,8 @@ local common = {
 	},
 	get = {
 		VALUE = function(e, st) return st.data.text or "" end,
-		COUNT = function(e, st) return native_length(st.data.text) end,
+		-- winTextGetLastPosition: UTF-16 units, a line break one
+		COUNT = function(e, st) return U.units(st.data.text) end,
 		-- winTextGetCaretAttrib: "lin,col" on a multiline, the column on a single line (1-based)
 		CARET = function(e, st)
 			local lin, col = pos_to_lincol(st.data.text, st.data.caret or 0)
@@ -924,7 +915,7 @@ local common = {
 			return tostring(col)
 		end,
 		CARETPos = function() end,
-		CARETPOS = function(e, st) return tostring(byte_to_native(st.data.text, st.data.caret or 0)) end,
+		CARETPOS = function(e, st) return tostring(units_at(st, st.data.caret or 0)) end,
 		-- winTextSetPaddingAttrib keeps the horizontal part only (vert_padding = 0), and
 		-- iTextGetPaddingAttrib answers both
 		PADDING = function(e, st)
@@ -933,8 +924,7 @@ local common = {
 		end,
 		SELECTIONPOS = function(e, st)
 			local a, b = sorted_selection(st)
-			if a == b then return nil end
-			return byte_to_native(st.data.text, a) .. ":" .. byte_to_native(st.data.text, b)
+			return units_at(st, a) .. ":" .. units_at(st, b)
 		end,
 		-- winTextGetSelectionAttrib: nothing when empty, else 1-based "l1,c1:l2,c2" or "a:b"
 		SELECTION = function(e, st)
@@ -945,7 +935,7 @@ local common = {
 				local l2, c2 = pos_to_lincol(st.data.text, b)
 				return string.format("%d,%d:%d,%d", l1, c1, l2, c2)
 			end
-			return (byte_to_native(st.data.text, a) + 1) .. ":" .. (byte_to_native(st.data.text, b) + 1)
+			return (units_at(st, a) + 1) .. ":" .. (units_at(st, b) + 1)
 		end,
 		-- winTextGetSelectedTextAttrib: NULL without a selection
 		SELECTEDTEXT = function(e, st) local a, b = sorted_selection(st); if a == b then return nil end; return st.data.text:sub(a + 1, b) end,
@@ -957,6 +947,24 @@ local common = {
 		LINEVALUE = function(e, st) local n = tonumber(Element.own(e, "LINE") or 1) or 1; local lines = {}; for x in (st.data.text .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = x end; return lines[n] or "" end,
 	},
 	callbacks = { ACTION = true, VALUECHANGED_CB = true, CARET_CB = true },
+	-- winTextConvertXYToPos: x, y in the control's client area; a position in UTF-16 units
+	xyToPos = function(e, st, x, y)
+		local p
+		if is_multiline(e, st) then p = offset_at(e, st, metrics(e, st), st.x + x, st.y + y)
+		else p = pos_from_point(e, st, x, y) end
+		return units_at(st, p)
+	end,
+	-- IupTextConvertLinColToPos / IupTextConvertPosToLinCol (1-based line and column, 0-based
+	-- position, all in UTF-16 units; a single line has no line to count)
+	lincolToPos = function(e, st, lin, col)
+		if not is_multiline(e, st) then return (tonumber(col) or 1) - 1 end
+		return units_at(st, lincol_to_pos(st.data.text, tonumber(lin) or 1, tonumber(col) or 1))
+	end,
+	posToLincol = function(e, st, pos)
+		pos = tonumber(pos) or 0
+		if not is_multiline(e, st) then return 1, pos + 1 end
+		return pos_to_lincol(st.data.text, clamp(st, pos))
+	end,
 }
 local function create(e, st)
 	st.data.text = st.data.text or tostring(Element.own(e, "VALUE") or "")

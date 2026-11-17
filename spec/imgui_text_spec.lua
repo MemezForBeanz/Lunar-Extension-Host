@@ -10,12 +10,12 @@ describe("ImGui text controls", function()
 		r.clipboard_set = function(v) r.clipboard = v end
 		return r
 	end
-	it("edits, selects, and exposes UTF-8 positions", function()
+	it("edits, selects, and exposes UTF-16 positions", function()
 		local t = iup.text({ VALUE = "héllo" })
 		local st = Element.state(t)
 		local r = rt()
 		Classes.get("text").event(t, st, { type = "key", key = iup.K_cA, mods = { ctrl = true } }, r)
-		assert.equal("1:6", iup.GetAttribute(t, "SELECTION")) -- Win32 EDIT UTF-16 positions
+		assert.equal("1:6", iup.GetAttribute(t, "SELECTION")) -- UTF-16 units, as the EDIT counts
 		Classes.get("text").event(t, st, { type = "char", char = "世界" }, r)
 		assert.equal("世界", iup.GetAttribute(t, "VALUE"))
 	end)

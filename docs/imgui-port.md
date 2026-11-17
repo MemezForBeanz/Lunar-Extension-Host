@@ -284,9 +284,9 @@ message_box(title, text, kind)
 ```
 
 `videohost` is a disabled Win32 child window, repositioned in dialog-client pixels
-each frame and hidden when its element or any ancestor is not visible. Because it is
-an HWND, native child z-order is above the ImGui draw list: dropdowns, tooltips, and
-other ImGui overlays drawn over a video host can be hidden behind the video child.
+each frame and hidden when its element or any ancestor is not visible. Bounded menus,
+dropdowns and tooltips intersecting it promote to owned native popup windows, above
+the child. Full-window compositor effects and modal scrims remain in-surface.
 The host reports that child through `WINDOWID`, `WID`, and `HWND`.
 
 Corner flags follow ImGui's `ImDrawFlags_RoundCorners*` bits (TL=16, TR=32, BL=64,
@@ -552,8 +552,15 @@ returns a frame pointer rather than a Lua input table.
 
 Known differences, in order of visibility:
 
-- **Popups of a dialog window** (a dropdown's list, a tooltip, a menu opened from a control
-  on it) draw inside that window, so one cannot reach past its edges; IUP's are windows.
+- **Overlay fallback**: backends without `overlay_windows` and `LUNAR_OVERLAY_WINDOWS=0`
+  draw menus, dropdowns and tooltips on their owner, clipped at its client edge. Windows
+  promotes them when they cross that edge or visible video. Promotion lasts until close;
+  up to two hidden windows are reused for five seconds. Layered, premultiplied-alpha
+  windows share one D3D target/readback pair, preserving drawn shadows and corners without
+  per-popup swap chains. Captures composite promoted surfaces with their owner (the optional
+  seventh screenshot argument extends the capture to include pixels outside the owner).
+  Popup DPI follows the existing dialog/main drawing scale; mixed-monitor DPI is not
+  independently resolved. Oversized popups are anchored to the monitor work-area origin.
 - **Text weight in IUP's popups**: IUP's secondary windows draw text heavier than its main
   window; the ImGui host draws them at the main window's weight.
 - **Text positions use UTF-16 units**: `CARETPOS`, `SELECTIONPOS`, `COUNT`, `CARET`,
@@ -562,7 +569,7 @@ Known differences, in order of visibility:
   state remains UTF-8 byte offsets.
 - **The code editor** is an emulation of the Scintilla messages CodeView sends, not
   Scintilla itself (see `docs/imgui-scintilla.md`).
-- **Video overlays**: ImGui popups (menus, tooltips) cannot draw over the native video child
-  window, as an IUP popup window could.
+- **Video effects**: full-window compositor effects and modal scrims still draw below
+  native video children; bounded interactive popups and tooltips use native windows above them.
 - **Compositor scaling** is not a gap: the native blend (`blend.c`) also requires the
   destination rect to equal the source size, so neither build scales a snapshot.

@@ -114,19 +114,20 @@ local function open_popup(e, st, rt)
 	Element.call(e, "DROPDOWN_CB", 1)
 	st.data.popup = rt.overlay({ owner = e, x = x, y = y + h, w = w, h = rows * ch + 2, top = 0,
 		draw = function(dc, o)
+			local px, py = o.x - (o.dx or 0), o.y - (o.dy or 0)
 			local list = items(e)
 			local bg = Element.getAttribute(e, "BGCOLOR") or C.window
 			local fg = Element.getAttribute(e, "FGCOLOR") or C.text
-			dc:fill(o.x, o.y, o.w, o.h, bg)
-			dc:rect(o.x, o.y, o.w, o.h, C.border, { thickness = 1 })
+			dc:fill(px, py, o.w, o.h, bg)
+			dc:rect(px, py, o.w, o.h, C.border, { thickness = 1 })
 			local top = o.top or 0
 			for r = 1, rows do
 				local i = top + r
 				if not list[i] then break end
-				local ry = o.y + 1 + (r - 1) * ch
+				local ry = py + 1 + (r - 1) * ch
 				local c = fg
-				if i == st.data.hot then dc:fill(o.x + 1, ry, o.w - 2, ch, C.sel); c = C.seltext end
-				dc:text(list[i], o.x + 3, ry, o.w - 6, ch, c, font, { clip = true })
+				if i == st.data.hot then dc:fill(px + 1, ry, o.w - 2, ch, C.sel); c = C.seltext end
+				dc:text(list[i], px + 3, ry, o.w - 6, ch, c, font, { clip = true })
 			end
 		end,
 		event = function(pev)
