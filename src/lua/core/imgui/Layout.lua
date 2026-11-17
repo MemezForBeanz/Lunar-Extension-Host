@@ -236,6 +236,21 @@ function L.currentSize(el, w, h)
 	return max(0, floor(cw)), max(0, floor(ch))
 end
 
+-- Height for width. IUP measures a wrapping label as one unwrapped line, so its natural
+-- height says nothing about the width it gets. A class with `heightForWidth` (a wrapping
+-- label with no height of its own) is measured at the width it was last laid out at
+-- (`data.wrap_w`); when that width changes, its natural size is measured again and the
+-- layout runs once more (`M.run`, at most `WRAP_PASSES` times).
+local WRAP_PASSES = 4
+local rewrap = false
+local function follow_width(el, st)
+	local hfw = st.class.heightForWidth
+	if not hfw or st.w <= 0 or st.data.wrap_w == st.w or not hfw(el, st) then return end
+	st.data.wrap_w = st.w
+	M.invalidate(el)
+	rewrap = true
+end
+
 --- Give a child the rect (x, y, w, h): it takes its current size by IUP's rule, sits at
 -- (x, y), and lays out its own children.
 function L.place(el, x, y, w, h)
@@ -325,6 +340,7 @@ M.compute = compute
 
 --- Lay out an element's children inside its (already set) rect.
 function M.placeChildren(el, st)
+	follow_width(el, st)
 	if #st.children == 0 then return end
 	local d = st.data
 	if not d.place_dirty and d.place_x == st.x and d.place_y == st.y
@@ -430,10 +446,14 @@ function M.run(dialog, w, h)
 	stats.runs = stats.runs + 1
 	font_environment(dialog)
 	shrink_flag = Element.getAttribute(dialog, "SHRINK") == "YES"
-	compute(dialog)
-	st.x, st.y = 0, 0
-	st.w, st.h = floor(w or st.nat_w), floor(h or st.nat_h)
-	M.placeChildren(dialog, st)
+	for _ = 1, WRAP_PASSES do
+		rewrap = false
+		compute(dialog)
+		st.x, st.y = 0, 0
+		st.w, st.h = floor(w or st.nat_w), floor(h or st.nat_h)
+		M.placeChildren(dialog, st)
+		if not rewrap then break end
+	end
 	return L
 end
 
@@ -452,8 +472,12 @@ end
 --- Lay out any subtree in a rect (used by tests and by overlays that host a tree).
 function M.layout(el, x, y, w, h)
 	font_environment(el)
-	compute(el)
-	L.place(el, x, y, w, h)
+	for _ = 1, WRAP_PASSES do
+		rewrap = false
+		compute(el)
+		L.place(el, x, y, w, h)
+		if not rewrap then break end
+	end
 end
 
 return M

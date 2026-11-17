@@ -11,12 +11,30 @@ local F = require("core.imgui.widgets.flatdraw")
 
 local own, attr, bool, int = F.own, F.attr, F.bool, F.int
 
+-- A wrapping text-only label with no height of its own: its height follows its width.
+local function wraps(e, st)
+	if not bool(attr(e, "TEXTWRAP")) or own(e, "IMAGE") then return false end
+	local title = own(e, "TITLE")
+	if not title or title == "" then return false end
+	local _, uh = require("core.imgui.Layout").userSize(e, st)
+	return uh <= 0
+end
+
 local function natural(e, st, L)
 	local back = own(e, "BACKIMAGE")
 	if bool(attr(e, "FITTOBACKIMAGE")) and back then return F.imageInfo(back) end
 	local hp, vp = F.intint(attr(e, "PADDING"))
-	return F.iconSize(e, F.imagePosition(attr(e, "IMAGEPOSITION")), int(attr(e, "SPACING"), 2), hp, vp,
+	local w, h = F.iconSize(e, F.imagePosition(attr(e, "IMAGEPOSITION")), int(attr(e, "SPACING"), 2), hp, vp,
 		own(e, "IMAGE"), own(e, "TITLE"))
+	-- Laid out before at wrap_w (Layout's height for width): the lines it wraps into there.
+	local at = st.data.wrap_w
+	if at and at - 2 * hp > 0 and wraps(e, st) then
+		local font = F.font(e)
+		local _, line = font:charsize()
+		local lines = require("core.imgui.Draw").wrap(font, own(e, "TITLE"), at - 2 * hp)
+		h = line * math.max(1, #lines) + 2 * vp
+	end
+	return w, h
 end
 
 local function draw(e, st, dc)
@@ -88,6 +106,7 @@ Classes.define({
 	callbacks = { BUTTON_CB = true, MOTION_CB = true, WHEEL_CB = true, FLAT_BUTTON_CB = true,
 		FLAT_MOTION_CB = true, FLAT_ENTERWINDOW_CB = true, FLAT_LEAVEWINDOW_CB = true },
 	natural = natural,
+	heightForWidth = wraps,
 	draw = draw,
 	event = event,
 })
