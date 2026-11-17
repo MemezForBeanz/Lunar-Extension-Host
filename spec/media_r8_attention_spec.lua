@@ -54,6 +54,10 @@ describe("media server attention table", function()
 		local row_right = select(1, rect(iup.GetParent(repair))) + select(3, rect(iup.GetParent(repair)))
 		assert.equals(row_right, rx + rw)
 		assert.equals("actionbutton", iup.GetAttribute(repair, "THEMEROLE"))
+		-- The header band is as tall as the Sessions table's header.
+		local frame = iup.GetParent(iup.GetParent(header))
+		assert.equals("flatframe", iup.GetClassName(frame))
+		assert.equals(28, select(4, rect(frame)))
 		iup.Destroy(api.widget)
 	end)
 

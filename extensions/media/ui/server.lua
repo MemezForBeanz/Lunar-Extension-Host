@@ -38,12 +38,13 @@ function M.new(ctx, opts)
     -- tokens those tables use, so all three read as one kind of table.
     local attention_rows = iup.vbox({GAP = "0", EXPAND = "HORIZONTAL"})
     -- A frame paints the header's fill in every theme (Carbon labels and boxes paint none).
-    local issue_header = iup.flatlabel({TITLE = "Issue / next step", THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL"})
-    local repair_header = iup.flatlabel({TITLE = "Repair", THEMEROLE = "reading_muted", ALIGNMENT = "ARIGHT:ACENTER"})
+    local issue_header = iup.flatlabel({TITLE = "Issue / next step", THEMEROLE = "reading_muted", EXPAND = "YES"})
+    local repair_header = iup.flatlabel({TITLE = "Repair", THEMEROLE = "reading_muted", ALIGNMENT = "ARIGHT:ACENTER", EXPAND = "VERTICAL"})
     local attention_header = iup.flatframe({
         iup.hbox({issue_header, repair_header, GAP = "0", MARGIN = L.margin(4, 0), ALIGNMENT = "ACENTER",
-            EXPAND = "HORIZONTAL", RASTERSIZE = L.size(nil, L.PAGE.control)}),
-        TITLE = "", FRAME = "NO", MARGIN = "0x0", EXPAND = "HORIZONTAL", THEMEROLE = "page_column"})
+            EXPAND = "YES"}),
+        TITLE = "", FRAME = "NO", MARGIN = "0x0", EXPAND = "HORIZONTAL", THEMEROLE = "page_column",
+        RASTERSIZE = L.size(nil, L.PAGE.control)})
     local dividers, actions = {}, {}
     attention = {widget = iup.vbox({attention_header, attention_rows, GAP = "0", EXPAND = "HORIZONTAL"})}
     function attention:setRows(rows)
@@ -180,6 +181,8 @@ function M.new(ctx, opts)
 			if value and iup.GetAttribute(widget, name) ~= value then iup.SetAttribute(widget, name, value) end
 		end
 		for _, divider in ipairs(dividers) do iup.SetAttribute(divider, "BGCOLOR", rule) end
+		local header_height = tonumber(iup.GetAttribute(sessions.widget, "HEADERHEIGHT"))
+		set(attention_header, "RASTERSIZE", header_height and L.size(nil, header_height))
 		-- "Repair" sits over its buttons' labels, not over their padding.
 		local pad = actions[1] and tostring(iup.GetAttribute(actions[1], "PADDING") or ""):match("^(%d+)")
 		set(repair_header, "PADDING", pad and (pad .. "x0"))
