@@ -308,6 +308,15 @@ Microchip 89 passing. Page captures of both exes with the same Lua and packs (14
 Lunar Dark): every page within 0.8-4.4 % differing pixels, glyph rasterization being most
 of it; the Activity panel went from a size mismatch to 1.3 %.
 
+Live probe (`ui_probe.lua`, `LUNAR_PROBE_LIVE=1`, both exes, 14 pages, every control
+clicked with its real callbacks): no callback errors or runtime warnings on either build,
+no element present in one build only. Of the click differences, one was real and is fixed
+(`flattabs` fired `TABCHANGE_CB` on a programmatic `VALUE`/`VALUEPOS` switch;
+`spec/imgui_flattabs_spec.lua`). The rest are clicks the IUP probe cannot deliver: the title
+bar's tab strip takes its clicks through non-client hit-testing, and the media grids answer
+in C. The three differing label rectangles are the Media spotlight rotating its title
+between the two runs.
+
 ## Verification
 
 | Check | Result |
