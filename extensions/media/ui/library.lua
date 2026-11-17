@@ -743,10 +743,12 @@ function M.new(ctx, opts)
 			shelf_list:select(0)
 			go_source("collection", (model.origins or {})[pos])
 		end })
-	iup.SetAttribute(origin_list.widget, "EXPAND", "YES")
+	-- Sized to its rows like the lists above it, so what follows sits right under it.
+	iup.SetAttribute(origin_list.widget, "EXPAND", "HORIZONTAL")
 	iup.SetAttribute(origin_list.widget, "FLATSCROLLBAR", "NO")
 	local function size_rail()
 		iup.SetAttribute(shelf_list.widget, "RASTERSIZE", "x" .. (32 * math.max(#(model.collections or {}), 1) + 8))
+		iup.SetAttribute(origin_list.widget, "RASTERSIZE", "x" .. (32 * math.max(#(model.origins or {}), 1) + 8))
 	end
 	size_rail()
 	local rail_group = function(text)
@@ -847,7 +849,9 @@ function M.new(ctx, opts)
     local main = iup.vbox({ reliability.widget, toolbar, iup.hbox({ stack, jump_box, GAP = "0", MARGIN = "0x0", EXPAND = "YES" }),
 		GAP = L.gap(3), MARGIN = "0x0", EXPAND = "YES" })
 	workspace = Kit.page(iup, { id = "media-browser", title = "Media", icon = "media--library",
-        nav = { widget = source_rail, title = "Browse" }, main = main,
+        -- A short window scrolls the rail rather than cutting off its last group.
+        nav = { widget = iup.scrollbox({ source_rail, EXPAND = "YES", CANVASBOX = "YES", SCROLLBAR = "VERTICAL",
+            BORDER = "NO", THEMEROLE = "page_column" }), title = "Browse" }, main = main,
         inspector = { widget = inspector_body, title = "Selected title", width = L.PAGE.inspector },
         state = { kind = "info", text = "Choose a library or collection" } })
     page_stack = iup.zbox({workspace:widget(), details.widget, EXPAND = "YES"})
@@ -939,8 +943,9 @@ function M.new(ctx, opts)
 		local client = math.max(L.PAGE.control, width - L.PAGE.padding * 2 - nav_width)
 		local drawer_break = L.PAGE.config + L.PAGE.main_min + L.PAGE.inspector + L.PAGE.padding * 2 + L.PAGE.gutter * 2
 		if workspace.inspectorOpen and (width >= drawer_break or not rawget(iup, "_IMGUI")) then client = client - workspace.inspectorSize - L.PAGE.gutter end
+		-- MAXSIZE alone: a vbox's RASTERSIZE sets only its height, and "<width>x0" made the
+		-- browser as tall as it is wide, pushing the rail and the home's end off the page.
 		iup.SetAttribute(main, "MAXSIZE", L.maxSize(client))
-		iup.SetAttribute(main, "RASTERSIZE", L.size(client))
         details.setWidth(width)
         local compact = width < L.PAGE.drawer_break + L.PAGE.config + L.PAGE.inspector
         Kit.show(iup, segmented, not compact, sources.widget)
