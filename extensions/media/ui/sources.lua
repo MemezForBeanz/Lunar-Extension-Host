@@ -123,6 +123,9 @@ function M.new(ctx, opts)
 		header = { title = "Provider", columns = {} },
 		on_select = function(pos) choose_provider(providers[pos]) end })
 	iup.SetAttribute(provider_list.widget, "EXPAND", "YES")
+	-- In a short window the list gives way down to a few rows, then the detail column scrolls,
+	-- so the whole provider form stays reachable.
+	iup.SetAttribute(provider_list.widget, "MINSIZE", L.size(nil, 3 * ROW))
 
 	local left = L.stack(iup, {
 		iup.hbox({ L.sectionTitle(iup, "Your sources"), iup.fill({}), sync, remove, GAP = L.gap(2), ALIGNMENT = "ACENTER",
@@ -140,7 +143,8 @@ function M.new(ctx, opts)
     local manage_toolbar = iup.hbox({ EXPAND = "HORIZONTAL" })
     local manage_page = Kit.page(iup, { id = "media-source-management", title = "Sources", toolbar = manage_toolbar, primary = { widget = add },
         nav = { title = "Your sources", widget = source_list.widget },
-        main = right, secondary = { { title = "Sync now", action = function() if chosen_source then opts.on_sync(chosen_source) end end },
+        main = iup.scrollbox({ right, EXPAND = "YES", CANVASBOX = "YES", SCROLLBAR = "VERTICAL", BORDER = "NO",
+            THEMEROLE = "page_column" }), secondary = { { title = "Sync now", action = function() if chosen_source then opts.on_sync(chosen_source) end end },
             { title = "Remove", action = function() if chosen_source then opts.on_remove(chosen_source) end end } },
         state = { kind = "info", text = "Choose a provider to add a source" } })
     local manage = manage_page:widget()
