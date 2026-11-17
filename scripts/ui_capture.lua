@@ -395,6 +395,20 @@ iup.MainLoop = function()
 			shell.activity._hasFocus = function() return true end
 			shell.activity:open()
 		elseif scene == 8 then
+			-- LUNAR_CAPTURE_TREE=1: every element of the open panel, with its rectangle, so the
+			-- two builds' geometry can be compared line by line
+			if os.getenv("LUNAR_CAPTURE_TREE") == "1" then
+				local tree = assert(io.open(out_dir .. "/activity-tree.txt", "w"))
+				local function walk(h, depth)
+					tree:write(string.format("%s%s pos=%s size=%s client=%s" .. string.char(10), string.rep(" ", depth),
+						tostring(iup.GetClassName(h)), tostring(iup.GetAttribute(h, "SCREENPOSITION")),
+						tostring(iup.GetAttribute(h, "RASTERSIZE")), tostring(iup.GetAttribute(h, "CLIENTSIZE"))))
+					local i, c = 0, iup.GetChild(h, 0)
+					while c do walk(c, depth + 1); i = i + 1; c = iup.GetChild(h, i) end
+				end
+				walk(shell.activity._dialog, 0)
+				tree:close()
+			end
 			snap_window(shell.activity._dialog, "93-activity-empty")
 			shell.activity:close()
 			activity_scene.start(shell)

@@ -569,7 +569,11 @@ Known differences, in order of visibility:
   state remains UTF-8 byte offsets.
 - **The code editor** is an emulation of the Scintilla messages CodeView sends, not
   Scintilla itself (see `docs/imgui-scintilla.md`).
-- **Video effects**: full-window compositor effects and modal scrims still draw below
-  native video children; bounded interactive popups and tooltips use native windows above them.
+- **Video effects**: full-window compositor effects (tab transitions, toasts) still draw
+  below native video children. The modal scrim covers them: each video rectangle on the
+  main window gets a click-through overlay window in the scrim colour, stacked directly
+  under the modal's own window (`overlay_open`'s `under`; `spec/imgui_scrim_video_spec.lua`).
+  Bounded interactive popups and tooltips use native windows above video. The SDL backend
+  ignores `under`.
 - **Compositor scaling** is not a gap: the native blend (`blend.c`) also requires the
   destination rect to equal the source size, so neither build scales a snapshot.

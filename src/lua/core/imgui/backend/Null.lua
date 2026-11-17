@@ -298,6 +298,7 @@ function M.new(opts)
 				local id = B.next_popup; B.next_popup = id + 1
 				B.overlay_opens = B.overlay_opens + 1
 				B.overlays[id] = { owner = a[1] and a[1].owner or 0, passthrough = a[1] and a[1].passthrough and true or false,
+					under = a[1] and a[1].under or 0,
 					visible = false, x = 0, y = 0, w = 1, h = 1, inset = 0 }
 				return id
 			elseif op == "overlay_place" then

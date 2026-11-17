@@ -33,6 +33,12 @@ local active_dialog = nil
 local timers = {}         -- running timer elements -> true
 local overlays = {}       -- rt.overlay handles, bottom to top
 local overlay_windows, tip_overlay
+-- Scrim patches over native video (one per video rectangle on the main window while a modal
+-- is up): the video child sits above the main surface, so the dim drawn there misses it.
+-- IUP's scrim was a layered window over everything; these are click-through overlay windows
+-- stacked directly under the modal's own window.
+local scrim_windows, scrim_used = {}, 0
+local scrim_over_video
 local video_rects = {}
 local hovered, captured, focused = nil, nil, nil
 local loop_level = 0
@@ -1714,6 +1720,38 @@ local function tooltip(d)
 	if id then d:surface_end() end
 end
 
+--- Dim the main window's native video children too, under the modal dialog `st` (once its
+-- own window exists: the first frame of a modal has none yet, and the next one covers it).
+scrim_over_video = function(st, color, input)
+	local under = st.data.win
+	if not (under and overlay_windows.enabled) then return end
+	local bounds = { 0, 0, input.w, input.h }
+	for _, r in ipairs(video_rects) do
+		if r.surface == 0 and r.w > 0 and r.h > 0 then
+			scrim_used = scrim_used + 1
+			local o = scrim_windows[scrim_used]
+			if not o then o = { passthrough = true, scrim = true }; scrim_windows[scrim_used] = o end
+			if o.win and o.under ~= under then overlay_windows.release(o) end
+			o.under = under
+			o.x, o.y, o.w, o.h = r.x, r.y, r.w, r.h
+			local id, sx, sy, sw, sh = overlay_windows.prepare(o, 0, bounds, video_rects)
+			if id then
+				dc:surface(id, sx, sy, sw, sh)
+				dc:fill(o.x + (o.shift_x or 0), o.y + (o.shift_y or 0), o.w, o.h, color)
+				dc:surface_end()
+			end
+		end
+	end
+end
+
+--- Close the scrim patches this frame did not use (the modal closed, or the video went).
+local function scrim_release(from)
+	for i = #scrim_windows, from, -1 do
+		overlay_windows.release(scrim_windows[i])
+		scrim_windows[i] = nil
+	end
+end
+
 -- Chrome for dialogs drawn inside the main window (secondary dialogs): the caption band
 -- IUP's frame puts above the client, the top border and the caption (iupdrvDialogGetDecoration).
 local function chrome_of(d, st)
@@ -1791,6 +1829,7 @@ function M.frame()
 
 	in_paint = true
 	video_rects = {}
+	scrim_used = 0
 	dc:begin(input.w, input.h)
 	Draw.current = dc
 	for _, d in ipairs(dialogs) do
@@ -1809,6 +1848,7 @@ function M.frame()
 					-- the page under a modal dialog dims, as Lunar's scrim did
 					local scrim = globals.LUNAR_SCRIMCOLOR or "0 0 0 90"
 					dc:fill(0, 0, input.w, input.h, scrim)
+					scrim_over_video(st, scrim, input)
 				end
 				if ensure_window(d, st) then
 					-- its own window: Windows draws the frame and the caption
@@ -1854,6 +1894,7 @@ function M.frame()
 	if tip_overlay then tip_overlay.seen = false end
 	tooltip(dc)
 	if tip_overlay and not tip_overlay.seen then overlay_windows.release(tip_overlay); tip_overlay = nil end
+	scrim_release(scrim_used + 1)
 	overlay_windows.sweep()
 	in_paint = false
 	Draw.current = nil
@@ -1909,8 +1950,10 @@ function M.init(backend)
 	if overlay_windows then
 		for _, o in ipairs(overlays) do overlay_windows.release(o) end
 		if tip_overlay then overlay_windows.release(tip_overlay) end
+		scrim_release(1)
 		overlay_windows.sweep(true)
 	end
+	scrim_windows, scrim_used = {}, 0
 	B = backend
 	overlay_windows = require("core.imgui.OverlayWindows").new(B, M.now, M.wakeAt)
 	tip_overlay, video_rects = nil, {}
