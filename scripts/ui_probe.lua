@@ -461,6 +461,24 @@ iup.MainLoop = function()
 				pages = {}
 				for _, page in ipairs(all) do
 					if not PAGES or tostring(page.title):match(PAGES) then pages[#pages + 1] = page end
+					-- LUNAR_PROBE_SETTINGS=1: every Settings section, through its nav button
+					if os.getenv("LUNAR_PROBE_SETTINGS") and page.title == "Settings" then
+						local found = {}
+						local function scan(h)
+							local role = iup.GetClassName(h) == "flatbutton" and iup.GetAttribute(h, "THEMEROLE")
+							if role == "settings_nav" or role == "settings_nav_on" then found[#found + 1] = h end
+							local i, c = 0, iup.GetChild(h, 0)
+							while c do scan(c); i = i + 1; c = iup.GetChild(h, i) end
+						end
+						scan(page.widget or dlg)
+						for _, btn in ipairs(found) do
+							local name = tostring(iup.GetAttribute(btn, "TITLE"))
+							if not PAGES or ("Settings / " .. name):match(PAGES) then
+								pages[#pages + 1] = { title = "Settings / " .. name, path = page.path, widget = page.widget,
+									pre = function() local f = btn.flat_action; if f then f(btn) end end }
+							end
+						end
+					end
 				end
 				phase = "next"
 				return
@@ -476,6 +494,7 @@ iup.MainLoop = function()
 					return
 				end
 				show(page)
+				if page.pre then pcall(page.pre); iup.Refresh(dlg) end
 				phase = "settle"
 				ticks = 0
 				return

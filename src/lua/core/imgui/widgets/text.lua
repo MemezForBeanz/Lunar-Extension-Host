@@ -925,6 +925,12 @@ local common = {
 		end,
 		CARETPos = function() end,
 		CARETPOS = function(e, st) return tostring(byte_to_native(st.data.text, st.data.caret or 0)) end,
+		-- winTextSetPaddingAttrib keeps the horizontal part only (vert_padding = 0), and
+		-- iTextGetPaddingAttrib answers both
+		PADDING = function(e, st)
+			local h = pair(Element.own(e, "PADDING") or "0x0")
+			return string.format("%dx0", h)
+		end,
 		SELECTIONPOS = function(e, st)
 			local a, b = sorted_selection(st)
 			if a == b then return nil end
@@ -941,7 +947,8 @@ local common = {
 			end
 			return (byte_to_native(st.data.text, a) + 1) .. ":" .. (byte_to_native(st.data.text, b) + 1)
 		end,
-		SELECTEDTEXT = function(e, st) local a, b = sorted_selection(st); return st.data.text:sub(a + 1, b) end,
+		-- winTextGetSelectedTextAttrib: NULL without a selection
+		SELECTEDTEXT = function(e, st) local a, b = sorted_selection(st); if a == b then return nil end; return st.data.text:sub(a + 1, b) end,
 		LINECOUNT = function(e, st) return select(2, st.data.text:gsub("\n", "\n")) + 1 end,
 		FIRSTVISIBLELINE = function(e, st)
 			if not is_multiline(e, st) then return "1" end
