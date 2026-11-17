@@ -1,7 +1,7 @@
 local Harness = require("spec.support.imgui_extension_harness")
 
 local CASES = {
-	{ "extensions/media/init.lua", "extensions/media", 1, 5, 28, 30, 1 },
+	{ "extensions/media/init.lua", "extensions/media", 1, 5, 27, 26, 1 }, -- council redesign: fewer duplicate actions
 	{ "extensions/media-server/init.lua", "extensions/media-server", 0, 1, 0, 6, 1 },
 	{ "extensions/lsp-csharp/init.lua", nil, 1, 1, 0, 6, 1 },
 	{ "extensions/lsp-python/init.lua", nil, 1, 1, 0, 6, 1 },

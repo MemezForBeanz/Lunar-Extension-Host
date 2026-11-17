@@ -43,6 +43,17 @@ local function tab(ctx, name)
 end
 
 describe("media 1.6.2 flows on the ImGui host", function()
+	-- These flows drive the demo library (extensions/media/init.lua reads LUNAR_MEDIA_DEMO),
+	-- so they switch it on themselves instead of depending on the caller's environment.
+	local real_getenv = os.getenv
+	before_each(function()
+		os.getenv = function(name)
+			if name == "LUNAR_MEDIA_DEMO" then return "1" end
+			return real_getenv(name)
+		end
+	end)
+	after_each(function() os.getenv = real_getenv end)
+
 	it("shows the demo player and changes play, seek, and volume state", function()
 		local old_open = platform.open
 		finally(function() platform.open = old_open end)
@@ -129,6 +140,7 @@ describe("media 1.6.2 flows on the ImGui host", function()
 		local _, _, warnings = Harness.run("extensions/media/init.lua", "extensions/media", {
 			skip_default_exercise = true,
 			exercise = function(ctx)
+				local requested, polled = nil, 0
 				local queued = {
 					id = 91, title = "Fixture episode", state = "queued", bytes = 0, total_bytes = 12,
 				}
@@ -140,8 +152,11 @@ describe("media 1.6.2 flows on the ImGui host", function()
 							},
 						} })
 					end,
-					downloadDiscovery = function(_, _, _, _, done) done(queued) end,
-					downloads = function(_, done) done({ queued }) end,
+					downloadDiscovery = function(_, job, key, library_id, done)
+						requested = { job = job, key = key, library = library_id }
+						done(queued)
+					end,
+					downloads = function(_, done) polled = polled + 1; done({ queued }) end,
 					detail = function(_, _, done) done({}) end,
 					load = function() end,
 				}
@@ -162,21 +177,22 @@ describe("media 1.6.2 flows on the ImGui host", function()
 				ctx.invoke(provider, "ROW_ACTION_CB", 1)
 				ctx.invoke(one(ctx, function(widget)
 					return ctx.iup.GetAttribute(widget, "TITLE") == "Search / Browse"
-				end), "FLAT_ACTION")
+				end, "missing visible TITLE Search / Browse"), "FLAT_ACTION")
+				-- the council redesign keeps the destination and Download behind "Add to library"
+				ctx.invoke(one(ctx, function(widget)
+					return ctx.iup.GetAttribute(widget, "TITLE") == "Add to library"
+						and Element.hasCallback(widget, "FLAT_ACTION")
+				end, "missing visible TITLE Add to library"), "FLAT_ACTION")
 				ctx.invoke(one(ctx, function(widget)
 					return ctx.iup.GetAttribute(widget, "TITLE") == "Download to library"
-				end), "FLAT_ACTION")
+				end, "missing visible TITLE Download to library"), "FLAT_ACTION")
 				ctx.extension.sources_page.tick()
 				ctx.runtime.frame()
 
-				local downloads = class(ctx, "flatrows", function(widget)
-					return ctx.iup.GetAttribute(widget, "COUNT") == "1"
-						and ctx.iup.GetAttribute(widget, "ROWHEIGHT") == "52"
-						and Element.hasCallback(widget, "ROWVALUE_CB")
-						and Element.call(widget, "ROWVALUE_CB", 1, "TITLE") == "Fixture episode"
-				end)
-				assert.equals("1", ctx.iup.GetAttribute(downloads, "COUNT"))
-				assert.is_true(title(ctx, "Downloads: 1 · Active: 1 · Failed: 0") ~= nil)
+				-- The redesigned page reports downloads as activities, not as a list on the page:
+				-- check the request that reached the client and the status poll after it.
+				assert.same({ job = "fixture-job", key = "fixture", library = 1 }, requested)
+				assert.is_true(polled >= 1)
 			end,
 		})
 		assert.same({}, warnings)

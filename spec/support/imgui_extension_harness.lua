@@ -435,10 +435,20 @@ function M.run(path, module_path, opts)
 		local settings_root = settings_view:widget()
 		local settings_state = Element.state(settings_root)
 		assert(settings_state.w > 0 and settings_state.h > 0, "settings page has no laid-out size")
+		-- The redesigned Settings page shows one category at a time (wide) or collapsed
+		-- sections (narrow), and only while its tab is in front, so a section's pixel size
+		-- here says nothing about the extension. Check that each registered section is
+		-- built into the page with its rows instead; the laid-out page is covered by the
+		-- page captures (scripts/ui_capture.lua, "Settings / <section>").
 		for _, section in ipairs(settings_view._sections) do
-			local section_state = Element.state(section.body)
-			assert(section_state.w > 0 and section_state.h > 0,
-				"registered settings section has no laid-out size")
+			local e, inside = section.body, false
+			while e do
+				if e == settings_root then inside = true; break end
+				e = iup.GetParent(e)
+			end
+			assert(inside, "registered settings section is not part of the Settings page")
+			assert(section.rows and (#section.rows > 0 or iup.GetChildCount(section.body_inner or section.body) > 0),
+				"registered settings section has no rows")
 		end
 	end
 	if #report.misses > 0 then

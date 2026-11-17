@@ -9,7 +9,7 @@ local CASES = {
 	{ "hpe/extensions/logparser", 1, 1, 0, 7, 1 },
 	{ "hpe/extensions/scanchainparser", 1, 1, 2, 13, 1 },
 	{ "hpe/extensions/hpe-theme", 1, 1, 0, 6, 1 },
-	{ "microchip/extensions/blackduck", 1, 3, 11, 21, 1 },
+	{ "microchip/extensions/blackduck", 1, 2, 10, 16, 1 }, -- council redesign: two pages
 	{ "microchip/extensions/microchip-theme", 1, 1, 0, 6, 1 },
 	{ "microchip/extensions/timeclock", 1, 1, 14, 16, 1 },
 }
