@@ -821,7 +821,8 @@ function M.show(d, x, y)
 	if check_close(Element.call(d, "SHOW_CB", first_show and 0 or 1)) == CLOSE then return 0 end
 	if first_show then
 		if has_show_cb and not noflush then M.flush() end
-		if old_focus == focused then
+		-- SHOWNOFOCUS: a notification shows without taking the keyboard from the user.
+		if old_focus == focused and not Element.isTrue(Element.getAttribute(d, "SHOWNOFOCUS")) then
 			local start = Element.getHandle(d, "STARTFOCUS")
 			if start then M.setFocus(start)
 			else

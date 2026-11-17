@@ -466,6 +466,26 @@ iup.MainLoop = function()
 			local opened, why = shell.code:open(code_file, { line = 1 })
 			io.stderr:write("ui_capture: open ", tostring(opened), " ", tostring(why), string.char(10))
 		elseif scene == 13 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			-- The toast is taken at rest: say where the pointer and the keyboard are, so the
+			-- shot can be checked against them (a close outline would mean focus or hover).
+			if IMGUI then
+				local Runtime = require("core.imgui.Runtime")
+				local function in_toast(h)
+					local toasts = shell.host:toasts()
+					for _, rec in ipairs(toasts and toasts._stack or {}) do
+						local p = h
+						while p do if p == rec.dlg then return true end; p = iup.GetParent(p) end
+					end
+					return false
+				end
+				local hovered, focus = Runtime.hovered(), iup.GetFocus()
+				local mx, my = Runtime.lastMouse()
+				local line = string.format("toast at rest: pointer %s,%s over %s (in toast: %s); focus in toast: %s",
+					tostring(mx), tostring(my), hovered and iup.GetClassName(hovered) or "nothing",
+					tostring(hovered ~= nil and in_toast(hovered)), tostring(focus ~= nil and in_toast(focus)))
+				local f = io.open(string.format("%s/%s-96-toast.state", out_dir, prefix), "w")
+				if f then f:write(line, string.char(10)); f:close() end
+			end
 			snap("96-toast")
 			local toasts=shell.host:toasts()
 			for i,rec in ipairs(toasts and toasts._stack or {}) do if rec.alive then snap_window(rec.dlg,"96-toast-window-"..i) end end

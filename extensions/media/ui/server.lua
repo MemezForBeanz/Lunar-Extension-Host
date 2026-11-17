@@ -31,25 +31,46 @@ function M.new(ctx, opts)
 			Kit.setStatus(iup, feedback, answer and "ok" or "warning", answer and "Queued. The server will update after the work finishes." or why)
 		end)
 	end
-    -- Real ghost buttons keep repairs discoverable and keyboard accessible.
-    local attention_rows = iup.vbox({GAP = L.gap(1), EXPAND = "HORIZONTAL"})
-    local repair_header = iup.flatlabel({TITLE = "Repair", THEMEROLE = "hint", RASTERSIZE = L.size(L.PAGE.config_min)})
-    attention = {widget = iup.vbox({
-        iup.hbox({L.hint(iup, "Issue / next step"), iup.fill({}), repair_header, EXPAND = "HORIZONTAL"}),
-        attention_rows, GAP = L.gap(2), EXPAND = "HORIZONTAL"})}
+    -- Attention is a table with the anatomy of the Sessions and Libraries tables beside it
+    -- (header row, an icon column, two-line rows, dividers where the theme's tables have
+    -- them), but each repair is a real button on its issue line, so it is discoverable and
+    -- reachable by keyboard. `_afterThemePass` gives the header fill and row rules the
+    -- tokens those tables use, so all three read as one kind of table.
+    local attention_rows = iup.vbox({GAP = "0", EXPAND = "HORIZONTAL"})
+    -- A frame paints the header's fill in every theme (Carbon labels and boxes paint none).
+    local issue_header = iup.flatlabel({TITLE = "Issue / next step", THEMEROLE = "reading_muted", EXPAND = "YES"})
+    local repair_header = iup.flatlabel({TITLE = "Repair", THEMEROLE = "reading_muted", ALIGNMENT = "ARIGHT:ACENTER", EXPAND = "VERTICAL"})
+    local attention_header = iup.flatframe({
+        iup.hbox({issue_header, repair_header, GAP = "0", MARGIN = L.margin(4, 0), ALIGNMENT = "ACENTER",
+            EXPAND = "YES"}),
+        TITLE = "", FRAME = "NO", MARGIN = "0x0", EXPAND = "HORIZONTAL", THEMEROLE = "page_column",
+        RASTERSIZE = L.size(nil, L.PAGE.control)})
+    local dividers, actions = {}, {}
+    attention = {widget = iup.vbox({attention_header, attention_rows, GAP = "0", EXPAND = "HORIZONTAL"})}
     function attention:setRows(rows)
         while iup.GetChildCount(attention_rows) > 0 do
             iup.Destroy(iup.GetChild(attention_rows, 0))
         end
+        dividers, actions = {}, {}
         for i, row in ipairs(rows) do
             local problem = problems[i]
-            local label = iup.flatlabel({TITLE = row.title, IMAGE = row.image, THEMEROLE = "reading", EXPAND = "HORIZONTAL", TEXTELLIPSIS = "YES"})
-            local copy = iup.vbox({label, L.hint(iup, row.secondary), EXPAND = "HORIZONTAL", GAP = L.gap(1)})
-            local action = Kit.button(iup, {title = row.action or "", role = "ghost_btn", active = row.action and "YES" or "NO",
+            local icon = iup.flatlabel({TITLE = "", IMAGE = row.image, RASTERSIZE = L.size(Kit.ICON_STATUS, L.PAGE.control)})
+            local issue = iup.flatlabel({TITLE = row.title, THEMEROLE = "reading", EXPAND = "HORIZONTAL", TEXTELLIPSIS = "YES"})
+            local action = Kit.button(iup, {title = row.action or "", role = "actionbutton", active = row.action and "YES" or "NO",
                 action = function() act(problem.action) end})
-            iup.SetAttribute(action, "RASTERSIZE", L.size(L.PAGE.config_min, L.PAGE.control))
-            iup.Append(attention_rows, iup.hbox({copy, action, GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL"}))
+            iup.SetAttribute(action, "RASTERSIZE", L.size(nil, L.PAGE.control))
+            Kit.show(iup, action, row.action ~= nil)
+            actions[#actions + 1] = action
+            local next_step = iup.flatlabel({TITLE = row.secondary, THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL", TEXTELLIPSIS = "YES"})
+            local divider = iup.canvas({RASTERSIZE = L.size(nil, 1), EXPAND = "HORIZONTAL", BORDER = "NO", CANFOCUS = "NO"})
+            dividers[#dividers + 1] = divider
+            iup.Append(attention_rows, iup.vbox({
+                iup.hbox({icon, issue, action, GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL"}),
+                iup.hbox({iup.fill({RASTERSIZE = L.size(Kit.ICON_STATUS)}), next_step, GAP = L.gap(3), EXPAND = "HORIZONTAL"}),
+                GAP = "0", MARGIN = L.margin(4, 1), EXPAND = "HORIZONTAL"}))
+            iup.Append(attention_rows, divider)
         end
+        Kit.show(iup, attention_header, #rows > 0)
     end
     function attention:setEmpty(title, hint)
         if #problems == 0 then
@@ -58,7 +79,7 @@ function M.new(ctx, opts)
     end
 
 	local metrics = iup.hbox({ HOMOGENEOUS = "YES", GAP = L.gap(3), EXPAND = "HORIZONTAL", MARGIN = "0x0" })
-	local setters, semantic_numbers = {}, {}
+	local setters, semantic_numbers, jumps = {}, {}, {}
 	for _, entry in ipairs({ { "failed", "Failed", "analysis" }, { "missing", "Offline", "offline" },
 		{ "playing", "Now playing" }, { "analysing", "Being analysed" }, { "files", "Files" } }) do
 		local key, caption, kind = entry[1], entry[2], entry[3]
@@ -74,6 +95,7 @@ function M.new(ctx, opts)
 		end })
 		iup.SetAttribute(jump, "MAXSIZE", L.maxSize(nil, L.PAGE.control))
 		Kit.show(iup, jump, kind ~= nil)
+		if kind then jumps[#jumps + 1] = { link = jump, caption = label } end
 		setters[key] = function(value) iup.SetAttribute(number, "TITLE", grouped(value)) end
 		iup.Append(metrics, iup.vbox({ number, iup.hbox({ iup.hbox(caption_row), jump, ALIGNMENT = "ACENTER", RASTERSIZE = L.size(nil, L.PAGE.control) }),
 			GAP = L.gap(1), MARGIN = "12x8", EXPAND = "HORIZONTAL" }))
@@ -142,10 +164,31 @@ function M.new(ctx, opts)
 			local index, child = 0, iup.GetChild(widget, 0)
 			while child do paint(child, background); index = index + 1; child = iup.GetChild(widget, index) end
 		end
-		paint(self.widget, palette.layer01 or palette.surface or palette.bg)
+		local background = palette.layer01 or palette.surface or palette.bg
+		paint(self.widget, background)
 		for key, number in pairs(semantic_numbers) do
 			local color = palette.error
 			if color then iup.SetAttribute(number, "FGCOLOR", color) end
+		end
+		-- Attention uses the table tokens the themes give the Sessions table (carbon_rules:
+		-- a layer-accent header and subtle row rules; Lunar tables have neither). They come
+		-- from the palette, not from that table, which may be themed after this pass.
+		local carbon_table = palette.layerAccent01 ~= nil
+		local header_fill = carbon_table and palette.layerAccent01 or background
+		local rule = carbon_table and (palette.borderSubtle01 or palette.border) or background
+		paint(attention_header, header_fill)
+		local function set(widget, name, value)
+			if value and iup.GetAttribute(widget, name) ~= value then iup.SetAttribute(widget, name, value) end
+		end
+		for _, divider in ipairs(dividers) do iup.SetAttribute(divider, "BGCOLOR", rule) end
+		local header_height = tonumber(iup.GetAttribute(sessions.widget, "HEADERHEIGHT"))
+		set(attention_header, "RASTERSIZE", header_height and L.size(nil, header_height))
+		-- "Repair" sits over its buttons' labels, not over their padding.
+		local pad = actions[1] and tostring(iup.GetAttribute(actions[1], "PADDING") or ""):match("^(%d+)")
+		set(repair_header, "PADDING", pad and (pad .. "x0"))
+		-- View is an action in the caption's own type, not a smaller caption beside it.
+		for _, jump in ipairs(jumps) do
+			set(jump.link, "FONT", iup.GetAttribute(jump.caption, "FONT"))
 		end
 	end
 	ThemeReactor.register(api)
@@ -173,12 +216,15 @@ function M.new(ctx, opts)
                 image = Kit.icon(iup, problem.kind ~= "frame" and "error--filled" or "warning--alt--filled", Kit.ICON_STATUS, problem.kind ~= "frame" and "error" or "warning"),
                 column1 = problem.action and problem.action.label or "",
                 action = problem.action and problem.action.label or nil }
-            if problem.action then targets[problem.kind] = attention.widget end
         end
         local failed = false
         for _, problem in ipairs(problems) do if problem.kind ~= "frame" then failed = true end end
         page:setState(failed and "error" or (#problems > 0 and "warning" or "ok"), server.name .. " · " .. (#problems > 0 and (#problems .. " items need attention") or "Healthy") .. " · analysis " .. server.analysis)
         attention:setRows(repair_rows)
+        -- A summary tile's View goes to the first repair of its kind.
+        for i, problem in ipairs(problems) do
+            if problem.action and not targets[problem.kind] then targets[problem.kind] = actions[i] end
+        end
         iup.SetAttribute(attention.widget, "EXPAND", "HORIZONTAL")
         attention:setEmpty(model.attention_error and "Could not load attention" or "Everything looks healthy", model.attention_error or "No repairs needed.")
 
