@@ -39,10 +39,13 @@ function M.new(ctx, opts)
     local CELL = L.px(4) -- the tables' cell inset (flatrows: 12)
     local ICON_GAP = L.px(3) -- the tables' image-to-text gap (flatrows: 8)
     local attention_rows = iup.vbox({GAP = "0", EXPAND = "HORIZONTAL"})
-    local issue_header = iup.flatlabel({TITLE = "Issue / next step", THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL"})
-    local repair_header = iup.flatlabel({TITLE = "Repair", THEMEROLE = "reading_muted", ALIGNMENT = "ARIGHT:ACENTER"})
-    local attention_header = iup.hbox({issue_header, repair_header, ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL",
-        MARGIN = L.margin(4, 0), RASTERSIZE = L.size(nil, L.PAGE.control)})
+    -- The header labels fill the whole row (a box paints nothing), the cell inset as padding.
+    local issue_header = iup.flatlabel({TITLE = "Issue / next step", THEMEROLE = "reading_muted", EXPAND = "YES",
+        ALIGNMENT = "ALEFT:ACENTER", PADDING = CELL .. "x0"})
+    local repair_header = iup.flatlabel({TITLE = "Repair", THEMEROLE = "reading_muted", EXPAND = "VERTICAL",
+        ALIGNMENT = "ARIGHT:ACENTER", PADDING = CELL .. "x0"})
+    local attention_header = iup.hbox({issue_header, repair_header, GAP = "0", MARGIN = "0x0", EXPAND = "HORIZONTAL",
+        RASTERSIZE = L.size(nil, L.PAGE.control)})
     local dividers, actions = {}, {}
     attention = {widget = iup.vbox({attention_header, attention_rows, GAP = "0", EXPAND = "HORIZONTAL"})}
     function attention:setRows(rows)
@@ -65,7 +68,7 @@ function M.new(ctx, opts)
             iup.Append(attention_rows, iup.vbox({
                 iup.hbox({icon, issue, action, GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL"}),
                 iup.hbox({iup.fill({RASTERSIZE = L.size(Kit.ICON_STATUS)}), next_step, GAP = L.gap(3), EXPAND = "HORIZONTAL"}),
-                GAP = "0", MARGIN = L.margin(4, 2), EXPAND = "HORIZONTAL"}))
+                GAP = "0", MARGIN = L.margin(4, 1), EXPAND = "HORIZONTAL"}))
             iup.Append(attention_rows, divider)
         end
         Kit.show(iup, attention_header, #rows > 0)
@@ -168,21 +171,20 @@ function M.new(ctx, opts)
 			local color = palette.error
 			if color then iup.SetAttribute(number, "FGCOLOR", color) end
 		end
-		-- Attention takes the table tokens the theme gave the Sessions table.
-		local table_widget = sessions.widget
-		local header_fill = iup.GetAttribute(table_widget, "HEADERCOLOR") or background
-		local header_height = tonumber(iup.GetAttribute(table_widget, "HEADERHEIGHT"))
-		local ruled = iup.GetAttribute(table_widget, "CARBONSTYLE") == "YES"
-		local rule = ruled and iup.GetAttribute(table_widget, "BORDERCOLOR") or background
+		-- Attention uses the table tokens the themes give the Sessions table (carbon_rules:
+		-- a layer-accent header and subtle row rules; Lunar tables have neither). They come
+		-- from the palette, not from that table, which may be themed after this pass.
+		local carbon_table = palette.layerAccent01 ~= nil
+		local header_fill = carbon_table and palette.layerAccent01 or background
+		local rule = carbon_table and (palette.borderSubtle01 or palette.border) or background
 		paint(attention_header, header_fill)
 		local function set(widget, name, value)
 			if value and iup.GetAttribute(widget, name) ~= value then iup.SetAttribute(widget, name, value) end
 		end
-		set(attention_header, "RASTERSIZE", header_height and L.size(nil, header_height))
 		for _, divider in ipairs(dividers) do iup.SetAttribute(divider, "BGCOLOR", rule) end
 		-- "Repair" sits over its buttons' labels, not over their padding.
 		local pad = actions[1] and tostring(iup.GetAttribute(actions[1], "PADDING") or ""):match("^(%d+)")
-		set(repair_header, "PADDING", pad and (pad .. "x0"))
+		set(repair_header, "PADDING", pad and ((CELL + tonumber(pad)) .. "x0"))
 		-- View is an action in the caption's own type, not a smaller caption beside it.
 		for _, jump in ipairs(jumps) do
 			set(jump.link, "FONT", iup.GetAttribute(jump.caption, "FONT"))

@@ -47,7 +47,12 @@ describe("media server attention table", function()
 		assert.equals(iup.GetParent(issue), iup.GetParent(repair))
 		local hx, _, hw = rect(header)
 		local rx, _, rw = rect(repair)
-		assert.equals(hx + hw, rx + rw)
+		-- "Repair" ends where the button's label ends: the header's padding is the cell
+		-- inset plus the button's own.
+		local function pad(e) return tonumber(tostring(iup.GetAttribute(e, "PADDING") or "0"):match("^(%d+)")) or 0 end
+		assert.equals(rx + rw - pad(repair), hx + hw - pad(header))
+		local row_right = select(1, rect(iup.GetParent(repair))) + select(3, rect(iup.GetParent(repair)))
+		assert.equals(row_right, rx + rw)
 		assert.equals("actionbutton", iup.GetAttribute(repair, "THEMEROLE"))
 		iup.Destroy(api.widget)
 	end)
@@ -81,24 +86,35 @@ describe("media server attention table", function()
 		iup.Destroy(api.widget)
 	end)
 
-	it("takes the header fill and row rules from the Sessions table", function()
-		local api = server_page()
+	local function themed(api, palette)
 		local reactor = require("core.ui.ThemeReactor")
-		local palette = reactor.palette
-		reactor.palette = function() return { layer01 = "10 10 10" } end
-		local sessions = find(api.widget, "Sessions")
-		local table_widget = iup.GetChild(iup.GetParent(sessions), 1)
-		iup.SetAttribute(table_widget, "HEADERCOLOR", "1 2 3")
-		iup.SetAttribute(table_widget, "BORDERCOLOR", "4 5 6")
-		iup.SetAttribute(table_widget, "CARBONSTYLE", "YES")
+		local saved = reactor.palette
+		reactor.palette = function() return palette end
 		api:_afterThemePass()
-		reactor.palette = palette
+		reactor.palette = saved
 		local header = find(api.widget, "Issue / next step")
-		assert.equals("1 2 3", iup.GetAttribute(iup.GetParent(header), "BGCOLOR"))
 		local row = iup.GetParent(iup.GetParent(find(api.widget, "Marrow: analysis failed — ffprobe could not read the media file.")))
 		local rows = iup.GetParent(row)
 		local divider = iup.GetChild(rows, iup.GetChildPos(rows, row) + 1)
-		assert.equals("4 5 6", iup.GetAttribute(divider, "BGCOLOR"))
+		return iup.GetAttribute(header, "BGCOLOR"), iup.GetAttribute(find(api.widget, "Repair"), "BGCOLOR"),
+			iup.GetAttribute(divider, "BGCOLOR")
+	end
+
+	it("draws a Carbon table header and row rules from the Carbon table tokens", function()
+		local api = server_page()
+		local issue, repair, rule = themed(api, { layer01 = "10 10 10", layerAccent01 = "1 2 3", borderSubtle01 = "4 5 6" })
+		assert.equals("1 2 3", issue)
+		assert.equals("1 2 3", repair)
+		assert.equals("4 5 6", rule)
+		iup.Destroy(api.widget)
+	end)
+
+	it("keeps a Lunar table header and rows on the page surface", function()
+		local api = server_page()
+		local issue, repair, rule = themed(api, { layer01 = "10 10 10", borderSubtle01 = "4 5 6" })
+		assert.equals("10 10 10", issue)
+		assert.equals("10 10 10", repair)
+		assert.equals("10 10 10", rule)
 		iup.Destroy(api.widget)
 	end)
 end)
