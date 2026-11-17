@@ -79,25 +79,30 @@ function M.new(ctx, opts)
     end
 
 	local metrics = iup.hbox({ HOMOGENEOUS = "YES", GAP = L.gap(3), EXPAND = "HORIZONTAL", MARGIN = "0x0" })
-	local setters, semantic_numbers, jumps = {}, {}, {}
+	local setters, semantic_numbers = {}, {}
 	for _, entry in ipairs({ { "failed", "Failed", "analysis" }, { "missing", "Offline", "offline" },
 		{ "playing", "Now playing" }, { "analysing", "Being analysed" }, { "files", "Files" } }) do
 		local key, caption, kind = entry[1], entry[2], entry[3]
-		local number = iup.flatlabel({ TITLE = "0", THEMEROLE = "pagetitle", EXPAND = "HORIZONTAL" })
+		local number = iup.flatlabel({ TITLE = "0", THEMEROLE = "pagetitle" })
 		if kind then semantic_numbers[key] = number end
 		local label = iup.flatlabel({ TITLE = caption, THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL" })
 		iup.SetAttribute(label, "RASTERSIZE", L.size(nil, L.PAGE.control))
 		iup.SetAttribute(label, "ALIGNMENT", "ALEFT:ACENTER")
 		local caption_row = { label, GAP = L.gap(2), EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER" }
 		if kind then table.insert(caption_row, 1, iup.flatlabel({ TITLE = "", IMAGE = Kit.icon(iup, "error--filled", Kit.ICON_STATUS, "error"), RASTERSIZE = L.size(Kit.ICON_STATUS, L.PAGE.control) })) end
-		local jump = Kit.button(iup, { title = "View", role = "link_btn", action = function()
+		-- View is an action like the Repair buttons, beside the count it opens.
+		local jump = Kit.button(iup, { title = "View", role = "actionbutton", action = function()
 			if targets[kind] then iup.SetFocus(targets[kind]) end
 		end })
-		iup.SetAttribute(jump, "MAXSIZE", L.maxSize(nil, L.PAGE.control))
+		iup.SetAttribute(jump, "RASTERSIZE", L.size(nil, L.PAGE.control))
+		if kind then iup.SetAttribute(jump, "TIP", "Go to the first " .. caption:lower() .. " item under Attention") end
 		Kit.show(iup, jump, kind ~= nil)
-		if kind then jumps[#jumps + 1] = { link = jump, caption = label } end
 		setters[key] = function(value) iup.SetAttribute(number, "TITLE", grouped(value)) end
-		iup.Append(metrics, iup.vbox({ number, iup.hbox({ iup.hbox(caption_row), jump, ALIGNMENT = "ACENTER", RASTERSIZE = L.size(nil, L.PAGE.control) }),
+		-- Every tile's count row is a control high, with or without its action, so the tiles line
+		-- up (MINSIZE: an hbox's RASTERSIZE sets only its width).
+		iup.Append(metrics, iup.vbox({
+			iup.hbox({ number, jump, GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL", MINSIZE = L.size(nil, L.PAGE.control) }),
+			iup.hbox(caption_row),
 			GAP = L.gap(1), MARGIN = "12x8", EXPAND = "HORIZONTAL" }))
 	end
 	local function rows_for(libraries)
@@ -186,10 +191,7 @@ function M.new(ctx, opts)
 		-- "Repair" sits over its buttons' labels, not over their padding.
 		local pad = actions[1] and tostring(iup.GetAttribute(actions[1], "PADDING") or ""):match("^(%d+)")
 		set(repair_header, "PADDING", pad and (pad .. "x0"))
-		-- View is an action in the caption's own type, not a smaller caption beside it.
-		for _, jump in ipairs(jumps) do
-			set(jump.link, "FONT", iup.GetAttribute(jump.caption, "FONT"))
-		end
+
 	end
 	ThemeReactor.register(api)
 	function api.setModel(next_model)
