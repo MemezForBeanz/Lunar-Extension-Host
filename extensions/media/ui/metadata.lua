@@ -7,7 +7,10 @@ local M={}
 function M.new(ctx,opts)
  local iup=ctx.iup;local item={kind='movie',title=''}
  local title=iup.flatlabel({TITLE='Preview',THEMEROLE='sectiontitle',EXPAND='HORIZONTAL'})
- local details=iup.flatlabel({TITLE='Search movies, TV shows, and anime without connecting a media server.',THEMEROLE='reading',TEXTWRAP='YES',EXPAND='HORIZONTAL',RASTERSIZE='x135'})
+ -- On the ImGui host a wrapping label is as tall as its lines at the width it gets, so the
+ -- overview takes no fixed height (a 1 px natural width: it wraps at the column, not past
+ -- it). Real IUP measures one unwrapped line, so there it keeps a fixed box.
+ local details=iup.flatlabel({TITLE='Search movies, TV shows, and anime without connecting a media server.',THEMEROLE='reading',TEXTWRAP='YES',EXPAND='HORIZONTAL',ALIGNMENT='ALEFT:ATOP',RASTERSIZE=rawget(iup,'_IMGUI') and '1x' or 'x135'})
  local kind_line=iup.flatlabel({TITLE='',THEMEROLE='reading_muted',EXPAND='HORIZONTAL'})
  local source=iup.link({TITLE='',URL='https://www.tvmaze.com',EXPAND='HORIZONTAL'})
  local KINDS={movie='Movie',show='TV show',anime='Anime'}
@@ -36,7 +39,9 @@ function M.new(ctx,opts)
  match=Match.new(ctx,{lookup=true,on_selection=selection,on_metadata=opts.on_metadata,on_changed=changed,type_widget=kind.widget})
  match.open(item)
  local content=iup.vbox({match.widget,title,kind_line,details,source,iup.fill({}),require('ui.credits').new(iup),GAP=L.gap(4),EXPAND='YES'})
- local page=Kit.page(iup,{id='media-metadata',title='Metadata',icon='search',main=content,state={kind='info',text='Search a provider, select a result, then load its details'}})
+ -- A short window scrolls the page instead of cutting off the preview and attribution.
+ local scroll=iup.scrollbox({content,EXPAND='YES',SCROLLBAR='VERTICAL',BORDER='NO',THEMEROLE='page_column'})
+ local page=Kit.page(iup,{id='media-metadata',title='Metadata',icon='search',main=scroll,state={kind='info',text='Search a provider, select a result, then load its details'}})
  match.bindStatus(page.stateLine)
  page.mediaCaptureState=match.capture
  if ctx.fitPage then ctx:fitPage(page:widget(),function(w) page:fit(w) end) end
