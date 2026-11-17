@@ -400,7 +400,32 @@ function M.run(path, module_path, opts)
 	local fired = {}
 	instrument_callbacks(tabs, fired)
 	local report = { pages = 0, reached = 0, skipped = 0, callbacks = 0, texts = 0, misses = {} }
-	exercise_pages(tabs, backend, fired, report)
+	if opts.exercise then
+		opts.exercise({
+			host = host,
+			tabs = tabs,
+			manager = manager,
+			extension = manager.extensions[1],
+			backend = backend,
+			walk = walk,
+			children = children,
+			state = Element.state,
+			invoke = function(element, name, ...)
+				local ok, result = pcall(Element.call, element, name, ...)
+				assert(ok, result)
+				for _ = 1, 2 do Runtime.frame() end
+				return result
+			end,
+			visible = Runtime.isVisible,
+			iup = iup,
+			runtime = Runtime,
+		})
+	end
+	if opts.skip_default_exercise then
+		report.pages = 1
+	else
+		exercise_pages(tabs, backend, fired, report)
+	end
 	invoke_menu_callbacks(menus, fired)
 	local routes = invoke_routes(host)
 	for _ = 1, 3 do Runtime.frame() end
