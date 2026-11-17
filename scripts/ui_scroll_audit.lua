@@ -135,7 +135,16 @@ local function check_scroll(self, shot, el)
 	local found = leaves(self, child, {})
 	-- (a) where the leaves end, unscrolled
 	local ink = 0
-	for _, leaf in ipairs(found) do
+	-- A NATIVETEXTSCROLL box keeps its text the size of the view and scrolls it by lines,
+	-- so the text's rect says nothing: its content is every line plus the EDIT's inset.
+	local cs = E.state(child)
+	local native = d.native_liney and cs and (cs.classname == "text" or cs.classname == "multiline")
+	local lines = native and (tonumber(E.getAttribute(child, "LINECOUNT")) or 1)
+	if native then
+		local border = tostring(E.getAttribute(child, "BORDER") or ""):upper() == "YES" and 2 or 0
+		ink = (cs.y - st.y) + 2 * border + 2 + lines * d.native_liney
+	end
+	for _, leaf in ipairs(native and {} or found) do
 		local ls = E.state(leaf)
 		ink = math.max(ink, (ls.y + posy) - st.y + ls.h)
 	end
@@ -159,7 +168,15 @@ local function check_scroll(self, shot, el)
 		if ls.y + ls.h > lb then last, lb = leaf, ls.y + ls.h end
 	end
 	top, bottom = viewport(st)
-	if last then
+	if native then
+		-- the text's last line is on screen
+		local first = tonumber(E.getAttribute(child, "FIRSTVISIBLELINE")) or 1
+		local shown = require("core.imgui.widgets.text").mlVisibleLines(child, cs)
+		if first + math.max(1, shown) - 1 < lines then
+			add(self, shot, "end-unreachable", string.format("%s at %s scrolled to %s: its text shows lines %d..%d of %d",
+				name_of(self, el), rect(st), tostring(d.posy), first, first + shown - 1, lines))
+		end
+	elseif last then
 		local ls = E.state(last)
 		if ls.y + ls.h > bottom + TOL or ls.y < top - TOL then
 			add(self, shot, "end-unreachable", string.format("%s at %s scrolled to %s: last child %s at %s, viewport %d..%d",

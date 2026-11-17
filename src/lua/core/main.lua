@@ -540,6 +540,16 @@ local content_box = iup.vbox({
 local view_layout = require("core.ui.ViewLayout").new({ iup = iup, root = content_box, motion = motion_director,
 	settings = settings_mgr, rail = tool_rail, status = status_bar, terminal = terminal })
 terminal:setLayout(view_layout)
+-- The terminal stops where the panes' minimum begins (a pane keeps its page's minimum,
+-- an editor its few lines of code).
+if rawget(iup, "_IMGUI") then
+	view_layout:setRoom(function()
+		local Element, Lay = package.loaded["core.imgui.Element"], package.loaded["core.imgui.Layout"]
+		local st = Element and Lay and Element.state(workspace_body)
+		if not (st and (st.h or 0) > 0) then return nil end
+		return st.h - Lay.minContent(pane_grid:widget(), false)
+	end)
+end
 
 local dlg = iup.dialog({
 	iup.vbox({ title_bar:widget(), content_box, MARGIN = L.margin(0), GAP = "0" }),

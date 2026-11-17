@@ -394,7 +394,10 @@ local function min_content(el, horizontal)
 	-- (the fork names flattabs, tabs, flatscrollbox and scrollbox: `clipsContent`)
 	local class = st.class
 	if #st.children == 0 or class.clipsContent then
-		local w, h = apply_minmax(st, 0, 0)
+		-- Lunar: a container may keep what its shown page cannot give up (flattabs with
+		-- KEEPPAGEMIN, a pane whose page is not scrolled).
+		local kept = class.keptMin and class.keptMin(el, st, horizontal, M.minContent) or 0
+		local w, h = apply_minmax(st, horizontal and kept or 0, horizontal and 0 or kept)
 		return horizontal and w or h
 	end
 	-- hbox, vbox and split add their children up along one axis (`stacksAlong`)

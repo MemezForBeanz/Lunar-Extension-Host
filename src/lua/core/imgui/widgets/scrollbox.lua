@@ -82,7 +82,16 @@ local function set_pos(e, st, x, y)
 		if not st.data.native_applying then
 			st.data.native_applying = true
 			local liney = st.data.native_liney or native_line_height(text)
-			Element.setAttribute(text, "FIRSTVISIBLELINE", tostring(math.floor(st.data.posy / liney) + 1))
+			local line = math.floor(st.data.posy / liney) + 1
+			-- The range is whole lines but the view seldom is: a box a few pixels short of
+			-- its last line has a range of those few pixels, which never reaches the next
+			-- line. The end of the range is the end of the text (the EDIT keeps its last
+			-- line at the bottom).
+			local reach = (st.data.ymax or 0) - dy
+			if reach > 0 and st.data.posy >= reach then
+				line = math.max(line, tonumber(Element.getAttribute(text, "LINECOUNT")) or line)
+			end
+			Element.setAttribute(text, "FIRSTVISIBLELINE", tostring(line))
 			st.data.native_applying = false
 		end
 	elseif child then

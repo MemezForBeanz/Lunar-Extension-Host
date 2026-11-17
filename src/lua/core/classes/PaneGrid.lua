@@ -102,7 +102,12 @@ function PaneGrid:initialize(opts)
 		corner = iup.flattabs({}),
 	}
 	-- The splits' role below would otherwise come down to these: attributes inherit.
-	for _, strip in pairs(self._strips) do iup.SetAttribute(strip, "THEMEROLE", "flattabs") end
+	-- KEEPPAGEMIN: a pane cannot scroll its page, so a split never makes a pane shorter
+	-- than its page's minimum (an editor above the terminal keeps its lines of code).
+	for _, strip in pairs(self._strips) do
+		iup.SetAttribute(strip, "THEMEROLE", "flattabs")
+		iup.SetAttribute(strip, "KEEPPAGEMIN", "YES")
+	end
 
 	local function split(first, second, orientation, name)
 		local s = iup.split({ first, second, ORIENTATION = orientation, AUTOHIDE = "YES", VALUE = tostring(FULL),

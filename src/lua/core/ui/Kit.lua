@@ -444,6 +444,10 @@ function M.emptyPane(iup, opts)
 	})
 	local pane = iup.zbox({ placeholder, opts.content or iup.vbox({}), EXPAND = "YES" })
 	local function set_empty(empty)
+		-- A zbox is as tall as its tallest child, shown or not: the placeholder's centred
+		-- glyph and hint would set the content's minimum height, and a short pane (an
+		-- editor above an open terminal) would push the content past its bottom.
+		iup.SetAttribute(placeholder, "FLOATING", empty and "NO" or "IGNORE")
 		iup.SetAttribute(pane, "VALUEPOS", empty and "0" or "1")
 	end
 	return pane, set_empty, hint

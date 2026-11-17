@@ -398,6 +398,8 @@ function CodeView:_send(message, wparam, lparam)
 	return sci.send(self._control, message, wparam or 0, lparam or 0)
 end
 
+local MIN_LINES = 3 -- what a code view keeps in a short pane
+
 function CodeView:_buildScintilla()
 	local iup = self._iup
 	local view = self
@@ -703,6 +705,12 @@ function CodeView:_applyTheme()
 	self:_syncNumbers()
 	self:_updateBars()
 	if self._corner then pcall(self._iup.Update, self._corner) end
+	-- A short pane (an editor above the terminal) still shows a few lines of code: the
+	-- page around the view keeps this, and the pane split gives way to it.
+	if not self._single_line then
+		local line = tonumber(self:_send(SCI.TEXTHEIGHT, 0)) or 0
+		if line > 0 then self._iup.SetAttribute(self._control, "MINSIZE", "0x" .. (MIN_LINES * line)) end
+	end
 end
 
 --- Put the control's own look back after a generic theme pass.

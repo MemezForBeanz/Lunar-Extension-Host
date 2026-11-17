@@ -674,6 +674,20 @@ local def = {
 	name = "flattabs", children = -1, clip = true, focusable = true, xyToPos = xyToPos,
 	paintChildren = paintChildren,
 	clipsContent = true, -- iupLayoutMinContent: a page compresses away entirely
+	-- Lunar KEEPPAGEMIN=YES: the strip cannot scroll its page, so it keeps the shown
+	-- page's minimum height and its own tab bar (a split then gives the pane that much).
+	keptMin = function(el, st, wide, minContent)
+		if not Element.isTrue(Element.own(el, "KEEPPAGEMIN")) then return 0 end
+		local page = current(el)
+		if not page then return 0 end
+		if wide then return 0 end
+		-- heights only (pages already fit their widths); the band and frame lines are what
+		-- the client rect takes from the strip's height
+		local _, bh = metrics(el)
+		local across = horizontal(el)
+		local lines = yes(attr(el, "SHOWLINES")) and (across and 1 or 2) or 0
+		return minContent(page, false) + (across and bh or 0) + lines
+	end,
 	defaults = {
 		SHOWTABS = "YES", TABTYPE = "TOP", SHOWLINES = "YES", TABSLINECOLOR = "160 160 160",
 		TABSIMAGEPOSITION = "LEFT", TABSIMAGESPACING = "2", TABSALIGNMENT = "ACENTER:ACENTER",

@@ -211,7 +211,8 @@ function Workbench:_buildCodePage()
 	self._toolbar = toolbar
 	Kit.show(iup, toolbar, false)
 
-	local strip = iup.flattabs({ SHOWCLOSE = "YES", EXPAND = "YES", THEMEROLE = "flattabs_sub" })
+	-- KEEPPAGEMIN: the file's view keeps its few lines; the strip does not compress it away.
+	local strip = iup.flattabs({ SHOWCLOSE = "YES", EXPAND = "YES", THEMEROLE = "flattabs_sub", KEEPPAGEMIN = "YES" })
 	self._strip = strip
 	-- The stock close image is drawn for a much larger tab than this one.
 	local close = Kit.icon(iup, "close", 12, "neutral")

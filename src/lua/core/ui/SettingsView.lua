@@ -163,9 +163,12 @@ function SettingsView:initialize(opts)
 
     -- Inner container holds section headers and bodies (direct children, so each
     -- can be individually shown/hidden + floated during filtering).
+    -- No bottom margin: the last row's own padding already ends the list, and a second
+    -- margin under it would give the scroll box a range of nothing but space (a thumb in
+    -- a pane the rows fit). The top space is a fixed spacer in the column below.
     self._inner = iup.vbox{
         GAP     = L.gap(L.ROLE.row_gap),
-        MARGIN  = "0x" .. L.px(L.ROLE.row),
+        MARGIN  = L.margin(0),
         EXPAND  = "HORIZONTAL",
     }
 
@@ -187,7 +190,12 @@ function SettingsView:initialize(opts)
         MAXSIZE   = L.maxSize(COLUMN_WIDTH, nil),
         THEMEROLE = "settingspanel",
     }
-    self._column = iup.vbox{ self._panel, MARGIN = L.margin(L.ROLE.page, 0), EXPAND = "YES" }
+    self._column = iup.vbox{
+        iup.fill{ RASTERSIZE = L.size(nil, L.px(L.ROLE.row)) },
+        self._panel,
+        MARGIN = L.margin(L.ROLE.page, 0),
+        EXPAND = "YES",
+    }
 
     -- iup.flatlabel (owner-drawn), not native iup.label: a native label given an
     -- explicit color loses the OS's transparent-background painting once nested
