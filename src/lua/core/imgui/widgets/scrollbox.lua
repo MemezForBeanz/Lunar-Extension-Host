@@ -15,17 +15,28 @@ local function user_child(e) return FlatScrollbar.user_child(e) end
 -- Container allocations can include hidden sections and expansion slack. Only the
 -- last visible descendant defines the scrollable bottom; nested viewports remain
 -- leaves, since their own content scrolls independently.
+-- VISIBLE is read as each element's own value, never inherited: a page laid out while
+-- its tab or an ancestor is hidden must still measure its content, because the layout
+-- cache keeps this range until the scroll box's own rect changes (showing an ancestor
+-- only dirties the ancestors). Hidden subtrees inside the content stop the walk.
+-- A control whose only children are its own parts (a grid's or list's scroll bars) is a
+-- leaf: its rect is its content.
 local function visible_bottom(e)
 	local s = Element.state(e)
-	if not s or s.internal or attr(e, "VISIBLE") == "NO" then return nil end
+	if not s or s.internal or tostring(own(e, "VISIBLE") or ""):upper() == "NO" then return nil end
 	if s.classname == "fill" then return nil end
-	if #s.children == 0 or s.class.clipsContent then return s.y + s.h end
-	local bottom
+	if s.class.clipsContent then return s.y + s.h end
+	local bottom, user = nil, false
 	for _, child in ipairs(s.children) do
-		local b = visible_bottom(child)
-		if b then bottom = math.max(bottom or b, b) end
+		local cs = Element.state(child)
+		if cs and not cs.internal then
+			user = true
+			local b = visible_bottom(child)
+			if b then bottom = math.max(bottom or b, b) end
+		end
 	end
-	return bottom and bottom + (s.data.my or 0)
+	if not user then return s.y + s.h end
+	return bottom and math.min(s.y + s.h, bottom + (s.data.my or 0))
 end
 
 local function content_height(c, fallback)
@@ -197,10 +208,17 @@ local function scroll_place_for(native)
 		if d.dy > d.ymax - sb_size then posy = 0 end
 		local ox, oy = pair(own(e, "CHILDOFFSET"))
 		L.place(c, st.x + (ox or 0) - posx, st.y + (oy or 0) - posy, w, h)
+		-- The range is what the visible content occupies, not the allocation: hidden
+		-- sections and expansion slack below it are not scrolled to.
 		d.ymax = sb_vert and content_height(c, ch) or 0
 		if d.ymax <= st.h then
 			d.dy, d.posy = sb_vert and st.h or 0, 0
 			L.place(c, st.x + (ox or 0) - posx, st.y + (oy or 0), math.max(need_w, st.w), h)
+		elseif d.posy > d.ymax - d.dy then
+			-- the measured range is shorter than the allocation: keep the end in view
+			d.posy = math.max(0, d.ymax - d.dy)
+			posy = d.dy > d.ymax - sb_size and 0 or d.posy
+			L.place(c, st.x + (ox or 0) - posx, st.y + (oy or 0) - posy, w, h)
 		end
 		FlatScrollbar.sync(e)
 	end
