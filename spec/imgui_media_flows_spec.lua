@@ -45,6 +45,7 @@ end
 describe("media 1.6.2 flows on the ImGui host", function()
 	it("shows the demo player and changes play, seek, and volume state", function()
 		local old_open = platform.open
+		finally(function() platform.open = old_open end)
 		platform.open = function() return true end
 		local _, _, warnings = Harness.run("extensions/media/init.lua", "extensions/media", {
 			skip_default_exercise = true,
@@ -78,7 +79,6 @@ describe("media 1.6.2 flows on the ImGui host", function()
 				assert.equals(55, ctx.extension.now_playing.state().volume)
 			end,
 		})
-		platform.open = old_open
 		assert.same({}, warnings)
 	end)
 
@@ -124,6 +124,7 @@ describe("media 1.6.2 flows on the ImGui host", function()
 
 	it("queues a discovered media download without making network or shell calls", function()
 		local old_open = platform.open
+		finally(function() platform.open = old_open end)
 		platform.open = function() error("unexpected URL open") end
 		local _, _, warnings = Harness.run("extensions/media/init.lua", "extensions/media", {
 			skip_default_exercise = true,
@@ -178,7 +179,6 @@ describe("media 1.6.2 flows on the ImGui host", function()
 				assert.is_true(title(ctx, "Downloads: 1 · Active: 1 · Failed: 0") ~= nil)
 			end,
 		})
-		platform.open = old_open
 		assert.same({}, warnings)
 	end)
 end)
