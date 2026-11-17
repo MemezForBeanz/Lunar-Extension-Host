@@ -852,7 +852,11 @@ function M.new(ctx, opts)
         -- A short window scrolls the rail rather than cutting off its last group.
         nav = { widget = iup.scrollbox({ source_rail, EXPAND = "YES", CANVASBOX = "YES", SCROLLBAR = "VERTICAL",
             BORDER = "NO", THEMEROLE = "page_column" }), title = "Browse" }, main = main,
-        inspector = { widget = inspector_body, title = "Selected title", width = L.PAGE.inspector },
+        -- The details scroll inside the inspector: as a drawer in a short window it keeps the
+        -- page's height instead of running past its bottom (CANVASBOX: no natural height). The
+        -- bar floats over the edge, so the fixed-width details keep their width.
+        inspector = { widget = iup.flatscrollbox({ inspector_body, EXPAND = "YES", CANVASBOX = "YES", SCROLLBAR = "VERTICAL",
+            FLATSCROLLBAR = "VERTICAL", SHOWFLOATING = "YES", THEMEROLE = "tabscroll" }), title = "Selected title", width = L.PAGE.inspector },
         state = { kind = "info", text = "Choose a library or collection" } })
     page_stack = iup.zbox({workspace:widget(), details.widget, EXPAND = "YES"})
 	workspace.feedMessage = reliability.summary
@@ -1101,10 +1105,34 @@ function M.new(ctx, opts)
 		return continuing[1] or recent[1]
 	end
 
+	-- The jump bar takes the height the page really has: in a short window its letters thin
+	-- out (organize.fit) instead of making the page taller than its window.
+	local function fit_jump()
+		local function y_of(widget) return tonumber((iup.GetAttribute(widget, "SCREENPOSITION") or ""):match(",(-?%d+)$")) end
+		local root = workspace and workspace:widget()
+		local top, root_top = y_of(stack), root and y_of(root)
+		local root_h = root and tonumber((iup.GetAttribute(root, "RASTERSIZE") or ""):match("x(%d+)$"))
+		if not (top and root_top and root_h) then return end
+		local room = math.max(2, math.min(JUMP_SLOTS, math.floor((root_top + root_h - L.PAGE.padding - top) / JUMP_ROW)))
+		if room ~= jump_room then
+			jump_room = room
+			fill_jump()
+		end
+	end
+	-- The inspector drawer is sized from the frame it covers; a new height re-fits it, as a
+	-- new width does.
+	local last_frame_height
 	function api.tick()
 		reliability.tick()
 		if last_inspector_open ~= workspace.inspectorOpen and api.last_width then api.fit(api.last_width) end
+		local frame_height = workspace.inspectorFrame
+			and tonumber((iup.GetAttribute(workspace.inspectorFrame, "RASTERSIZE") or ""):match("x(%d+)$"))
+		if frame_height ~= last_frame_height then
+			last_frame_height = frame_height
+			if workspace.inspectorOpen and api.last_width then api.fit(api.last_width) end
+		end
 		drawer:sync()
+		fit_jump()
 		fit_cells()
 		for _, drain in ipairs(drains) do drain() end
 	end
