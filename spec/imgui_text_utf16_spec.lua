@@ -401,3 +401,15 @@ describe("native text positions in UTF-16 units: multiline", function()
 		assert.is_true(tonumber(get(t, "FIRSTVISIBLELINE")) > 1)
 	end)
 end)
+
+describe("core.lib.utf16 names the host UI code uses", function()
+	local U = require("core.lib.utf16")
+	it("byte_to_units, units_to_byte and length match to_units, to_bytes and units", function()
+		local s = "a\240\159\152\128b\228\184\150"
+		assert.equal(U.units(s), U.length(s))
+		assert.equal(0, U.length(nil))
+		for b = 0, #s do assert.equal(U.to_units(s, b), U.byte_to_units(s, b)) end
+		for u = 0, U.units(s) do assert.equal(U.to_bytes(s, u), U.units_to_byte(s, u)) end
+		assert.equal(U.to_units(s, 3), U.byte_to_units(s, 3.7))
+	end)
+end)

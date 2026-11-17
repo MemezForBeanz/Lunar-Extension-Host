@@ -848,8 +848,12 @@ local common = {
 		end,
 		-- winTextSetCaretPosAttrib: EM_SETSEL, then EM_SCROLLCARET
 		CARETPOS = function(e, st, v) st.data.caret = clamp(st, tonumber(v) or 0); st.data.anchor = st.data.caret; M.scrollCaret(e, st); return false end,
+		-- winTextSetSelectionPosAttrib: NONE, ALL or "start:end" (from 0, UTF-16 units)
 		SELECTIONPOS = function(e, st, v)
-			local a, b = tostring(v or ""):match("^(%d+)%s*[,;:]%s*(%d+)$")
+			local s = tostring(v or "NONE"):upper()
+			if s == "NONE" then st.data.anchor = st.data.caret; return false end
+			if s == "ALL" then st.data.anchor, st.data.caret = 0, #(st.data.text or ""); return false end
+			local a, b = s:match("^(%d+)%s*[,;:]%s*(%d+)$")
 			if a then st.data.anchor, st.data.caret = clamp(st, tonumber(a)), clamp(st, tonumber(b)) end
 			return false
 		end,
@@ -922,8 +926,10 @@ local common = {
 			local h = pair(Element.own(e, "PADDING") or "0x0")
 			return string.format("%dx0", h)
 		end,
+		-- winTextGetSelectionPosAttrib: NULL when start == end
 		SELECTIONPOS = function(e, st)
 			local a, b = sorted_selection(st)
+			if a == b then return nil end
 			return units_at(st, a) .. ":" .. units_at(st, b)
 		end,
 		-- winTextGetSelectionAttrib: nothing when empty, else 1-based "l1,c1:l2,c2" or "a:b"
