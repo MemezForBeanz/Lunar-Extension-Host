@@ -756,14 +756,25 @@ function M.new(ctx, opts)
 	end
 	local scanning = Kit.statusLine(iup, "info", "")
 	Kit.show(iup, scanning, false, sources.widget)
+	-- The rail's own type, starting at its rows' text column (flatrows: a 12 px lead, the
+	-- 16 px image, an 8 px gap). The tagline speaks only for an empty rail.
+	local sample_tagline = iup.flatlabel({ TITLE = "Your media, in one library.", THEMEROLE = "reading_muted" })
+	local text_column = L.px(4) + L.px(5) + L.px(3)
+	local tagline_row = iup.hbox({ sample_tagline, MARGIN = text_column .. "x0" })
 	local sample_note = iup.vbox({
-		L.hint(iup, "Your media, in one library."),
-		iup.flatbutton({ TITLE = "Connect a server", THEMEROLE = "link_btn", CANFOCUS = "YES", flat_action = function()
-			if opts.on_connect then opts.on_connect() end
-			return iup.DEFAULT
-		end }),
+		tagline_row,
+		-- less link_btn's own 2 px pad, so its label starts on the same column
+		iup.hbox({ iup.flatbutton({ TITLE = "Connect a server", THEMEROLE = "link_btn", CANFOCUS = "YES",
+			flat_action = function()
+				if opts.on_connect then opts.on_connect() end
+				return iup.DEFAULT
+			end }), MARGIN = (text_column - 2) .. "x0" }),
 		GAP = L.gap(1), MARGIN = "0x0", ALIGNMENT = "ALEFT",
 	})
+	local function show_sample_note()
+		Kit.show(iup, sample_note, model.sample == true, sources.widget)
+		Kit.show(iup, tagline_row, model.sample == true and #(model.origins or {}) == 0, sources.widget)
+	end
 	local source_rail = iup.vbox({ iup.hbox({ RASTERSIZE = L.size(SOURCE_WIDTH) }),
 		rail_group("Libraries"), sources.widget,
 		rail_group("Collections"), shelf_list.widget,
@@ -1043,7 +1054,7 @@ function M.new(ctx, opts)
 		size_rail()
 		Kit.setStatus(iup, scanning, "info", model.scanning and ("Scanning " .. model.scanning) or "")
 		Kit.show(iup, scanning, model.scanning ~= nil, sources.widget)
-		Kit.show(iup, sample_note, model.sample == true, sources.widget)
+		show_sample_note()
 		sources:select(1)
 		count_collections()
 		shelf_list:setProvider(#(model.collections or {}), collection_value)
@@ -1142,7 +1153,7 @@ function M.new(ctx, opts)
 	go_source("home")
 	fill_spotlight()
 	refill_plan()
-	Kit.show(iup, sample_note, model.sample == true, sources.widget)
+	show_sample_note()
 	return api
 end
 

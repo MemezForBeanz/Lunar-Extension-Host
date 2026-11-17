@@ -84,7 +84,10 @@ function M.new(ctx, opts)
 			iup.fill({}), GAP = L.gap(2), ALIGNMENT = "ACENTER", MARGIN = "0x0" }),
 		iup.hbox({ elapsed, bar.widget, left_time, GAP = L.gap(2), ALIGNMENT = "ACENTER", MARGIN = "0x0" }),
 		GAP = "0", MARGIN = "0x0", EXPAND = "HORIZONTAL" })
+	-- The slider's knob stops at its end: the icons after it keep a section's distance
+	-- (the box's own gap plus this), so a full volume never reads as touching them.
 	local right = iup.hbox({ iup.fill({}), mute, volume.widget,
+		iup.fill({ RASTERSIZE = (L.px(5) - L.px(2)) .. "x" }),
 		tool("launch", "Open Now playing", function() opts.open() end),
 		tool("close", "Stop and close", function() player.stop() end),
 		GAP = L.gap(2), ALIGNMENT = "ACENTER", MARGIN = "0x0", RASTERSIZE = SIDE_WIDTH .. "x" })
