@@ -112,61 +112,164 @@ local function callback_names(el)
 	local st = Element.state(el)
 	local names = {}
 	if not st then return names end
-	for name in pairs(st.cbs or {}) do
-		names[#names + 1] = name
-	end
+	for name in pairs(st.cbs or {}) do names[#names + 1] = name end
 	table.sort(names)
 	return names
 end
 
+local function is_descendant(el, ancestor)
+	local current = el
+	while current do
+		if current == ancestor then return true end
+		local st = Element.state(current)
+		current = st and st.parent or nil
+	end
+	return false
+end
+
+local function visible_rect(el)
+	local st = Element.state(el)
+	return st and Runtime.isVisible(el) and st.w > 2 and st.h > 2
+end
+
 local function click(el, backend)
 	local st = Element.state(el)
-	if not st or st.w <= 2 or st.h <= 2 then return false end
-	backend.queue{ mx = st.x + st.w / 2, my = st.y + st.h / 2, press = 1 }
-	backend.queue{ mx = st.x + st.w / 2, my = st.y + st.h / 2, release = 1 }
+	if not visible_rect(el) then return false, "not visible" end
+	local x, y = st.x + st.w / 2, st.y + st.h / 2
+	local target = Runtime.hitTest(x, y)
+	if not target then return false, "hit test returned no element" end
+	if not is_descendant(target, el) then
+		return false, string.format("hit %s instead of %s", Element.state(target).classname, st.classname)
+	end
+	backend.queue{ mx = x, my = y, press = 1 }
+	backend.queue{ mx = x, my = y, release = 1 }
 	Runtime.frame()
 	Runtime.frame()
 	return true
 end
 
-local function open_pages(root, backend, seen)
-	local st = Element.state(root)
-	if not st then return 0 end
-	local opened = 0
-	if st.classname == "flattabs" then
-		for i = 1, #st.children do
-			iup.SetAttribute(root, "VALUEPOS", tostring(i - 1))
-			Runtime.frame()
-			opened = opened + 1
-		end
-	end
-	for _, child in ipairs(st.children) do
-		opened = opened + open_pages(child, backend, seen)
-	end
-	return opened
-end
+local CLICK_CALLBACKS = {
+	flatbutton = { FLAT_ACTION = true },
+	flattoggle = { FLAT_ACTION = true, VALUECHANGED_CB = true },
+	flatlist = { FLAT_ACTION = true, VALUECHANGED_CB = true },
+	flattabs = {},
+	button = { ACTION = true },
+	toggle = { ACTION = true, VALUECHANGED_CB = true },
+	list = { ACTION = true, VALUECHANGED_CB = true },
+	dropbutton = { FLAT_ACTION = true, DROPDOWN_CB = true },
+	item = { ACTION = true },
+}
 
-local function exercise_callbacks(root, backend, fired)
+local function instrument_callbacks(root, fired)
 	local all = {}
 	walk(root, all)
-	local exercised = 0
-	local clickable = {
-		flatbutton = true, flattoggle = true, flatlist = true, flattabs = true,
-		item = true, button = true, toggle = true, list = true,
-	}
 	for _, el in ipairs(all) do
 		local st = Element.state(el)
-		if clickable[st.classname] then
-			for _, name in ipairs(callback_names(el)) do
-			local key = tostring(st.id) .. ":" .. name
-			if not fired[key] then
-				fired[key] = true
-				if click(el, backend) then exercised = exercised + 1 end
+		for name, callback in pairs(st.cbs or {}) do
+			st.cbs[name] = function(handle, ...)
+				local key = tostring(st.id) .. ":" .. name
+				fired[key] = (fired[key] or 0) + 1
+				return callback(handle, ...)
 			end
 		end
+	end
+end
+
+local function callback_count(el, fired)
+	local st = Element.state(el)
+	local total = 0
+	for name in pairs(st.cbs or {}) do
+		total = total + (fired[tostring(st.id) .. ":" .. name] or 0)
+	end
+	return total
+end
+
+local function exercise_visible(root, backend, fired, attempted, report)
+	local all = {}
+	walk(root, all)
+	for _, el in ipairs(all) do
+		local st = Element.state(el)
+		local expected = CLICK_CALLBACKS[st.classname]
+		local active = iup.GetAttribute(el, "ACTIVE") ~= "NO"
+		if expected and active and Runtime.isVisible(el) and not attempted[st.id] then
+			attempted[st.id] = true
+			local before = callback_count(el, fired)
+			local ok = click(el, backend)
+			if ok then
+				report.reached = report.reached + 1
+				local after = callback_count(el, fired)
+				local expected_names = {}
+				for name in pairs(expected) do
+					if st.cbs[name] then expected_names[#expected_names + 1] = name end
+				end
+				if #expected_names > 0 and after <= before then
+					report.misses[#report.misses + 1] = {
+						class = st.classname, title = iup.GetAttribute(el, "TITLE") or "",
+						callbacks = expected_names,
+					}
+				else
+					report.callbacks = report.callbacks + (after - before)
+				end
+			else
+				report.skipped = report.skipped + 1
+			end
 		end
 	end
-	return exercised
+end
+
+local function exercise_texts(root, backend, fired, attempted, report)
+	local all = {}
+	walk(root, all)
+	for _, el in ipairs(all) do
+		local st = Element.state(el)
+		if st.classname == "text" and Runtime.isVisible(el) and
+			(st.cbs.VALUECHANGED_CB or st.cbs.ACTION) and not attempted[st.id] then
+			attempted[st.id] = true
+			local old = iup.GetAttribute(el, "VALUE") or ""
+			local before = callback_count(el, fired)
+			local ok = click(el, backend)
+			if ok then
+				backend.queue{ chars = { "x", "y", "z" } }
+				Runtime.frame()
+				local value = iup.GetAttribute(el, "VALUE") or ""
+				local after = callback_count(el, fired)
+				assert(value ~= old, "text input did not change VALUE")
+				assert(after > before, "text input did not fire callback")
+				report.texts = report.texts + 1
+				report.callbacks = report.callbacks + (after - before)
+			else
+				report.skipped = report.skipped + 1
+			end
+		end
+	end
+end
+
+local function exercise_pages(root, backend, fired, report)
+	local attempted = {}
+	local function visit(parent)
+		local st = Element.state(parent)
+		if not st then return end
+		if st.classname == "flattabs" then
+			for i = 1, #st.children do
+				iup.SetAttribute(parent, "VALUEPOS", tostring(i - 1))
+				Runtime.frame()
+				Runtime.frame()
+				report.pages = report.pages + 1
+				exercise_visible(root, backend, fired, attempted, report)
+				exercise_texts(root, backend, fired, attempted, report)
+				for _, child in ipairs(st.children) do
+					if Runtime.isVisible(child) then visit(child) end
+				end
+			end
+			return
+		end
+		for _, child in ipairs(st.children) do visit(child) end
+	end
+	visit(root)
+	if report.pages == 0 then
+		exercise_visible(root, backend, fired, attempted, report)
+		exercise_texts(root, backend, fired, attempted, report)
+	end
 end
 
 local function invoke_menu_callbacks(menus, fired)
@@ -295,20 +398,61 @@ function M.run(path, module_path, opts)
 
 	local backend = Runtime.backend()
 	local fired = {}
-	local pages = open_pages(tabs, backend, fired)
-	local clicked = exercise_callbacks(tabs, backend, fired)
-	clicked = clicked + invoke_menu_callbacks(menus, fired)
+	instrument_callbacks(tabs, fired)
+	local report = { pages = 0, reached = 0, skipped = 0, callbacks = 0, texts = 0, misses = {} }
+	if opts.exercise then
+		opts.exercise({
+			host = host,
+			tabs = tabs,
+			manager = manager,
+			extension = manager.extensions[1],
+			backend = backend,
+			walk = walk,
+			children = children,
+			state = Element.state,
+			invoke = function(element, name, ...)
+				local ok, result = pcall(Element.call, element, name, ...)
+				assert(ok, result)
+				for _ = 1, 2 do Runtime.frame() end
+				return result
+			end,
+			visible = Runtime.isVisible,
+			iup = iup,
+			runtime = Runtime,
+		})
+	end
+	if opts.skip_default_exercise then
+		report.pages = 1
+	else
+		exercise_pages(tabs, backend, fired, report)
+	end
+	invoke_menu_callbacks(menus, fired)
 	local routes = invoke_routes(host)
 	for _ = 1, 3 do Runtime.frame() end
 	assert_pages_are_not_empty(tabs)
-	assert(pages >= 1, "host registered no pages")
+	assert(report.pages >= 1, "host registered no pages")
+	if settings_view._sections then
+		local settings_root = settings_view:widget()
+		local settings_state = Element.state(settings_root)
+		assert(settings_state.w > 0 and settings_state.h > 0, "settings page has no laid-out size")
+		for _, section in ipairs(settings_view._sections) do
+			local section_state = Element.state(section.body)
+			assert(section_state.w > 0 and section_state.h > 0,
+				"registered settings section has no laid-out size")
+		end
+	end
+	if #report.misses > 0 then
+		local miss = report.misses[1]
+		assert(false, string.format("click callback missed for %s TITLE=%q (%s)",
+			miss.class, miss.title, table.concat(miss.callbacks, ", ")))
+	end
 
 	manager:shutdownAll()
 	iup.Destroy(dialog)
 	Runtime.warn = old_warn
 	Element.hooks.error = old_error
 	iup.Message, iup.Alarm, iup.GetText, iup.Popup = old_message, old_alarm, old_gettext, old_popup
-	return loaded, clicked, warnings, routes, settings_view
+	return loaded, report.reached, warnings, routes, settings_view, report
 end
 
 return M

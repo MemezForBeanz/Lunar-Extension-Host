@@ -185,6 +185,8 @@ struct Popup {
      * else a dialog window), `inset` the transparent margin around what it shows, and
      * `bits` the last pixels it was given (premultiplied BGRA, top-down), kept for captures. */
     bool overlay = false, passthrough = false; int owner = 0, inset = 0;
+    /* the window it is stacked directly under (a modal dialog over a scrimmed video), 0 none */
+    int under = 0;
     uint64_t order = 0;
     HBITMAP dib = nullptr; unsigned char *bits = nullptr; int dib_w = 0, dib_h = 0, bits_w = 0, bits_h = 0;
 };
@@ -1900,7 +1902,7 @@ void popup_lists_begin(Popup *p) {
     p->drawn = false;
 }
 
-Popup *overlay_create(int owner, bool passthrough) {
+Popup *overlay_create(int owner, bool passthrough, int under) {
     Popup *op = owner ? popup_by_id(owner) : nullptr;
     if (owner && (!op || op->overlay || !op->hwnd)) return nullptr;
     static bool registered = false;
@@ -1917,7 +1919,7 @@ Popup *overlay_create(int owner, bool passthrough) {
     if (!h) return nullptr;
     Popup *p = new Popup;
     p->id = next_popup++; p->hwnd = h; p->style = WS_POPUP; p->ex = ex;
-    p->overlay = true; p->passthrough = passthrough; p->owner = owner;
+    p->overlay = true; p->passthrough = passthrough; p->owner = owner; p->under = under;
     /* made while a frame is being drawn: it is drawn in this one */
     if (g.frame_open) popup_lists_begin(p);
     popups.push_back(p);
@@ -2007,7 +2009,11 @@ void overlay_render(Popup *p) {
     /* shown once it has pixels, above the overlay windows opened before it (a submenu
        over its menu), and without taking activation from its owner */
     if (!p->shown) {
-        SetWindowPos(p->hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER);
+        /* `under`: directly below that window (hWndInsertAfter), so a scrim over native
+           video never covers the modal dialog it dims the page for */
+        Popup *u = p->under ? popup_by_id(p->under) : nullptr;
+        HWND after = (u && u->hwnd) ? u->hwnd : HWND_TOP;
+        SetWindowPos(p->hwnd, after, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER);
         p->shown = true;
     }
 }
@@ -2479,7 +2485,8 @@ int l_window(lua_State *L) {
         if (!g.device || !lua_istable(L, 2)) return 0;
         lua_getfield(L, 2, "owner"); int owner = (int)lua_tointeger(L, -1); lua_pop(L, 1);
         lua_getfield(L, 2, "passthrough"); bool pass = lua_toboolean(L, -1) != 0; lua_pop(L, 1);
-        Popup *p = overlay_create(owner, pass);
+        lua_getfield(L, 2, "under"); int under = (int)lua_tointeger(L, -1); lua_pop(L, 1);
+        Popup *p = overlay_create(owner, pass, under);
         if (!p) return 0;
         lua_pushinteger(L, p->id); return 1;
     }

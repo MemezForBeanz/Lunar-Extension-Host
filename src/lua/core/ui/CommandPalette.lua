@@ -13,6 +13,7 @@ local L = require("core.lib.CarbonLayout")
 local Kit = require("core.ui.Kit")
 
 local CommandPalette = {}
+local UTF16 = require("core.lib.utf16")
 CommandPalette.__index = CommandPalette
 
 -- Nine whole rows of 32px, plus the field, the rule and the hint. A height chosen any
@@ -97,6 +98,11 @@ function CommandPalette:_build()
 			MARGIN = L.margin(1),
 		}),
 		TITLE = "",
+		-- No title band. On IUP, IupCreate applies the DEFAULTTHEME global, whose flatframe
+		-- class rule (TITLEPADDING=12x4, for titled cards) gives an empty title 8 px when the
+		-- frame is built after the startup theme pass: a band above the header that depended
+		-- on build order. Saying it here makes both builds the same.
+		TITLEPADDING = "0x0",
 		EXPAND = "YES",
 		THEMEROLE = "palette_frame",
 	})
@@ -357,7 +363,7 @@ function CommandPalette:open(text, choices)
 	iup.ShowXY(self._dialog, x, y)
 	iup.SetAttribute(self._prompt, "ZORDER", "TOP")
 	iup.SetFocus(self._field)
-	iup.SetAttribute(self._field, "CARETPOS", tostring(#(text or "")))
+	iup.SetAttribute(self._field, "CARETPOS", tostring(UTF16.length(text or "")))
 end
 
 --- Close the palette and hand focus back to the main window.

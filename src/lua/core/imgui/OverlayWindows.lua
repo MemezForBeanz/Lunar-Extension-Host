@@ -7,7 +7,7 @@ function M.new(B, now, wake)
 	function self.release(o)
 		if not o.win then return end
 		B.window("overlay_place", o.win, 0, 0, 1, 1, false, 0)
-		pool[#pool + 1] = { id = o.win, owner = o.native_owner, pass = o.passthrough == true, due = now() + 5 }
+		pool[#pool + 1] = { id = o.win, owner = o.native_owner, pass = o.passthrough == true, under = o.under or 0, due = now() + 5 }
 		o.win = nil
 		o.shift_x, o.shift_y = nil, nil
 		while #pool > 2 do B.window("overlay_close", table.remove(pool, 1).id) end
@@ -31,9 +31,9 @@ function M.new(B, now, wake)
 		if not o.win then
 			for i = #pool, 1, -1 do
 				local p = pool[i]
-				if p.owner == owner and p.pass == (o.passthrough == true) then o.win = p.id; table.remove(pool, i); break end
+				if p.owner == owner and p.pass == (o.passthrough == true) and p.under == (o.under or 0) then o.win = p.id; table.remove(pool, i); break end
 			end
-			o.win = o.win or B.window("overlay_open", { owner = owner, passthrough = o.passthrough })
+			o.win = o.win or B.window("overlay_open", { owner = owner, passthrough = o.passthrough, under = o.under })
 			o.native_owner = owner
 		end
 		if not o.win then return end

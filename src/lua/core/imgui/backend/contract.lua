@@ -79,7 +79,8 @@ M.WINDOW_OPTIONAL = {
 	"videohost_create", "videohost", "videohost_frame", "videohost_destroy",
 	"popup_open", "popup_place", "popup_state", "popup_focus", "popup_hwnd", "popup_close",
 	-- overlay windows (M.FLAGS.overlay_windows); coordinates are the main window's client
-	"overlay_open",   -- ({ owner = surface id, passthrough = takes no mouse }) -> id | nil
+	"overlay_open",   -- ({ owner = surface id, passthrough = takes no mouse, under = a dialog
+	                  --    window it stacks directly below, optional }) -> id | nil
 	"overlay_place",  -- (id, x, y, w, h, visible, inset) -> false when the window is gone
 	"overlay_close",  -- (id)
 	"monitor",        -- (x, y) -> work x, y, w, h, full x, y, w, h of the monitor there

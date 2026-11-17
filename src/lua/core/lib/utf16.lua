@@ -4,7 +4,7 @@
 -- Invalid UTF-8 never raises: every byte that is not part of a well-formed sequence
 -- (overlong forms, surrogates, values above U+10FFFF, stray continuation bytes, truncated
 -- sequences) is one character of one unit. A character outside the BMP is two units.
--- @module core.imgui.utf16
+-- @module core.lib.utf16
 local byte, find = string.byte, string.find
 
 local M = {}
@@ -127,5 +127,11 @@ function M.next(s, b)
 	if b >= #s then return #s end
 	return b + (step(s, b + 1))
 end
+
+-- Names the host UI code (CodeView, CommandPalette) used before the modules merged: they
+-- take any value and fractional positions, as the old core.lib.utf16 did.
+function M.byte_to_units(s, b) s = tostring(s or ""); return M.to_units(s, math.floor(b or 0)) end
+function M.units_to_byte(s, u) s = tostring(s or ""); return M.to_bytes(s, math.floor(u or 0)) end
+function M.length(s) return M.units(tostring(s or "")) end
 
 return M

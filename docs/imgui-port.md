@@ -563,11 +563,17 @@ Known differences, in order of visibility:
   independently resolved. Oversized popups are anchored to the monitor work-area origin.
 - **Text weight in IUP's popups**: IUP's secondary windows draw text heavier than its main
   window; the ImGui host draws them at the main window's weight.
-- **Text positions are bytes**: `CARETPOS`, `SELECTIONPOS` and `COUNT` on native text count
-  UTF-8 bytes, where the Win32 EDIT counts UTF-16 units; they agree for ASCII.
+- **Text positions use UTF-16 units**: `CARETPOS`, `SELECTIONPOS`, `COUNT`, `CARET`,
+  `SELECTION` and `CARET_CB` on native text match the Win32 EDIT's UTF-16 code-unit
+  positions (with multiline `\r\n` exposed as one logical line break); internal emulation
+  state remains UTF-8 byte offsets.
 - **The code editor** is an emulation of the Scintilla messages CodeView sends, not
   Scintilla itself (see `docs/imgui-scintilla.md`).
-- **Video effects**: full-window compositor effects and modal scrims still draw below
-  native video children; bounded interactive popups and tooltips use native windows above them.
+- **Video effects**: full-window compositor effects (tab transitions, toasts) still draw
+  below native video children. The modal scrim covers them: each video rectangle on the
+  main window gets a click-through overlay window in the scrim colour, stacked directly
+  under the modal's own window (`overlay_open`'s `under`; `spec/imgui_scrim_video_spec.lua`).
+  Bounded interactive popups and tooltips use native windows above video. The SDL backend
+  ignores `under`.
 - **Compositor scaling** is not a gap: the native blend (`blend.c`) also requires the
   destination rect to equal the source size, so neither build scales a snapshot.

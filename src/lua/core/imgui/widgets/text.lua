@@ -4,13 +4,13 @@ local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
 local Fonts = require("core.imgui.Fonts")
 local iup = require("core.imgui.iup")
-local U = require("core.imgui.utf16")
+local U = require("core.lib.utf16")
 
 -- The value is UTF-8 and the caret, anchor and selection are 0-based byte offsets that are
 -- always character boundaries. Positions cross the API (attributes, CARET_CB, xyToPos, the
 -- lin/col converters) in UTF-16 code units, as the Win32 EDIT control counts them (a line
 -- break is one unit, as IUP reports it). A unit position between the two halves of a
--- surrogate pair reads as the pair's start; see core.imgui.utf16.
+-- surrogate pair reads as the pair's start; see core.lib.utf16.
 
 local M = {}
 local function attr(e, n) return Element.getAttribute(e, n) end
@@ -859,8 +859,12 @@ local common = {
 		end,
 		-- winTextSetCaretPosAttrib: EM_SETSEL, then EM_SCROLLCARET
 		CARETPOS = function(e, st, v) st.data.caret = clamp(st, tonumber(v) or 0); st.data.anchor = st.data.caret; M.scrollCaret(e, st); return false end,
+		-- winTextSetSelectionPosAttrib: NONE, ALL or "start:end" (from 0, UTF-16 units)
 		SELECTIONPOS = function(e, st, v)
-			local a, b = tostring(v or ""):match("^(%d+)%s*[,;:]%s*(%d+)$")
+			local s = tostring(v or "NONE"):upper()
+			if s == "NONE" then st.data.anchor = st.data.caret; return false end
+			if s == "ALL" then st.data.anchor, st.data.caret = 0, #(st.data.text or ""); return false end
+			local a, b = s:match("^(%d+)%s*[,;:]%s*(%d+)$")
 			if a then st.data.anchor, st.data.caret = clamp(st, tonumber(a)), clamp(st, tonumber(b)) end
 			return false
 		end,
@@ -927,8 +931,16 @@ local common = {
 		end,
 		CARETPos = function() end,
 		CARETPOS = function(e, st) return tostring(units_at(st, st.data.caret or 0)) end,
+		-- winTextSetPaddingAttrib keeps the horizontal part only (vert_padding = 0), and
+		-- iTextGetPaddingAttrib answers both
+		PADDING = function(e, st)
+			local h = pair(Element.own(e, "PADDING") or "0x0")
+			return string.format("%dx0", h)
+		end,
+		-- winTextGetSelectionPosAttrib: NULL when start == end
 		SELECTIONPOS = function(e, st)
 			local a, b = sorted_selection(st)
+			if a == b then return nil end
 			return units_at(st, a) .. ":" .. units_at(st, b)
 		end,
 		-- winTextGetSelectionAttrib: nothing when empty, else 1-based "l1,c1:l2,c2" or "a:b"
@@ -942,7 +954,8 @@ local common = {
 			end
 			return (units_at(st, a) + 1) .. ":" .. (units_at(st, b) + 1)
 		end,
-		SELECTEDTEXT = function(e, st) local a, b = sorted_selection(st); return st.data.text:sub(a + 1, b) end,
+		-- winTextGetSelectedTextAttrib: NULL without a selection
+		SELECTEDTEXT = function(e, st) local a, b = sorted_selection(st); if a == b then return nil end; return st.data.text:sub(a + 1, b) end,
 		LINECOUNT = function(e, st) return select(2, st.data.text:gsub("\n", "\n")) + 1 end,
 		FIRSTVISIBLELINE = function(e, st)
 			if not is_multiline(e, st) then return "1" end
