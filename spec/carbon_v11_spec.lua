@@ -63,7 +63,7 @@ describe("Carbon v11 modes", function()
             assert.is_not.equal(r.primary_btn.bg, r.primary_btn.inactivebg)
             assert.is_not.equal(r.actionbutton.fg, r.actionbutton.inactivefg)
             assert.equal(p.layer01, r.actionbutton.bg)
-            assert.equal(p.layerSelected01, r.flatrows_plain.selbg)
+            assert.equal(p.layerSelected02, r.flatrows_plain.selbg)
             assert.equal(p.text, r.flatrows_plain.seltext)
             assert.equal("LEADING", r.settings_nav_on.borderstyle)
         end

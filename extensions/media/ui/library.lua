@@ -367,6 +367,11 @@ function M.new(ctx, opts)
 	local plan_starts = tonight.starts(os.time())
 	local plan_start_at = plan_starts[1][2]
 	local plan_summary = L.sectionTitle(iup, "")
+	-- The summary takes the row's spare room and shortens in a narrow pane, so this row
+	-- never sets Home's width: the hero above then wraps inside the visible column.
+	iup.SetAttribute(plan_summary, "RASTERSIZE", "1x")
+	iup.SetAttribute(plan_summary, "EXPAND", "HORIZONTAL")
+	iup.SetAttribute(plan_summary, "TEXTELLIPSIS", "YES")
 	local function refill_plan()
 		plan = tonight.plan(films, plan_limit, plan_start_at, plan_seed)
 		local rows = {}
@@ -378,6 +383,7 @@ function M.new(ctx, opts)
 		plan_list:setRows(rows)
 		iup.SetAttribute(plan_list.widget, "RASTERSIZE", "x" .. (PLAN_ROW * math.max(#rows, 1) + 8))
 		iup.SetAttribute(plan_summary, "TITLE", tonight.summary(plan))
+		iup.SetAttribute(plan_summary, "TIP", tonight.summary(plan))
 	end
 	local time_labels = {}
 	for i, entry in ipairs(tonight.TIMES) do time_labels[i] = entry[2] end
@@ -406,7 +412,7 @@ function M.new(ctx, opts)
 	end })
 	iup.SetAttribute(plan_play, "RASTERSIZE", "x32")
 	local plan_section = L.stack(iup, {
-		iup.hbox({ L.sectionTitle(iup, "Fits tonight"), plan_summary, iup.fill({}), plan_from.widget, plan_time.widget,
+		iup.hbox({ L.sectionTitle(iup, "Fits tonight"), plan_summary, plan_from.widget, plan_time.widget,
 			plan_again, plan_play, GAP = L.gap(3), ALIGNMENT = "ACENTER", MARGIN = RING .. "x0", EXPAND = "HORIZONTAL" }),
 		plan_list.widget,
 	}, 2)
