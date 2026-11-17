@@ -1,11 +1,13 @@
 describe("scroll content bounds", function()
+	-- As in IUP, a hidden child still takes its space unless it is FLOATING (which is what
+	-- Kit.show sets): the range follows layout, it never guesses past what is laid out.
 	local function fixture(kind)
 		local iup = require("core.lui.test").boot({})
 		local Layout = require("core.imgui.Layout")
 		local Element = require("core.imgui.Element")
 		local content = iup.vbox{
 			iup.canvas{RASTERSIZE="120x40"},
-			iup.canvas{RASTERSIZE="120x900", VISIBLE="NO"},
+			iup.canvas{RASTERSIZE="120x900", VISIBLE="NO", FLOATING="YES"},
 			MARGIN="0x0", GAP="0",
 		}
 		local box = iup[kind]{content, EXPAND="YES", SCROLLBAR="VERTICAL", FLATSCROLLBAR="VERTICAL"}
@@ -13,14 +15,16 @@ describe("scroll content bounds", function()
 		return iup, Element, Layout, box, content
 	end
 	for _, kind in ipairs{"scrollbox", "flatscrollbox"} do
-		it(kind .. " excludes trailing hidden children from the scroll range", function()
+		it(kind .. " gives a hidden FLOATING child no scroll range", function()
 			local iup, _, _, box = fixture(kind)
-			assert.equal(40, tonumber(iup.GetAttribute(box, "YMAX")))
+			-- a child smaller than the box gets the box's size: the range is the view, no bar
+			assert.equal(100, tonumber(iup.GetAttribute(box, "YMAX")))
 			assert.equal(100, tonumber(iup.GetAttribute(box, "DY")))
 			assert.equal(0, tonumber(iup.GetAttribute(box, "POSY")))
 		end)
 		it(kind .. " restores overflow when the trailing content becomes visible", function()
 			local iup, Element, Layout, box, content = fixture(kind)
+			iup.SetAttribute(iup.GetChild(content, 1), "FLOATING", "NO")
 			iup.SetAttribute(iup.GetChild(content, 1), "VISIBLE", "YES")
 			Layout.run(box, 200, 100)
 			assert.equal(940, tonumber(iup.GetAttribute(box, "YMAX")))

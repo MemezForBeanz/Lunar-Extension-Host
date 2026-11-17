@@ -12,28 +12,6 @@ local function pair(v)
 	return tonumber(a), tonumber(b)
 end
 local function user_child(e) return FlatScrollbar.user_child(e) end
--- Container allocations can include hidden sections and expansion slack. Only the
--- last visible descendant defines the scrollable bottom; nested viewports remain
--- leaves, since their own content scrolls independently.
-local function visible_bottom(e)
-	local s = Element.state(e)
-	if not s or s.internal or attr(e, "VISIBLE") == "NO" then return nil end
-	if s.classname == "fill" then return nil end
-	if #s.children == 0 or s.class.clipsContent then return s.y + s.h end
-	local bottom
-	for _, child in ipairs(s.children) do
-		local b = visible_bottom(child)
-		if b then bottom = math.max(bottom or b, b) end
-	end
-	return bottom and bottom + (s.data.my or 0)
-end
-
-local function content_height(c, fallback)
-	local s = Element.state(c)
-	-- Mock layout adapters need not populate child geometry.
-	if not s or #s.children == 0 then return fallback end
-	return math.max(0, (visible_bottom(c) or s.y) - s.y)
-end
 -- IupRefresh lays out at once; this host defers it to Runtime.layoutNow, so anything that
 -- reads or moves the scroll range lays a pending dialog out first (the Log Parser sets
 -- VALUE, refreshes, then SYNCFROMCHILD against the new YMAX).
@@ -197,11 +175,6 @@ local function scroll_place_for(native)
 		if d.dy > d.ymax - sb_size then posy = 0 end
 		local ox, oy = pair(own(e, "CHILDOFFSET"))
 		L.place(c, st.x + (ox or 0) - posx, st.y + (oy or 0) - posy, w, h)
-		d.ymax = sb_vert and content_height(c, ch) or 0
-		if d.ymax <= st.h then
-			d.dy, d.posy = sb_vert and st.h or 0, 0
-			L.place(c, st.x + (ox or 0) - posx, st.y + (oy or 0), math.max(need_w, st.w), h)
-		end
 		FlatScrollbar.sync(e)
 	end
 end
@@ -348,15 +321,6 @@ local function native_place(e, st, L)
 	if not has_h and has_v then w = w - SB end
 	if has_h and not has_v then h = h - SB end
 	local cw, ch = L.currentSize(c, w, h)
-	if yes(attr(e, "CANVASBOX")) and L.set then
-		-- Page columns may surrender the natural height of their scrolling children.
-		h = math.max(st.h, L.minContent(c, false))
-		L.set(c, st.x, st.y, w, h)
-		cw, ch = w, h
-	else
-		L.place(c, st.x, st.y, w, h)
-	end
-	ch = content_height(c, ch)
 	d.xmax = sb_horiz and cw or 0
 	d.ymax = sb_vert and ch or 0
 	-- iScrollBoxUpdateVisibleScrollArea
@@ -384,8 +348,7 @@ local function native_place(e, st, L)
 	if d.dx > d.xmax - SB then posx = 0 end
 	if d.dy > d.ymax - SB then posy = 0 end
 	local ox, oy = pair(own(e, "CHILDOFFSET"))
-	local place = yes(attr(e, "CANVASBOX")) and L.set or L.place
-	place(c, st.x + (ox or 0) - posx, st.y + (oy or 0) - posy, w, h)
+	L.place(c, st.x + (ox or 0) - posx, st.y + (oy or 0) - posy, w, h)
 end
 
 local function native_event(e, st, ev, rt)
