@@ -538,8 +538,10 @@ local function setValue(el, st, value, handle)
 			if own(c, "NAME") == value or attr(c, "NAME") == value or Element.named[value] == c then child = c; break end
 		end
 	end
+	-- iFlatTabsSetValueHandleAttrib -> iFlatTabsSetCurrentTab: a programmatic switch calls
+	-- no TABCHANGE_CB (only a click or a key does, in iFlatTabsButton_CB / KeyPress)
 	if child and Element.childPos(el, child) >= 0 and visibleAt(el, Element.childPos(el, child)) then
-		setCurrent(el, child, true)
+		setCurrent(el, child, false)
 	end
 	if child then
 		st.handles.VALUE_HANDLE = child
@@ -550,7 +552,7 @@ end
 local function setValuePos(el, st, value)
 	local pos = tonumber(value)
 	local child = pos and st.children[pos + 1]
-	if child and visibleAt(el, pos) then setCurrent(el, child, true) end
+	if child and visibleAt(el, pos) then setCurrent(el, child, false) end -- as VALUE: no callback
 	return false
 end
 local function classGetValue(el)

@@ -144,3 +144,31 @@ describe("imgui flattabs", function()
 		assert.are.equal("1", iup.GetAttribute(tabs, "VALUEPOS"))
 	end)
 end)
+
+describe("imgui flattabs: TABCHANGE_CB", function()
+	-- iFlatTabsSetValueHandleAttrib / SetValuePosAttrib -> iFlatTabsSetCurrentTab calls no
+	-- callback; only a click or a key on the strip does. The host fired TABCHANGE_CB on a
+	-- programmatic switch too (ui_probe: the media banner's VALUEPOS switch).
+	it("fires on a click and not on VALUE, VALUEPOS or VALUE_HANDLE", function()
+		setup()
+		local a, b, c = iup.user{ NAME = "pa" }, iup.user{ NAME = "pb" }, iup.user{}
+		local tabs = iup.flattabs{ a, b, c, TABTITLE0 = "One", TABTITLE1 = "Two", TABTITLE2 = "Three" }
+		local cls, st = layout(tabs)
+		local changes = 0
+		tabs.tabchange_cb = function() changes = changes + 1 end
+		iup.SetAttribute(tabs, "VALUEPOS", "1")
+		iup.SetAttribute(tabs, "VALUE", "pa")
+		iup.SetAttribute(tabs, "VALUE_HANDLE", c)
+		assert.equal(0, changes)
+		assert.equal("2", iup.GetAttribute(tabs, "VALUEPOS"))
+		local x
+		for at = 0, st.w - 1 do
+			if iup.ConvertXYToPos(tabs, at, 8) == 0 then x = at; break end
+		end
+		local rt = { redraw = function() end }
+		cls.event(tabs, st, { type = "press", button = 1, x = x, y = 8 }, rt)
+		cls.event(tabs, st, { type = "release", button = 1, x = x, y = 8 }, rt)
+		assert.equal(1, changes)
+		assert.equal("0", iup.GetAttribute(tabs, "VALUEPOS"))
+	end)
+end)
