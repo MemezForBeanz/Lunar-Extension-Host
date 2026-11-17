@@ -369,6 +369,12 @@ local function dump_tree(dlg, path)
 end
 
 local fixtures = dofile((LUNAR_SOURCE_DIR or ".") .. "/scripts/ui_fixtures.lua")
+-- Every shot of the main window is also checked for scroll problems (scripts/ui_scroll_audit.lua):
+-- a report lands next to the shots, and SCROLL-AUDIT-FAILED.txt when anything fails.
+local audit = IMGUI and not os.getenv("LUNAR_CAPTURE_NO_AUDIT")
+	and dofile((LUNAR_SOURCE_DIR or ".") .. "/scripts/ui_scroll_audit.lua").new(iup) or nil
+-- scripts/ui_audit.lua: more window sizes to walk every page at after the first.
+local more_sizes = rawget(_G, "LUNAR_AUDIT_SIZES")
 
 local real_mainloop = iup.MainLoop
 iup.MainLoop = function()
@@ -390,6 +396,7 @@ iup.MainLoop = function()
 		local function snap_window(window, name)
 			save_bmp(window_of(window),
 				string.format("%s/%s-%s.bmp", out_dir, prefix, name), false)
+			if audit and window == dlg then audit:check(dlg, prefix .. "-" .. name) end
 		end
 		local function snap_overlays(name)
 			if not IMGUI then return end
@@ -422,6 +429,7 @@ iup.MainLoop = function()
 			if pages_now[4] then shell.panes:move(pages_now[4], "bottom") end
 		elseif scene == 5 then -- one tick later: pages recentre after the panes settle
 			snap("91-split")
+			if audit then audit:check(dlg, prefix .. "-91-split") end
 		elseif scene == 6 then
 			-- Exercise the actual overflow renderer, rather than the menu search palette.
 			if IMGUI then
@@ -603,6 +611,23 @@ iup.MainLoop = function()
 		return true
 	end
 
+	local first_prefix = nil -- set while a walk at another size runs
+	-- "WxH": a restored window of that size at the top left; anything else leaves it as it is.
+	local function resize(spec)
+		local width, height = tostring(spec or ""):match("^(%d+)x(%d+)$")
+		if not width then return end
+		if IMGUI then
+			local B = require("core.imgui.Runtime").backend()
+			B.window("restore")
+			B.window("pos", 0, 0)
+			B.window("size", tonumber(width), tonumber(height))
+		else
+			local hwnd = window_of(dlg)
+			user32.ShowWindow(hwnd, 9) -- SW_RESTORE
+			user32.MoveWindow(hwnd, 0, 0, tonumber(width), tonumber(height), 1)
+		end
+	end
+
 	local t = iup.timer({ time = 900 })
 	local step
 	function t:action_cb()
@@ -637,20 +662,7 @@ iup.MainLoop = function()
 				for _, page in ipairs(pages) do if tools[page.title] then selected[#selected + 1] = page end end
 				pages = selected
 			end
-			local width, height = (os.getenv("LUNAR_CAPTURE_SIZE") or ""):match("^(%d+)x(%d+)$")
-			if width then
-				local IupFFI = require("core.classes.IupFFI")
-				if IMGUI then
-					local B = require("core.imgui.Runtime").backend()
-					B.window("restore")
-					B.window("pos", 0, 0)
-					B.window("size", tonumber(width), tonumber(height))
-				else
-					local hwnd = window_of(dlg)
-					user32.ShowWindow(hwnd, 9) -- SW_RESTORE
-					user32.MoveWindow(hwnd, 0, 0, tonumber(width), tonumber(height), 1)
-				end
-			end
+			resize(os.getenv("LUNAR_CAPTURE_SIZE"))
 			fill_lists(dlg)
 			for _, p in ipairs(pages) do
 				for _, s in ipairs(p.path) do iup.SetAttribute(s.strip, "VALUEPOS", tostring(s.pos)) end
@@ -659,7 +671,29 @@ iup.MainLoop = function()
 		end
 		local page = pages[math.ceil(index / 2)]
 		if not page then
+			local size = more_sizes and table.remove(more_sizes, 1)
+			if size then
+				-- the same walk at the next size, before the extras split the panes; the pages
+				-- keep the state the last walk left
+				first_prefix = first_prefix or prefix
+				resize(size)
+				prefix = (size:match("^(%d+)x") or "next") .. "-" .. first_prefix
+				index = 1
+				for _, p in ipairs(pages) do p.stage, p.tool_step, p.view_step = nil, nil, nil end
+				iup.Refresh(dlg)
+				return iup.DEFAULT
+			end
+			if first_prefix then
+				-- the extras at the first size again
+				prefix, first_prefix = first_prefix, nil
+				if os.getenv("LUNAR_CAPTURE_SIZE") then resize(os.getenv("LUNAR_CAPTURE_SIZE"))
+				elseif IMGUI then require("core.imgui.Runtime").backend().window("maximize")
+				else user32.ShowWindow(window_of(dlg), 3) end -- SW_MAXIMIZE
+				iup.Refresh(dlg)
+				return iup.DEFAULT
+			end
 			if not os.getenv("LUNAR_CAPTURE_NO_EXTRAS") and extra_scene() then return iup.DEFAULT end
+			if audit then audit:finish(out_dir, prefix) end
 			self.run = "NO"
 			iup.ExitLoop()
 			return iup.CLOSE
@@ -678,6 +712,7 @@ iup.MainLoop = function()
 				local base = string.format("%s/%s-%02d-%s%s", out_dir, prefix, index / 2, slug, suffix)
 				save_bmp(window_of(dlg), base .. ".bmp", whole_window)
 				dump_tree(dlg, base .. ".tree")
+				if audit then audit:check(dlg, base:match("[^/]+$")) end
 			end
 			local fixture = fixtures.for_tab(rawget(_G, "LUNAR_DEV_SHELL") or {}, page.title)
 			page.stage = (page.stage or 0) + 1
