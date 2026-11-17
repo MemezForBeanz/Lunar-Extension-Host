@@ -41,6 +41,11 @@ function M.new(iup, opts)
     for n = 1, 2 do self.secondary[n] = Kit.button(iup, { title = "" }) end
     local overflow = Kit.button(iup, { title = "More", action = function()
         local items = {}
+        if self.configureFolded then
+            items[#items + 1] = { title = self.configOpen and "Hide configuration" or "Configure", action = function()
+                self.configOpen = not self.configOpen; self:fit(self.width)
+            end }
+        end
         for _, item in ipairs(opts.menu or {}) do items[#items + 1] = item end
         for n = (self.width < P.drawer_break and 1 or 3), #(self.secondarySpecs or {}) do items[#items + 1] = self.secondarySpecs[n] end
         local Menu = require("core.ui.ContextMenu")
@@ -123,6 +128,10 @@ function M.new(iup, opts)
         end
         self.renderedDockOpen = nil
         self.dockSummary = Kit.statusLine(iup, "idle", spec.summary or "No output yet")
+        -- A short pane ends the summary in an ellipsis (whole sentence in the tooltip),
+        -- never a word cut through.
+        iup.SetAttribute(self.dockSummary, "RASTERSIZE", L.size(1))
+        iup.SetAttribute(self.dockSummary, "TEXTELLIPSIS", "YES")
         self.dockAction = Kit.button(iup, { title = "Open error" })
         -- The toggle acts on what is shown: a dock that gave way to a short pane opens.
         self.dockToggle = Kit.button(iup, { title = "Show output", action = function() self:openDock(not self.renderedDockOpen) end })
@@ -224,7 +233,25 @@ function M.new(iup, opts)
             btn.flat_action = function() if spec and spec.action then spec.action() end; return iup.DEFAULT end
             show(btn, spec ~= nil and self.width >= P.drawer_break)
         end
-        show(overflow, #(opts.menu or {}) > 0 or #self.secondarySpecs > (self.width < P.drawer_break and 0 or 2))
+        show(overflow, self.configureFolded or #(opts.menu or {}) > 0 or #self.secondarySpecs > (self.width < P.drawer_break and 0 or 2))
+    end
+    --- Would the header's buttons leave the state line less than it needs to read? Uses
+    -- the natural widths of the last layout (ImGui host); elsewhere the header is kept.
+    function self:measure(w)
+        if not rawget(iup, "_IMGUI") then return nil end
+        local Element = package.loaded["core.imgui.Element"]
+        local st = Element and Element.state(w)
+        return st and st.nat_w
+    end
+    function self:_headerShort(width, titleWidth)
+        local gap = L.px(5)
+        local tw = self:measure(title)
+        if not tw or tw <= 0 then return false end
+        local need = math.min(tw, titleWidth) + P.state_min + gap
+        for _, btn in ipairs({ self.configure, self.secondary[1], self.secondary[2], overflow, self.primary }) do
+            if iup.GetAttribute(btn, "FLOATING") ~= "YES" then need = need + (self:measure(btn) or 0) + gap end
+        end
+        return need > width - P.padding * 2
     end
     function self:openInspector(on) self.inspectorOpen = on == true; self:fit(self.width) end
     -- What is on screen. `openDock` records what is wanted; `fit` decides what the
@@ -263,6 +290,7 @@ function M.new(iup, opts)
     function self:setDockSummary(kind, text, action)
         if not self.dockSummary then return end
         Kit.setStatus(iup, self.dockSummary, kind == "success" and "ok" or kind, text)
+        if text then iup.SetAttribute(self.dockSummary, "TIP", text) end
         -- "Open error" always shows the output, even where the dock had given way.
         self.dockAction.flat_action = function()
             self:openDock(true)
@@ -296,7 +324,15 @@ function M.new(iup, opts)
         -- One unbounded expanding child consumes all remaining space; a capped label
         -- plus an IUP fill loses space when the label hits its maximum.
         iup.SetAttribute(self.stateLine, "MAXSIZE", nil)
+        self.configureFolded = false
         show(self.configure, narrow and self.config ~= nil)
+        if narrow and self.config and self:_headerShort(width, titleWidth) then
+            -- Wide buttons (Carbon's) would leave the state line only its icon: Configure
+            -- goes under More, so the header still says what happened.
+            self.configureFolded = true
+            show(self.configure, false)
+            show(overflow, true)
+        end
         if self.configSplit then
             local visible = not narrow or self.configOpen
             show(self.config, visible)

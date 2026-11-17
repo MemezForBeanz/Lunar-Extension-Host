@@ -36,7 +36,9 @@ M.PAGE = { padding = 20, header = 56, toolbar = 40, control = 32, gutter = 16,
     drawer_break = 1000, config_break = 800, card_min = 240, columns = 12,
     -- An open dock's smallest readable height (summary line and about six output lines),
     -- and what the work above it keeps by default before the dock gives way.
-    dock_min = 144, body_min = 160 }
+    dock_min = 144, body_min = 160,
+    -- What a page header's state line keeps before Configure folds under More.
+    state_min = 120 }
 
 --- The Carbon spacing scale, in pixels, indexed by token number.
 --
