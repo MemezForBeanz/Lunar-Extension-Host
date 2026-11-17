@@ -108,7 +108,9 @@ function M.new(ctx, opts)
 	local title = iup.flatlabel({ TITLE = "", THEMEROLE = "pagetitle" })
 	local meta = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted" })
 	local overview = iup.flatlabel({ TITLE = "", THEMEROLE = "reading", TEXTWRAP = "YES", EXPAND = "HORIZONTAL",
-		ALIGNMENT = "ALEFT:ATOP", RASTERSIZE = "x44" })
+		-- A 1 px natural width: the line takes the room the hero gives it and wraps there,
+		-- instead of its unwrapped width pushing the words past the hero's right edge.
+		ALIGNMENT = "ALEFT:ATOP", RASTERSIZE = "1x44" })
 	local play = Kit.button(iup, { title = "Play", icon = "play--filled--alt", role = "primary_btn",
 		action = function() if current then opts.on_play(current) end end })
 	iup.SetAttribute(play, "RASTERSIZE", "132x40")

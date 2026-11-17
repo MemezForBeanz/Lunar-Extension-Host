@@ -20,7 +20,7 @@ function M.new(ctx, model, open)
 	end
 	function api:_afterThemePass()
 		local p = Reactor.palette()
-		local bg = p.layer03 or p.layer02 or p.bg
+		local bg = Kit.notificationFill(p)
 		if not bg then return end
 		iup.SetAttribute(line, "BGCOLOR", bg)
 		iup.SetAttribute(surface, "BGCOLOR", bg)
