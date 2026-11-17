@@ -34,18 +34,16 @@ function M.new(ctx, opts)
     -- Attention is a table with the anatomy of the Sessions and Libraries tables beside it
     -- (header row, an icon column, two-line rows, dividers where the theme's tables have
     -- them), but each repair is a real button on its issue line, so it is discoverable and
-    -- reachable by keyboard. `_afterThemePass` takes the header fill, divider colour and
-    -- header height from those tables, so all three read as one kind of table.
-    local CELL = L.px(4) -- the tables' cell inset (flatrows: 12)
-    local ICON_GAP = L.px(3) -- the tables' image-to-text gap (flatrows: 8)
+    -- reachable by keyboard. `_afterThemePass` gives the header fill and row rules the
+    -- tokens those tables use, so all three read as one kind of table.
     local attention_rows = iup.vbox({GAP = "0", EXPAND = "HORIZONTAL"})
-    -- The header labels fill the whole row (a box paints nothing), the cell inset as padding.
-    local issue_header = iup.flatlabel({TITLE = "Issue / next step", THEMEROLE = "reading_muted", EXPAND = "YES",
-        ALIGNMENT = "ALEFT:ACENTER", PADDING = CELL .. "x0"})
-    local repair_header = iup.flatlabel({TITLE = "Repair", THEMEROLE = "reading_muted", EXPAND = "VERTICAL",
-        ALIGNMENT = "ARIGHT:ACENTER", PADDING = CELL .. "x0"})
-    local attention_header = iup.hbox({issue_header, repair_header, GAP = "0", MARGIN = "0x0", EXPAND = "HORIZONTAL",
-        RASTERSIZE = L.size(nil, L.PAGE.control)})
+    -- A frame paints the header's fill in every theme (Carbon labels and boxes paint none).
+    local issue_header = iup.flatlabel({TITLE = "Issue / next step", THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL"})
+    local repair_header = iup.flatlabel({TITLE = "Repair", THEMEROLE = "reading_muted", ALIGNMENT = "ARIGHT:ACENTER"})
+    local attention_header = iup.flatframe({
+        iup.hbox({issue_header, repair_header, GAP = "0", MARGIN = L.margin(4, 0), ALIGNMENT = "ACENTER",
+            EXPAND = "HORIZONTAL", RASTERSIZE = L.size(nil, L.PAGE.control)}),
+        TITLE = "", FRAME = "NO", MARGIN = "0x0", EXPAND = "HORIZONTAL", THEMEROLE = "page_column"})
     local dividers, actions = {}, {}
     attention = {widget = iup.vbox({attention_header, attention_rows, GAP = "0", EXPAND = "HORIZONTAL"})}
     function attention:setRows(rows)
@@ -63,7 +61,7 @@ function M.new(ctx, opts)
             Kit.show(iup, action, row.action ~= nil)
             actions[#actions + 1] = action
             local next_step = iup.flatlabel({TITLE = row.secondary, THEMEROLE = "reading_muted", EXPAND = "HORIZONTAL", TEXTELLIPSIS = "YES"})
-            local divider = iup.flatlabel({TITLE = "", RASTERSIZE = L.size(nil, 1), EXPAND = "HORIZONTAL"})
+            local divider = iup.canvas({RASTERSIZE = L.size(nil, 1), EXPAND = "HORIZONTAL", BORDER = "NO", CANFOCUS = "NO"})
             dividers[#dividers + 1] = divider
             iup.Append(attention_rows, iup.vbox({
                 iup.hbox({icon, issue, action, GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL"}),
@@ -184,7 +182,7 @@ function M.new(ctx, opts)
 		for _, divider in ipairs(dividers) do iup.SetAttribute(divider, "BGCOLOR", rule) end
 		-- "Repair" sits over its buttons' labels, not over their padding.
 		local pad = actions[1] and tostring(iup.GetAttribute(actions[1], "PADDING") or ""):match("^(%d+)")
-		set(repair_header, "PADDING", pad and ((CELL + tonumber(pad)) .. "x0"))
+		set(repair_header, "PADDING", pad and (pad .. "x0"))
 		-- View is an action in the caption's own type, not a smaller caption beside it.
 		for _, jump in ipairs(jumps) do
 			set(jump.link, "FONT", iup.GetAttribute(jump.caption, "FONT"))
