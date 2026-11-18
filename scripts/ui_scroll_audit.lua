@@ -171,10 +171,10 @@ local function check_scroll(self, shot, el)
 	if native then
 		-- the text's last line is on screen
 		local first = tonumber(E.getAttribute(child, "FIRSTVISIBLELINE")) or 1
-		local shown = require("core.imgui.widgets.text").mlVisibleLines(child, cs)
-		if first + math.max(1, shown) - 1 < lines then
+		local shown_lines = require("core.imgui.widgets.text").mlVisibleLines(child, cs)
+		if first + math.max(1, shown_lines) - 1 < lines then
 			add(self, shot, "end-unreachable", string.format("%s at %s scrolled to %s: its text shows lines %d..%d of %d",
-				name_of(self, el), rect(st), tostring(d.posy), first, first + shown - 1, lines))
+				name_of(self, el), rect(st), tostring(d.posy), first, first + shown_lines - 1, lines))
 		end
 	elseif last then
 		local ls = E.state(last)

@@ -247,7 +247,7 @@ local steps = {}
 local function step(wait, fn) steps[#steps + 1] = { wait = wait, fn = fn } end
 
 step(1, function()
-	shell = LUNAR_DEV_SHELL
+	shell = rawget(_G, "LUNAR_DEV_SHELL")
 	dlg = iup.GetDialog(shell.groups():rootStrip())
 	main_hwnd = hwnd_of(dlg)
 	if IMGUI then local B = require("core.imgui.Runtime").backend(); B.window("restore"); B.window("size", 1384, 892)
@@ -268,7 +268,7 @@ step(6, function()
 	say("strip rect", x, y, w, h)
 	state("start")
 	-- where each tab is: IupConvertXYToPos along the tab band
-	local probe = {}
+	probe = {}
 	for px = 0, math.min(w - 1, 900), 30 do probe[#probe + 1] = px .. ":" .. tostring(iup.ConvertXYToPos(strip, px, 14)) end
 	say("xy2pos", table.concat(probe, " "))
 	S.strip_x, S.strip_y, S.strip_w = x, y, w
@@ -491,13 +491,13 @@ end)
 for i = 1, 6 do step(1, function() mouse("move", S.sash[1] - 20 * i, S.sash[2], true) end) end
 step(1, function() mouse("up", S.sash[1] - 120, S.sash[2]) end)
 step(6, function()
-	local mx, my, mw = rect(shell.panes:strip("main"))
+	local mx, _, mw = rect(shell.panes:strip("main"))
 	say("12 after sash drag -120: grid VALUE", iup.GetAttribute(S.split, "VALUE"), "main w", mw)
 	local x = mx + mw + 3
 	mouse("move", x, S.sash[2]); mouse("down", x, S.sash[2]); mouse("up", x, S.sash[2]); mouse("dbl", x, S.sash[2]); mouse("up", x, S.sash[2])
 end)
 step(6, function()
-	local mx, my, mw = rect(shell.panes:strip("main"))
+	local _, _, mw = rect(shell.panes:strip("main"))
 	say("12 after sash double-click: grid VALUE", iup.GetAttribute(S.split, "VALUE"), "main w", mw)
 	-- 13. pane focus and restore
 	local ok = shell.panes:toggleFocus()

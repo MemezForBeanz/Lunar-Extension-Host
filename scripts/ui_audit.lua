@@ -7,7 +7,8 @@
 -- The report is <out_dir>/<prefix>-scroll-audit.txt; any failure also writes
 -- <out_dir>/SCROLL-AUDIT-FAILED.txt and a scroll-audit-FAILED.log the capture tool prints.
 -- Narrow shots are named 1100-<prefix>-NN-<tab>.
-LUNAR_AUDIT_SIZES = { os.getenv("LUNAR_AUDIT_NARROW") or "1100x800" }
+-- ui_capture.lua reads this with rawget(_G, "LUNAR_AUDIT_SIZES").
+rawset(_G, "LUNAR_AUDIT_SIZES", { os.getenv("LUNAR_AUDIT_NARROW") or "1100x800" })
 local here = debug.getinfo(1, "S").source:gsub("^@", ""):gsub("\\", "/")
 local dir = here:match("^(.*)/[^/]+$") or "."
 dofile(dir .. "/ui_capture.lua")

@@ -20,7 +20,7 @@ require("core.imgui.Element").hooks.error = function(el, name, err)
 end
 
 local real_mainloop = iup.MainLoop
-iup.MainLoop = function()
+iup.MainLoop = function() -- luacheck: ignore 122 (wraps the loop to take the shot)
 	local B = Runtime.backend()
 	if width and height then
 		B.window("restore")

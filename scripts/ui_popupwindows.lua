@@ -75,8 +75,6 @@ u.SendMessageW(ptr(B.window("hwnd")),0x1c,0,0);R.frame();assert(not vstate.overl
 say("owner deactivation dismissed menu")
 iup.Show(d);R.frame()
 local ts=E.state(tip)
-local h=ptr(B.window("popup_hwnd",ds.data.win))
-local l=bit.bor(ts.x+5,bit.lshift(ts.y+5,16))
 -- A private desktop has no physical pointer; feed the native adapter a stationary hover.
 local begin=B.frame_begin
 B.frame_begin=function()

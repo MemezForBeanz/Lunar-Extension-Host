@@ -16,7 +16,6 @@ local function say(...) out:write(string.format(...), "\n"); out:flush() end
 local Runtime = require("core.imgui.Runtime")
 local Element = require("core.imgui.Element")
 local Layout = require("core.imgui.Layout")
-local clock = os.clock
 local ffi = require("ffi")
 ffi.cdef[[ int QueryPerformanceCounter(int64_t*); int QueryPerformanceFrequency(int64_t*);
 typedef struct { uint32_t cb, PageFaultCount; size_t PeakWorkingSetSize, WorkingSetSize, QuotaPeakPagedPoolUsage,
@@ -33,7 +32,6 @@ local qpc = ffi.new("int64_t[1]")
 local freq = ffi.new("int64_t[1]"); ffi.C.QueryPerformanceFrequency(freq)
 local hz = tonumber(freq[0])
 local function now() ffi.C.QueryPerformanceCounter(qpc); return tonumber(qpc[0]) / hz end
-_ = clock
 
 local function count(el)
 	local st = Element.state(el)

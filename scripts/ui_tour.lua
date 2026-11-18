@@ -568,7 +568,7 @@ iup.MainLoop = function()
 			end
 			if phase == "menus" then
 				if not menus then
-					local host = rawget(_G, "LUNAR_DEV_SHELL") and LUNAR_DEV_SHELL.host
+					local dev_shell = rawget(_G, "LUNAR_DEV_SHELL"); local host = dev_shell and dev_shell.host
 					menus = {}
 					for _, m in ipairs({ host and host.file_menu, host and host.help_menu, host and host.ext_menu }) do
 						menu_items(menus, m, "")
@@ -609,7 +609,7 @@ iup.MainLoop = function()
 			if phase == "commands" then
 				-- Every command the palette offers (Lunar's own and the extensions').
 				if not menus then
-					local reg = rawget(_G, "LUNAR_DEV_SHELL") and LUNAR_DEV_SHELL.palette and LUNAR_DEV_SHELL.palette._registry
+					local dev_shell = rawget(_G, "LUNAR_DEV_SHELL"); local reg = dev_shell and dev_shell.palette and dev_shell.palette._registry
 					menus = {}
 					-- what the palette lists for an empty query: commands and providers' items
 					local list = reg and select(1, reg:query("")) or {}

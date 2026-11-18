@@ -200,7 +200,6 @@ local LIVE = os.getenv("LUNAR_PROBE_LIVE") == "1"
 local DIALOGSHOT = os.getenv("LUNAR_PROBE_DIALOGSHOT")
 local shot_n = 0
 local function dialog_shot(d)
-	local ffi = require("ffi")
 	local function decl(s) pcall(ffi.cdef, s) end
 	decl("typedef struct { long left, top, right, bottom; } PS_RECT;")
 	decl([[typedef struct { uint32_t biSize; long biWidth, biHeight; uint16_t biPlanes, biBitCount;
@@ -210,7 +209,7 @@ local function dialog_shot(d)
 	decl("void* CreateCompatibleDC(void*);") decl("void* CreateCompatibleBitmap(void*, int, int);")
 	decl("void* SelectObject(void*, void*);") decl("int GetDIBits(void*, void*, unsigned, unsigned, void*, PS_BMIH*, unsigned);")
 	decl("int DeleteObject(void*);") decl("int DeleteDC(void*);")
-	local user32, gdi32 = ffi.load("user32"), ffi.load("gdi32")
+	local gdi32 = ffi.load("gdi32")
 	local v = tonumber(iup.GetAttribute(d, "HWND")) or 0
 	if v == 0 then return end
 	local h = ffi.cast("void*", ffi.cast("uintptr_t", v))
@@ -535,8 +534,8 @@ iup.MainLoop = function()
 							-- "NTHEME:FOCUSFEEDBACK": an attribute of the handle the element names
 							ok, v = pcall(function()
 								local name = iup.GetAttribute(e.h, via)
-								local h = name and iup.GetHandle(name)
-								return h and iup.GetAttribute(h, inner)
+								local named = name and iup.GetHandle(name)
+								return named and iup.GetAttribute(named, inner)
 							end)
 						else
 							ok, v = pcall(iup.GetAttribute, e.h, k)

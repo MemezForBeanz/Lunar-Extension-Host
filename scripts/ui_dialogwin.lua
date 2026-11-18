@@ -116,13 +116,13 @@ local function report_window()
 	out:write(string.format("window %dx%d client %dx%d client at %d,%d in the window\n", ww, wh, cw, ch, cx, cy))
 	out:write(string.format("client origin against main client %d,%d\n", o.x - mo.x, o.y - mo.y))
 	-- ink in the client: dark pixels (the label and button text)
-	local dark, bg = 0, nil
+	local dark = 0
 	for y = cy, cy + ch - 1 do for x = cx, cx + cw - 1 do
 		local i = (y * ww + x) * 4
 		if px[i] + px[i + 1] + px[i + 2] < 3 * 100 then dark = dark + 1 end
 	end end
 	local i = ((cy + ch - 5) * ww + cx + cw - 5) * 4
-	bg = string.format("%d %d %d", px[i + 2], px[i + 1], px[i])
+	local bg = string.format("%d %d %d", px[i + 2], px[i + 1], px[i])
 	out:write(string.format("client background %s dark pixels %d\n", bg, dark))
 	out:write(string.format("main enabled %d\n", user32.IsWindowEnabled(m)))
 end

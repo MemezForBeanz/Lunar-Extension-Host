@@ -14,7 +14,7 @@ package.loaded["core.imgui.Draw"]=nil
 package.loaded["core.imgui.Runtime"]=nil
 require("core.imgui.Runtime").init(require("core.imgui.backend.Native"))
 local exit=os.exit
-os.exit=function(code)
+os.exit=function(code) -- luacheck: ignore 122 (records the stats, then exits)
     local stats=require("core.ui.Glass").stats()
     local f=assert(io.open(arg[1].."/glass.txt","w"))
     f:write(string.format("texture bytes: %d; generations: %d\n",stats.bytes,stats.generations)); f:close()

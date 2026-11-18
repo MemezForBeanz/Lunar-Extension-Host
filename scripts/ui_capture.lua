@@ -316,7 +316,7 @@ local function dump_tree(dlg, path)
 	local f = io.open(path, "w")
 	if not f then return end
 	local pt = ffi.new("CAP_RECT")
-	local ox, oy = 0, 0
+	local ox, oy
 	if IMGUI then
 		local Runtime = require("core.imgui.Runtime")
 		local x, y = Runtime.backend().window("client_origin")
@@ -386,7 +386,7 @@ iup.MainLoop = function()
 		local shell = rawget(_G, "LUNAR_DEV_SHELL")
 		if not shell then return false end
 		scene = scene + 1
-		local IupFFI = require("core.classes.IupFFI")
+		require("core.classes.IupFFI")
 		local function snap(name)
 			save_bmp(window_of(dlg),
 				string.format("%s/%s-%s.bmp", out_dir, prefix, name), whole_window)
@@ -721,7 +721,7 @@ iup.MainLoop = function()
 			iup.Refresh(dlg)
 		else
 			local slug = page.title:lower():gsub("[^%w]+", "-")
-			local IupFFI = require("core.classes.IupFFI")
+			require("core.classes.IupFFI")
 			local function shoot(suffix)
 				local base = string.format("%s/%s-%02d-%s%s", out_dir, prefix, index / 2, slug, suffix)
 				save_bmp(window_of(dlg), base .. ".bmp", whole_window)
@@ -742,10 +742,10 @@ iup.MainLoop = function()
 			if tool then
 				page.tool_step = (page.tool_step or 0) + 1
 				local phase = (page.tool_step - 1) % 3
-				local state = ({ "working", "failed" })[math.floor((page.tool_step - 1) / 3) + 1]
-				if state then
-					if phase == 0 then fixtures.tool_state(tool, state); iup.Refresh(dlg)
-					elseif phase == 2 then fixtures.tool_state(tool, state); shoot("-" .. state) end
+				local tool_state = ({ "working", "failed" })[math.floor((page.tool_step - 1) / 3) + 1]
+				if tool_state then
+					if phase == 0 then fixtures.tool_state(tool, tool_state); iup.Refresh(dlg)
+					elseif phase == 2 then fixtures.tool_state(tool, tool_state); shoot("-" .. tool_state) end
 					return iup.DEFAULT
 				end
 			end

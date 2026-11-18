@@ -54,6 +54,7 @@ local user32, gdi32 = ffi.load("user32"), ffi.load("gdi32")
 
 local rect, target, bar_rect, ml_report
 local dlg, main_hwnd
+local ml, ml2
 local function hwnd_of(h)
 	if IMGUI then return ffi.cast("void*", ffi.cast("uintptr_t", tonumber(require("core.imgui.Runtime").backend().window("hwnd")))) end
 	local IupFFI = require("core.classes.IupFFI")
@@ -304,9 +305,9 @@ local seq = {
 	-- a multiline: the EDIT's own bars and scrolling
 	function() iup.SetAttribute(a, "RASTERSIZE", "260x300"); iup.Refresh(dlg) end,
 	function() ml_report("ml-start"); say("ml2", "vbar", bar_info(ml2, true), "hbar", bar_info(ml2, false)) end,
-	function() local x, y, w, h = rect(ml); mouse("move", x + 50, y + 40); mouse("wheel", x + 50, y + 40) end,
+	function() local x, y = rect(ml); mouse("move", x + 50, y + 40); mouse("wheel", x + 50, y + 40) end,
 	function() ml_report("ml-wheel1") end,
-	function() local x, y, w, h = rect(ml); local i = bar_rect(ml, true); local hw = hwnd_of(ml)
+	function() local i = bar_rect(ml, true); local hw = hwnd_of(ml)
 		mouse("down", i.x + 8, i.y + i.h - 8, 7, hw); mouse("up", i.x + 8, i.y + i.h - 8, 7, hw) end,
 	function() ml_report("ml-linedown") end,
 	function() local i = bar_rect(ml, true); local hw = hwnd_of(ml)

@@ -186,8 +186,8 @@ function M.time_clock(page)
 	page.show({ employee = "Alex Morgan", available = { "meal_start", "clock_out" },
 		response = "Clock In confirmed at 08:00. Next action: Meal Start.",
 		history = { "2026-11-16 08:00  Clock In confirmed", "2026-11-13 17:02  Clock Out confirmed" } })
-	local tool = rawget(_G, "LUNAR_DEV_SHELL").toolPages["Time Clock"]
-	if tool then tool:setDockSummary("success", "Clock In confirmed at 08:00") end
+	local time_clock = rawget(_G, "LUNAR_DEV_SHELL").toolPages["Time Clock"]
+	if time_clock then time_clock:setDockSummary("success", "Clock In confirmed at 08:00") end
 end
 
 local OUTPUT = {
