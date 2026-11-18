@@ -127,6 +127,7 @@ local function align_dx(e, line_w, width)
 	if a == "ACENTER" then return math.floor((width - line_w) / 2) end
 	return 0
 end
+local scroll_y_of -- defined below, with the multiline's other scroll helpers
 -- EDIT_CharFromPos: the character boundary nearest to the point.
 local function pos_from_point(e, st, lx, ly)
 	local text = st.data.text or ""
@@ -182,7 +183,7 @@ end
 -- (Wine's EDIT_EM_LineScroll: never past line_count - visible lines).
 -- The multiline's vertical scroll is st.data.top_line (0-based first visible line), shared
 -- with the EDIT view below (M.mlVisibleLines is its format rect in whole lines).
-local function scroll_y_of(e, st)
+function scroll_y_of(e, st)
 	if not is_multiline(e, st) then return 0 end
 	local _, ch = Fonts.forElement(e):charsize()
 	return (st.data.top_line or 0) * ch

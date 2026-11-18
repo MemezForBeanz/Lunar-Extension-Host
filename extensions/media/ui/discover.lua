@@ -17,11 +17,12 @@ function M.new(ctx,opts)
  end
  local activities={}
  local capture_connected
+ local status -- the page's state line, set below
  local function selection()
   if page then page:openInspector(selected~=nil); Kit.show(iup,add_menu,selected~=nil,status) end
  end
  local query=FlatField.new(iup,{cue='Search titles, or paste a video webpage URL'})
- local status=Kit.statusLine(iup,'info','Choose a source to browse its catalog.')
+ status=Kit.statusLine(iup,'info','Choose a source to browse its catalog.')
  local description=iup.flatlabel({TITLE='',THEMEROLE='reading_muted',TEXTWRAP='YES',EXPAND='HORIZONTAL',RASTERSIZE='x38'})
  Kit.show(iup,description,false)
  local download_info=iup.flatlabel({TITLE='',THEMEROLE='reading_muted',TEXTWRAP='YES',EXPAND='HORIZONTAL'})

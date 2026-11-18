@@ -186,7 +186,7 @@ local function event(e, st, ev, rt)
 		local next = (k == iup.K_UP and cur - 1) or (k == iup.K_DOWN and cur + 1) or (k == iup.K_HOME and 1) or (k == iup.K_END and n) or (k == iup.K_PGUP and cur - math.max(1, math.floor(st.data.dy / rh))) or (k == iup.K_PGDN and cur + math.max(1, math.floor(st.data.dy / rh)))
 		if next then choose(e, st, math.max(1, math.min(n, next)), ev); scroll_to_focus(e, st, rh, st.h); rt.redraw(e); return true end
 	elseif ev.type == "char" and ev.char and ev.char ~= "" then
-		local c = ev.char:lower()
+		local c, n = ev.char:lower(), count(e)
 		for i = (st.data.focus or 0) + 1, n do if tostring(own(e, tostring(i)) or ""):sub(1, 1):lower() == c then choose(e, st, i, ev); scroll_to_focus(e, st, rh, st.h); return true end end
 	end
 	return false
