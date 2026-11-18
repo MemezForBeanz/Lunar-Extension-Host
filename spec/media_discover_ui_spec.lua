@@ -13,13 +13,13 @@ describe("source download controls", function()
                 show = function(_, w, on) w.attrs.VISIBLE=on and 'YES' or 'NO' end,
                 disclosure = function(_, spec) buttons[spec.title]=spec.on_change;return widget() end,
                 page = function(_, spec)
-                    local page={opts=spec,stateLine=widget(),toolbar=widget(),config=widget()}
-                    function page:widget() return widget() end
-                    function page:openInspector(on) self.inspectorOpen=on end
-                    function page:setState() end
-                    function page:fit() end
-                    function page:setSecondary() end
-                    return page
+                    local kit_page={opts=spec,stateLine=widget(),toolbar=widget(),config=widget()}
+                    function kit_page:widget() return widget() end
+                    function kit_page:openInspector(on) self.inspectorOpen=on end
+                    function kit_page:setState() end
+                    function kit_page:fit() end
+                    function kit_page:setSecondary() end
+                    return kit_page
                 end,
 				setStatus = function() end,
 				button = function(_, spec) buttons[spec.title] = spec.action; return widget() end,

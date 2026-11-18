@@ -24,16 +24,6 @@ local function key(code, mods)
 	for m, v in pairs(mods or {}) do k[m] = v end
 	B.queue({ keys = { k } }); R.frame()
 end
-local function fills(color)
-	local n = 0
-	for _, c in ipairs(B.lastFrame()) do
-		if c[1] == "rect_filled" then
-			local col = c[6]
-			if type(col) == "string" and col == color then n = n + 1 end
-		end
-	end
-	return n
-end
 
 describe("iup.list DROPDOWN=YES on the ImGui host", function()
 	before_each(boot)

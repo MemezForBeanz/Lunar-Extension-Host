@@ -43,10 +43,10 @@ describe("imgui flattoggle", function()
 		assert.are.same({ 1, -1, 0 }, actions); assert.are.equal(3, changes)
 	end)
 	it("draws the switch track and knob", function()
-		local b, dc = Null.new(), nil
+		local b = Null.new()
 		local t = iup.flattoggle{SWITCH="YES", VALUE="ON", SWITCHPOS="50", SWITCHONCOLOR="1 2 3", SWITCHKNOBCOLOR="4 5 6"}
 		local s,c=Element.state(t),Classes.get("flattoggle"); s.x,s.y,s.w,s.h=0,0,60,24
-		dc=Draw.new(b); dc:begin(100,100); c.draw(t,s,dc,{})
+		local dc=Draw.new(b); dc:begin(100,100); c.draw(t,s,dc,{})
 		assert.is_true(#b.frame_calls >= 2)
 	end)
 	it("blends switch colors when inactive", function()

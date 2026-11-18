@@ -108,7 +108,7 @@ describe("imgui font measurement cache", function()
 	end)
 
 	it("evicts old entries within both configured bounds", function()
-		local b = backend()
+		backend()
 		local font = Fonts.get("Segoe UI, 9")
 		for i = 1, 300 do font:measure("entry-" .. i) end
 

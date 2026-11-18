@@ -35,24 +35,6 @@ local function flat_field_fallback()
 	}
 end
 
-local function fake_db()
-	local db = {}
-	local function stmt()
-		return {
-			reset = no_op, bind = no_op, finalize = no_op,
-			step = function() return false end,
-		}
-	end
-	function db:migrate(version, fn) return fn(self, 0), self end
-	function db:exec() return true end
-	function db:prepare() return stmt() end
-	function db:transaction(fn) return fn(self) end
-	function db:rows() return function() return nil end end
-	function db:query() return function() return nil end end
-	function db:close() end
-	return db
-end
-
 local function append_menu_item(menu, title)
 	local item = iup.item{ TITLE = title }
 	iup.Append(menu, item)

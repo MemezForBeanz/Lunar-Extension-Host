@@ -6,7 +6,10 @@ local ui = require("core.lui")
 local P = require("core.lui.props")
 
 local iup, Element
-before_each(function() iup, _, _, Element = T.boot({}) end)
+before_each(function()
+	local i, _, _, e = T.boot({})
+	iup, Element = i, e
+end)
 
 local function make(el)
 	local errs = {}

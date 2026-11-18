@@ -12,8 +12,11 @@ local function host(opts)
 end
 
 describe("imgui element attributes", function()
-	local iup, _, _, Element
-	before_each(function() iup, _, _, Element = host() end)
+	local iup, Element
+	before_each(function()
+		local i, _, _, e = host()
+		iup, Element = i, e
+	end)
 
 	it("stores attributes from the constructor, fields and SetAttribute alike", function()
 		local b = iup.flatbutton({ TITLE = "a" })
@@ -26,7 +29,7 @@ describe("imgui element attributes", function()
 
 	describe("imgui runtime hit testing", function()
 		it("resolves a visible control from window coordinates", function()
-			local iup, Runtime, _, Element = host({ w = 320, h = 200 })
+			local _, Runtime = host({ w = 320, h = 200 })
 			local button = iup.flatbutton({ TITLE = "Hit me", RASTERSIZE = "100x30" })
 			local dialog = iup.dialog({ button, RASTERSIZE = "320x200" })
 			iup.Show(dialog)
@@ -332,8 +335,7 @@ describe("imgui runtime", function()
 	end)
 
 	it("logs a failing callback and keeps the loop alive", function()
-		local warned
-		R.warn = function(m) warned = m end
+		R.warn = function() end
 		local btn = iup.flatbutton({ RASTERSIZE = "40x20", flat_action = function() error("boom") end })
 		iup.Show(dialog_with(iup.vbox({ btn })))
 		R.frame()
@@ -384,7 +386,7 @@ end)
 
 describe("imgui draw context", function()
 	it("records and replays calls with an offset and alpha", function()
-		local _, R, B = host()
+		local _, _, B = host()
 		local Draw = require("core.imgui.Draw")
 		local dc = Draw.new(B)
 		dc:begin(100, 100)
@@ -426,7 +428,7 @@ end)
 
 describe("imgui fonts", function()
 	it("finds a font an extension registers by its family and full names", function()
-		local _, R, B = host()
+		local _, _, B = host()
 		local Fonts = require("core.imgui.Fonts")
 		B.font_name_tables["C:/pack/HPE Graphik-Medium.otf"] = { [1] = "HPE Graphik Medium", [2] = "Regular", [4] = "HPE Graphik Medium" }
 		B.font_name_tables["C:/pack/Plex-Bold.otf"] = { [1] = "IBM Plex Sans", [2] = "Bold", [4] = "IBM Plex Sans Bold" }

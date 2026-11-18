@@ -13,10 +13,10 @@ describe("imgui basic controls", function()
 		rt={redraw=function() end,capture=function() end,release=function() end,setFocus=function() end,now=function() return 0 end,animate=function() end,overlay=function(o) return {close=function() end} end}
 	end)
 	it("draws a label and respects separator orientation", function()
-		local b,dc=Null.new(),nil
+		local b=Null.new()
 		local l=iup.label{TITLE="hello",FGCOLOR="1 2 3"}
 		local s,c=Element.state(l),Classes.get("label"); s.x,s.y,s.w,s.h=0,0,50,20
-		dc=Draw.new(b);dc:begin(100,100);c.draw(l,s,dc,rt)
+		local dc=Draw.new(b);dc:begin(100,100);c.draw(l,s,dc,rt)
 		assert.are.equal("hello",b.frame_calls[3][7])
 		local sep=iup.label{SEPARATOR="VERTICAL"}; local ss,sc=Element.state(sep),c;ss.x,ss.y,ss.w,ss.h=0,0,2,20;sc.draw(sep,ss,dc,rt)
 		assert.is_true(#b.frame_calls>1)
@@ -31,7 +31,7 @@ describe("imgui basic controls", function()
 	end)
 	it("maps gauge to progressbar and animates marquee", function()
 		local p=iup.gauge{VALUE="0.5",MARQUEE="YES"};local s,c=Element.state(p),Classes.get("progressbar");s.x,s.y,s.w,s.h=0,0,100,8
-		local b,dc=Null.new(),nil;dc=Draw.new(b);dc:begin(100,100);c.draw(p,s,dc,rt)
+		local b=Null.new();local dc=Draw.new(b);dc:begin(100,100);c.draw(p,s,dc,rt)
 		assert.is_true(#b.frame_calls>0)
 	end)
 end)

@@ -32,7 +32,7 @@ local function host()
 	local tabs = iup.flattabs{}
 	local ext_menu, file_menu, help_menu = iup.menu{}, iup.menu{}, iup.menu{}
 	local status_box = iup.hbox{}
-	local host = HostAPI:new({
+	local api = HostAPI:new({
 		iup = iup, mode = "gui", app = { title = "test", version = "1", dir = "." },
 		settings = { get = function() end, set = function() end, save = function() end },
 		tabs = tabs, ext_menu = ext_menu, file_menu = file_menu, help_menu = help_menu,
@@ -40,7 +40,7 @@ local function host()
 		notify = function() end,
 		subprocess = { terminate = function() end, destroy = function() end },
 	})
-	return host, tabs, ext_menu, file_menu, help_menu
+	return api, tabs, ext_menu, file_menu, help_menu
 end
 
 local function fake_process(chunks, hold_open)

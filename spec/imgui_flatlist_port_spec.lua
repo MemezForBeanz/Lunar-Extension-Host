@@ -81,7 +81,7 @@ describe("imgui flatlist port (iup_flatlist.c)", function()
 		assert.are.equal("34", iup.GetAttribute(list, "LINEY"))
 		-- SPACING adds between rows, and to LINEY
 		iup.SetAttribute(list, "SPACING", "3")
-		st = placed(list, 100, 100)
+		placed(list, 100, 100)
 		assert.are.equal("37", iup.GetAttribute(list, "LINEY"))
 		-- FOCUSFEEDBACK (the default) and CANFOCUS leave 2 px around each item for the focus rect
 		iup.SetAttribute(list, "FOCUSFEEDBACK", "YES")

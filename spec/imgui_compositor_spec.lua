@@ -9,7 +9,7 @@ local Compositor = require("core.lib.Compositor")
 local Scrim = require("core.ui.Scrim")
 
 describe("ImGui compositor", function()
-	local B, dc, dialog, canvas, overlay
+	local B, dialog, canvas, overlay
 
 	before_each(function()
 		B = Null.new({ w = 320, h = 200 })
@@ -24,7 +24,7 @@ describe("ImGui compositor", function()
 		local cs = Element.state(canvas)
 		ds.w, ds.h, ds.data.layout_dirty = 320, 200, false
 		cs.x, cs.y, cs.w, cs.h, cs.mapped = 10, 12, 40, 20, true
-		dc = Runtime.dc()
+		Runtime.dc()
 		overlay = assert(compositor.overlay(dialog))
 	end)
 

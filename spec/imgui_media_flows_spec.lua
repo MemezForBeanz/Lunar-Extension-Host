@@ -63,7 +63,7 @@ describe("media 1.6.2 flows on the ImGui host", function()
 			exercise = function(ctx)
 				ctx.iup.SetAttribute(ctx.tabs, "VALUEPOS", "2")
 				for _ = 1, 3 do ctx.runtime.frame() end
-				local page = tab(ctx, "Now playing")
+				tab(ctx, "Now playing")
 				assert.is_true(ctx.visible(ctx.extension.now_playing.widget))
 				assert.is_true(title(ctx, "The Salt Line") ~= nil)
 				assert.is_true(title(ctx, "Paused") ~= nil)

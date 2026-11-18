@@ -82,7 +82,7 @@ describe("imgui parity: inheritable attributes reach the class setters below", f
 	-- by Adaptive.setSecondPane while the output pane is closed) shows on the IUP build at
 	-- 64,837 1304x7 and stayed hidden on the host.
 	it("lets a page's VISIBLE reach the split's setter, which clears the bar's own VISIBLE", function()
-		local iup, R, B, Element = host()
+		local iup, R, _, Element = host()
 		local split = iup.split({ iup.label({ TITLE = "a" }), iup.label({ TITLE = "b" }) })
 		local page = iup.vbox({ split })
 		local d = iup.dialog({ page, RASTERSIZE = "300x200" })
@@ -96,7 +96,7 @@ describe("imgui parity: inheritable attributes reach the class setters below", f
 	end)
 
 	it("stops at a descendant that has its own value", function()
-		local iup, R, B, Element = host()
+		local iup, _, _, Element = host()
 		local split = iup.split({ iup.label({ TITLE = "a" }), iup.label({ TITLE = "b" }) })
 		local inner = iup.vbox({ split, VISIBLE = "NO" })
 		local page = iup.vbox({ inner })
@@ -135,7 +135,7 @@ describe("imgui parity: box user size", function()
 		local iup, R = host()
 		local b = iup.flatbutton({ TITLE = "", RASTERSIZE = "28x28" })
 		local box = box_in_dialog(iup, R, iup.hbox({ b, RASTERSIZE = "x32", ALIGNMENT = "ACENTER" }))
-		local w, h = iup.GetAttribute(box, "RASTERSIZE"):match("(%d+)x(%d+)")
+		local _, h = iup.GetAttribute(box, "RASTERSIZE"):match("(%d+)x(%d+)")
 		assert.equal("28", h)
 		local Element = require("core.imgui.Element")
 		assert.equal(Element.state(box).y, Element.state(b).y) -- centred in 28, not in 32
@@ -174,7 +174,7 @@ describe("imgui parity: flattabs pages", function()
 	-- group's strip has MAXSIZE 65535x950 and fills its 988 px page on the IUP build, where
 	-- the host cropped it to 950.
 	it("gives a page the whole client area whatever its MAXSIZE", function()
-		local iup, R, B, Element = host()
+		local iup, R, _, Element = host()
 		local page = iup.vbox({ iup.fill({}), MAXSIZE = "65535x50" })
 		local tabs = iup.flattabs({ page, SHOWTABS = "NO", SHOWLINES = "NO" })
 		local d = iup.dialog({ tabs, RASTERSIZE = "300x200" })
@@ -203,7 +203,7 @@ describe("imgui parity: flat scroll box", function()
 	end
 
 	it("takes the vertical bar's width from an expanding child", function()
-		local iup, R, B, Element = host()
+		local iup, R, _, Element = host()
 		local child = iup.vbox({ iup.label({ TITLE = "x", RASTERSIZE = "50x400", EXPAND = "HORIZONTAL" }) })
 		local box = settings_like(iup, R, 300, 200, child)
 		assert.equal(Element.state(box).w - 15, Element.state(child).w)
@@ -214,7 +214,7 @@ describe("imgui parity: flat scroll box", function()
 	-- the panes split narrow, IUP shows Settings' horizontal bar (49,837 465x15); the host
 	-- read SCROLLBAR, defaulted it to VERTICAL and never showed it.
 	it("shows the horizontal bar when the child is wider than the box", function()
-		local iup, R, B, Element = host()
+		local iup, R = host()
 		local child = iup.vbox({ iup.label({ TITLE = "x", RASTERSIZE = "500x50" }) })
 		local box = settings_like(iup, R, 300, 200, child)
 		assert.equal("500", iup.GetAttribute(box, "XMAX"))
@@ -228,7 +228,7 @@ describe("imgui parity: zbox", function()
 	-- 373x368 on the IUP build and 315x149 on the host, which only measured the current
 	-- child, and the split under it gave the page 42 px less.
 	it("measures every child by default", function()
-		local iup, R, B, Element = host()
+		local iup = host()
 		local small = iup.label({ TITLE = "", RASTERSIZE = "20x10" })
 		local big = iup.label({ TITLE = "", RASTERSIZE = "80x60" })
 		local z = iup.zbox({ small, big })
@@ -270,7 +270,7 @@ describe("imgui parity: floating POSITION", function()
 	-- in an hbox (MARGIN 14x8) inside a flat frame: IUP puts it at 18,14 from the frame, the
 	-- host at 23,19 (from the hbox).
 	it("places a floating child from its native parent, through the boxes", function()
-		local iup, R, B, Element = host()
+		local iup, R, _, Element = host()
 		local label = iup.flatlabel({ TITLE = "p", FLOATING = "YES", POSITION = "18,14" })
 		local frame = iup.flatframe({ iup.vbox({ iup.hbox({ iup.label({ TITLE = "x" }), label, MARGIN = "14x8" }),
 			MARGIN = "4x4" }), TITLE = "" })
@@ -325,7 +325,7 @@ describe("imgui parity: booleans", function()
 	end)
 
 	it("lets a widget take ON where it took only YES", function()
-		local iup, R, B, Element = host()
+		local iup, R, _, Element = host()
 		local a = iup.flatscrollbox({ iup.vbox({ iup.label({ TITLE = "x", RASTERSIZE = "50x400", EXPAND = "HORIZONTAL" }) }),
 			SHOWFLOATING = "ON" })
 		local d = iup.dialog({ a, RASTERSIZE = "300x200" })
@@ -340,7 +340,7 @@ describe("imgui parity: IupShow", function()
 	-- due when the dialog is shown runs inside IupShow. Lunar's theme manager queues its
 	-- startup re-theme on such a timer; run later, the theme pass met a different tree.
 	it("runs a due timer before SHOW_CB (iDialogAfterShow: IupFlush)", function()
-		local iup, R, B = host()
+		local iup, _, B = host()
 		local order = {}
 		local t = iup.timer({ time = 16 })
 		function t:action_cb() order[#order + 1] = "timer"; self.run = "NO"; return iup.DEFAULT end
@@ -353,7 +353,7 @@ describe("imgui parity: IupShow", function()
 	end)
 
 	it("does not flush with NOFLUSH=YES", function()
-		local iup, R, B = host()
+		local iup, _, B = host()
 		local order = {}
 		local t = iup.timer({ time = 16 })
 		function t:action_cb() order[#order + 1] = "timer"; self.run = "NO"; return iup.DEFAULT end
@@ -366,7 +366,7 @@ describe("imgui parity: IupShow", function()
 	end)
 
 	it("gives the start focus only when SHOW_CB did not move the focus", function()
-		local iup, R = host()
+		local iup = host()
 		local a = iup.flatbutton({ TITLE = "a" })
 		local b = iup.flatbutton({ TITLE = "b" })
 		local d = iup.dialog({ iup.vbox({ a, b }), RASTERSIZE = "200x100" })

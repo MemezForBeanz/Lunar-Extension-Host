@@ -7,7 +7,10 @@ local ThemeManager = require("core.classes.ThemeManager")
 local TR = require("core.ui.ThemeReactor")
 
 local iup, Element
-before_each(function() iup, _, _, Element = T.boot({}) end)
+before_each(function()
+	local i, _, _, e = T.boot({})
+	iup, Element = i, e
+end)
 
 -- The ThemeManager's per-widget step, on a bare instance (no native batch helper), with a
 -- rule that themes background, text colour and padding.

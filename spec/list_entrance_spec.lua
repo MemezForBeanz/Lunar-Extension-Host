@@ -109,7 +109,7 @@ describe("ListEntrance delays", function()
 
 	it("row i starts at (i-1)*step ms", function()
 		local iup = fake_iup()
-		local dir, clock = make_director(iup)
+		local dir = make_director(iup)
 		local widgets = {}
 		local n = 4
 		for _ = 1, n do widgets[#widgets + 1] = fake_widget() end
@@ -179,7 +179,7 @@ end)
 describe("ListEntrance limit", function()
 	it("settles every row immediately when count > limit", function()
 		local iup = fake_iup()
-		local dir, _ = make_director(iup)
+		local dir = make_director(iup)
 		local role_limit = dir:role("list_stagger").limit  -- 40
 
 		local widgets = {}
@@ -203,7 +203,7 @@ describe("ListEntrance limit", function()
 
 	it("staggers normally when count == limit", function()
 		local iup = fake_iup()
-		local dir, _ = make_director(iup)
+		local dir = make_director(iup)
 		local role_limit = dir:role("list_stagger").limit  -- 40
 
 		local widgets = {}
@@ -227,7 +227,7 @@ end)
 describe("ListEntrance with motion disabled", function()
 	it("settles every row synchronously when motion is off", function()
 		local iup = fake_iup()
-		local dir, _ = make_director(iup, { enabled = false })
+		local dir = make_director(iup, { enabled = false })
 
 		local widgets = {}
 		for _ = 1, 5 do widgets[#widgets + 1] = fake_widget() end
@@ -247,7 +247,7 @@ describe("ListEntrance with motion disabled", function()
 
 	it("leaves no in-flight animations when motion is off", function()
 		local iup = fake_iup()
-		local dir, _ = make_director(iup, { enabled = false })
+		local dir = make_director(iup, { enabled = false })
 
 		local widgets = {}
 		for _ = 1, 5 do widgets[#widgets + 1] = fake_widget() end
@@ -307,7 +307,7 @@ describe("ListEntrance safety", function()
 
 	it("does not raise when items is nil", function()
 		local iup = fake_iup()
-		local dir, _ = make_director(iup)
+		local dir = make_director(iup)
 		assert.has_no.errors(function()
 			ListEntrance.play(dir, nil)
 		end)
@@ -315,7 +315,7 @@ describe("ListEntrance safety", function()
 
 	it("does not raise for an empty items table", function()
 		local iup = fake_iup()
-		local dir, _ = make_director(iup)
+		local dir = make_director(iup)
 		assert.has_no.errors(function()
 			ListEntrance.play(dir, {})
 		end)
@@ -324,7 +324,7 @@ describe("ListEntrance safety", function()
 
 	it("does not raise when a widget has not been mapped (nil NATURALSIZE height)", function()
 		local iup = fake_iup({ natural_h = 0 })  -- reports height 0 → treated as unmapped
-		local dir, _ = make_director(iup)
+		local dir = make_director(iup)
 		local w = fake_widget()
 		assert.has_no.errors(function()
 			ListEntrance.play(dir, { w })
@@ -489,7 +489,7 @@ describe("ListEntrance motion-off visibility", function()
 		-- The dirty flag is set by the row callbacks and drained by the sentinel,
 		-- issuing iup.Refresh on the widget — all within play().
 		local iup = fake_iup()
-		local dir, _ = make_director(iup, { enabled = false })
+		local dir = make_director(iup, { enabled = false })
 		local container = fake_widget()
 		local widgets   = {}
 		for _ = 1, 3 do widgets[#widgets + 1] = fake_widget() end

@@ -286,7 +286,6 @@ describe("native text positions in UTF-16 units: single line", function()
 
 	it("answers ConvertXYToPos in units", function()
 		local t = field(JA .. "ab")
-		local st = Element.state(t)
 		local font = require("core.imgui.Fonts").forElement(t)
 		assert.equal(4, iup.ConvertXYToPos(t, 290, 5))
 		assert.equal(0, iup.ConvertXYToPos(t, 0, 5))
@@ -403,7 +402,6 @@ describe("native text positions in UTF-16 units: multiline", function()
 end)
 
 describe("core.lib.utf16 names the host UI code uses", function()
-	local U = require("core.lib.utf16")
 	it("byte_to_units, units_to_byte and length match to_units, to_bytes and units", function()
 		local s = "a\240\159\152\128b\228\184\150"
 		assert.equal(U.units(s), U.length(s))

@@ -45,7 +45,6 @@ describe("imgui text: PADDING", function()
 	-- the IUP build answers 4x0 for the theme's 4x2 (ui_probe A lines, every Settings
 	-- section); the host answered 4x2.
 	it("keeps only the horizontal padding", function()
-		local iup = require("core.imgui.iup")
 		local t = iup.text({ PADDING = "4x2" })
 		assert.equal("4x0", iup.GetAttribute(t, "PADDING"))
 	end)

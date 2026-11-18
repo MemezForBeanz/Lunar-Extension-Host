@@ -97,7 +97,7 @@ describe("flatgrid (iup_flatgrid.c)", function()
 
 	it("measures its natural size as grid_size does", function()
 		local g = grid(4)
-		local _, st = show(iup.hbox{ g, EXPAND = "NO" }, 1000, 800)
+		show(iup.hbox{ g, EXPAND = "NO" }, 1000, 800)
 		local gs = Element.state(g)
 		-- cellw 150, imageh round(150 / (2/3)) = 225, text 6 + 2 * (charh + 2)
 		local _, charh = require("core.imgui.Fonts").forElement(g):charsize()
@@ -216,7 +216,7 @@ describe("flatgrid (iup_flatgrid.c)", function()
 	end)
 
 	it("keeps a multiple selection with Ctrl, Shift and Ctrl+A", function()
-		local g, log = grid(12, { attrs = { MULTIPLE = "YES" } })
+		local g = grid(12, { attrs = { MULTIPLE = "YES" } })
 		local _, st = show(g, 1000, 700)
 		click(st.x + 30, st.y + 30)                                       -- 1
 		click(st.x + 16 + 2 * 200 + 10, st.y + 30, { mods = { shift = true } }) -- extend to the 3rd lane

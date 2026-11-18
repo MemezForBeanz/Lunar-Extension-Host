@@ -5,42 +5,18 @@ local StatusBar = require("core.ui.StatusBar")
 
 local ICONS = (os.getenv("LUNAR_REPO") or ".") .. "/assets/Icons"
 
-local iup, Runtime, Element
+local iup, Element
 local function bar(opts)
 	opts = opts or {}
 	opts.iup, opts.icon_dir = iup, ICONS
 	return StatusBar.new(opts)
 end
 
--- Show the bar in a dialog wide enough for the logo, and lay it out.
-local function show(sb, w)
-	local dlg = iup.dialog({ iup.vbox({ sb:widget() }), RASTERSIZE = (w or 1400) .. "x200" })
-	iup.Show(dlg)
-	Runtime.frame()
-	return dlg
-end
-
 local function own(h, name) return Element.own(h, name) end
 
--- Count Refresh/Update calls by target while fn runs.
-local function spy(fn)
-	local log = { refresh = {}, update = {} }
-	local r, u = iup.Refresh, iup.Update
-	iup.Refresh = function(h) log.refresh[#log.refresh + 1] = h; return r(h) end
-	iup.Update = function(h) log.update[#log.update + 1] = h; return u(h) end
-	local ok, err = pcall(fn)
-	iup.Refresh, iup.Update = r, u
-	assert(ok, err)
-	return log
-end
-
-local function image(name, w)
-	iup.SetHandle(name, iup.imagergba({ width = w, height = 18, pixels = {} }))
-	return name
-end
-
 before_each(function()
-	iup, Runtime, _, Element = T.boot({})
+	local i, _, _, e = T.boot({})
+	iup, Element = i, e
 end)
 
 describe("StatusBar shell", function()

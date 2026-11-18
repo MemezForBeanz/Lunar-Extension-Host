@@ -37,7 +37,7 @@ local function fake_backend(page_w, page_h)
 		self.shown = true
 	end
 	function b:hide() self.hides = self.hides + 1; self.shown = false end
-	function b:rect() return (table.unpack or unpack)(self.page) end
+	function b:rect() return (unpack or rawget(table, "unpack"))(self.page) end
 	function b:snapshot()
 		local n = #self.snaps + 1
 		if self.fail_snapshot_at == n then return nil, "blank capture" end
@@ -322,7 +322,7 @@ describe("TabTransition on the compositor", function()
 
 	it("a new switch mid-flight lands the old one and starts fresh", function()
 		local dir = real_director()
-		local t, backend, comp, iup = make({ w = 1000, director = dir })
+		local t, backend, _, iup = make({ w = 1000, director = dir })
 		assert.is_true(t:run({}, 1, function() iup._switchTo(1) end))
 		assert.is_true(t:run({}, 2, function() iup._switchTo(2) end))
 		assert.are.equal(1, dir:activeCount())
@@ -380,7 +380,7 @@ end)
 
 describe("TabTransition capture failures", function()
 	it("still switches when the outgoing capture is blank", function()
-		local t, backend, _, iup, _, lines = make({ w = 1000 })
+		local t, backend, _, iup = make({ w = 1000 })
 		backend.fail_snapshot_at = 1
 		local switched = false
 		local ran = t:run({}, 1, function() switched = true; iup._switchTo(1) end)
@@ -400,7 +400,7 @@ describe("TabTransition capture failures", function()
 	end)
 
 	it("fails closed and releases both when the first frame is refused", function()
-		local t, backend, comp, iup = make({ w = 1000 })
+		local t, backend, _, iup = make({ w = 1000 })
 		function backend:present() return false, "nope" end
 		local ran = t:run({}, 1, function() iup._switchTo(1) end)
 		assert.is_false(ran)

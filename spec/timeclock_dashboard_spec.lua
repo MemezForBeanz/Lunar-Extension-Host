@@ -24,7 +24,7 @@ describe("Time Clock dashboard geometry", function()
             extension:register(ctx)
             dialog=iup.dialog{panel,RASTERSIZE="1100x620"}
             iup.Show(dialog)
-            LUNAR_DEV_SHELL.pages["Time Clock"].show{employee="Alex",response="Clock In confirmed",
+            _G.LUNAR_DEV_SHELL.pages["Time Clock"].show{employee="Alex",response="Clock In confirmed",
                 available={"meal_start"},history={"08:00 Clock In confirmed","Yesterday Clock Out confirmed"}}
             fit(1100)
             iup.Refresh(dialog)

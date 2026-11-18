@@ -47,11 +47,7 @@ describe("ImGui CodeView", function()
 end)
 
 describe("ImGui CodeView through real input", function()
-	local Null = require("core.imgui.backend.Null")
 	local R = require("core.imgui.Runtime")
-	local iup = require("core.imgui.iup")
-	local Element = require("core.imgui.Element")
-	local CodeView = require("core.ui.CodeView")
 	local B
 	local function view(text)
 		B = Null.new(); R.init(B)

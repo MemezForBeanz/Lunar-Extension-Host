@@ -62,4 +62,10 @@ files["scripts/luarocks-config.lua"] = {
 files["spec/"] = {
 	-- busted defines these test DSL globals.
 	std = "+busted",
+	-- Specs swap these out and put them back (environment, clock, stderr, file
+	-- failures); every other standard field stays read-only.
+	read_globals = {
+		os = { fields = { getenv = { read_only = false }, time = { read_only = false } } },
+		io = { fields = { stderr = { read_only = false }, open = { read_only = false } } },
+	},
 }

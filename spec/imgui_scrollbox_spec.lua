@@ -15,7 +15,7 @@ describe("imgui scrollbox", function()
 	end
 
 	it("computes a virtual range and places the child opposite POSY", function()
-		local box, st, cs = layout(iup.fill{}, 100, 50)
+		local box, _, cs = layout(iup.fill{}, 100, 50)
 		assert.are.equal("200", iup.GetAttribute(box, "YMAX"))
 		assert.are.equal("50", iup.GetAttribute(box, "DY"))
 		iup.SetAttribute(box, "POSY", "20")

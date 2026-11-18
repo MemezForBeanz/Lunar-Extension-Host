@@ -19,8 +19,8 @@ describe("imgui flatseparator", function()
 		local sep = iup.flatseparator{ STYLE = "SASH", flat_button_cb = function() pressed = pressed + 1 end }
 		local s, c = Element.state(sep), Classes.get("flatseparator")
 		s.x, s.y, s.w, s.h = 0, 0, 5, 40
-		local b, dc = Null.new(), nil
-		dc = Draw.new(b); dc:begin(100, 100)
+		local b = Null.new()
+		local dc = Draw.new(b); dc:begin(100, 100)
 		c.event(sep, s, { type = "enter" }, { redraw = function() end })
 		c.draw(sep, s, dc)
 		assert.is_true(#b.frame_calls > 0)

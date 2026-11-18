@@ -354,7 +354,6 @@ describe("ModalMotion.popup() show_cb preservation", function()
 		-- counting the number of entrance-tagged animations that a real director
 		-- would see.
 
-		local MotionDirector = require("core.classes.MotionDirector")
 		local iup = make_fake_iup()
 
 		-- Build a real director with a fake timer environment.

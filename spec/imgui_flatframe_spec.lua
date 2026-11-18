@@ -18,8 +18,8 @@ describe("imgui flatframe", function()
 		assert.is_true(w > 0 and h > 0)
 	end)
 	it("places its one child inside the title and frame", function()
-		local child, frame = iup.flatlabel{ TITLE = "body" }, nil
-		frame = iup.flatframe{ child, TITLE = "Section" }
+		local child = iup.flatlabel{ TITLE = "body" }
+		local frame = iup.flatframe{ child, TITLE = "Section" }
 		local s, cs, c = Element.state(frame), Element.state(child), Classes.get("flatframe")
 		s.x, s.y, s.w, s.h = 0, 0, 120, 80
 		c.place(frame, s, { place = function(_, x, y, w, h) cs.x, cs.y, cs.w, cs.h = x, y, w, h end })
