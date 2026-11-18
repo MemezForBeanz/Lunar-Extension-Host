@@ -21,34 +21,6 @@ local function draw(e, st, dc, rt)
 		st.last_w, st.last_h = st.w, st.h
 		call_result(e, "RESIZE_CB", st.w, st.h)
 	end
-	local function draw_after(e, st, dc)
-		local sb = tostring(attr(e, "SCROLLBAR") or "NO"):upper()
-		if sb == "NO" then return end
-		local fg = attr(e, "SB_FORECOLOR") or attr(e, "FGCOLOR") or "128 128 128"
-		local bg = attr(e, "SB_BACKCOLOR") or attr(e, "BGCOLOR")
-		local size = tonumber(attr(e, "SCROLLBARSIZE")) or 10
-		local radius = tonumber(attr(e, "SB_CORNERRADIUS")) or math.floor(size / 2)
-		local function bar(horizontal)
-			local max = tonumber(attr(e, horizontal and "XMAX" or "YMAX")) or 0
-			local min = tonumber(attr(e, horizontal and "XMIN" or "YMIN")) or 0
-			local pos = tonumber(attr(e, horizontal and "POSX" or "POSY")) or min
-			local length = horizontal and st.w or st.h
-			local range = math.max(1, max - min)
-			local page = math.max(1, length * (horizontal and st.w or st.h) / (range + (horizontal and st.w or st.h)))
-			page = math.min(length, page)
-			local travel = math.max(0, length - page)
-			local thumb = travel * math.max(0, math.min(1, (pos - min) / range))
-			if horizontal then
-				dc:fill(st.x, st.y + st.h - size, st.w, size, bg, { radius = radius })
-				dc:fill(st.x + thumb, st.y + st.h - size, page, size, fg, { radius = radius })
-			else
-				dc:fill(st.x + st.w - size, st.y, size, st.h, bg, { radius = radius })
-				dc:fill(st.x + st.w - size, st.y + thumb, size, page, fg, { radius = radius })
-			end
-		end
-		if sb == "YES" or sb == "HORIZONTAL" then bar(true) end
-		if sb == "YES" or sb == "VERTICAL" then bar(false) end
-	end
 	local dx, dy = tonumber(attr(e, "DX")) or 0, tonumber(attr(e, "DY")) or 0
 	local px, py = tonumber(attr(e, "POSX")) or 0, tonumber(attr(e, "POSY")) or 0
 	-- IUP calls ACTION on WM_PAINT: when the canvas shows, changes size or scroll, or is
@@ -122,7 +94,6 @@ end
 Classes.define{
 	name="canvas", children=0, natural=natural, draw=draw, event=event,
 	expandDefault="YES", -- iCanvasCreateMethod: ih->expand = IUP_EXPAND_BOTH
-	drawAfter=draw_after,
 	defaults={BORDER="YES", EXPAND="YES", CANFOCUS="YES", DRAWSTYLE="STROKE", DRAWLINEWIDTH="1"},
 	callbacks={ACTION=true, BUTTON_CB=true, MOTION_CB=true, WHEEL_CB=true, ENTERWINDOW_CB=true, LEAVEWINDOW_CB=true, KEYPRESS_CB=true, K_ANY=true, RESIZE_CB=true, MAP_CB=true, SCROLL_CB=true},
 	focusable=true,
