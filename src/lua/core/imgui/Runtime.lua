@@ -11,7 +11,6 @@
 --
 -- @module core.imgui.Runtime
 local Element = require("core.imgui.Element")
-local Classes = require("core.imgui.Classes")
 local Color = require("core.imgui.Color")
 local Fonts = require("core.imgui.Fonts")
 local Draw = require("core.imgui.Draw")
@@ -230,10 +229,6 @@ function M.getGlobal(name)
 end
 
 -- Element-wide getters IUP's base class provides (current size, position, WID...) ----
-local function mapped(el)
-	local st = STATE[el]
-	return st and st.mapped
-end
 
 local function dialog_offset(el)
 	local d, dst = dialog_of(el)
@@ -721,7 +716,7 @@ function M.unmap(el)
 end
 
 function M.reparented(child)
-	local d, dst = dialog_of(child)
+	local _, dst = dialog_of(child)
 	if dst and dst.mapped then map_tree(child) end
 	M.relayout(child)
 end
@@ -1555,9 +1550,9 @@ local function route_events(input)
 			if tip_overlay then overlay_windows.release(tip_overlay); tip_overlay = nil end
 			hovered = nil
 		elseif t == "tray" then
-			local d = main_dialog
+			local dlg = main_dialog
 			-- winDialogTrayMessage: TRAYCLICK_CB(but, pressed, dclick)
-			if d then check_close(Element.call(d, "TRAYCLICK_CB", ev.button or 1, (ev.pressed or (ev.dx or 0) ~= 0) and 1 or 0, ev.double and 1 or 0)) end
+			if dlg then check_close(Element.call(dlg, "TRAYCLICK_CB", ev.button or 1, (ev.pressed or (ev.dx or 0) ~= 0) and 1 or 0, ev.double and 1 or 0)) end
 		elseif t ~= "keyup" and t ~= "file" then
 			if t == "leave" then
 				mini.inside, mini.mx, mini.my = false, -1, -1

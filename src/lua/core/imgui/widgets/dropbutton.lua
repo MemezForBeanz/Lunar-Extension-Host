@@ -53,7 +53,6 @@ local function draw_arrow(dc, ox, oy, x, y, size, color, bgcolor, active)
 	local c = F.color(color, bgcolor, active)
 	if not c or size <= 0 then return end
 	local off1 = math.floor(size * 0.13 + 0.5)
-	local off2 = math.floor(size * 0.87 + 0.5)
 	local half = math.floor(size / 2)
 	local pts = { ox + x + 0.5, oy + y + off1 + 0.5, ox + x + size + 0.5, oy + y + off1 + 0.5,
 		ox + x + half + 0.5, oy + y + size - off1 + 0.5 }

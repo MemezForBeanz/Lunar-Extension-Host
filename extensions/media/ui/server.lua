@@ -119,7 +119,6 @@ function M.new(ctx, opts)
 	local sessions = RowList.new(iup, { rows = {}, row_height = 44, role = "flatrows_plain",
 		column_widths = { 85, 130 }, header = { title = "Now playing", columns = { "Delivery", "Position" } },
 		empty_title = "Nothing is playing", empty_hint = "Sessions appear when reported by the server." })
-	local status = Kit.statusLine(iup, "ok", "")
 	local metadata_status = Kit.statusLine(iup, "info", "")
 	local runtime_status = Kit.statusLine(iup, "info", "")
 	local service_line = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted" })

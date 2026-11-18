@@ -410,7 +410,7 @@ local function event(e, st, ev, rt)
 		if (st.data.wrap or 0) ~= 0 then ch = layout(e, st).ch end
 		local line = math.max(0, (st.data.first_line or 0) + math.floor((ev.ly or 0) / ch))
 		local col = math.max(0, math.floor(((ev.lx or 0) - (st.data.margin_width[0] or 0) - (st.data.margin_width[1] or 0) + (st.data.x_offset or 0)) / cw))
-		local start, p, visual = line_start(st.data.text, line), line_start(st.data.text, line), 0
+		local p, visual = line_start(st.data.text, line), 0
 		while p < line_end(st.data.text, line) and visual < col do
 			local byte = st.data.text:byte(p + 1)
 			visual = visual + (byte == 9 and (st.data.tab_width - visual % st.data.tab_width) or 1)

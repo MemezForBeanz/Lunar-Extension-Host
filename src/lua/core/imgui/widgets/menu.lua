@@ -127,7 +127,7 @@ local function open_submenu(item, parent_state, rt)
 		owner = sub, x = x, y = y, w = w, h = h,
 		draw = function(dc) menu_draw(sub, state, dc) end,
 		event = function(ev)
-			local lx, ly = (ev.x or 0) - state.x, (ev.y or 0) - state.y
+			local ly = (ev.y or 0) - state.y
 			if ev.type == "move" or ev.type == "enter" then state.selected = menu_item_at(sub, state, ly); return true end
 			if ev.type == "press" and ev.button == 1 then
 				local n = menu_item_at(sub, state, ly); local child = n and children(sub)[n]
@@ -151,7 +151,7 @@ function M.popupMenu(menu, x, y, rt)
 		owner = menu, x = state.x, y = state.y, w = w, h = h, modal = true,
 		draw = function(dc) menu_draw(menu, state, dc) end,
 		event = function(ev)
-			local lx, ly = (ev.x or 0) - state.x, (ev.y or 0) - state.y
+			local ly = (ev.y or 0) - state.y
 			if ev.type == "move" or ev.type == "enter" then
 				local n = menu_item_at(menu, state, ly)
 				if n ~= state.selected then

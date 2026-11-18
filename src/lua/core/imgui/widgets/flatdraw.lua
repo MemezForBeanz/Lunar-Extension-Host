@@ -17,7 +17,7 @@ local Draw = require("core.imgui.Draw")
 
 local M = {}
 
-local floor, max, min, sqrt = math.floor, math.max, math.min, math.sqrt
+local floor, max, min = math.floor, math.max, math.min
 
 local function own(el, name) return Element.own(el, name) end
 local function attr(el, name) return Element.getAttribute(el, name) end

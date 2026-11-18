@@ -560,7 +560,7 @@ local function commit_host(tx, f)
 	if TR and TR.claim then
 		local claims
 		if f.props.role == nil and f.props.variant == nil then
-			if f.attrs.BGCOLOR ~= nil then claims = claims or {}; claims.BGCOLOR = true end
+			if f.attrs.BGCOLOR ~= nil then claims = { BGCOLOR = true } end
 			if f.attrs.FGCOLOR ~= nil then claims = claims or {}; claims.FGCOLOR = true end
 		end
 		if claims or TR.claimed(f.host) then TR.claim(f.host, claims) end
@@ -695,9 +695,9 @@ end
 
 -- Children of a widget lui is about to destroy that lui did not create (an extension's
 -- status element, a borrowed Native) are taken out first, so they outlive it.
-local function rescue_foreign(tx, h)
+local function rescue_foreign(tx, widget)
 	local D, created = tx.D, tx.root._created
-	for _, c in ipairs(D.userChildren(h)) do
+	for _, c in ipairs(D.userChildren(widget)) do
 		if created[c] then
 			rescue_foreign(tx, c)
 		elseif not tx.live_natives[c] then
@@ -710,22 +710,22 @@ local function remove_dead(tx, f, natives)
 	local D, root = tx.D, tx.root
 	local top_native = {}
 	for _, n in ipairs(natives) do
-		local h, owned = n[1], n[2]
-		top_native[h] = true
+		local native, owned = n[1], n[2]
+		top_native[native] = true
 		if owned then
 			-- handed over: it dies with the tree (unless the new tree placed it again)
-			if not tx.live_natives[h] and D.isHandle(h) then
-				if D.parent(h) then tx.layout[D.parent(h)] = true end
-				D.destroy(h)
+			if not tx.live_natives[native] and D.isHandle(native) then
+				if D.parent(native) then tx.layout[D.parent(native)] = true end
+				D.destroy(native)
 			end
-		elseif not tx.live_natives[h] and D.isHandle(h) and D.parent(h) then
+		elseif not tx.live_natives[native] and D.isHandle(native) and D.parent(native) then
 			-- borrowed: never destroyed. Unmounting leaves it in a container lui does not
 			-- own; anywhere else it is detached, or it would die with lui's widget or stay
 			-- on screen where the tree no longer has it.
-			local p = D.parent(h)
+			local p = D.parent(native)
 			if not (tx.unmounting and not root._created[p]) then
 				tx.layout[p] = true
-				D.detach(h)
+				D.detach(native)
 			end
 		end
 	end

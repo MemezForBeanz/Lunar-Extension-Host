@@ -7,11 +7,8 @@ local T = Theme:subclass("CarbonG10Theme")
 function T:initialize()
     local tokens = {
         bodyCompact01 = { fontSize = "0.875rem", fontWeight = 400, lineHeight = 1.28572, letterSpacing = "0.16px" },
-        label01 = { fontSize = "0.75rem", fontWeight = 400, lineHeight = 1.33333, letterSpacing = "0.32px" },
         headingCompact01 = { fontSize = "0.875rem", fontWeight = 600, lineHeight = 1.28572, letterSpacing = "0.16px" },
         heading03 = { fontSize = "1.25rem", fontWeight = 400, lineHeight = 1.4, letterSpacing = 0 },
-        code01 = { fontFamily = "'IBM Plex Mono', 'Menlo', 'DejaVu Sans Mono', 'Bitstream Vera Sans Mono', Courier, monospace", fontSize = "0.75rem", fontWeight = 400, lineHeight = 1.33333, letterSpacing = "0.32px" },
-        helperText01 = { fontSize = "0.75rem", lineHeight = 1.33333, letterSpacing = "0.32px" },
         aiAuraEnd = "rgba(255, 255, 255, 0)",
         aiAuraHoverBackground = "#edf5ff",
         aiAuraHoverEnd = "rgba(255, 255, 255, 0)",

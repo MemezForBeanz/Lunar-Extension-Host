@@ -162,7 +162,6 @@ end
 local extraSize
 local function metrics(el)
 	local ps = pages(el)
-	local t = typeOf(el)
 	local px, py = pair(attr(el, "TABSPADDING"), 6, 4)
 	-- patch 0004: a strip with SHOWTABS=NO has no title band at all
 	if not yes(attr(el, "SHOWTABS")) then return 0, 0, px, py end
@@ -315,7 +314,6 @@ local function drawTabContent(el, st, dc, pos, x, y, w, h, color, force_title)
 	local iw, ih = Draw.imageSize(image)
 	local spacing = integer(attr(el, "TABSIMAGESPACING"), 2)
 	local image_position = tostring(attr(el, "TABSIMAGEPOSITION") or "LEFT"):upper()
-	local tw = title and font:measure(title) or 0
 	if image then
 		local ix, iy = x + px, y + (h - ih) / 2
 		if image_position == "RIGHT" and title then ix = x + w - px - iw

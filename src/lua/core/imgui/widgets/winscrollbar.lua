@@ -144,8 +144,8 @@ local function step(e, owner, rt)
 		-- the track repeats only while the thumb has not reached the pointer
 		local g = M.geometry(bar)
 		if not g.thumb then return end
-		if t.part == "pageup" and not (t.q < g.thumb_top) then return end
-		if t.part == "pagedown" and not (t.q >= g.thumb_top + g.thumb) then return end
+		if t.part == "pageup" and t.q >= g.thumb_top then return end
+		if t.part == "pagedown" and t.q < g.thumb_top + g.thumb then return end
 	end
 	if t.inside == false then return end
 	M.process(e, owner, t.vertical, t.part)

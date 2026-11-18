@@ -69,13 +69,13 @@ function M.flushAll()
 			local deferred = false
 			for _, root in ipairs(list) do
 				root._scheduled = false
-				if root._unmounted then
-					-- dropped
-				elseif root._in_flush then
-					enqueue(root) -- mid-flush further out: that flush renders it when it continues
-					deferred = true
-				else
-					root:_flushNow()
+				if not root._unmounted then -- an unmounted root is dropped
+					if root._in_flush then
+						enqueue(root) -- mid-flush further out: that flush renders it when it continues
+						deferred = true
+					else
+						root:_flushNow()
+					end
 				end
 			end
 			if deferred then break end

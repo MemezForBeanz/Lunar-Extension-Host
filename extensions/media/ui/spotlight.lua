@@ -15,7 +15,6 @@ local M = {}
 M.HEIGHT = 200
 local ART_HEIGHT = M.HEIGHT - L.px(4)
 local WIDE_WIDTH = math.floor(ART_HEIGHT * 16 / 9)
-local POSTER_WIDTH = math.floor(ART_HEIGHT * 2 / 3)
 local RING = 6
 local FADE = 0.42             -- the share of the art, from its right edge, that dissolves
 local EDGE = 0.05             -- the share that softens on the other three sides

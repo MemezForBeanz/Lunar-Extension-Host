@@ -3,7 +3,6 @@
 -- @module core.imgui.widgets.flatscrollbar
 local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
-local iup = require("core.imgui.iup")
 local FlatDraw = require("core.imgui.widgets.flatdraw")
 
 local M = {}
@@ -67,7 +66,7 @@ local function scrollbar_draw(sb, st, dc)
 	local vertical = ss.data.vertical
 	local g = { axis(e, vertical) }
 	if not g[1] then return end
-	local size, track, arrow, thumb, offset = unpack(g)
+	local size, track, _, thumb, offset = unpack(g)
 	local bg = attr(e, "SB_BACKCOLOR") or attr(e, "BACKCOLOR") or attr(e, "BGCOLOR")
 	local fg = attr(e, "SB_FORECOLOR") or attr(e, "FORECOLOR") or attr(e, "FGCOLOR")
 	local hl = attr(e, "SB_HIGHCOLOR") or attr(e, "HIGHCOLOR") or fg

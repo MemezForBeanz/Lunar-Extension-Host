@@ -62,7 +62,7 @@ function M.new(iup, opts)
     end
     local rows = opts.rows or {}
     local value = opts.value
-    local state_icons, state_images, states = {}, {}, {}
+    local state_icons, state_images = {}, {}
     raw_api.bindrows(widget, {
         value = function(pos, field)
             if field == "IMAGE" and state_images[pos] then return state_images[pos] end
@@ -95,7 +95,6 @@ function M.new(iup, opts)
     if opts.title_width then api:setContentWidth(opts.title_width) end
     --- Change only a row's status glyph; unchanged rows retain their cached frame.
     function api:setState(pos, state, progress)
-        states[pos] = state
         local icon = state_icons[pos]
         if not icon then
             icon = require("core.ui.StateIcon").new(iup, { kind = "row", size = tonumber(opts.image_size) or 16,
@@ -122,7 +121,7 @@ function M.new(iup, opts)
     end
     function api:destroyStateIcons()
         for _, icon in pairs(state_icons) do icon:destroy() end
-        state_icons, state_images, states = {}, {}, {}
+        state_icons, state_images = {}, {}
     end
     --- Show a sort without a click. A nil column clears the arrow.
     function api:setSort(column, descending)
@@ -135,7 +134,7 @@ function M.new(iup, opts)
             for pos, icon in pairs(state_icons) do
                 if pos > #(next_rows or {}) then
                     icon:destroy()
-                    state_icons[pos], state_images[pos], states[pos] = nil, nil, nil
+                    state_icons[pos], state_images[pos] = nil, nil
                 end
             end
         else self:destroyStateIcons() end

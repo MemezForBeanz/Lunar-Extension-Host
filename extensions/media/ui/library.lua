@@ -9,7 +9,6 @@ local CellGrid = require("core.ui.CellGrid")
 local RowList = require("core.ui.RowList")
 local SeekBar = require("core.ui.SeekBar")
 local FlatDropdown = require("core.ui.FlatDropdown")
-local Adaptive = require("core.ui.Adaptive")
 local spotlight = require("ui.spotlight")
 local title_page = require("ui.title")
 local FlatField = require("core.ui.FlatField")
@@ -586,7 +585,9 @@ function M.new(ctx, opts)
 			sort = index
 			refilter()
 		end })
-	local controls = iup.hbox({ segmented, sort_box.widget, GAP = L.gap(3), ALIGNMENT = "ACENTER" })
+	-- Parents the two so tree.place can move them into the toolbar below: it only
+	-- reparents a widget that already has a parent.
+	iup.hbox({ segmented, sort_box.widget, GAP = L.gap(3), ALIGNMENT = "ACENTER" })
 	local toolbar = iup.hbox({ GAP = L.gap(3), ALIGNMENT = "ACENTER",
 		EXPAND = "HORIZONTAL", MARGIN = RING .. "x0" })
 

@@ -4,7 +4,6 @@
 local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
 local Fonts = require("core.imgui.Fonts")
-local Draw = require("core.imgui.Draw")
 local Color = require("core.imgui.Color")
 local iup = require("core.imgui.iup")
 local FlatScrollbar = require("core.imgui.widgets.flatscrollbar")
@@ -34,7 +33,7 @@ end
 local function count(e) return #items(e) end
 local function line_metrics(e, L)
 	local f = L and L.font(e) or Fonts.forElement(e)
-	local cw, ch = f:charsize()
+	local _, ch = f:charsize()
 	local p = tostring(attr(e, "PADDING") or "2x2")
 	local px, py = pair(p)
 	return f, math.max(ch, ch + (py or 2) * 2), (px or 2) * 2
@@ -108,7 +107,7 @@ local function natural(e, st, L)
 	local f, rh, pad = line_metrics(e, L)
 	local maxw = 0
 	for i, text in ipairs(items(e)) do local w = f:measure(text); maxw = math.max(maxw, w) end
-	local px, py = pair(attr(e, "PADDING"))
+	local _, py = pair(attr(e, "PADDING"))
 	local lines = num(attr(e, "VISIBLELINES"), 5)
 	local cols = num(attr(e, "VISIBLECOLUMNS"), 0)
 	return math.max(maxw + pad, cols > 0 and cols * f:charsize() or 0), math.max(rh * math.max(1, lines) + (py or 2), rh)

@@ -225,7 +225,7 @@ function M.send(el, msg, w, l)
 		local cw, ch = char_width(el); local line = math.max(0, math.min(line_count(text) - 1, (d.first_line or 0) + math.floor((tonumber(l) or 0) / ch)))
 		local margin = (d.margin_width[0] or 0) + (d.margin_width[1] or 0) + 4
 		local target = math.max(0, math.floor(((w or 0) + (d.x_offset or 0) - margin) / cw))
-		local p, i, col = line_start(text, line), line_start(text, line) + 1, 0
+		local i, col = line_start(text, line) + 1, 0
 		while i <= line_end(text, line) and col < target do local b = text:byte(i); col = col + (b == 9 and (d.tab_width - col % d.tab_width) or 1); i = i + utf8_size(b) end
 		return math.min(i - 1, line_end(text, line))
 	elseif msg == 2266 then return word_boundary(text, clamp(d, w), false)

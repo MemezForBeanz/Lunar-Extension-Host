@@ -112,7 +112,7 @@ end
 -- CELLBITS_CB, ROWVALUE_CB...). A provider error is swallowed as lua_pcall does in the C
 -- bridge: the control sees "no value".
 
-local unpack = unpack or table.unpack
+local unpack = unpack or rawget(table, "unpack")
 --- Call callback `name` and return all its results, or nothing when it is missing or fails.
 function M.call(e, name, ...)
 	local st = Element.state(e)

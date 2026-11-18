@@ -66,16 +66,6 @@ function M.register(opts)
 		return true
 	end
 
-	local function toggle(key, configure_key)
-		local t = iup.flattoggle({ TITLE = "", THEMEROLE = "flattoggle", VALUE = (settings:get(key) ~= false) and "ON" or "OFF" })
-		function t:valuechanged_cb()
-			local on = iup.GetAttribute(t, "VALUE") == "ON"
-			if set_and_save(key, on) then motion:configure({ [configure_key] = on }) end
-			return iup.DEFAULT
-		end
-		return manage(t, key)
-	end
-
 	-- Owner-drawn (core.ui.FlatDropdown), like the Theme selector above it: a
 	-- native dropdown follows the OS theme instead of Lunar's.
 	local speed_dd = FlatDropdown.new(iup, {

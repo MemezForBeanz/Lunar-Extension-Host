@@ -414,7 +414,6 @@ end
 local function fill_natural(el, st, L)
 	-- A fill measures only along its box: its user size there, or nothing and expand.
 	local uw, uh = Layout.userSize(el, st)
-	local dir = fill_dir(st)
 	return uw, uh, nil
 end
 

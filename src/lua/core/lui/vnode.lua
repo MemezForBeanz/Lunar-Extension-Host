@@ -31,14 +31,15 @@ end
 local function collect(out, list, n)
 	for i = 1, n do
 		local c = list[i]
-		if c == nil or c == false or c == true or c == M.NO_CHILDREN then
-			-- a hole: `cond and ui.X{}` with cond false, or nil
-		elseif type(c) == "table" and getmetatable(c) == nil then
-			-- a plain list of children (an iup handle on the emulator is a table too, but
-			-- has a metatable, so it is kept and later embedded as a Native)
-			collect(out, c, table.maxn(c))
-		else
-			out[#out + 1] = c
+		-- a hole (`cond and ui.X{}` with cond false, or nil) is skipped
+		if not (c == nil or c == false or c == true or c == M.NO_CHILDREN) then
+			if type(c) == "table" and getmetatable(c) == nil then
+				-- a plain list of children (an iup handle on the emulator is a table too, but
+				-- has a metatable, so it is kept and later embedded as a Native)
+				collect(out, c, table.maxn(c))
+			else
+				out[#out + 1] = c
+			end
 		end
 	end
 	return out

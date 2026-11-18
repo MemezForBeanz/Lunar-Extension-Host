@@ -314,7 +314,6 @@ local function splice(self, pos, removed, s)
 	local text, starts = self.text, self.starts
 	local old_len, added = #text, #s
 	local delta = added - removed
-	local tail = old_len - pos - removed
 	if delta > 0 then
 		for i = old_len - 1, pos + removed, -1 do self.styles[i + delta] = self.styles[i] end
 	elseif delta < 0 then

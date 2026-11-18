@@ -171,14 +171,15 @@ function M.new(ctx,opts)
    download_wait=0
   end)
  end})
- local cancel_download=Kit.button(iup,{title='Cancel download',role='actionbutton',action=function()
+ -- Not placed on the page (the activity menu offers both); media_discover_ui_spec presses Cancel.
+ Kit.button(iup,{title='Cancel download',role='actionbutton',action=function()
   local id=current_download_id()
   if id and opts.on_cancel_download then opts.on_cancel_download(id,function(_,why)
    if why then Kit.setStatus(iup,status,'error',why) end
    download_status()
   end) end
  end})
- local retry_download=Kit.button(iup,{title='Retry download',role='actionbutton',action=function()
+ Kit.button(iup,{title='Retry download',role='actionbutton',action=function()
   local id=current_download_id()
   if id and opts.on_retry_download then opts.on_retry_download(id,function(answer,why)
    if answer then download_id=answer.id or id end

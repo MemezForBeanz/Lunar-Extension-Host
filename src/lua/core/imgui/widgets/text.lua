@@ -473,7 +473,7 @@ M.isMulti = is_multi
 
 --- The text as lines: { s = offset of the first byte (0-based), t = text }. Appending keeps
 -- the lines already split (a growing log is not split again).
-local function lines_of(st)
+local function cached_lines(st)
 	local text = st.data.text
 	local cache = st.data.lines
 	if cache and st.data.lines_src == text then return cache end
@@ -499,7 +499,7 @@ local function lines_of(st)
 	st.data.lines, st.data.lines_src = out, text
 	return out
 end
-M.lines = lines_of
+M.lines = cached_lines
 
 local function line_of(lines, p)
 	local lo, hi = 1, #lines
@@ -512,7 +512,7 @@ end
 
 --- The widest line in pixels (the horizontal range), measured once per line.
 local function text_width(e, st, font)
-	local lines = lines_of(st)
+	local lines = cached_lines(st)
 	local w = st.data.text_w or 0
 	for i = (st.data.text_w_upto or 0) + 1, #lines do
 		local lw = font:measure(lines[i].t)
@@ -547,7 +547,7 @@ local function metrics(e, st)
 	return m
 end
 
-local function max_top(st, m) return math.max(0, #lines_of(st) - math.max(1, m.vlc)) end
+local function max_top(st, m) return math.max(0, #cached_lines(st) - math.max(1, m.vlc)) end
 function M.mlVisibleLines(e, st) return metrics(e, st).vlc end
 
 local function clamp_view(e, st, m)
@@ -561,7 +561,7 @@ end
 local function scroll_to(e, st, p)
 	if not is_multi(e, st) then return end
 	local m = metrics(e, st)
-	local lines = lines_of(st)
+	local lines = cached_lines(st)
 	local li = line_of(lines, p) - 1
 	local vlc = math.max(1, m.vlc)
 	local top = st.data.top_line or 0
@@ -583,7 +583,7 @@ local text_owner = {
 	range = function(e, vertical)
 		local st = Element.state(e)
 		local m = metrics(e, st)
-		if vertical then return #lines_of(st), math.max(1, m.vlc), st.data.top_line or 0 end
+		if vertical then return #cached_lines(st), math.max(1, m.vlc), st.data.top_line or 0 end
 		return text_width(e, st, m.font), m.fw, st.data.scroll_x or 0
 	end,
 	-- EDIT_WM_VScroll / HScroll: a line, or a page less one line (vertical); a character
@@ -610,7 +610,7 @@ local text_owner = {
 
 --- The bars of this frame (shown while SCROLLBAR asks for them; no thumb when disabled).
 local function ml_bars(e, st, m)
-	local lines = lines_of(st)
+	local lines = cached_lines(st)
 	local tw = text_width(e, st, m.font)
 	Win.set(e,
 		m.sbv and { x = m.cx + m.cwid, y = m.cy, w = Win.SIZE, h = m.chei, max = #lines, page = math.max(1, m.vlc), pos = st.data.top_line or 0 } or nil,
@@ -619,7 +619,7 @@ end
 
 --- The character offset at dialog point (x, y): the line under it, the nearest boundary.
 local function offset_at(e, st, m, x, y)
-	local lines = lines_of(st)
+	local lines = cached_lines(st)
 	local li = (st.data.top_line or 0) + math.floor((y - m.fy) / math.max(1, m.lh))
 	li = math.max(0, math.min(#lines - 1, li))
 	local line = lines[li + 1]
@@ -641,7 +641,7 @@ local function ml_draw(e, st, dc, rt)
 	local bg = attr(e, "BGCOLOR")
 	if bg then dc:fill(st.x, st.y, st.w, st.h, bg) end
 	local focused = rt and rt.focused and rt.focused() == e
-	local lines = lines_of(st)
+	local lines = cached_lines(st)
 	local fg = attr(e, "FGCOLOR")
 	local value = st.data.text
 	local password = yes(attr(e, "PASSWORD"))
@@ -695,7 +695,7 @@ end
 -- Ctrl+Home/End the ends of the text, Home/End the line's.
 local function ml_move(e, st, base, ctrl)
 	local m = metrics(e, st)
-	local lines = lines_of(st)
+	local lines = cached_lines(st)
 	local caret = st.data.caret or 0
 	local li = line_of(lines, caret)
 	local line = lines[li]
@@ -735,7 +735,7 @@ local function ml_event(e, st, ev, rt, single_event)
 		-- next one; the EDIT keeps the wheel
 		if ev.mods and (ev.mods.ctrl or ev.mods.shift) then return false end
 		local m = metrics(e, st)
-		local lines = math.min(#lines_of(st), WHEEL_LINES)
+		local lines = math.min(#cached_lines(st), WHEEL_LINES)
 		local delta = (ev.dy or 0) * 120
 		local rem = st.data.wheel_rem or 0
 		if rem ~= 0 and (rem > 0) ~= (delta > 0) then rem = 0 end
@@ -792,7 +792,7 @@ local function ml_event(e, st, ev, rt, single_event)
 		if p then
 			local keep_goal = base == iup.K_UP or base == iup.K_DOWN or base == iup.K_PGUP or base == iup.K_PGDN
 			if keep_goal and not st.data.goal_x then
-				local lines = lines_of(st)
+				local lines = cached_lines(st)
 				local line = lines[line_of(lines, st.data.caret or 0)]
 				st.data.goal_x = metrics(e, st).font:measure(line.t:sub(1, (st.data.caret or 0) - line.s))
 			elseif not keep_goal then st.data.goal_x = nil end

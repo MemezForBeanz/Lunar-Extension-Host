@@ -36,10 +36,6 @@ StatusBar.HEIGHT = 24
 --- How wide the activity slot's text is. Fixed, so that progress ticking over doesn't
 -- lay the whole window out again.
 StatusBar.ACTIVITY_WIDTH = 64
--- What the activity slot shows once work has ended (`Activity:status`'s states).
-local ACTIVITY_GLYPHS = {
-	ok = "activity_ok", failed = "activity_failed", cancelled = "activity_stopped", attention = "activity_dot",
-}
 
 --- Parse an IUP `"R G B"` colour into three numbers (nil if it isn't one).
 function StatusBar.parse_rgb(value)
@@ -79,36 +75,6 @@ local StatusLine = ui.memo(function(p)
 	-- text ends in an ellipsis, it doesn't widen the window.
 	return ui.Label{ text, ref = bar._refs.label, grow = "x", width = 40, ellipsis = true,
 		font = "Segoe UI, 9", fg = "60 60 60", role = "statusbar_text" }
-end)
-
-local CommandField = ui.memo(function(p)
-	local bar = p.bar
-	local w = ui.useStore(bar._store, function(s) return s.field_w end)
-	local function command() call(bar._on_command) end
-	return ui.Frame{ ref = bar._refs.field, title = "", size = { w, 24 }, grow = false, role = "commandbar",
-		ui.HBox{ padding = { 2, 1 }, gap = 4, align = "center", grow = "x",
-			ui.Button{ "Search or run a command", ref = bar._refs.command, focusable = true, imagePosition = "left",
-				align = "left", valign = "center", spacing = 8, grow = "x", role = "commandbar_text", onClick = command },
-			ui.Button{ "Ctrl+P", focusable = false, role = "keycap", onClick = command },
-		},
-	}
-end)
-
-local Logo = ui.memo(function(p)
-	local bar = p.bar
-	local logo = ui.useStore(bar._store, function(s) return s.logo end)
-	return ui.HBox{ ref = bar._refs.logo_box, hidden = not logo.shown, align = "center", padding = { 6, 0 },
-		-- the image stays while hidden: a mapped image label must stay an image label
-		ui.Image{ ref = bar._refs.logo, tooltip = bar._logo_tip, padding = { 6, 0 }, align = "center", valign = "center",
-			image = logo.image },
-	}
-end)
-
-local Focus = ui.memo(function(p)
-	local bar = p.bar
-	local pane = ui.useStore(bar._store, function(s) return s.pane end)
-	return ui.Button{ ref = bar._refs.focus, tooltip = pane.tip, focusable = true, size = { 32, 28 },
-		role = "statusbar_button", enabled = pane.split, onClick = function() call(bar._on_focus) end }
 end)
 
 local function Bar(p)
@@ -417,7 +383,7 @@ end
 
 --- Spin the update indicator while a check runs.
 function StatusBar:startUpdateSpin()
-	local s, icon = StatusBar.UPDATE_STATES.checking, self._update_icon
+	local icon = self._update_icon
 	pcall(function() icon:set("checking") end)
 end
 

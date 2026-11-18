@@ -563,7 +563,7 @@ local function relayout(name)
 end
 
 local function grid_event(ih, st, ev, rt)
-	local d = D(ih)
+	D(ih) -- sets up the grid data on first use
 	if ev.type == "press" or ev.type == "release" then
 		grid_button(ih, ev.button == 1 and iup.BUTTON1 or ev.button == 2 and iup.BUTTON2 or iup.BUTTON3,
 			ev.type == "press", ev.lx, ev.ly, ev.status or "", rt)

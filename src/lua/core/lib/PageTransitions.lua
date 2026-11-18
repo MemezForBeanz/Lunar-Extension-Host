@@ -53,8 +53,35 @@ local Tokens = require("core.lib.MotionTokens")
 local M = {}
 
 -- Push geometry (core.ui.TabTransition's numbers, which its spec holds):
+--
+-- Floor on travel distance, in pixels. A narrow pane scaled by `travel` can
+-- produce a slide of a few pixels, which reads as a glitch rather than a
+-- transition -- below roughly this much movement the fade is doing all the work
+-- and the translation only adds jitter.
 M.MIN_TRAVEL = 24      -- px: shorter reads as a glitch
+--
+-- How far the outgoing page travels, as a fraction of the incoming page's travel.
+--
+-- Moving it *less* than the incoming page is what makes the new content read as
+-- leading: two layers moving at different rates is the standard depth cue, and
+-- here it puts the emphasis on the arrival rather than the departure.
+--
+-- It also closes the only hole in the composition. The outgoing page is the opaque
+-- base layer, so wherever it has vacated shows through to the incoming page, which
+-- is still partly transparent early on. Damping its travel keeps that strip narrow
+-- at the moment the incoming page is most transparent.
+--
+-- Ignored when the fade is off, where the rigid pair covers the frame by
+-- construction and any damping would open a real gap.
 M.OUTGOING_LEAD = 0.5  -- the outgoing page moves half as far as the incoming one
+--
+-- Fraction of the animation over which the incoming page reaches full opacity.
+--
+-- The fade finishes slightly early so the page is not still visibly translucent as
+-- it settles -- which looks like the transition failed to finish rather than like a
+-- fade. It should not finish MUCH early either: a fade that completes at 60% turns
+-- the last 40% of the slide into a solid page sliding into place with no remaining
+-- cross-fade, which is what made the whole transition read as a quick dissolve.
 M.FADE_SPAN = 0.85     -- the incoming page is opaque by 85% of the way
 
 local kinds, order = {}, {}

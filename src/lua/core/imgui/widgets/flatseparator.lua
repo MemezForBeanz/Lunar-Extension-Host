@@ -2,7 +2,6 @@
 -- @module core.imgui.widgets.flatseparator
 local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
-local iup = require("core.imgui.iup")
 local Flat = require("core.imgui.widgets.flatbutton")
 local Color = require("core.imgui.Color")
 
