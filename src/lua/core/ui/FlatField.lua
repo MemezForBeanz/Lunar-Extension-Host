@@ -20,6 +20,22 @@ local VectorIcon = require("core.ui.VectorIcon")
 local FlatField = {}
 FlatField.__index = FlatField
 
+-- The field matches the controls beside it: the theme's control height (a dropdown's,
+-- else a field's), or the page template's 32. Worked out once per theme, not per field.
+local FRAME_EDGE = 1
+local measured_theme, measured_height
+local function control_height()
+	local manager = require("core.ui.ThemeReactor").themeManager()
+	local theme = manager and manager:activeTheme()
+	if theme ~= measured_theme or not measured_height then
+		local rules = theme and theme.rules and theme:rules() or {}
+		measured_theme = theme
+		measured_height = (rules.dropbutton and rules.dropbutton.controlheight)
+			or (rules.text and rules.text.controlheight) or L.PAGE.control
+	end
+	return measured_height
+end
+
 --- Create a field.
 -- @param iup the IUP binding
 -- @tparam[opt] table opts
@@ -44,8 +60,11 @@ function FlatField.new(iup, opts)
 	})
 	self.text = text
 
-	-- The padding lives on this box: a flat frame has no margin of its own.
-	local row = { text, ALIGNMENT = "ACENTER", GAP = L.gap(2), MARGIN = "8x4", EXPAND = "HORIZONTAL" }
+	-- The padding lives on this box: a flat frame has no margin of its own. On the ImGui
+	-- host the frame is exactly a control high (see _fitHeight), so the edit is centred
+	-- in it with no vertical padding of its own.
+	local imgui = rawget(iup, "_IMGUI") ~= nil
+	local row = { text, ALIGNMENT = "ACENTER", GAP = L.gap(2), MARGIN = imgui and "8x0" or "8x4", EXPAND = "HORIZONTAL" }
 	if opts.icon then
 		local icon = VectorIcon.new(iup, { path = opts.icon, size = 16, role = "neutral" })
 		table.insert(row, 1, icon:widget())
@@ -56,8 +75,13 @@ function FlatField.new(iup, opts)
 		TITLE = "",
 		EXPAND = opts.width and "NO" or "HORIZONTAL",
 		RASTERSIZE = opts.width and (opts.width .. "x") or nil,
+		FRAMESPACE = imgui and "0" or nil,
 		THEMEROLE = "text",
 	})
+	if imgui then
+		self:_fitHeight()
+		require("core.ui.ThemeReactor").register(self)
+	end
 
 	local field = self
 	self._cue = opts.cue
@@ -111,6 +135,18 @@ function FlatField:_edge(focused)
 	local theme = require("core.ui.ThemeReactor").themeManager()
 	if theme then pcall(theme.themeWidget, theme, frame) end
 end
+
+-- A theme gives the edit its own control height, and the frame adds its edge around that,
+-- so a bare field came out taller than the dropdowns and buttons beside it. Bound the
+-- edit to the theme's control height less the frame's edge, every theme switch.
+function FlatField:_fitHeight()
+	local inner = control_height() - 2 * FRAME_EDGE
+	if inner == self._inner then return end
+	self._inner = inner
+	self._iup.SetAttribute(self.text, "MINSIZE", L.size(nil, inner))
+	self._iup.SetAttribute(self.text, "MAXSIZE", L.maxSize(nil, inner))
+end
+function FlatField:_onThemeApply() self:_fitHeight() end
 
 --- The field's text.
 function FlatField:value()

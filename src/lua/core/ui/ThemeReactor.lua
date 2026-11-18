@@ -81,6 +81,22 @@ function M.themePassDone()
     end
 end
 
+-- Attributes a component owns on a widget (`core.lui`: explicit colours on a widget
+-- without a theme role). Weak-keyed by widget handle.
+local claims = setmetatable({}, { __mode = "k" })
+
+--- Claim attributes of a widget for its component: the ThemeManager neither writes them
+-- nor records them as the widget's original look. `attrs` is a set (`{ BGCOLOR = true }`);
+-- nil releases the widget.
+function M.claim(widget, attrs)
+    if widget ~= nil then claims[widget] = attrs end
+end
+
+--- The attributes claimed on a widget, or nil.
+function M.claimed(widget)
+    return widget ~= nil and claims[widget] or nil
+end
+
 --- Install the single `onApply` hook on `tm` (idempotent).
 -- Captures the active palette and repaints every registered instance on each
 -- theme switch.  Safe to call from multiple modules or multiple times.

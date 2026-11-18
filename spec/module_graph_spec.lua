@@ -26,6 +26,8 @@ local EXTERNAL = {
 	logging = true, ffi = true, bit = true, jit = true, appimages = true,
 	themeapply = true, svgicon = true, iupraw = true, winredraw = true,
 	file_stream = true, logscan = true, compositor = true, sci = true, winframe = true,
+	-- C modules the ImGui host links (src/cpp/lunarimgui.cpp, src/c/libs/imagecodec.c, svgicon_sizes.c)
+	lunarimgui = true, imagecodec = true, svgicon_sizes = true,
 }
 
 -- Resolved at runtime from a location CMake populates, not from the source tree:

@@ -396,13 +396,12 @@ describe("installer.linux", function()
 		local function sink() local t = {} return { write = function(_, ...) for _, s in ipairs({ ... }) do t[#t + 1] = s end end, flush = function() end }, t end
 
 		it("rejects bad command lines", function()
-			local out, err = sink()
+			local out = sink()
 			local e = select(1, sink())
 			assert.are.equal(2, linux.helper_main({}, out, e))
 			assert.are.equal(2, linux.helper_main({ "install", "relative/path", "-" }, out, e))
 			assert.are.equal(2, linux.helper_main({ "install" }, out, e))
 			assert.are.equal(2, linux.helper_main({ "rm", "-rf" }, out, e))
-			_ = err
 		end)
 
 		it("won't take an unknown extension", function()

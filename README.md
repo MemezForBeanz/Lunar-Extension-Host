@@ -12,6 +12,15 @@ every organization; a pack's tools open together in its own tab group (say,
 
 Lunar runs on Windows and Linux (GTK 3, under X11 or XWayland).
 
+Double-click a group tab or sidebar entry to hide or restore its child tab bar.
+Its right-click menu also offers **Show icon only** (or the first letter when no
+icon is available); **Show name** restores the label. The full name stays in the tooltip.
+Right-click an extension tab or group and choose **Pop Out in New Window** to work
+in a separate window. Its **Return to main window** button, context menu, or close
+button docks the live contents again. **Return All Windows to Main** is also
+available in the command palette. On restart, popped-out tabs return to their saved
+positions in the main layout.
+
 ## What's in this repository
 
 | | |

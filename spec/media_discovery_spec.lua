@@ -211,7 +211,7 @@ describe("contained video extraction", function()
 end)
 
 describe("saved discovery results and expiring stream cache", function()
-	local db, catalog, path, manager, time, resolutions, clock
+	local db, catalog, path, manager, time, resolutions
 	before_each(function()
 		time, resolutions = 1000, {}
 		path = platform.path:join(platform.temp_dir(), "lunar_discovery_" .. os.time() .. "_" .. math.random(1e9) .. ".sqlite3")

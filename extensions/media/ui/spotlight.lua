@@ -12,10 +12,9 @@ local tint = require("libs.tint")
 
 local M = {}
 
-M.HEIGHT = 240
-local ART_HEIGHT = 228
+M.HEIGHT = 200
+local ART_HEIGHT = M.HEIGHT - L.px(4)
 local WIDE_WIDTH = math.floor(ART_HEIGHT * 16 / 9)
-local POSTER_WIDTH = math.floor(ART_HEIGHT * 2 / 3)
 local RING = 6
 local FADE = 0.42             -- the share of the art, from its right edge, that dissolves
 local EDGE = 0.05             -- the share that softens on the other three sides
@@ -91,10 +90,11 @@ function M.new(ctx, opts)
 	local composed = { key = nil, buffer = nil }
 
 	-- A title page shows the poster whole and sharp; only the wide art on Home dissolves.
-	local ART_WIDTH = opts.compact and POSTER_WIDTH or WIDE_WIDTH
+	local art_height = opts.compact and L.px(12) or ART_HEIGHT
+	local ART_WIDTH = opts.compact and math.floor(art_height * 2 / 3) or WIDE_WIDTH
 	local art = CellGrid.new(iup, { count = 1, cell_width = ART_WIDTH, aspect = opts.compact and "2:3" or "16:9", show_text = false,
 		gutter = 0, padding = 0, value = function() return nil end, role = "flatgrid_plain" })
-	iup.SetAttribute(art.widget, "RASTERSIZE", L.size(ART_WIDTH + 2 * RING, ART_HEIGHT + 2 * RING))
+	iup.SetAttribute(art.widget, "RASTERSIZE", L.size(ART_WIDTH + 2 * RING, art_height + 2 * RING))
 	iup.SetAttribute(art.widget, "EXPAND", "NO")
 	iup.SetAttribute(art.widget, "CANFOCUS", "NO")
 	iup.SetAttribute(art.widget, "FLATSCROLLBAR", "NO")
@@ -107,7 +107,9 @@ function M.new(ctx, opts)
 	local title = iup.flatlabel({ TITLE = "", THEMEROLE = "pagetitle" })
 	local meta = iup.flatlabel({ TITLE = "", THEMEROLE = "reading_muted" })
 	local overview = iup.flatlabel({ TITLE = "", THEMEROLE = "reading", TEXTWRAP = "YES", EXPAND = "HORIZONTAL",
-		ALIGNMENT = "ALEFT:ATOP", RASTERSIZE = "x44" })
+		-- A 1 px natural width: the line takes the room the hero gives it and wraps there,
+		-- instead of its unwrapped width pushing the words past the hero's right edge.
+		ALIGNMENT = "ALEFT:ATOP", RASTERSIZE = "1x44" })
 	local play = Kit.button(iup, { title = "Play", icon = "play--filled--alt", role = "primary_btn",
 		action = function() if current then opts.on_play(current) end end })
 	iup.SetAttribute(play, "RASTERSIZE", "132x40")
@@ -117,12 +119,14 @@ function M.new(ctx, opts)
 	end })
 	iup.SetAttribute(info, "RASTERSIZE", (opts.secondary and "168" or "112") .. "x40")
 
+	api.primary = play
+	api.secondary = info
 	local dots = iup.hbox({ GAP = L.gap(1), MARGIN = "0x0", ALIGNMENT = "ACENTER" })
 	local dot_widgets = {}
 
 	local words = iup.vbox({
 		iup.fill({}), eyebrow, title, meta, overview,
-		iup.hbox({ play, info, GAP = L.gap(2), MARGIN = "0x" .. L.gap(2) }),
+		iup.hbox({ opts.header_action and iup.fill({}) or play, info, GAP = L.gap(2), MARGIN = "0x" .. L.gap(2) }),
 		iup.fill({}), dots,
 		GAP = L.gap(1), MARGIN = L.gap(3) .. "x" .. L.gap(3), EXPAND = "YES",
 	})
@@ -134,6 +138,15 @@ function M.new(ctx, opts)
 	})
 
 	local painted = { title, meta, overview, eyebrow, art.widget, dots }
+	if opts.compact then
+		-- The breadcrumb owns identity; this is an unboxed poster and synopsis.
+		Kit.show(iup, title, false)
+		Kit.show(iup, eyebrow, false)
+		iup.SetAttribute(api.widget, "THEMEROLE", "page_column")
+		iup.SetAttribute(api.widget, "FRAME", "NO")
+		iup.SetAttribute(api.widget, "RASTERSIZE", L.size(nil, art_height + L.px(5)))
+		if opts.header_action then Kit.show(iup, iup.GetParent(info), false) end
+	end
 
 	local function recolour()
 		if base then colour = tint.surface(base[1], base[2], base[3], light)
@@ -143,6 +156,7 @@ function M.new(ctx, opts)
 
 	-- A theme change paints over these, so they are put back on the next tick.
 	local function wear()
+		if opts.compact then return end
 		local page_light = tint.isLight(ThemeReactor.palette().bg)
 		if page_light ~= light then
 			light = page_light

@@ -1,0 +1,101 @@
+-- Owner-drawn IUP canvas and its flat scrollbars.
+-- @module core.imgui.widgets.canvas
+local Classes = require("core.imgui.Classes")
+local Element = require("core.imgui.Element")
+local Draw = require("core.imgui.Draw")
+local iup = require("core.imgui.iup")
+
+local function attr(e, n) return Element.getAttribute(e, n) end
+local function call_result(e, name, ...)
+	return Element.call(e, name, ...)
+end
+local function natural(e, st, L)
+	local cw, ch = L.charsize(e)
+	local rw, rh = L.size(Element.own(e, "RASTERSIZE"))
+	return rw or cw, rh or ch
+end
+local function draw(e, st, dc, rt)
+	if attr(e, "BGCOLOR") then dc:fill(st.x, st.y, st.w, st.h, attr(e, "BGCOLOR")) end
+	if not st.mapped then st.mapped = true; call_result(e, "MAP_CB") end
+	if st.last_w ~= st.w or st.last_h ~= st.h then
+		st.last_w, st.last_h = st.w, st.h
+		call_result(e, "RESIZE_CB", st.w, st.h)
+	end
+	local dx, dy = tonumber(attr(e, "DX")) or 0, tonumber(attr(e, "DY")) or 0
+	local px, py = tonumber(attr(e, "POSX")) or 0, tonumber(attr(e, "POSY")) or 0
+	-- IUP calls ACTION on WM_PAINT: when the canvas shows, changes size or scroll, or is
+	-- invalidated (IupUpdate, IupRedraw, a visual attribute on it or an ancestor). Any
+	-- other frame replays what the last ACTION drew, moved to where the canvas is now.
+	local ax, ay = (dc.ox or 0) + st.x, (dc.oy or 0) + st.y
+	-- the part of the canvas the enclosing clip leaves visible, in canvas coordinates
+	local cx1 = math.max(0, (dc.cx1 or 0) - ax)
+	local cy1 = math.max(0, (dc.cy1 or 0) - ay)
+	local cx2 = math.min(st.w, (dc.cx2 or 0) - ax)
+	local cy2 = math.min(st.h, (dc.cy2 or 0) - ay)
+	local surface = dc.surface_id or 0
+	local cacheable = rt and rt.paintGen and dc.rec == nil and (dc.alpha or 1) == 1
+	local c = st.data.paint
+	local frame = cacheable and rt.frameNo() or 0
+	if cacheable and c and c.frame == frame - 1 and c.gen >= rt.paintGen(e)
+		and c.w == st.w and c.h == st.h and c.dx == dx and c.dy == dy and c.px == px and c.py == py
+		and c.cx1 == cx1 and c.cy1 == cy1 and c.cx2 == cx2 and c.cy2 == cy2 and c.surface == surface then
+		dc:replay(c.list, ax - c.ax, ay - c.ay) -- (c.ax, c.ay): where it was when recorded
+		c.frame = frame
+	else
+		if cacheable then dc:record(true) end
+		local gen = cacheable and rt.paintGenNow() or 0
+		Draw.enterCanvas(e, dc)
+		dc:offset_push(-dx, -dy)
+		local result = call_result(e, "ACTION", px, py)
+		dc:offset_pop()
+		Draw.leaveCanvas()
+		if cacheable then
+			local list = dc:stop()
+			if c then Draw.releaseRecording(c.list) end
+			st.data.paint = { list = list, gen = gen, frame = frame, ax = ax, ay = ay, w = st.w, h = st.h,
+				dx = dx, dy = dy, px = px, py = py, cx1 = cx1, cy1 = cy1, cx2 = cx2, cy2 = cy2, surface = surface }
+		end
+		if result == iup.CLOSE then st.close_result = result end
+	end
+	if attr(e, "BORDER") ~= "NO" then dc:rect(st.x, st.y, st.w, st.h, attr(e, "BORDERCOLOR") or attr(e, "FGCOLOR"), { thickness = 1 }) end
+end
+local function event(e, st, ev, rt)
+	local x, y = ev.lx or ((ev.x or st.x) - st.x), ev.ly or ((ev.y or st.y) - st.y)
+	local status = ev.status or iup._status(ev.mods)
+	if ev.type == "press" or ev.type == "release" then
+		-- IUP passes the button as the character '1' '2' '3' (iup.BUTTON1...)
+		local r = call_result(e, "BUTTON_CB", ev.iupbutton or 48 + ev.button, ev.type == "press" and 1 or 0, x, y, status)
+		if r == iup.CLOSE then ev.result = r end
+		if ev.type == "press" then rt.capture(e) else rt.release() end
+		return true
+	elseif ev.type == "move" then
+		local r = call_result(e, "MOTION_CB", x, y, status)
+		if r == iup.CLOSE then ev.result = r end
+		return true
+	elseif ev.type == "wheel" then
+		-- winCanvasMsgProc WM_MOUSEWHEEL: WHEEL_CB takes it; without one a canvas with a
+		-- vertical bar scrolls, and any other lets DefWindowProc pass it to the parent.
+		if not Element.hasCallback(e, "WHEEL_CB") then
+			local sb = tostring(attr(e, "SCROLLBAR") or "NO"):upper()
+			return sb == "YES" or sb == "VERTICAL"
+		end
+		local r = call_result(e, "WHEEL_CB", ev.dy or ev.delta or 0, x, y, status)
+		if r == iup.CLOSE then ev.result = r end
+		return true
+	elseif ev.type == "enter" then return true -- the runtime fires ENTERWINDOW_CB for every element
+	elseif ev.type == "leave" then return true
+	elseif ev.type == "key" then
+		local r = call_result(e, "KEYPRESS_CB", ev.key, 1)
+		if r == iup.CLOSE then ev.result = r end
+		return r ~= iup.IGNORE
+	elseif ev.type == "char" then call_result(e, "KEYPRESS_CB", ev.char, 1); return true end
+	return false
+end
+Classes.define{
+	name="canvas", children=0, natural=natural, draw=draw, event=event,
+	expandDefault="YES", -- iCanvasCreateMethod: ih->expand = IUP_EXPAND_BOTH
+	defaults={BORDER="YES", EXPAND="YES", CANFOCUS="YES", DRAWSTYLE="STROKE", DRAWLINEWIDTH="1"},
+	callbacks={ACTION=true, BUTTON_CB=true, MOTION_CB=true, WHEEL_CB=true, ENTERWINDOW_CB=true, LEAVEWINDOW_CB=true, KEYPRESS_CB=true, K_ANY=true, RESIZE_CB=true, MAP_CB=true, SCROLL_CB=true},
+	focusable=true,
+}
+return Classes

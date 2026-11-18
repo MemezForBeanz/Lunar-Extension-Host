@@ -1,0 +1,336 @@
+--- A backend with no window: the same calls as the native one, recorded in memory.
+--
+-- The busted suite drives the whole ImGui host through this: it queues input frames,
+-- advances a fake clock, and reads back the draw calls a frame produced. Text metrics
+-- are deterministic: every character is `px / 2` wide and a line is `ceil(px * 1.25)`
+-- tall, so layouts can be asserted to the pixel.
+--
+-- @module core.imgui.backend.Null
+local M = {}
+
+function M.new(opts)
+	opts = opts or {}
+	local B = {
+		name = "null",
+		w = opts.w or 1280, h = opts.h or 800,
+		clock = 0, open_ = false, frames = 0,
+		calls = {}, frame_calls = {}, inputs = {}, window_calls = {},
+		mx = -1, my = -1, down = { false, false, false },
+		clipboard = "", cursor_name = "ARROW", title = nil,
+		maximized = false, minimized = false, x = 100, y = 100,
+		textures = {}, next_tex = 1, fonts = { [0] = "default" }, next_font = 1,
+		file_dialog_result = nil, message_boxes = {},
+		dpi_scale = opts.scale or 1,
+		next_child = 1000, video_hosts = {}, tray = false,
+	}
+
+	local function record(op, ...)
+		local c = { op, ... }
+		B.frame_calls[#B.frame_calls + 1] = c
+	end
+
+	function B.open(o)
+		o = o or {}
+		B.open_ = true
+		B.title = o.title
+		if o.w then B.w = o.w end
+		if o.h then B.h = o.h end
+		if o.x then B.x = o.x end
+		if o.y then B.y = o.y end
+		B.maximized = o.maximized and true or false
+		return true
+	end
+	function B.close() B.open_ = false end
+	function B.alive() return B.open_ end
+	function B.now() return B.clock end
+	function B.wait(t) B.clock = B.clock + math.max(0, math.min(t or 0, 1)) end
+	function B.advance(dt) B.clock = B.clock + dt end
+
+	--- Queue an input frame: { mx, my, press = 1, release = 1, wheel = -1, keys = {...},
+	-- chars = {...}, w, h, close_requested }. Unset fields keep the last state.
+	function B.queue(input) B.inputs[#B.inputs + 1] = input end
+	function B.injectTray(button, pressed, double)
+		B.inputs[#B.inputs + 1] = { events = {{ type = "tray", button = button, dx = pressed, double = double }} }
+	end
+
+	function B.frame_begin()
+		B.frames = B.frames + 1
+		B.calls = B.frame_calls
+		B.frame_calls = {}
+		local q = table.remove(B.inputs, 1) or {}
+		if q.w then B.w = q.w end
+		if q.h then B.h = q.h end
+		if q.mx then B.mx = q.mx end
+		if q.my then B.my = q.my end
+		local pressed, released, double = {}, {}, {}
+		for b = 1, 3 do pressed[b], released[b], double[b] = 0, 0, 0 end
+		if q.press then pressed[q.press] = 1; B.down[q.press] = true end
+		if q.release then released[q.release] = 1; B.down[q.release] = false end
+		if q.double then double[q.double] = 1; pressed[q.double] = 1 end
+		local mods = q.mods or {}
+		return {
+			w = B.w, h = B.h, scale = B.dpi_scale,
+			mx = B.mx, my = B.my, inside = B.mx >= 0,
+			down = { B.down[1], B.down[2], B.down[3] },
+			pressed = pressed, released = released, double = double,
+			wheel_x = q.wheel_x or 0, wheel_y = q.wheel or 0,
+			keys = q.keys or {}, chars = q.chars or {},
+			mods = { shift = mods.shift or false, ctrl = mods.ctrl or false, alt = mods.alt or false, sys = mods.sys or false },
+			focused = true, resized = q.w ~= nil, close_requested = q.close_requested or false,
+			minimized = B.minimized and true or false,
+			files = q.files or {},
+			-- Ordered events, as the native backend reports them: { type = "move"|"press"|
+			-- "release"|"wheel"|"leave"|"keydown"|"char", x, y, button, double, dx, dy, code,
+			-- char, mods = { shift, ctrl, alt, sys, b1, b2, b3 } }.
+			events = q.events and B._events(q.events) or nil,
+		}
+	end
+
+	-- Fill in what a queued event leaves out: the last pointer position and plain mods.
+	function B._events(list)
+		local out = {}
+		for i, e in ipairs(list) do
+			local ev = {}
+			for k, v in pairs(e) do ev[k] = v end
+			ev.x = ev.x or B.mx
+			ev.y = ev.y or B.my
+			ev.dx, ev.dy = ev.dx or 0, ev.dy or 0
+			ev.mods = ev.mods or { shift = false, ctrl = false, alt = false, sys = false,
+				b1 = ev.type == "press" and ev.button == 1, b2 = false, b3 = false }
+			if ev.type ~= "leave" and ev.type ~= "keydown" and ev.type ~= "char" then B.mx, B.my = ev.x, ev.y end
+			out[i] = ev
+		end
+		return out
+	end
+
+	function B.frame_end() B.last = B.frame_calls end
+
+	--- The calls of the frame that was last ended.
+	function B.lastFrame() return B.last or {} end
+
+	function B.rect(...) record("rect", ...) end
+	function B.rect_filled(...) record("rect_filled", ...) end
+	function B.rect_gradient(...) record("rect_gradient", ...) end
+	function B.line(...) record("line", ...) end
+	function B.circle(...) record("circle", ...) end
+	function B.poly(...) record("poly", ...) end
+	function B.text(...) record("text", ...) end
+	function B.image(...) record("image", ...) end
+	function B.image_rounded(...) record("image_rounded", ...) end
+	function B.clip_push(...) record("clip_push", ...) end
+	function B.clip_pop(...) record("clip_pop", ...) end
+	function B.layer(...) record("layer", ...) end
+
+	local function utf8len(s)
+		local _, n = s:gsub("[^\128-\191]", "")
+		return n
+	end
+
+	function B.text_size(font, px, str, wrap)
+		local w, lines = 0, 0
+		for line in (str .. "\n"):gmatch("(.-)\n") do
+			lines = lines + 1
+			w = math.max(w, utf8len(line) * px / 2)
+		end
+		if wrap and wrap > 0 and w > wrap then
+			lines = lines + math.floor(w / wrap)
+			w = wrap
+		end
+		return w, math.ceil(px * 1.25) * math.max(1, lines)
+	end
+
+	function B.font_metrics(font, px)
+		return px, math.ceil(px * 1.25) - px, math.ceil(px * 1.25), px / 2
+	end
+
+	function B.font_load(path)
+		local id = B.next_font
+		B.next_font = id + 1
+		B.fonts[id] = path
+		return id
+	end
+
+	function B.font_find(face, bold, italic)
+		return (face or "default") .. (bold and "-bold" or "") .. (italic and "-italic" or "") .. ".ttf"
+	end
+
+	--- Name tables of fake font files: B.font_name_tables[path] = { [1]=family, [2]=sub, [4]=full }
+	B.font_name_tables = {}
+	function B.font_names(path) return B.font_name_tables[path] end
+
+	function B.texture(rgba, w, h)
+		local id = B.next_tex
+		B.next_tex = id + 1
+		B.textures[id] = { w = w, h = h, bytes = type(rgba) == "string" and #rgba or 0 }
+		return id
+	end
+	function B.texture_free(id) B.textures[id] = nil end
+	function B.texture_bits(ptr, w, h, stride, premultiplied)
+		if not ptr or not w or not h or w <= 0 or h <= 0 then return nil end
+		local id = B.next_tex
+		B.next_tex = id + 1
+		B.textures[id] = { w = w, h = h, bits = ptr, stride = stride or w * 4, premultiplied = premultiplied ~= false }
+		return id
+	end
+
+	function B.cursor(name) B.cursor_name = name end
+	function B.clipboard_get() return B.clipboard end
+	function B.clipboard_set(s) B.clipboard = s end
+	function B.cursor_pos() return B.x + math.max(0, B.mx), B.y + math.max(0, B.my) end
+
+	function B.window(op, a, b, c, d)
+		B.window_calls[#B.window_calls + 1] = { op, a, b, c, d }
+		if op == "limits" then
+			if b and b ~= 0 and B.popups and B.popups[b] then B.popups[b].limits = a else B.limits = a end
+			return
+		elseif op == "title" then if a ~= nil then B.title = a end return B.title
+		elseif op == "size" then if a then B.w, B.h = a, b end return B.w, B.h
+		elseif op == "pos" then if a then B.x, B.y = a, b end return B.x, B.y
+		elseif op == "client_origin" then return B.x, B.y
+		elseif op == "maximize" then B.maximized = true; B.minimized = false
+		elseif op == "minimize" then B.minimized = true
+		elseif op == "restore" then B.maximized = false; B.minimized = false
+		elseif op == "is_maximized" then return B.maximized
+		elseif op == "is_minimized" then return B.minimized
+		elseif op == "fullscreen" then B.fullscreen = a and true or false
+		elseif op == "show" then B.visible = true
+		elseif op == "hide" then
+			B.visible = false
+			for _, host in pairs(B.video_hosts) do host.visible = false end
+		elseif op == "focus" then return true
+		elseif op == "hwnd" then return 0
+		elseif op == "caption" then B.caption = { a, b }
+		elseif op == "screen" then return 1920, 1040
+		elseif op == "full" then return 1920, 1080
+		elseif op == "dpi" then return B.dpi_scale
+		elseif op == "icon" then B.icon = { a, b, c }
+		elseif op == "tray" then B.tray = a and true or false; if b ~= nil then B.tray_tip = b end
+		elseif op == "traytip" then B.tray_tip = a
+		elseif op == "videohost_create" then
+			local id = B.next_child; B.next_child = id + 1
+			B.video_hosts[id] = { bgcolor = a, visible = false }
+			return id
+		elseif op == "videohost_frame" then
+			for _, host in pairs(B.video_hosts) do host.visible = false end
+		elseif op == "videohost" then
+			local host = B.video_hosts[a]
+			if host then host.rect, host.visible = b, c and true or false end
+		elseif op == "videohost_destroy" then B.video_hosts[a] = nil
+		elseif op == "videohost_id" then return a
+		end
+		return nil
+	end
+
+	function B.file_dialog(o)
+		B.last_file_dialog = o
+		return B.file_dialog_result
+	end
+
+	function B.message_box(title, text, kind)
+		B.message_boxes[#B.message_boxes + 1] = { title, text, kind }
+		return 1
+	end
+
+	-- Dialog windows (opts.dialog_windows): what lunarimgui does for window("popup_*"), kept
+	-- in B.popups[id] = { opts, x, y, w, h, visible, modal, title }. A test plays the user by
+	-- setting x, y, w, h (moved or sized), close (the close button) or minimized. Draw calls
+	-- record "surface" when they switch to a dialog window (id) or back to the main one (0).
+	if opts.dialog_windows then
+		B.dialog_windows = true
+		B.popups, B.next_popup, B.surface_id = {}, 1, 0
+		function B.surface(id) B.surface_id = id or 0; record("surface", B.surface_id) end
+		local frame_begin = B.frame_begin
+		function B.frame_begin(...) B.surface_id = 0; return frame_begin(...) end
+		local window = B.window
+		function B.window(op, ...)
+			local a = { ... }
+			if op == "popup_open" then
+				local id = B.next_popup; B.next_popup = id + 1
+				B.popups[id] = { opts = a[1], visible = false, x = 0, y = 0, w = 100, h = 100 }
+				return id
+			elseif op == "popup_place" then
+				local p = B.popups[a[1]]
+				if p then
+					p.visible = a[6] and true or false
+					if p.visible then p.x, p.y, p.w, p.h, p.modal, p.title = a[2], a[3], a[4], a[5], a[7], a[8] end
+				end
+				return
+			elseif op == "popup_state" then
+				local p = B.popups[a[1]]
+				if not p then return end
+				local close = p.close; p.close = false
+				return p.x, p.y, p.w, p.h, close and true or false, p.minimized and true or false, p.active and true or false
+			elseif op == "popup_hwnd" then
+				return B.popups[a[1]] and 5000 + a[1] or nil
+			elseif op == "popup_focus" then
+				local p = B.popups[a[1]]
+				if p then p.focused = (p.focused or 0) + 1 end
+				return
+			elseif op == "popup_close" then
+				B.popups[a[1]] = nil
+				return
+			end
+			return window(op, ...)
+		end
+	end
+
+	-- Overlay windows (opts.overlay_windows): what lunarimgui does for window("overlay_*"),
+	-- kept in B.overlays[id] = { owner, passthrough, x, y, w, h, visible, inset }; ids share
+	-- the dialog windows' sequence, as surfaces do. B.overlay_opens counts the windows made.
+	-- window("monitor") answers from B.monitor = { work = { x, y, w, h }, full = { ... } } in
+	-- main-client coordinates. A test destroys a window behind the host's back with
+	-- B.overlays[id] = nil.
+	if opts.overlay_windows then
+		B.overlay_windows = true
+		B.overlays, B.overlay_opens = {}, 0
+		B.next_popup = B.next_popup or 1
+		B.monitor = { work = { -B.x, -B.y, 1920, 1040 }, full = { -B.x, -B.y, 1920, 1080 } }
+		if not B.surface then
+			B.surface_id = 0
+			function B.surface(id) B.surface_id = id or 0; record("surface", B.surface_id) end
+			local frame_begin = B.frame_begin
+			function B.frame_begin(...) B.surface_id = 0; return frame_begin(...) end
+		end
+		local window = B.window
+		function B.window(op, ...)
+			local a = { ... }
+			if op == "overlay_open" then
+				local id = B.next_popup; B.next_popup = id + 1
+				B.overlay_opens = B.overlay_opens + 1
+				B.overlays[id] = { owner = a[1] and a[1].owner or 0, passthrough = a[1] and a[1].passthrough and true or false,
+					under = a[1] and a[1].under or 0,
+					visible = false, x = 0, y = 0, w = 1, h = 1, inset = 0 }
+				return id
+			elseif op == "overlay_place" then
+				local p = B.overlays[a[1]]
+				if not p then return false end
+				p.visible = a[6] and true or false
+				if p.visible then p.x, p.y, p.w, p.h, p.inset = a[2], a[3], a[4], a[5], a[7] or 0 end
+				return true
+			elseif op == "overlay_close" then
+				B.overlays[a[1]] = nil
+				return
+			elseif op == "monitor" then
+				local m = B.monitor
+				return m.work[1], m.work[2], m.work[3], m.work[4], m.full[1], m.full[2], m.full[3], m.full[4]
+			elseif op == "popup_close" and B.popups then
+				-- Windows destroys what a window owns
+				for id, p in pairs(B.overlays) do if p.owner == a[1] then B.overlays[id] = nil end end
+			end
+			return window(op, ...)
+		end
+	end
+
+	--- Every text string drawn in the last frame, in order (handy in tests).
+	function B.texts()
+		local out = {}
+		for _, c in ipairs(B.last or {}) do
+			if c[1] == "text" then out[#out + 1] = c[7] end
+		end
+		return out
+	end
+
+	return B
+end
+
+return M

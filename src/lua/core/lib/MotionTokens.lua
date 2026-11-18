@@ -174,6 +174,13 @@ end
 -- @field progress_advance a progress bar moving between values
 -- @field status_change the status line changing text
 M.ROLES = {
+	icon_morph = { duration = M.DURATION.fast_02, curve = "standard", style = "productive" },
+	icon_row = { duration = M.DURATION.fast_02, curve = "entrance", style = "productive" },
+	icon_settle = { duration = M.DURATION.moderate_01, curve = "entrance", style = "productive" },
+	icon_spin = { duration = 1000, curve = "linear" },
+	icon_connect = { duration = 1200, curve = "linear" },
+	icon_activity = { duration = 900, curve = "linear" },
+	icon_hold = { duration = 1200, curve = "linear" },
 	-- Switching tabs. The single most repeated navigation in the app, so it is
 	-- productive and firmly in the middle of the duration band -- long enough to
 	-- read as movement, short enough that a user stepping through five tabs is
@@ -247,11 +254,11 @@ M.ROLES = {
 	-- The duration is explicit because the sweep is a fixed 90 degrees whatever
 	-- the section contains, not derived from the body's height.
 	--
-	-- Entrance easing: the chevron arrives at its open position and slows to a
+	-- Standard easing: the chevron remains visible as it rotates to a
 	-- stop, matching content appearing in a seam.
 	settings_expand = {
 		duration = M.DURATION.fast_02,
-		curve    = "entrance",
+		curve    = "standard",
 		style    = "productive",
 	},
 
@@ -386,7 +393,7 @@ M.ROLES = {
 	-- purpose: the old window is fading out on top of this button, and the end of
 	-- the turn is what should be seen clearly.
 	theme_mode_icon = {
-		duration = M.DURATION.slow_02,
+		duration = M.DURATION.slow_01,
 		curve    = "standard",
 		style    = "expressive",
 	},
@@ -399,6 +406,45 @@ M.ROLES = {
 		curve    = "standard",
 		style    = "productive",
 	},
+
+	-- The selected tab's indicator line sliding from the old tab to the new one. It
+	-- moves with the page push (`tab_transition`) and tells the same story at the
+	-- top of the page: where the selection went. Its duration follows the distance
+	-- (no `duration`: MotionTokens.duration), so the next tab and the far end of a
+	-- long strip feel equally brisk. Drawn by the widget itself (core.imgui.motion),
+	-- so only the ImGui host has it.
+	tab_indicator = {
+		curve = "standard",
+		style = "productive",
+	},
+
+	-- A tab's colours changing as it is selected or left: the text and fill cross-fade
+	-- at the fade token while the indicator slides.
+	tab_select = {
+		duration = M.DURATION.fast_02,
+		curve    = "standard",
+		style    = "productive",
+	},
+
+	-- Hover feedback on a control (fill and text colour easing in and out): Carbon's
+	-- button token. Fast enough never to be waited on, slow enough that moving the
+	-- pointer across a strip reads as light following it rather than flicker.
+	hover = {
+		duration = M.DURATION.fast_01,
+		curve    = "standard",
+		style    = "productive",
+	},
+	focus = { duration = M.DURATION.fast_01, curve = "standard", style = "productive" },
+	toggle = { duration = M.DURATION.fast_01, curve = "standard", style = "productive" },
+	disclosure = { duration = M.DURATION.fast_02, curve = "standard", style = "productive" },
+	menu_enter = { duration = M.DURATION.moderate_01, curve = "entrance", style = "productive" },
+	menu_exit = { duration = M.DURATION.fast_02, curve = "exit", style = "productive" },
+	dropdown_enter = { duration = M.DURATION.moderate_01, curve = "entrance", style = "productive" },
+	dropdown_exit = { duration = M.DURATION.fast_02, curve = "exit", style = "productive" },
+	tooltip_enter = { duration = M.DURATION.fast_02, curve = "entrance", style = "productive", delay = 500 },
+	tooltip_exit = { duration = M.DURATION.fast_02, curve = "exit", style = "productive" },
+	notification_enter = { duration = M.DURATION.moderate_02, curve = "entrance", style = "expressive" },
+	notification_exit = { duration = M.DURATION.moderate_02, curve = "exit", style = "expressive" },
 }
 
 -- Two Carbon moments are deliberately absent, and it is worth recording why so
@@ -411,13 +457,12 @@ M.ROLES = {
 -- Animating either means owner-drawing menus, which costs their keyboard handling
 -- and screen-reader behaviour to buy 150 ms of movement. Not a trade worth making.
 --
--- **Hover.** `fast_01` is Carbon's button/toggle token, but IUP's flat controls
--- apply `HLCOLOR` themselves the instant the pointer enters. Tweening it would mean
--- clearing that and driving `BGCOLOR` from `ENTERWINDOW_CB`, fighting the control's
--- own state on every widget in the app for a 70 ms transition -- which is close to
--- the threshold of perception anyway. Carbon's fourth review question is "is your
--- motion frequently noticed? If so, consider removing it"; this one would be
--- noticed only when it broke.
+-- **Hover, on the IUP host.** `fast_01` is Carbon's button/toggle token, but IUP's
+-- flat controls apply `HLCOLOR` themselves the instant the pointer enters. Tweening
+-- it there would mean clearing that and driving `BGCOLOR` from `ENTERWINDOW_CB`,
+-- fighting the control's own state on every widget in the app. The ImGui host draws
+-- its controls itself, so there each widget eases its own hover (role `hover`,
+-- through core.imgui.motion); the IUP build keeps instant hover.
 
 --- Carbon's recommended order for content entering a view.
 --

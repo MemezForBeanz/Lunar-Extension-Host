@@ -21,6 +21,7 @@
 -- @module core.lib.Service
 
 local ok_ffi, ffi = pcall(require, "ffi")
+if not ok_ffi then ffi = nil end -- pcall leaves the error message there
 local cjson = require("cjson")
 local platform = require("core.platform")
 local Instance = require("core.lib.Instance")

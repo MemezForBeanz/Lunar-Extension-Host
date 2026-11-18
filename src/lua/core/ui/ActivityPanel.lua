@@ -25,7 +25,7 @@ local Activity = require("core.classes.Activity")
 local ActivityPanel = {}
 ActivityPanel.__index = ActivityPanel
 
-local WIDTH, ROW_HEIGHT, MAX_ROWS = 420, 44, 7
+local WIDTH, ROW_HEIGHT, MAX_ROWS = 420, L.CARBON.table_row, 7
 local HEADER_HEIGHT, HINT_HEIGHT = 36, 28
 -- The header, its rule, the hint, the frame's edge and the padding around the rows.
 local CHROME = HEADER_HEIGHT + 1 + HINT_HEIGHT + 2 + L.SPACING[3]
@@ -42,7 +42,9 @@ local SPIN_FRAMES = 12
 
 local SEPARATOR = "  |  "
 local STATE_WORDS = { running = "Running", ok = "Finished", failed = "Failed", cancelled = "Cancelled" }
-local GLYPHS = { ok = "activity_ok", failed = "activity_failed", cancelled = "activity_stopped" }
+-- The rows wear the same glyphs as every other state list (core.ui.StateIcon "row"):
+-- a job the user stopped reads as skipped, not as a failure.
+local ROW_STATES = { queued = "queued", running = "running", ok = "ok", failed = "failed", cancelled = "skipped" }
 
 --- Turn the store's entries into rows, newest first.
 -- @tparam table store a `core.classes.Activity`
@@ -187,7 +189,7 @@ function ActivityPanel:_build()
 	local title = iup.flatlabel({ TITLE = "Activity", EXPAND = "HORIZONTAL", THEMEROLE = "palette_text",
 		ALIGNMENT = "ALEFT:ACENTER", RASTERSIZE = "x" .. HEADER_HEIGHT })
 	local count = iup.flatlabel({ TITLE = "", ALIGNMENT = "ARIGHT:ACENTER",
-		RASTERSIZE = "96x" .. HEADER_HEIGHT, THEMEROLE = "palette_hint" })
+		RASTERSIZE = "96x" .. HEADER_HEIGHT, THEMEROLE = "palette_text" })
 	local canvas = iup.canvas({
 		EXPAND = "YES",
 		BORDER = "NO",
@@ -199,13 +201,18 @@ function ActivityPanel:_build()
 		ALIGNMENT = "ALEFT:ACENTER", RASTERSIZE = "x" .. HINT_HEIGHT })
 	local frame = iup.flatframe({
 		iup.vbox({
-			iup.hbox({ title, count, MARGIN = L.margin(5, 0), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" }),
+		iup.hbox({ title, count, MARGIN = L.margin(5, 0), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL", THEMEROLE = "palette_text" }),
 			iup.flatseparator({ ORIENTATION = "HORIZONTAL", STYLE = "LINE", BARSIZE = "1" }),
 			iup.vbox({ canvas, MARGIN = L.margin(0, 2) }),
 			iup.hbox({ hint, MARGIN = L.margin(5, 0), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" }),
 			MARGIN = "1x1",
 		}),
 		TITLE = "",
+		-- No title band. On IUP, IupCreate applies the DEFAULTTHEME global, whose flatframe
+		-- class rule (TITLEPADDING=12x4, for titled cards) gives an empty title 8 px when the
+		-- frame is built after the startup theme pass: a band above the header that depended
+		-- on build order. Saying it here makes both builds the same.
+		TITLEPADDING = "0x0",
 		EXPAND = "YES",
 		THEMEROLE = "palette_frame",
 	})
@@ -558,19 +565,34 @@ function ActivityPanel:_pill(x1, y1, x2, y2, color, radius)
 	iup.DrawImage(canvas, corners.br, x2 - radius + 1, y2 - radius + 1)
 end
 
+-- One cached frame per state, and per spin step while running: painting allocates nothing
+-- once a frame has been drawn.
+local glyph_paths = {}
+local function glyph_path(state, step)
+	local frames = glyph_paths[state]
+	if not frames then frames = {}; glyph_paths[state] = frames end
+	local path = frames[step]
+	if not path then
+		local S = require("core.ui.StateIcon")
+		local svg = S.svg("row", state, state, 1, step / SPIN_FRAMES)
+		path = require("core.ui.AnimatedIcon").frame("activity-row-v1-" .. state .. "-" .. step, svg)
+		frames[step] = path
+	end
+	return path
+end
+
 function ActivityPanel:_glyph(row)
-	local iup = self._iup
 	local VectorIcon = require("core.ui.VectorIcon")
 	if not VectorIcon.available then return nil end
-	if row.state == "running" then
-		return VectorIcon.imageHandle(iup, {
-			path = self._icon_dir .. "/in-progress.svg",
-			size = GLYPH_SIZE,
-			color = VectorIcon.roleColor("info"),
-			rotation = self._frame * (360 / SPIN_FRAMES),
-		})
-	end
-	return require("core.ui.StatusIcon").imageHandle(iup, self._icon_dir, GLYPHS[row.state], GLYPH_SIZE)
+	local state = ROW_STATES[row.state]
+	if not state then return nil end
+	local path = glyph_path(state, state == "running" and self._frame or 0)
+	if not path then return nil end
+	local role = require("core.ui.StateIcon").definition("row").states[state].role
+	return VectorIcon.imageHandle(self._iup, {
+		path = path, size = GLYPH_SIZE,
+		color = VectorIcon.roleColor((role == nil or role == "muted") and "neutral" or role),
+	})
 end
 
 function ActivityPanel:_paintRow(row, y, w, colors, selected)
@@ -601,6 +623,8 @@ function ActivityPanel:_paintRow(row, y, w, colors, selected)
 			self:_text(title, x1, y1, chip_w, CHIP_HEIGHT, colors.text, colors.font_small, "ACENTER")
 			right = x1 - L.SPACING[1]
 		end
+		-- the elapsed time stands apart from the chips, not against their labels
+		if #row.actions > 0 then right = right - L.SPACING[4] end
 	end
 
 	local meta_x = right - ELAPSED_WIDTH

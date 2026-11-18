@@ -18,6 +18,11 @@ local function base(over)
 end
 
 describe("Diagnostics.window_report", function()
+	it("includes the actual renderer and fallback diagnostics when supplied", function()
+		local text=Diagnostics.window_report(base({renderer={active="warp",adapter="Test adapter",fallback_reason="hardware unavailable",resets=1}}))
+		assert.truthy(text:find("Test adapter",1,true))
+		assert.truthy(text:find("hardware unavailable",1,true))
+	end)
 	it("reports the measured shell bands and root tab cap", function()
 		local text = Diagnostics.window_report(base({ layout = {
 			shell_cap = 922, shell_bands = { header = 40, accent = 2, status = 30 },

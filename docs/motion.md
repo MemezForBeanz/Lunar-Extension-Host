@@ -25,8 +25,7 @@ significant moments where the movement itself carries meaning â€” creating a tab
 group, a system alert. It is slower and more pronounced, and overusing it is the
 fastest way to make an interface feel sluggish.
 
-In the shipped host, everything is productive except one thing: combining two tabs
-into a group.
+The host uses expressive motion for group creation, modals and notifications; repeated interactions remain productive.
 
 ## Duration tokens
 
@@ -104,12 +103,98 @@ reason to differ still can. The defaults live in `MotionTokens.ROLES`.
 | `toast_exit` | 240 ms, exit, expressive | Notification leaving |
 | `progress_advance` | 150 ms, standard, productive | A progress bar moving between values |
 | `status_change` | 110 ms, standard, productive | Status-line text cross-fade |
+| `tab_indicator` | dynamic, standard, productive | The selected tab's line sliding to the new tab (ImGui host) |
+| `tab_select` | 110 ms, standard, productive | A tab's text and fill cross-fading as it is selected or left (ImGui host) |
+| `hover` | 70 ms, standard, productive | Hover fill and text easing in and out (ImGui host) |
 
-### Two moments deliberately left un-animated
+On ImGui, dragging lifts the tab header under the pointer and eases neighbouring
+headers aside to preview insertion, horizontally or vertically. The actual tab
+tree changes on release. Group targets keep their position and show an accent
+outline and translucent fill; hovering a closed group also shows its spring-open
+countdown. The whole empty title-bar area accepts sidebar drops. With motion off,
+headers remain still and the drop cues appear immediately.
+
+### Motion inside widgets (the ImGui host)
+
+On the IUP build every effect above is a picture laid over the real widgets, because
+IUP's controls draw themselves in one repaint and offer no way to draw a state on its
+way to another. The ImGui host draws every control itself, every frame, so a control
+can ease the values it draws: `core.imgui.motion` hands a widget the value on the way
+to its target (`number`, `pair` for two values on one clock, `color`, which also fades
+to and from nothing). The control's state, attributes and callbacks change at once, as
+on IUP; only the picture moves.
+
+It uses the same roles, durations and curves, and the host's `MotionDirector`
+attaches itself, so the user's motion setting, the OS's reduced-motion request, the
+duration scale and the theme's role overrides apply to widgets too: with motion off a
+widget draws its target at once. A value seen for the first time is drawn as is, so
+nothing animates into place when a control appears.
+
+The tab strip (`core.imgui.widgets.flattabs`) is the first user: the selected tab's
+line is one indicator that slides and stretches to the new tab (`tab_indicator`; a
+tab that merely moved, as on a resize, takes it along at once), the old and new tabs'
+text and fill cross-fade (`tab_select`), and hover eases in and out (`hover`). All of
+it plays alongside the page push (`tab_transition`). `spec/imgui_motion_spec.lua`
+covers the module and the strip; `scripts/ui_tabmotion.lua` clicks through the real
+app's tabs and, with `LUNAR_TABMOTION_SHOTS=1`, saves every frame of a switch.
+
+### Tab transitions: kinds, themes, settings and extensions
+
+Carbon has no rule for tabs. What it does say decides the design: productive motion
+for a repeated task, expressive motion for "opening a new page", **continuity** through
+what stays put across the change (here the tab strip, whose indicator slides to the
+new tab), duration that grows sub-linearly with distance, and exit easing only for what
+leaves for good. A tab switch is a repeated task, so the default stays productive.
+
+What the two pages do is a **kind** in `core.lib.PageTransitions`: pure geometry that
+turns eased progress into each page's offset, opacity and dimming, plus the kind's own
+duration, curve and style. The same kinds drive both hosts: the IUP build moves
+snapshots of the pages (`core.ui.TabTransition`); the ImGui host's tab strip draws the
+**live** pages (`core.imgui.widgets.flattabs`), so a spinner or a log keeps updating
+through the transition and nothing is captured.
+
+| Kind | What it does | Timing |
+| --- | --- | --- |
+| `push` (default) | Both pages move the way the new tab's position implies, the old one half as far; the new one fades in over it | 240 ms, standard, productive |
+| `fade` | No movement: the new page fades in over the old one | 110 ms, standard, productive |
+| `rise` | The new page rises 16 px into place and fades in; the old one fades away in place | 240 ms, entrance, expressive |
+| `slide` | The new page slides in over the old one, which stays and dims | 240 ms, standard, productive |
+| `none` | Instant | |
+
+Who chooses, highest first: the user (Appearance > Tab transition, saved as
+`motion_tab_transition`; "Theme default" defers), then the theme
+(`tab_transition = { kind = "rise" }` in `Theme:motion()`; the theme's other
+`tab_transition` fields tune that kind), then `push`. With motion off, or the OS asking
+for reduced motion, the switch is instant. A strip opts out with `PAGETRANSITION=NO`.
+
+An extension adds a kind (host API 5). It is listed in Appearance settings, a theme can
+name it, and it is removed when the extension unloads:
+
+```lua
+self:registerPageTransition("drop", {
+    label = "Drop in",
+    role  = { duration = 240, curve = "entrance", style = "expressive" },
+    -- t: eased progress 0..1; ctx: dir (-1 forward, 1 back), w, h, travel, fade...
+    frame = function(t, ctx)
+        return { alpha = 1 - t },                    -- the outgoing page
+               { dy = -24 * (1 - t), alpha = t }     -- the incoming page
+    end,
+})
+```
+
+Each page is drawn as an opaque sheet (the incoming one over the outgoing one), both
+clipped to the page rectangle; `dim` darkens a page. `spec/page_transitions_spec.lua`
+covers the kinds, the choice order, the extension API, the live strip and the snapshot
+path standing down for it; `scripts/ui_tabmotion.lua` plays them in the real app on
+either build (`LUNAR_TABMOTION_SHOTS=1` saves the frames; seed
+`"motion_tab_transition"` in settings to pick a kind).
+
+### Two moments left un-animated on the IUP build
 
 Carbon's own worked example for *semantic consistency* is that a dropdown opening
-should share the accordion's motion, and `fast_01` exists for hover. Neither is
-implemented here, and that is a decision rather than an omission.
+should share the accordion's motion, and `fast_01` exists for hover. On the IUP build
+neither is implemented, and that is a decision rather than an omission (the ImGui
+host eases hover in its own controls, above).
 
 **Menus and dropdowns** are not surfaces this app owns: `core.ui.ContextMenu` shows
 a real Win32 popup menu and `IupDropButton` shows its drop child internally.
@@ -400,6 +485,73 @@ Both roles carry extras:
 A theme can slow the entrance, widen the travel, or shorten the hold by naming
 these roles in its `motion()` table.
 
+## Icons that change state
+
+`core.ui.StateIcon` uses the cached SVG technique of `ModeIcon` and `AnimatedIcon`.
+It only sets image attributes, so it works on either host.
+
+```lua
+local StateIcon = require("core.ui.StateIcon")
+local icon = StateIcon.new(iup, {kind="run",size=16,role="on-accent",
+    animate=function(spec) return director:animate(spec) end})
+icon:attach(button, "IMAGE") -- or place icon:widget() in a layout
+icon:set("working", {progress=0.42})
+icon:set("succeeded")
+print(icon:state())
+icon:destroy() -- cancel before removing the target
+```
+
+The animate callback is optional: the host director registers itself. Roles are
+neutral, muted, accent, on-accent, success, warning and error. End states use
+semantic palette tokens; on-accent preserves contrast on primary buttons.
+`setSize(px)` requests a new raster size when the caller changes DPI.
+
+| Kind | States |
+| --- | --- |
+| run | ready, working, stopping, succeeded, failed |
+| row | queued, running, ok, warning, failed, skipped |
+| connection | offline, connecting, connected, error |
+| refresh | idle, checking, current, available, failed |
+| copy | ready, copied |
+| save | clean, modified, saving, saved, failed |
+| chevron | closed, open |
+| activity | idle, busy, attention |
+| pin, favourite, panel | off, on |
+
+`StateIcon.kinds()` lists registered names. Extensions register shape data on a
+32-unit box with square caps:
+
+```lua
+StateIcon.register("connection-mark", {initial="offline",states={
+    offline={path="M8 16H24",role="muted"},
+    online={glyph="check",role="success"},
+}})
+```
+
+`Kit.button` accepts `state_icon="run"` and returns `button, icon`.
+`Kit.copyButton` confirms successful callbacks; `Kit.disclosure` toggles a chevron.
+`RowList:setState(pos,state,progress)` changes an individual row's status image.
+Call `destroyStateIcons()` before disposing the list. Populating rows alone starts
+no animation.
+
+Transitions use eight steps and loops twelve. A geometry LRU retains 48 frames
+per kind, pinning displayed frames. VectorIcon releases evicted parse and raster
+handles. Theme changes repaint live icons. Timing roles are icon_morph (110ms
+standard), icon_row (110ms entrance), icon_settle (150ms entrance), icon_spin
+(1000ms linear), icon_connect (1200ms linear), icon_activity (900ms linear), and
+icon_hold (1200ms). Run success and copy confirmation hold, then return to ready.
+
+Only real work loops, with at most four loops at once. Determinate progress has
+no idle clock. Hidden widgets suspend on an existing ImGui UI frame and resume
+when their page is shown. No private timer polls idle icons. Reduced motion swaps
+glyphs immediately and leaves work static; keep accompanying status text visible.
+Real IUP callers should re-set the current state when remapping a hidden container;
+it does not provide the ImGui frame visibility hook.
+
+Run `scripts/ui_stateicons.lua` through `cap-ui.ps1 -Script` for every ordered
+state pair, at 16px and 20px, with enlarged frames and static Carbon references.
+The probe paginates to fit the viewport.
+
 ## Implementation
 
 | Module | Role |
@@ -449,3 +601,51 @@ build\bin\Lunar.exe scripts\motion_check.lua
 
 That probes the clock, the FFI easing table, compositor creation, snapshot capture
 (including a 200-cycle leak check) and a live transition.
+
+
+## Carbon v11 audit (UI council U2)
+
+Source: https://carbondesignsystem.com/elements/motion/overview/ and
+https://carbondesignsystem.com/elements/motion/choreography/ (retrieved 2026-11-16).
+Carbon supplies the timing scale and curve selection principles; the role assignments
+below are the host's application of those principles, not component-specific timing
+claims from Carbon. Entrances ease out, permanent exits ease in, visible changes use
+standard. A returning side panel is the documented standard-curve exception.
+
+| Element | Role | Duration token | Curve / style | Carbon guidance |
+| --- | --- | --- | --- | --- |
+| Tab page push | tab_transition | moderate_02, 240 ms | standard / productive | Overview: productive navigation |
+| Tab indicator | tab_indicator | distance-derived, 110–400 ms | standard / productive | Duration: distance |
+| Tab colors | tab_select | fast_02, 110 ms | standard / productive | Duration: fade |
+| Drag insertion caret | tab_drag_caret | fast_02, 110 ms | standard / productive | Feedback on user input |
+| Drag combine hint | tab_drag_combine | fast_02, 110 ms | entrance / expressive | Meaningful grouping |
+| Group creation | tab_group_merge | slow_01, 400 ms | entrance / expressive | Significant moments |
+| Disclosure chevron | settings_expand, settings_collapse, disclosure | fast_02, 110 ms | standard / productive | Visible at both ends; corrected expand |
+| Hover | hover | fast_01, 70 ms | standard / productive | Duration: buttons |
+| Focus, toggle | focus, toggle | fast_01, 70 ms | standard / productive | Duration: microinteractions |
+| Scrim in | scrim_in | slow_02, 700 ms | entrance / productive | Duration: background dimming |
+| Scrim out | scrim_out | moderate_02, 240 ms | exit / productive | Exit easing |
+| Modal in | modal_enter | moderate_02, 240 ms | entrance / expressive | Significant moment |
+| Modal submit | modal_exit | fast_02, 110 ms | exit / expressive | Permanent exit |
+| Modal cancel | modal_cancel | moderate_02, 240 ms | standard / productive | Nearby surface exception |
+| Toast in/out | toast_enter, toast_exit | moderate_02, 240 ms | entrance / exit, expressive | System communication |
+| Inline notification in/out | notification_enter, notification_exit | moderate_02, 240 ms | entrance / exit, expressive | System communication |
+| Menu / dropdown in | menu_enter, dropdown_enter | moderate_01, 150 ms | entrance / productive | Revealing information |
+| Menu / dropdown out | menu_exit, dropdown_exit | fast_02, 110 ms | exit / productive | Permanent exit |
+| Tooltip in/out | tooltip_enter, tooltip_exit | fast_02, 110 ms; 500 ms delay | entrance / exit, productive | Fade; delay is host policy |
+| List row entry | list_stagger | fast_02, 110 ms | entrance / productive | Choreography: 20 ms stagger, 500 ms cap |
+| Progress values | progress_advance | moderate_01, 150 ms | standard / productive | Visible at both ends |
+| Theme fade | theme_transition | slow_01, 400 ms | standard / productive | Large change |
+| Moon/sun | theme_mode_icon | slow_01, 400 ms | standard / expressive | Meaningful state; no longer uses dimming token |
+| Status/copy morph | status_change | fast_02, 110 ms | standard / productive | Fade |
+
+Inventory reviewed: MotionDirector, imgui.motion, PageTransitions, SettingsView,
+Toast, Modal, ThemeTransition, ModeIcon, AnimatedIcon, SplitView and widget motion
+call sites. Reduced motion is still governed by the shared director; none of these
+role additions introduces a timer or an idle animation.
+
+Integration limits: the added focus/toggle, popup, tooltip and inline-notification
+roles establish the timing contract but do not by themselves animate these surfaces.
+The current popup and tooltip lifecycles still swap visibility instantly. Settings
+disclosure animates its chevron, not layout height. AnimatedIcon's 1200 ms work loop
+remains a real-work indicator. New StateIcon loops are owned by U4.

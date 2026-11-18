@@ -34,7 +34,7 @@ M.SCHEMA_VERSION = 2
 
 --- Version of the extension API (`ctx`) this host provides. Raise it when an
 -- extension-visible API is added, so extensions that need it can say so.
-M.HOST_API = 4  -- 2: ctx:registerTheme, ctx:registerFont. 3: manifest `modes`, the headless host (ctx.mode, ctx.loop). 4: ctx:addLanguageServer, ctx:findLanguageServer
+M.HOST_API = 5  -- 2: ctx:registerTheme, ctx:registerFont. 3: manifest `modes`, the headless host (ctx.mode, ctx.loop). 4: ctx:addLanguageServer, ctx:findLanguageServer. 5: ctx:registerPageTransition
 
 --- Platform names a manifest may list.
 M.PLATFORMS = { windows = true, linux = true, macos = true }

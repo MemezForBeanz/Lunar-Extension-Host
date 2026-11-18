@@ -2,6 +2,7 @@
 -- @classmod core.ui.TitleBar
 
 local WindowChrome = require("core.ui.WindowChrome")
+local L = require("core.lib.CarbonLayout")
 local ModeIcon = require("core.ui.ModeIcon")
 
 local StripView = require("core.ui.TabStripView")
@@ -20,14 +21,30 @@ local VIEW_BUTTONS = 3
 -- A strip has no natural width of its own: it takes its page's, and these pages are empty.
 -- So the bar works it out, with a little over for what the control adds around a title.
 local TAB_SLACK = 10
+-- The caption keeps this much empty bar to drag the window by.
+local DRAG_AREA = 80
+-- Below this window width the command field is its icon in every theme. Above it the
+-- field stays a field only while the tabs and their "+" keep all the room they measure.
+TitleBar.COMPACT_BELOW = 1200
+
+local function chrome(reserved)
+	return SIDE_MARGIN + BUTTON + GAP + VIEW_BUTTONS * BUTTON + (reserved or 0) + DRAG_AREA
+end
 
 --- Space for tabs, leaving a caption drag area and the native window buttons.
 function TitleBar.layout(width, reserved, tabs)
-	local before = SIDE_MARGIN + BUTTON + GAP
-	local after = VIEW_BUTTONS * BUTTON
-	local available = math.max(0, width - before - after - (reserved or 0) - 80)
+	local available = math.max(0, width - chrome(reserved))
 	local groups = math.min(available, tabs or available)
-	return { left = before + groups, groups = groups }
+	return { left = SIDE_MARGIN + BUTTON + GAP + groups, groups = groups }
+end
+
+--- The command field's width: what is left once the tabs (with their "+") have theirs,
+-- counted exactly as `layout` counts, so the field can never take the "+" away.
+function TitleBar.commandWidth(width, reserved, tabs)
+	local room = width - chrome(reserved) - (tabs or BUTTON)
+	local minimum = L.PAGE.card_min
+	if width < TitleBar.COMPACT_BELOW or room < minimum + L.px(12) then return BUTTON end
+	return math.min(L.PAGE.main_min, math.floor(width / 3), room)
 end
 
 --- @tparam table opts
@@ -70,6 +87,8 @@ function TitleBar.new(opts)
 
 	self._groups = iup.flattabs({
 		EXPAND = "NO", CANFOCUS = "NO", THEMEROLE = "titlebar_tabs", EXTRABUTTONS = "1", TABSIMAGEPOSITION = "RIGHT",
+		-- the + follows the last tab (beside the mode button when there are none)
+		EXTRAFOLLOW1 = "YES",
 	})
 	self._view = StripView.new({ iup = iup, root = opts.root, strip = self._groups, is_hidden = opts.is_hidden })
 	opts.icon(self._groups, "add", 16, "neutral", "EXTRAIMAGE1")
@@ -81,15 +100,25 @@ function TitleBar.new(opts)
 
 	-- A fill, not a label: anything with a window here would cover the painted buttons.
 	self._reserved = iup.fill({ RASTERSIZE = "1x" })
+	self._command = iup.flatbutton({ TITLE = "Search or run a command", THEMEROLE = "commandbar_text",
+		ALIGNMENT = "ALEFT:ACENTER", EXPAND = "HORIZONTAL", CANFOCUS = "YES" })
+	opts.icon(self._command, "search")
+	local shortcut = iup.flatbutton({ TITLE = "Ctrl+P", THEMEROLE = "keycap", CANFOCUS = "NO" })
+	self._shortcut = shortcut
+	local function command() if bar._on_command then bar._on_command() end; return iup.DEFAULT end
+	self._command.flat_action, shortcut.flat_action = command, command
+	self._field = iup.flatframe({ iup.hbox({ self._command, shortcut, ALIGNMENT = "ACENTER" }),
+		TITLE = "", THEMEROLE = "commandbar", EXPAND = "NO", RASTERSIZE = "320x28" })
 	self._left = iup.hbox({
 		self._mode,
 		iup.vbox({ iup.fill({}), self._groups, EXPAND = "VERTICALFREE" }),
 		ALIGNMENT = "ACENTER", GAP = tostring(GAP), MARGIN = SIDE_MARGIN .. "x0",
 	})
 	self._widget = iup.hbox({
+		THEMEROLE = "titlebar_window",
 		-- The strut holds the bar's height: a box takes its height from its children.
 		iup.label({ TITLE = "", RASTERSIZE = "0x" .. TitleBar.HEIGHT }),
-		self._left, iup.fill({}), self._menu, self._bars, self._terminal, self._reserved,
+		self._left, self._field, iup.fill({}), self._menu, self._bars, self._terminal, self._reserved,
 		ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL", GAP = "0",
 		MARGIN = "0x0",
 	})
@@ -97,8 +126,23 @@ function TitleBar.new(opts)
 end
 
 function TitleBar:widget() return self._widget end
+function TitleBar:commandWidget() return self._field end
+function TitleBar:onCommand(fn) self._on_command = fn end
 --- The top toolbar's mirror of the main tree.
 function TitleBar:groupStrip() return self._groups end
+-- The empty caption space belongs to the top toolbar as a drop destination too.
+-- Keep the strip itself snug so the add button still follows its last tab.
+function TitleBar:dropRect()
+	local iup = self._iup
+	local function pos(w)
+		local x, y = tostring(iup.GetAttribute(w, "SCREENPOSITION")):match("(-?%d+),(-?%d+)")
+		return tonumber(x), tonumber(y)
+	end
+	local x = pos(self._groups)
+	local right = pos(self._menu)
+	local _, y = pos(self._widget)
+	if x and right and y then return x, y, math.max(0, right - x), TitleBar.HEIGHT end
+end
 function TitleBar:onMode(fn) self._on_mode = fn end
 function TitleBar:onMenu(fn) self._on_menu = fn end
 function TitleBar:onBars(fn) self._on_bars = fn end
@@ -181,7 +225,13 @@ end
 
 -- The width of a tab's title in the strip's own font, from IUP's driver: only the strip
 -- would know, and it doesn't say. Close enough on a build without the export.
-local function text_width(strip, text)
+local function text_width(iup, strip, text)
+	-- The ImGui host measures with the element's own font, as the driver would.
+	if rawget(iup, "_IMGUI") then
+		return require("core.imgui.Fonts").get(iup.GetAttribute(strip, "TABSFONT") or iup.GetAttribute(strip, "FONT")):measure(text)
+	end
+	local measure = rawget(iup, "_textWidth")
+	if measure then return measure(strip, text) end
 	local width
 	pcall(function()
 		local ffi = require("ffi")
@@ -200,7 +250,7 @@ function TitleBar:_measureTabs(pages, hidden)
 	for i = 1, #pages do
 		if not hidden[i] then
 			local title = iup.GetAttributeId(self._root, "TABTITLE", i - 1) or ""
-			total = total + text_width(self._groups, title) + 2 * pad + TAB_SLACK
+			total = total + text_width(iup, self._groups, title) + 2 * pad + TAB_SLACK
 			local image = iup.GetAttributeId(self._root, "TABIMAGE", i - 1)
 			if image then
 				local handle = iup.GetHandle(image)
@@ -209,7 +259,7 @@ function TitleBar:_measureTabs(pages, hidden)
 			end
 		end
 	end
-	self._tabs_width = math.max(80, total + 32)
+	self._tabs_width = total + BUTTON + GAP -- the + alone when no tab is showing
 end
 
 --- Fit the bar to the window. Attributes only: the window's own layout pass follows.
@@ -222,15 +272,24 @@ function TitleBar:fit(width, force)
 	local reserved = self._frame_dialog and require("winframe").reserved(self._frame_dialog) or 0
 	if reserved ~= self._frame_width then
 		self._frame_width = reserved
-		self._iup.SetAttribute(self._reserved, "RASTERSIZE", math.max(reserved, 1) .. "x") -- 0 means no size at all
+		self._iup.SetAttribute(self._reserved, "RASTERSIZE", L.size(math.max(reserved, 1))) -- 0 means no size at all
 		force = true
 	end
 	if width == self._width and not force then return end
 	self._width = width
 	local iup = self._iup
-	local lay = TitleBar.layout(width, reserved, self._tabs_width)
-	iup.SetAttribute(self._left, "RASTERSIZE", lay.left .. "x")
-	iup.SetAttribute(self._groups, "RASTERSIZE", math.max(1, math.min(lay.groups, self._tabs_width or 80)) .. "x32")
+	local field = TitleBar.commandWidth(width, reserved, self._tabs_width)
+	local compact = field == BUTTON
+	iup.SetAttribute(self._command, "TITLE", compact and "" or "Search or run a command")
+	iup.SetAttribute(self._command, "TIP", "Search or run a command (Ctrl+P)")
+	iup.SetAttribute(self._shortcut, "FLOATING", compact and "YES" or "NO")
+	iup.SetAttribute(self._shortcut, "VISIBLE", compact and "NO" or "YES")
+	local lay = TitleBar.layout(width - field, reserved, self._tabs_width)
+	local left = math.max(lay.left, math.floor((width - field) / 2))
+	left = math.min(left, math.max(lay.left, width - field - reserved - VIEW_BUTTONS * BUTTON))
+	iup.SetAttribute(self._field, "RASTERSIZE", field .. "x28")
+	iup.SetAttribute(self._left, "RASTERSIZE", L.size(left))
+	iup.SetAttribute(self._groups, "RASTERSIZE", math.max(1, math.min(lay.groups, self._tabs_width or BUTTON)) .. "x32")
 end
 
 --- Make the bar the window's caption, where the platform can. Call between Map and Show,

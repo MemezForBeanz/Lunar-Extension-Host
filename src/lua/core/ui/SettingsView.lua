@@ -8,7 +8,7 @@
 --     +-- (scrollable) --------------------------------------+
 --     | v  Appearance                                        |  <- collapsible
 --     | ---------------------------------------------------- |
---     |    Theme                      [ Classic Dark    v ]  |  <- fixed control column
+--     |    Theme                      [ Carbon / Gray 100 v ]  |  <- fixed control column
 --     |    Interface motion                            [x]   |
 --     |    > Motion speed                              [x]   |  <- expandable row
 --     | >  Hello Extension                                   |  <- collapsed section
@@ -163,9 +163,12 @@ function SettingsView:initialize(opts)
 
     -- Inner container holds section headers and bodies (direct children, so each
     -- can be individually shown/hidden + floated during filtering).
+    -- No bottom margin: the last row's own padding already ends the list, and a second
+    -- margin under it would give the scroll box a range of nothing but space (a thumb in
+    -- a pane the rows fit). The top space is a fixed spacer in the column below.
     self._inner = iup.vbox{
         GAP     = L.gap(L.ROLE.row_gap),
-        MARGIN  = "0x" .. L.px(L.ROLE.row),
+        MARGIN  = L.margin(0),
         EXPAND  = "HORIZONTAL",
     }
 
@@ -177,7 +180,7 @@ function SettingsView:initialize(opts)
     -- themed flatframe (a real owner-drawn native window, same mechanism already
     -- proven to work for the search box above) gives flatlabel children an actual
     -- painted native parent to inherit from.
-    self._panel = iup.flatframe{
+    self._panel = (rawget(iup, "_IMGUI") and iup.vbox or iup.flatframe){
         self._inner,
         TITLE     = "",
         MARGIN    = L.margin(0),
@@ -187,7 +190,12 @@ function SettingsView:initialize(opts)
         MAXSIZE   = L.maxSize(COLUMN_WIDTH, nil),
         THEMEROLE = "settingspanel",
     }
-    self._column = iup.vbox{ self._panel, MARGIN = L.margin(L.ROLE.page, 0), EXPAND = "YES" }
+    self._column = iup.vbox{
+        iup.fill{ RASTERSIZE = L.size(nil, L.px(L.ROLE.row)) },
+        self._panel,
+        MARGIN = L.margin(L.ROLE.page, 0),
+        EXPAND = "YES",
+    }
 
     -- iup.flatlabel (owner-drawn), not native iup.label: a native label given an
     -- explicit color loses the OS's transparent-background painting once nested
@@ -632,11 +640,31 @@ end
 -- opens and closes (nil unless the description is too long to stay on show).
 function SettingsView:_buildRow(entry, category, first, section)
     local iup = self._iup
+    if entry.children then
+        local body = iup.vbox{ GAP = L.gap(L.ROLE.row_gap), EXPAND = "HORIZONTAL", VISIBLE = "NO", FLOATING = "YES" }
+        for index, child in ipairs(entry.children) do
+            local row = self:_buildRow(child, category, index == 1, section)
+            iup.Append(body, row)
+        end
+        local view, button = self
+        button = Kit.disclosure(iup, { title = "Advanced", on_change = function(open)
+            entry._advanced_open = open
+            Kit.show(iup, body, open, button)
+            view:_settle()
+        end })
+        entry._advanced_body = body
+        entry._advanced_button = button
+        iup.SetAttribute(button, "THEMEROLE", "settingsheader")
+        iup.SetAttribute(button, "ALIGNMENT", "ALEFT:ACENTER")
+        iup.SetAttribute(button, "EXPAND", "HORIZONTAL")
+        return iup.vbox{ button, body, EXPAND = "HORIZONTAL", MARGIN = L.margin(L.ROLE.section, 0) }, "advanced motion speed tab transition"
+    end
     local description = entry.description or ""
     local inline = description ~= "" and inline_description(description)
     local expandable = description ~= "" and not inline
 
     local label = iup.flatlabel{ TITLE = entry.label or "", THEMEROLE = "settings_name", EXPAND = "HORIZONTAL" }
+    if entry.help then iup.SetAttribute(label, "TIP", entry.help) end
     local left = { label, GAP = L.gap(1), EXPAND = "HORIZONTAL" }
     if inline then
         local text = iup.flatlabel{ TITLE = wrap(description, self._wrap_room), THEMEROLE = "settings_description" }
@@ -722,6 +750,16 @@ end
 function SettingsView:addSection(category, opts, mapped)
     local iup = self._iup
     opts = opts or {}
+    if category == "Background" then
+        category = "Startup & services"
+        local descriptions = { "Keep Lunar available in the system tray.", "Run services without an open window.", "Start or stop the service for this session." }
+        for index, entry in ipairs(opts.entries or {}) do
+            if descriptions[index] then
+                entry.help = entry.description
+                entry.description = descriptions[index]
+            end
+        end
+    end
 
     if self._empty then
         iup.SetAttribute(self._empty, "VISIBLE", "NO")
@@ -747,7 +785,7 @@ function SettingsView:addSection(category, opts, mapped)
     end
     section.nav_btn = nav_btn
     -- These belong to the app; everything an extension adds is a tool.
-    if category == "Appearance" or category == "Background" then
+    if category == "Appearance" or category == "Startup & services" then
         iup.Insert(self._nav_items, self._group_tools, nav_btn)
     else
         iup.Append(self._nav_items, nav_btn)
@@ -768,7 +806,7 @@ function SettingsView:addSection(category, opts, mapped)
         MARGIN = L.margin(0),
         EXPAND = "HORIZONTAL",
     }
-    local body = iup.flatframe{
+    local body = (rawget(iup, "_IMGUI") and iup.vbox or iup.flatframe){
         body_inner,
         TITLE     = "",
         MARGIN    = L.margin(0),
@@ -989,8 +1027,12 @@ function SettingsView:filter(query)
         for _, section in ipairs(self._sections) do
             local any = false
             for _, row in ipairs(section.rows) do
-                local show = (not searching) or (row.text:find(query, 1, true) ~= nil)
+                local show = ((not searching) or (row.text:find(query, 1, true) ~= nil))
+                    and (not row.entry or not row.entry.visible or row.entry.visible())
                 Kit.show(iup, row.box, show, self._search)
+                if row.entry and row.entry._advanced_body then
+                    Kit.show(iup, row.entry._advanced_body, searching or row.entry._advanced_open == true, self._search)
+                end
                 if show then any = true end
             end
 

@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
-project(Lunar C)
+project(Lunar C CXX)
 set(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
+set(LUNAR_UI "IMGUI" CACHE STRING "GUI backend (IMGUI or IUP)")
+set_property(CACHE LUNAR_UI PROPERTY STRINGS IMGUI IUP)
 
 # Export compile_commands.json for VS Code IntelliSense
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -171,6 +174,7 @@ endif()
 add_executable(LunarCLI
     src/c/core/main_cli.c
     ${CLI_PLATFORM_SOURCES}
+    src/c/libs/native_resolver.c
     src/c/libs/logscan.c
     src/c/libs/compositor/blend.c
     src/c/libs/compositor/compositor_lua.c
@@ -269,6 +273,9 @@ add_custom_command(
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/ui
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/lib
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/lsp
+            --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/imgui
+            --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/lui.lua
+            --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/lui
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/platform.lua
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/platform
             --scan  ${CMAKE_SOURCE_DIR}/src/lua  ${CMAKE_SOURCE_DIR}/src/lua/core/headless.lua
@@ -358,6 +365,64 @@ add_custom_target(embed_images DEPENDS ${EMBEDDED_IMAGES_H})
 # rewrites the archive when a source actually changed.
 # ---------------------------------------------------------------------------
 if(WIN32)
+if(LUNAR_UI STREQUAL "IMGUI")
+add_executable(Lunar WIN32
+    src/c/core/main_imgui.c
+    src/c/platform/win32/host.c
+    src/c/libs/subprocess_wrap.c
+    src/c/platform/win32/process.c
+    src/c/libs/logscan.c
+    src/c/libs/compositor/blend.c
+    src/c/libs/compositor/compositor_lua.c
+    src/c/libs/compositor/backend_none.c
+    src/c/libs/media_native.c
+    src/c/libs/nanosvg_impl.c
+    src/c/libs/svgicon_sizes.c
+    src/c/libs/imagecodec.c
+    src/cpp/lunarimgui.cpp
+    src/cpp/lunarimgui_gdifont.cpp
+    src/cpp/lunar_layout.cpp
+    src/c/libs/native_resolver.c
+    vendor/imgui/imgui.cpp
+    vendor/imgui/imgui_draw.cpp
+    vendor/imgui/imgui_tables.cpp
+    vendor/imgui/imgui_widgets.cpp
+    vendor/imgui/backends/imgui_impl_win32.cpp
+    vendor/imgui/backends/imgui_impl_dx11.cpp
+    vendor/imgui/imgui_demo.cpp
+    vendor/cimgui/cimgui.cpp
+)
+# cimgui: Dear ImGui's C API, exported from the exe for LuaJIT's FFI (core.imgui.cimgui).
+# The demo window is compiled out; imgui_demo.cpp then only supplies empty stubs.
+# IMGUI_DISABLE_OBSOLETE_FUNCTIONS: cimgui.h is generated with it, and struct layouts must match.
+target_compile_definitions(Lunar PRIVATE IMGUI_DISABLE_DEMO_WINDOWS IMGUI_DISABLE_OBSOLETE_FUNCTIONS=1)
+add_dependencies(Lunar embed_lua)
+add_dependencies(Lunar embed_images)
+set_target_properties(Lunar PROPERTIES ENABLE_EXPORTS TRUE)
+target_include_directories(Lunar PRIVATE
+    ${LUA_SRC} ${NANOSVG_DIR} ${VENDOR} ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/vendor/imgui ${CMAKE_SOURCE_DIR}/vendor/cimgui)
+target_link_libraries(Lunar PRIVATE
+    lua_static lfs_static cjson_static luasec_static luasocket_static
+    openssl_ssl openssl_crypto d3d11 dxgi d3dcompiler gdi32 dwmapi imm32 comdlg32
+    ole32 oleaut32 shell32 uuid user32 ws2_32 crypt32)
+target_link_options(Lunar PRIVATE -static -static-libgcc -static-libstdc++
+    $<$<CONFIG:Release>:-s> -Wl,--export-all-symbols)
+# The icon and version resource, as the IUP build has them.
+target_sources(Lunar PRIVATE assets/Lunar.rc)
+configure_file(${CMAKE_SOURCE_DIR}/assets/lunar_version.h.in ${CMAKE_BINARY_DIR}/generated/lunar_version.h @ONLY)
+set_source_files_properties(assets/Lunar.rc PROPERTIES
+    INCLUDE_DIRECTORIES ${CMAKE_BINARY_DIR}/generated
+    OBJECT_DEPENDS "${CMAKE_BINARY_DIR}/generated/lunar_version.h;${CMAKE_SOURCE_DIR}/assets/lunar.ico")
+option(LUNAR_DEV_BUILD
+    "Development build: prefer the repo's plugins/ folder and keep the default Lua module paths."
+    ON)
+if(LUNAR_DEV_BUILD)
+    target_compile_definitions(Lunar PRIVATE
+        LUNAR_DEV_BUILD=1
+        LUNAR_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+endif()
+else()
 set(IUP_FORK_LIB ${CMAKE_SOURCE_DIR}/vendor/iup-src/build/libiup.a)
 add_custom_target(iup_fork ALL
     COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File ${CMAKE_SOURCE_DIR}/scripts/build-iup-fork.ps1
@@ -370,6 +435,7 @@ add_custom_target(iup_fork ALL
 
 add_executable(Lunar WIN32
     src/c/core/main.c
+    src/c/libs/native_resolver.c
     src/c/platform/win32/host.c
     src/c/libs/subprocess_wrap.c
     src/c/platform/win32/process.c
@@ -497,6 +563,9 @@ else()
     )
 endif()
 
+endif()
+elseif(NOT LUNAR_HEADLESS AND LUNAR_UI STREQUAL "IMGUI")
+include(cmake/ImGuiLinux.cmake)
 elseif(NOT LUNAR_HEADLESS)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
@@ -531,6 +600,7 @@ add_custom_target(lunar_exports DEPENDS ${LUNAR_DYNAMIC_LIST} ${LUNAR_UNDEFINED_
 add_executable(Lunar
     src/c/core/main.c
     src/c/platform/posix/host.c
+    src/c/libs/native_resolver.c
     src/c/platform/posix/process.c
     src/c/libs/logscan.c
     src/c/libs/compositor/blend.c

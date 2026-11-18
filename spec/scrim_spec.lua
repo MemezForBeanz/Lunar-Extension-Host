@@ -32,7 +32,7 @@ local function fake_backend()
 		self.opacity = opacity
 	end
 	function b:hide() self.hides = self.hides + 1; self.shown = false end
-	function b:rect() return (table.unpack or unpack)(self.cover) end
+	function b:rect() return (unpack or rawget(table, "unpack"))(self.cover) end
 	return b
 end
 
@@ -199,7 +199,6 @@ describe("Scrim nested raise animation latch", function()
 		local s = make_scrim({ available = true, director = dir })
 
 		s:raise()  -- first raise: depth becomes 1, fade is scheduled
-		local count_after_first = dir:activeCount()
 
 		-- Advance past the first fade to settle it.
 		clock.t = 1.0
@@ -388,7 +387,7 @@ end)
 
 describe("Scrim reset()", function()
 	it("drops depth to zero regardless of how many raises are outstanding", function()
-		local dir, clock = make_director()
+		local dir = make_director()
 		local s = make_scrim({ available = true, director = dir })
 		s:raise()
 		s:raise()
@@ -399,7 +398,7 @@ describe("Scrim reset()", function()
 	end)
 
 	it("cancels an in-flight fade animation", function()
-		local dir, clock = make_director()
+		local dir = make_director()
 		local s = make_scrim({ available = true, director = dir })
 		s:raise()
 		assert.is_true(dir:activeCount() >= 1, "entrance animation should be in flight")

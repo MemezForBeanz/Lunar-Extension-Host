@@ -121,7 +121,7 @@ end)
 describe("ProgressMotion.set forward movement", function()
 	it("schedules an animation when moving forward with a director", function()
 		local iup = fake_iup()
-		local dir, _ = make_director(iup)
+		local dir = make_director(iup)
 		local gauge  = make_gauge(0)
 		ProgressMotion.set(iup, gauge, 0.8, dir)
 		assert.is_true(dir:activeCount() >= 1,
@@ -193,7 +193,7 @@ describe("ProgressMotion.set backward movement", function()
 		-- Easing a bar downward animates work being undone, which is not what
 		-- happened.  A backwards move is a reset — new queue, instant jump.
 		local iup   = fake_iup()
-		local dir, clock = make_director(iup)
+		local dir = make_director(iup)
 		local gauge = make_gauge(0.6)
 
 		ProgressMotion.set(iup, gauge, 0.2, dir)
@@ -211,7 +211,7 @@ describe("ProgressMotion.set backward movement", function()
 		-- must be cancelled so it cannot resume the forward movement after the
 		-- bar has jumped back.
 		local iup        = fake_iup()
-		local dir, clock = make_director(iup)
+		local dir = make_director(iup)
 		local gauge      = make_gauge(0)
 
 		-- Start a forward animation.
@@ -227,7 +227,7 @@ describe("ProgressMotion.set backward movement", function()
 	it("equal value is treated as backward (not forward)", function()
 		-- to == from: nothing to animate, land immediately.
 		local iup   = fake_iup()
-		local dir, _ = make_director(iup)
+		local dir = make_director(iup)
 		local gauge = make_gauge(0.5)
 
 		ProgressMotion.set(iup, gauge, 0.5, dir)
@@ -275,7 +275,7 @@ describe("ProgressMotion.set superseding", function()
 		-- The director's target-supersession guarantee: animating the same
 		-- target twice leaves only one animation running.
 		local iup = fake_iup()
-		local dir, _ = make_director(iup)
+		local dir = make_director(iup)
 		local gauge = make_gauge(0)
 
 		ProgressMotion.set(iup, gauge, 0.25, dir)
@@ -379,7 +379,7 @@ end)
 describe("ProgressMotion owner scoping", function()
 	it("files the animation under the owner it was given", function()
 		local iup    = fake_iup()
-		local dir, _ = make_director(iup)
+		local dir = make_director(iup)
 		local gauge  = make_gauge(0)
 		local ext    = { name = "buildqueue" }
 
@@ -419,7 +419,7 @@ describe("ProgressMotion owner scoping", function()
 		-- Host-owned gauges have no extension to file under; the animation must
 		-- still run rather than being rejected for a missing scope.
 		local iup    = fake_iup()
-		local dir, _ = make_director(iup)
+		local dir = make_director(iup)
 		local gauge  = make_gauge(0)
 
 		ProgressMotion.set(iup, gauge, 0.5, dir)

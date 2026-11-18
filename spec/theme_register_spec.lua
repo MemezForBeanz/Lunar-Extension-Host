@@ -57,8 +57,8 @@ describe("ThemeManager runtime themes", function()
 		local m = ThemeManager:new({ iup = iup, settings = { get = function(_, k) return k == "theme" and "pack_dark" or nil end } })
 		local applied
 		m.apply = function(_, id) applied = id end
-		m._applied = "classic_dark"   -- startup has painted a theme already
-		m._current = "classic_dark"
+		m._applied = "carbon_g100"   -- startup has painted a theme already
+		m._current = "carbon_g100"
 		m:registerTheme(make_theme("pack_dark"))
 		assert.are.equal("pack_dark", applied)
 

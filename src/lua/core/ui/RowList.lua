@@ -62,8 +62,10 @@ function M.new(iup, opts)
     end
     local rows = opts.rows or {}
     local value = opts.value
+    local state_icons, state_images = {}, {}
     raw_api.bindrows(widget, {
         value = function(pos, field)
+            if field == "IMAGE" and state_images[pos] then return state_images[pos] end
             if value then return value(pos, field) end
             local row = rows[pos]
             return row and row[fields[field]] or nil
@@ -83,18 +85,66 @@ function M.new(iup, opts)
     })
     iup.SetAttribute(widget, "COUNT", tostring(opts.count or #rows))
     local api = { widget = widget }
+    -- Bound a table to its content instead of sending metadata to the far edge
+    -- of a maximised page. The layout can still shrink it in a narrow pane.
+    function api:setContentWidth(title_width)
+        local width = title_width
+        for _, col in ipairs(opts.column_widths or {}) do width = width + col end
+        iup.SetAttribute(widget, "MAXSIZE", tostring(width) .. "x")
+    end
+    if opts.title_width then api:setContentWidth(opts.title_width) end
+    --- Change only a row's status glyph; unchanged rows retain their cached frame.
+    function api:setState(pos, state, progress)
+        local icon = state_icons[pos]
+        if not icon then
+            icon = require("core.ui.StateIcon").new(iup, { kind = "row", size = tonumber(opts.image_size) or 16,
+                visible = function()
+                    local size = iup.GetAttribute(widget, "RASTERSIZE") or ""
+                    local height = tonumber(size:match("x(%d+)$")) or 0
+                    local scroll = tonumber(iup.GetAttribute(widget, "POSY")) or 0
+                    local row_height = opts.row_height or 32
+                    local first = math.floor(scroll / row_height) + 1
+                    local last = math.floor((scroll + height) / row_height) + 1
+                    local R = package.loaded["core.imgui.Runtime"]
+                    return R and R.isVisible(widget) and height > 0 and pos >= first and pos <= last
+                end,
+                paint = function(path, role)
+                    local V = require("core.ui.VectorIcon")
+                    if not V.available then return end
+                    state_images[pos] = V.imageHandle(iup, { path = path, size = tonumber(opts.image_size) or 16,
+                        color = V.roleColor(role) })
+                    iup.Update(widget)
+                end })
+            state_icons[pos] = icon
+        end
+        icon:set(state, {progress=progress})
+    end
+    function api:destroyStateIcons()
+        for _, icon in pairs(state_icons) do icon:destroy() end
+        state_icons, state_images = {}, {}
+    end
     --- Show a sort without a click. A nil column clears the arrow.
     function api:setSort(column, descending)
         sort_column, sort_descending = column, descending or false
         set_sort(sort_column, sort_descending)
     end
-    function api:setRows(next_rows)
+    function api:setRows(next_rows, keep_states)
+        if keep_states then
+            -- A model refresh must not restart unchanged rows' state transitions.
+            for pos, icon in pairs(state_icons) do
+                if pos > #(next_rows or {}) then
+                    icon:destroy()
+                    state_icons[pos], state_images[pos] = nil, nil
+                end
+            end
+        else self:destroyStateIcons() end
         rows = next_rows or {}
         value = nil
         iup.SetAttribute(widget, "COUNT", tostring(#rows))
         iup.Update(widget)
     end
     function api:setProvider(count, fn)
+        self:destroyStateIcons()
         value = fn
         rows = {}
         iup.SetAttribute(widget, "COUNT", tostring(count or 0))

@@ -1,0 +1,20 @@
+27%  iuplua.lua:8 < fn
+  -- 100%  iuplua.lua:9
+13%  [string]:_configure < [string]:410
+  -- 100%  [string]:635
+13%  iuplua.lua:8 < @0x7ff7e67eb770
+  -- 100%  iuplua.lua:9
+ 7%  [string]:95 < main.lua:0
+  -- 100%  [string]:96
+ 7%  iuplua.lua:__index < iuplua.lua:user
+  -- 100%  iuplua.lua:84
+ 7%  iuplua.lua:28 < @0x7ff7e68030a0
+  -- 100%  iuplua.lua:30
+ 7%  [string]:_repaintRoot < [string]:_paintTheme
+  -- 100%  [string]:1586
+ 7%  [string]:244 < main.lua:0
+  -- 100%  [string]:255
+ 7%  [string]:connect < [string]:plain_connect
+  -- 100%  [string]:561
+ 7%  [string]:70 < pcall
+  -- 100%  [string]:75

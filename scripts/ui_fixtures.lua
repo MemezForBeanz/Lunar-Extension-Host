@@ -67,7 +67,8 @@ function M.build_queue(page)
 	}) do
 		for _, item in ipairs(bq.items) do
 			if item.name == row[1] then
-				entries[#entries + 1] = { tool = item, status = row[2], _rebuild = not row[3] }
+				local duration = ({ AcpiTables = 12.4, MemTrain = 38.7, PcieLink = 4.2 })[item.name]
+				entries[#entries + 1] = { tool = item, status = row[2], duration = duration, _rebuild = not row[3] }
 			end
 		end
 	end
@@ -75,6 +76,10 @@ function M.build_queue(page)
 	panel.set_output_empty(false)
 	require("iup").SetAttribute(panel.output_text, "VALUE", BUILD_OUTPUT)
 	panel.set_last_built_text("Last built (PcieLink): today 14:02")
+	if panel.page then
+		panel.page:setState("error", "Build failed in PcieLink: 1 error")
+		panel.page:setDockSummary("error", "Build stopped on error in PcieLink", function() panel.page:openDock(true) end)
+	end
 end
 
 local LOG_LINES = {
@@ -93,11 +98,11 @@ local LOG_LINES = {
 }
 
 function M.log_parser(page)
-	local dir = (os.getenv("TEMP") or ".") .. "\\lunar-fixture-result.log"
+	local dir = (os.getenv("TEMP") or ".") .. "\\platform-diagnostics.log"
 	local file = assert(io.open(dir, "wb"))
 	file:write(table.concat(LOG_LINES, "\r\n"))
 	file:close()
-	local other = (os.getenv("TEMP") or ".") .. "\\lunar-fixture-thermal.042"
+	local other = (os.getenv("TEMP") or ".") .. "\\thermal-diagnostics.042"
 	file = assert(io.open(other, "wb"))
 	file:write("13:58:02 FAILED Sensor 12 read 96 C over limit\r\n13:58:03 FAILED CRC mismatch in SMBIOS table\r\n")
 	file:close()
@@ -127,6 +132,7 @@ function M.log_parser(page)
 	repeat until results:renderStep(50)
 	results._list:select(4)
 	results:_chooseRow(4)
+	if results._page then results._page:setState("warning", "5 failures in 2 of 214 files") end
 end
 
 local SCAN_REPORT = table.concat({
@@ -170,10 +176,89 @@ end
 --- The fixture for a tab, by its title, if it has one and the page has registered.
 function M.for_tab(shell, title)
 	local page = shell.pages and shell.pages[title]
-	local name = title:lower():gsub("%s+", "_")
+	local name = title == "Black Duck" and "scan" or title:lower():gsub("%s+", "_")
 	if page and M[name] then
 		return function() M[name](page) end
 	end
+end
+
+function M.time_clock(page)
+	page.show({ employee = "Alex Morgan", available = { "meal_start", "clock_out" },
+		response = "Clock In confirmed at 08:00. Next action: Meal Start.",
+		history = { "2026-11-16 08:00  Clock In confirmed", "2026-11-13 17:02  Clock Out confirmed" } })
+	local time_clock = rawget(_G, "LUNAR_DEV_SHELL").toolPages["Time Clock"]
+	if time_clock then time_clock:setDockSummary("success", "Clock In confirmed at 08:00") end
+end
+
+local OUTPUT = {
+    ["Build Queue"] = { working = "[Build 1/5] AcpiTables - (A66)\ncl /nologo /W4 /O2 acpi.c tables.c\nCompiling acpi.c...", failed = BUILD_OUTPUT, summary = "Build stopped on error in PcieLink" },
+    ["Log Parser"] = { working = "Scanning C:\\Work\\diagnostics\n128 of 214 files scanned...", failed = "Scanning C:\\Work\\diagnostics\nERROR: Cannot open platform-diagnostics.log (access denied).\nScan stopped. Check file permissions, then run again.", summary = "Log scan stopped: file access denied" },
+    ["Scan Chain"] = { working = "Reading memid_0042.log\nDecoding installed device sections...", failed = "Reading memid_0042.log\nERROR at byte 0x18: incomplete device record (expected 4 bytes, read 2).\nParse stopped. Choose a complete capture, then retry.", summary = "Parse stopped at byte 0x18: incomplete record" },
+    ["Black Duck"] = { working = "Connecting to scan server...\nUploading source manifest (128 of 256 files)...", failed = "POST /api/scans\nHTTP 401 Unauthorized: scan token expired.\nUpdate the token in connection settings, then retry.", summary = "Scan rejected: token expired" },
+    ["iLO Redfish"] = { working = "GET /redfish/v1/Systems/1/\nRequest sent; awaiting response...", failed = "GET /redfish/v1/Systems/1/\nHTTP 503 Service Unavailable\nThe management controller is restarting. Wait for it to become available, then retry.", summary = "Request failed: controller unavailable" },
+    ["Time Clock"] = { working = "Submitting Meal Start...\nWaiting for clock service confirmation.", failed = "Meal Start request\nHTTP 503 Service Unavailable\nNo punch was confirmed. Check the service before retrying.", summary = "Meal Start was not confirmed" },
+}
+
+-- Deterministic presentation states: never start jobs or make network requests.
+function M.tool_state(page, state)
+	if page.opts and tostring(page.opts.id):match("^media%-") then
+		if page.mediaCaptureState then page.mediaCaptureState(state) end
+		return
+	end
+    page.captureState = state
+    local iup = page.iup
+    local Kit = require("core.ui.Kit")
+    local names = { ["Build Queue"]="Build", ["iLO Redfish"]="Request", ["Log Parser"]="Log scan", ["Scan Chain"]="Parse", ["Black Duck"]="Scan", ["Time Clock"]="Clock request" }
+    local name = names[page.opts.title] or "Operation"
+    local transcript = OUTPUT[page.opts.title]
+    if transcript and not page.dockContent then
+        page:ensureDock{ widget = iup.text{ MULTILINE="YES", READONLY="YES", EXPAND="YES", THEMEROLE="outputlog" } }
+    end
+    if not page.capturePlaceholder then
+        page.capturePlaceholder = Kit.statusLine(iup, "info", "")
+        iup.Append(page.mainHost, page.capturePlaceholder)
+    end
+    local queue = page.opts.title == "Build Queue" and rawget(_G, "LUNAR_DEV_SHELL").pages["Build Queue"] or nil
+    if queue then
+        for n,entry in ipairs(queue.panel.get_queued_entries()) do
+            entry.status = state == "working" and (n == 1 and "running" or "pending") or (n < 3 and "ok" or (n == 3 and "fail" or "skip"))
+            entry.duration = state ~= "working" and ({12.4, 38.7, 4.2})[n] or nil
+        end
+        queue.panel.refresh_queue_list()
+    end
+    if page.inspector then page:openInspector(false) end
+    -- a dashboard keeps its content when a request fails: the failure is in the header and dock
+    local keep = queue ~= nil or page.opts.archetype == "dashboard"
+    Kit.show(iup, page.main, keep, page.stateLine)
+    Kit.show(iup, page.capturePlaceholder, not keep, page.stateLine)
+    local working = state == "working"
+    local sentence = working and (name .. " in progress") or (name .. " failed. Review the output and retry.")
+    Kit.setStatus(iup, page.capturePlaceholder, "idle", working and "Waiting for results..." or "Results will appear here after a completed run.")
+    page:setState(working and "working" or "error", sentence)
+    page:setRunState(working and "working" or "failed", working and 0.5 or nil)
+    if not (page.opts.primary and page.opts.primary.widget) then iup.SetAttribute(page.primary, "TITLE", working and "Stop" or "Retry") end
+    if page.opts.primary and page.opts.primary.widget then
+        local target = page.primaryIconTarget
+        local n = 0
+        while iup.GetChild(page.primary, n) do
+            local child = iup.GetChild(page.primary, n)
+            Kit.show(iup, child, child == target, page.stateLine)
+            n = n + 1
+        end
+        iup.SetAttribute(target, "TITLE", working and "Stop" or "Retry")
+        iup.SetAttribute(target, "ACTIVE", "YES")
+    end
+    if page.dockContent then
+        local function output(w)
+            local class = iup.GetClassName(w)
+            if class == "text" then iup.SetAttribute(w, "VALUE", transcript and transcript[state] or (name .. " started.")) end
+            local n=0
+            while iup.GetChild(w,n) do output(iup.GetChild(w,n)); n=n+1 end
+        end
+        output(page.dockContent)
+        page:setDockSummary(working and "info" or "error", working and "Waiting for output" or (transcript and transcript.summary or "Operation stopped before completion"), not working and function() page:openDock(true) end or nil)
+        if working then page:openDock(false) end
+    end
 end
 
 return M

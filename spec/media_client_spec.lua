@@ -105,7 +105,7 @@ describe("media client", function()
 
 	it("reports a refusal and an unreachable server", function()
 		local client = Client.new(fake_http({}), "http://host:1", "t")
-		local _, why
+		local why
 		client:detail(1, function(_, err) why = err end)
 		assert.matches("404", why)
 		local down = Client.new(function(_, done) done(nil, "refused") end, "http://host:1", "t")

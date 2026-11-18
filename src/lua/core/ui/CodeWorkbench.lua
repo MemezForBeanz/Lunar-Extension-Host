@@ -211,7 +211,8 @@ function Workbench:_buildCodePage()
 	self._toolbar = toolbar
 	Kit.show(iup, toolbar, false)
 
-	local strip = iup.flattabs({ SHOWCLOSE = "YES", EXPAND = "YES", THEMEROLE = "flattabs_sub" })
+	-- KEEPPAGEMIN: the file's view keeps its few lines; the strip does not compress it away.
+	local strip = iup.flattabs({ SHOWCLOSE = "YES", EXPAND = "YES", THEMEROLE = "flattabs_sub", KEEPPAGEMIN = "YES" })
 	self._strip = strip
 	-- The stock close image is drawn for a much larger tab than this one.
 	local close = Kit.icon(iup, "close", 12, "neutral")
@@ -242,6 +243,7 @@ function Workbench:_buildCodePage()
 	-- no language server.
 	self._message = Kit.statusLine(iup, nil, "")
 	iup.SetAttribute(self._message, "ELLIPSIS", "YES")
+	iup.SetAttribute(self._message, "MINSIZE", "1x1")
 	self._settings_link = iup.flatbutton({ TITLE = "Language server settings", THEMEROLE = "link_btn", CANFOCUS = "NO" })
 	function self._settings_link:flat_action()
 		bench._host:dispatchRoute("lunar://host/settings")
@@ -251,7 +253,7 @@ function Workbench:_buildCodePage()
 	local footer = L.row(iup, { self._message, self._settings_link, EXPAND = "HORIZONTAL" })
 
 	self._page = L.page(iup, {
-		toolbar, body, footer,
+		toolbar, footer, body,
 		MARGIN = L.margin(L.ROLE.page, 3), GAP = L.gap(3), EXPAND = "YES",
 	})
 	self._anchor = body
@@ -304,7 +306,9 @@ function Workbench:_activated(doc)
 	end
 	local name, folder = Workbench.splitPath(doc.path)
 	iup.SetAttribute(self._name, "TITLE", name)
-	iup.SetAttribute(self._folder, "TITLE", folder)
+	local short = folder:match("([^/\\]+[/\\][^/\\]+)$") or folder
+	iup.SetAttribute(self._folder, "TITLE", "…" .. package.config:sub(1, 1) .. short)
+	iup.SetAttribute(self._folder, "TIP", doc.path)
 	iup.SetAttribute(self._edit, "TITLE", doc.view:isReadOnly() and "Edit" or "Editing")
 	iup.SetAttribute(self._edit, "ACTIVE", doc.writable and "YES" or "NO")
 	iup.SetAttribute(self._edit, "TIP", doc.writable and "Turn editing on or off for this file"
@@ -322,6 +326,9 @@ function Workbench:_showServer(doc)
 	local iup = self._iup
 	local binder = doc.binder
 	local state, name = binder and binder.state or "none", binder and binder._entry and binder._entry.name
+	-- The actionable notice owns failed/missing-server states. Keep the
+	-- toolbar chip for connection progress and healthy servers only.
+	Kit.show(iup, self._chip, state ~= "unavailable" and state ~= "failed", self._anchor)
 	local chip = CHIP[state]
 	if chip and name then
 		Kit.setStatus(iup, self._chip, chip.kind, chip.text:format(name))
@@ -345,7 +352,9 @@ function Workbench:_showMessage(doc)
 		if here.source then text = text .. "  (" .. here.source .. (here.code and (" " .. here.code) or "") .. ")" end
 		Kit.setStatus(iup, self._message, kinds[here.severity] or "error", text)
 	elseif state == "unavailable" or state == "failed" then
-		Kit.setStatus(iup, self._message, state == "failed" and "error" or "warning", binder.message)
+		Kit.setStatus(iup, self._message, state == "failed" and "error" or "warning",
+			state == "failed" and "Language server stopped." or "Language server not installed.")
+		iup.SetAttribute(self._message, "TIP", binder.message)
 		link = true
 	elseif state == "none" and binder and binder._reason then
 		Kit.setStatus(iup, self._message, "idle", binder._reason)
@@ -403,6 +412,8 @@ function Workbench:open(path, at)
 		if not text then return nil, read_err end
 		self:_buildCodePage()
 		local view = CodeView.new(iup, { language = CodeView.languageOf(normal), text = text, read_only = true })
+		-- A short split pane still reserves room for the notice and its action.
+		iup.SetAttribute(view:control(), "VISIBLELINES", "1")
 		local page = iup.vbox({ view:widget(), MARGIN = "0x0", GAP = "0", EXPAND = "YES" })
 		doc = { path = normal, key = key_of(normal), view = view, page = page, writable = is_writable(normal) }
 		iup.SetAttribute(page, "TABTITLE", (Workbench.splitPath(normal)))

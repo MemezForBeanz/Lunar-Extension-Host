@@ -35,6 +35,16 @@ for name, builder in pairs({ carbon = carbon, fluent = fluent, lunar = lunar }) 
 				assert.is_truthy(attrs[attr], attr)
 			end
 		end)
+		if name == "lunar" then
+			it("uses the palette accent for dropdown selection markers", function()
+				assert.equals(palette().accent, rules.dropdown_list.itemmarker)
+			end)
+		elseif name == "carbon" then
+			it("paints checkbox labels with ordinary text on the page", function()
+				assert.equals(palette().text, rules.flattoggle.fg)
+				assert.equals(palette().layer02, rules.flattoggle.bg)
+			end)
+		end
 
 		it("keep a chosen row apart from a row under the pointer", function()
 			local rule = { selbg = "1 2 3", hover = "4 5 6", seltext = "7 8 9", bg = "0 0 0" }

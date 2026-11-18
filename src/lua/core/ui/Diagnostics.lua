@@ -118,6 +118,14 @@ function M.window_report(d)
 		lines[#lines + 1] = "Native modules"
 		for _, line in ipairs(d.native) do lines[#lines + 1] = line end
 	end
+	if d.renderer then
+		local r=d.renderer
+		lines[#lines+1]=""
+		lines[#lines+1]="Renderer"
+		for _,key in ipairs({"requested","active","adapter","status","fallback_reason","resets"}) do
+			lines[#lines+1]=string.format("  %-22s: %s",key,tostring(r[key] or "-"))
+		end
+	end
 	return table.concat(lines, "\n")
 end
 

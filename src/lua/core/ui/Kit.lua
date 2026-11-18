@@ -15,6 +15,8 @@ local ok_reactor, ThemeReactor = pcall(require, "core.ui.ThemeReactor")
 if not ok_reactor then ThemeReactor = nil end
 
 local L = require("core.lib.CarbonLayout")
+function M.page(iup, opts) return require("core.ui.Page").new(iup, opts) end
+function M.cards(iup, opts) return require("core.ui.Page").cards(iup, opts) end
 function M.rowList(iup, opts) return require("core.ui.RowList").new(iup, opts) end
 function M.segmented(iup, opts) return require("core.ui.RowList").segmented(iup, opts) end
 function M.cellGrid(iup, opts) return require("core.ui.CellGrid").new(iup, opts) end
@@ -22,7 +24,7 @@ function M.seekBar(iup, opts) return require("core.ui.SeekBar").new(iup, opts) e
 
 --- The edge a row list sits in: the look of a bordered list, and room for its rounded corners.
 function M.rowFrame(iup, widget)
-	return iup.flatframe({ widget, TITLE = "", EXPAND = "YES", MARGIN = "4x4", THEMEROLE = "list_bordered" })
+	return iup.vbox({ widget, EXPAND = "YES", MARGIN = L.margin(0), THEMEROLE = "page_column" })
 end
 
 M.ICON_BUTTON = 16
@@ -152,6 +154,35 @@ function M.inset(iup, widget, side)
 	return iup.hbox({ widget, air, EXPAND = "YES" })
 end
 
+--- The fill behind an inline notification in the current theme: Carbon's low-contrast rule
+-- (a layer one step above the page) in Carbon, the raised layer elsewhere.
+-- @tparam[opt] table palette default: the active theme's
+-- @treturn string|nil "r g b"
+function M.notificationFill(palette)
+	local p = palette or (ThemeReactor and ThemeReactor.palette()) or {}
+	if p.carbonTokens then return require("core.classes.Themes.carbon_rules").notificationFill(p) end
+	return p.layer03 or p.layer02 or p.bg
+end
+
+--- An inline notification: status glyph and sentence, one recovery action, Dismiss.
+-- @tparam table opts `kind`, `title`, `action` (`{ title, action }`)
+function M.notification(iup, opts)
+	local title = M.statusLine(iup, opts.kind or "info", opts.title or "")
+	iup.SetAttribute(title, "TEXTELLIPSIS", "YES")
+	iup.SetAttribute(title, "RASTERSIZE", L.size(1))
+	local recovery = M.button(iup, { title = opts.action and opts.action.title or "Retry",
+		action = opts.action and opts.action.action })
+	local root
+	local dismiss = M.button(iup, { title = "Dismiss", icon = "close", action = function()
+		M.show(iup, root, false); if iup.Refresh then iup.Refresh(root) end
+	end })
+	root = iup.hbox({ title, recovery, dismiss, EXPAND = "HORIZONTAL", ALIGNMENT = "ACENTER",
+		GAP = L.gap(3), MARGIN = L.margin(3), THEMEROLE = "page_column" })
+	return { widget = root, setTitle = function(_, text)
+		M.setStatus(iup, title, opts.kind or "info", text); iup.SetAttribute(title, "TIP", text)
+	end }
+end
+
 --- A button with a leading Carbon icon.
 -- @tparam userdata iup
 -- @tparam table opts `title`, `icon`, `role` (default actionbutton), `action`, `tip`,
@@ -173,8 +204,43 @@ function M.button(iup, opts)
 			return iup.DEFAULT
 		end
 	end
-	if opts.icon then M.bindIcon(iup, btn, opts.icon, { role = opts.icon_role }) end
-	return btn
+	local state_icon
+	if opts.state_icon then
+		state_icon = require("core.ui.StateIcon").new(iup, { kind = opts.state_icon, size = M.ICON_BUTTON,
+			role = opts.icon_role or (opts.role == "primary_btn" and "on-accent" or "neutral"), animate = opts.animate })
+		state_icon:attach(btn)
+	elseif opts.icon then M.bindIcon(iup, btn, opts.icon, { role = opts.icon_role }) end
+	return btn, state_icon
+end
+
+--- Copy callbacks return false on failure; the button keeps a fixed icon box.
+function M.copyButton(iup, opts)
+	opts = opts or {}
+	local action = opts.action
+	local config = {}
+	for key, value in pairs(opts) do config[key] = value end
+	config.state_icon = "copy"
+	local btn, icon = M.button(iup, config)
+	function btn:flat_action()
+		if not action or action() ~= false then icon:set("copied") end
+		return iup.DEFAULT
+	end
+	return btn, icon
+end
+
+--- A disclosure button with the shared 90-degree chevron state.
+function M.disclosure(iup, opts)
+	opts = opts or {}
+	local open = opts.open == true
+	local button, icon = M.button(iup, { title=opts.title, state_icon="chevron", animate=opts.animate, role="disclosure_btn" })
+	icon:set(open and "open" or "closed")
+	function button:flat_action()
+		open = not open
+		icon:set(open and "open" or "closed")
+		if opts.on_change then opts.on_change(open) end
+		return iup.DEFAULT
+	end
+	return button, icon
 end
 
 --- Put Carbon icons on a set of existing buttons.
@@ -218,7 +284,7 @@ local function keep_hidden(iup, widget)
 	if not iup.GetChild then return end
 	local i, child = 0, iup.GetChild(widget, 0)
 	while child do
-		if iup.GetAttribute(child, "FLOATING") == "YES" then
+		if iup.GetAttribute(child, "FLOATING") == "YES" and not attr.get(iup, child, "_IUPLUNAR_OVERLAY") then
 			iup.SetAttribute(child, "VISIBLE", "NO")
 		else
 			keep_hidden(iup, child)
@@ -353,7 +419,7 @@ end
 -- @treturn function `set_empty(boolean)`
 -- @treturn ihandle the hint label, for text that changes with state
 function M.emptyPane(iup, opts)
-	local glyph = iup.flatlabel({ TITLE = "", THEMEROLE = "well", ALIGNMENT = "ACENTER" })
+	local glyph = iup.flatlabel({ TITLE = "", THEMEROLE = "page_surface", ALIGNMENT = "ACENTER" })
 	if opts.icon then M.bindIcon(iup, glyph, opts.icon, { size = M.ICON_EMPTY, role = "neutral" }) end
 	local title = iup.flatlabel({ TITLE = opts.title or "", THEMEROLE = "empty_title", ALIGNMENT = "ACENTER" })
 	local hint = iup.flatlabel({ TITLE = opts.hint or "", THEMEROLE = "empty_hint", ALIGNMENT = "ACENTER" })
@@ -372,12 +438,16 @@ function M.emptyPane(iup, opts)
 	end
 	kids[#kids + 1] = iup.fill({})
 	kids.GAP, kids.EXPAND = L.gap(2), "YES"
-	local placeholder = iup.flatframe({
+	local placeholder = iup.vbox({
 		iup.vbox(kids),
-		TITLE = "", THEMEROLE = "well", MARGIN = L.margin(5), EXPAND = "YES",
+		TITLE = "", THEMEROLE = "page_column", MARGIN = L.margin(5), EXPAND = "YES",
 	})
-	local pane = iup.zbox({ placeholder, opts.content, EXPAND = "YES" })
+	local pane = iup.zbox({ placeholder, opts.content or iup.vbox({}), EXPAND = "YES" })
 	local function set_empty(empty)
+		-- A zbox is as tall as its tallest child, shown or not: the placeholder's centred
+		-- glyph and hint would set the content's minimum height, and a short pane (an
+		-- editor above an open terminal) would push the content past its bottom.
+		iup.SetAttribute(placeholder, "FLOATING", empty and "NO" or "IGNORE")
 		iup.SetAttribute(pane, "VALUEPOS", empty and "0" or "1")
 	end
 	return pane, set_empty, hint

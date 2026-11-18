@@ -46,7 +46,8 @@
       "binaryDir": "${sourceDir}/build/linux",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-        "LUNAR_DEV_BUILD": "ON"
+        "LUNAR_DEV_BUILD": "ON",
+        "LUNAR_UI": "IUP"
       }
     },
     {
@@ -57,7 +58,32 @@
       "binaryDir": "${sourceDir}/build/linux-rel",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "LUNAR_DEV_BUILD": "OFF"
+        "LUNAR_DEV_BUILD": "OFF",
+        "LUNAR_UI": "IUP"
+      }
+    },
+    {
+      "name": "linux-imgui-dev",
+      "displayName": "linux-imgui-dev (SDL3/OpenGL3)",
+      "generator": "Ninja",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "binaryDir": "${sourceDir}/build/linux-imgui-dev",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "LUNAR_DEV_BUILD": "ON",
+        "LUNAR_UI": "IMGUI"
+      }
+    },
+    {
+      "name": "linux-imgui-release",
+      "displayName": "linux-imgui-release (SDL3/OpenGL3)",
+      "generator": "Ninja",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "binaryDir": "${sourceDir}/build/linux-imgui-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "LUNAR_DEV_BUILD": "OFF",
+        "LUNAR_UI": "IMGUI"
       }
     }
   ],
@@ -69,6 +95,10 @@
     { "name": "linux-dev", "configurePreset": "linux-dev", "jobs": 8,
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" } },
     { "name": "linux-release", "configurePreset": "linux-release", "jobs": 8,
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" } },
+    { "name": "linux-imgui-dev", "configurePreset": "linux-imgui-dev", "jobs": 8,
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" } },
+    { "name": "linux-imgui-release", "configurePreset": "linux-imgui-release", "jobs": 8,
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" } }
   ],
   "testPresets": [

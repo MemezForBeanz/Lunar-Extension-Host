@@ -229,8 +229,26 @@ local host
 local tab_groups
 -- Built with the chrome below; the menu bar needs set_status before that.
 local status_bar
+local status_timer
 local function set_status(msg)
-	if status_bar then status_bar:setStatus(msg) end
+	if not status_bar then return end
+	-- Legacy extensions share one HostAPI. Resolve their call site so an asynchronous
+	-- completion cannot claim whichever tool happens to be active now.
+	local owner
+	if host then
+		for level = 2, 16 do
+			local info = debug.getinfo(level, "S")
+			if not info then break end
+			local source = info.source:gsub("\\", "/"):lower()
+			for candidate in pairs(host._manifest_by_owner) do
+				local dir = type(candidate) == "table" and candidate.dir
+				if dir and source:find(tostring(dir):gsub("\\", "/"):lower() .. "/", 1, true) then owner = candidate; break end
+			end
+			if owner then break end
+		end
+	end
+	status_bar:postStatus(owner and host:_activityTab(owner) or nil, msg)
+	if status_timer then iup.SetAttribute(status_timer, "RUN", "YES") end
 end
 
 -- Generic host services
@@ -448,6 +466,7 @@ local motion_director = MotionDirector:new({
 	scale = tonumber(settings_mgr:get("motion_scale")) or 1.0,
 	respect_system = settings_mgr:get("motion_respect_system") ~= false,
 })
+motion_director:configure({ page_transition = settings_mgr:get("motion_tab_transition") or "theme" })
 host:setMotionDirector(motion_director)
 status_bar:setMotion(motion_director)
 
@@ -521,6 +540,16 @@ local content_box = iup.vbox({
 local view_layout = require("core.ui.ViewLayout").new({ iup = iup, root = content_box, motion = motion_director,
 	settings = settings_mgr, rail = tool_rail, status = status_bar, terminal = terminal })
 terminal:setLayout(view_layout)
+-- The terminal stops where the panes' minimum begins (a pane keeps its page's minimum,
+-- an editor its few lines of code).
+if rawget(iup, "_IMGUI") then
+	view_layout:setRoom(function()
+		local Element, Lay = package.loaded["core.imgui.Element"], package.loaded["core.imgui.Layout"]
+		local st = Element and Lay and Element.state(workspace_body)
+		if not (st and (st.h or 0) > 0) then return nil end
+		return st.h - Lay.minContent(pane_grid:widget(), false)
+	end)
+end
 
 local dlg = iup.dialog({
 	iup.vbox({ title_bar:widget(), content_box, MARGIN = L.margin(0), GAP = "0" }),
@@ -699,7 +728,7 @@ local commands = CommandRegistry:new({
 host:setCommands(commands)
 
 local command_palette = CommandPalette.new({
-	above = true,
+	above = false,
 	iup = iup,
 	registry = commands,
 	settings = settings_mgr,
@@ -710,16 +739,16 @@ local command_palette = CommandPalette.new({
 	muted = function()
 		return require("core.ui.ThemeReactor").palette().textMuted or "128 128 128"
 	end,
-	-- Anchor above the bottom field, keeping the popup inside the window.
+	-- Open below the title-bar field, keeping the popup inside the window.
 	anchor = function()
-		local field = status_bar:commandWidget()
+		local field = title_bar:commandWidget()
 		local x, y = tostring(iup.GetAttribute(field, "SCREENPOSITION") or ""):match("(-?%d+),(-?%d+)")
 		local w = tostring(iup.GetAttribute(field, "RASTERSIZE") or ""):match("^(%d+)x")
 		if not (x and w) then return nil end
-		return tonumber(x), tonumber(y) - 2, tonumber(w)
+		return tonumber(x), tonumber(y) + 32, tonumber(w)
 	end,
 })
-status_bar:onCommand(function() command_palette:toggle() end)
+title_bar:onCommand(function() command_palette:toggle() end)
 -- The application menu, on the palette's own surface: a native popup can't take the theme's
 -- type or colour, and every entry gains search for free.
 local function menu_entries(menu, group, out)
@@ -923,6 +952,40 @@ add_host_command("tasks", "Run Task", function() command_palette:open("task ") e
 
 -- Activity: background work, in the status bar and a panel above it.
 local activity_store = host:activityStore()
+	local function refresh_tool_status()
+		local active = host:_activeTab()
+		local tab = active and iup.GetAttribute(active, "HOSTTABOWNERID")
+		local function page_state(widget)
+			if not widget then return end
+			local page = require("core.ui.Page").fromWidget(widget)
+			if page then return page.stateText end
+			for n = 0, iup.GetChildCount(widget) - 1 do
+				local text = page_state(iup.GetChild(widget, n))
+				if text then return text end
+			end
+		end
+		local work
+		for _, item in ipairs(activity_store:running()) do
+			if tab and item.tab == tab then work = item; break end
+		end
+		status_bar:showTool(tab, nil, work, page_state(active))
+		if status_timer then iup.SetAttribute(status_timer, "RUN", status_bar:hasTransient() and "YES" or "NO") end
+	end
+	activity_store:subscribe(function(event, item)
+		if event == "ended" then status_bar:clearTool(item.tab) end
+		refresh_tool_status()
+	end)
+	host:onTabChange(refresh_tool_status)
+	status_timer = host:addTimer({ time = 1000, action = refresh_tool_status, run = status_bar:hasTransient() })
+	-- Keep ActivityPanel's existing update path, but pass only counts to the shell slot.
+	local activity_status = status_bar.setActivity
+	function status_bar:setActivity(view)
+		if view then
+			view = { state = view.state, text = view.text, tip = view.tip,
+				count = #activity_store:running() > 0 and #activity_store:running() or activity_store:unviewed() }
+		end
+		return activity_status(self, view)
+	end
 local activity_panel = ActivityPanel.new({
 	iup = iup,
 	store = activity_store,
@@ -972,6 +1035,7 @@ if DEV_BUILD then
 		host = host,
 		tasks = task_runner,
 		activity = activity_panel,
+		rail = tool_rail,
 	}
 end
 
@@ -1142,12 +1206,29 @@ tab_groups = TabGroups:new({
 tab_order:setGroups(tab_groups)
 -- The main strip's tabs are partitioned between the top and left toolbars.
 iup.SetAttribute(tabs, "SHOWTABS", "NO")
-tab_order:setStandIn(tabs, title_bar:groupStrip(), "top")
+tab_order:setStandIn(tabs, title_bar:groupStrip(), "top", function() return title_bar:dropRect() end)
 tab_order:setStandIn(tabs, tool_rail:widget(), "left")
 title_bar:setOrder(tab_order)
 host:setTabGroups(tab_groups)
 tab_groups:setPanes(pane_grid:extraStrips())
 pane_grid:setGroups(tab_groups)
+local tab_windows = require("core.ui.TabWindows").new({
+	iup = iup, groups = tab_groups, dialog = dlg,
+	on_activate = function() host:_applyTabScopes() end,
+	theme = function(window)
+		theme_mgr:themeWidget(window)
+		require("core.ui.WindowChrome").applyFrame(iup, window, theme_mgr:activeTheme())
+	end,
+})
+tab_order:setWindows(tab_windows)
+if rawget(_G, "LUNAR_DEV_SHELL") then _G.LUNAR_DEV_SHELL.tab_windows = tab_windows end
+add_host_command("window.popout", "Pop Out Active Extension", function()
+	local widget = tab_groups:activeLeaf()
+	if widget then tab_windows:openLater(widget) end
+end, { keywords = "detach extension floating window", group = "Layout" })
+add_host_command("window.dockAll", "Return All Windows to Main", function()
+	tab_windows:later(function() tab_windows:restoreAll() end)
+end, { keywords = "dock popout windows", group = "Layout" })
 tab_order:setPanes(pane_grid, dlg)
 for _, strip in pairs(pane_grid:extraStrips()) do theme_mgr:themeWidget(strip) end
 theme_mgr:onApply(function()
@@ -1208,6 +1289,8 @@ end
 
 -- Anything that changes what the bar should show also re-scopes the tabs, so that's the hook.
 local function sync_title_bar()
+	refresh_tool_status()
+	tab_windows:sync()
 	title_bar:sync(tab_groups:_children(tabs))
 	tool_rail:refresh()
 	do
@@ -1226,6 +1309,10 @@ host._after_scopes = sync_title_bar
 	end
 -- The groups' width depends on their font, which the theme sets.
 theme_mgr:onApply(function()
+	for _, window in ipairs(tab_windows.windows) do
+		theme_mgr:themeWidget(window.dialog)
+		require("core.ui.WindowChrome").applyFrame(iup, window.dialog, theme_mgr:activeTheme())
+	end
 	title_bar:themeChanged()
 	tool_rail:themeChanged()
 	sync_title_bar()
@@ -1328,8 +1415,18 @@ if not HARNESS then
 end
 if rawget(_G, "LUNAR_DEV_SHELL") then
 	_G.LUNAR_DEV_SHELL.pages = _G.LUNAR_DEV_SHELL.pages or {}
-	_G.LUNAR_DEV_SHELL.pages["Settings"] = { states = { "appearance", "background" }, show = function(name)
-		if name == "background" then settings_view:_goTo(background_panel.section) end
+	_G.LUNAR_DEV_SHELL.pages["Settings"] = { states = { "appearance", "advanced", "background" }, show = function(name)
+		local section = name == "background" and background_panel.section or settings_view._sections[1]
+		settings_view:_goTo(section)
+		if name ~= "background" then
+			for _, row in ipairs(section.rows) do
+				local entry = row.entry
+				if entry and entry._advanced_body then
+					if (entry._advanced_open == true) ~= (name == "advanced") then entry._advanced_button:flat_action() end
+				end
+			end
+			settings_view:_settle()
+		end
 	end }
 end
 
@@ -1359,6 +1456,11 @@ host:addMenuItem("Window Diagnostics...", function()
 		return (ok and v) and tostring(v) or "(nil)"
 	end
 	local ok_rep, report = pcall(function() return tab_transition:report() end)
+	local renderer
+	if rawget(iup, "_IMGUI") then
+		local ok, info = pcall(function() return require("lunarimgui").renderer() end)
+		if ok then renderer = info end
+	end
 	iup.Message("Window Diagnostics", Diagnostics.window_report({
 		fullsize = iup.GetGlobal("FULLSIZE"),
 		screensize = iup.GetGlobal("SCREENSIZE"),
@@ -1384,6 +1486,7 @@ host:addMenuItem("Window Diagnostics...", function()
 			shell_bands = shell_budget.bands,
 		},
 		transition = ok_rep and report or tostring(report),
+		renderer = renderer,
 		native = NativeStatus.lines(NATIVE, theme_mgr:fastPaths()),
 	}))
 end, "help")
@@ -1395,7 +1498,7 @@ update_check:startup()
 host:_markShown()
 
 -- Apply the saved theme now that the full widget tree is mapped. The app ships with
--- the IBM Carbon Design System look; Classic Dark (Carbon Gray 100) is the default
+-- the IBM Carbon Design System look; Carbon Gray 100 is the default
 -- when the user has not yet chosen a theme.
 -- With "Match system theme" on, the system's mode decides; otherwise (or when the
 -- system can't say) the saved theme.

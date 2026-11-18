@@ -39,7 +39,7 @@ function M.new(ctx, opts)
 		local source = sources[pos]
 		if not source then return nil end
 		if field == "TITLE" then return source.name end
-		if field == "SECONDARY" then return source.provider_name or "" end
+		if field == "SECONDARY" then local _, words = M.health(source); return words .. " · " .. tostring(source.items or 0) .. " items" end
 		if field == "IMAGE" then
 			local tone = M.health(source)
 			local status = Kit.STATUS[tone] or Kit.STATUS.idle
@@ -52,8 +52,8 @@ function M.new(ctx, opts)
 		end
 	end
 	local source_list = RowList.new(iup, { value = source_value, count = #sources, row_height = ROW,
-		column_widths = { 72, 200 }, role = "flatrows_plain",
-		header = { title = "Source", columns = { "Items", "Health" } },
+		column_widths = {}, role = "flatrows_plain",
+		header = { title = "Source", columns = {} },
 		empty_title = "Only this server so far", empty_hint = "Add a provider to bring in another library.",
 		on_select = function(pos) chosen_source = sources[pos] end })
 	iup.SetAttribute(source_list.widget, "EXPAND", "YES")
@@ -97,7 +97,7 @@ function M.new(ctx, opts)
 	end })
 	iup.SetAttribute(add, "RASTERSIZE", "x36")
 	local form = L.stack(iup, { iup.flatseparator({ ORIENTATION = "HORIZONTAL", STYLE = "LINE", BARSIZE = "1" }),
-		form_title, summary, field_box, notice, iup.hbox({ add, MARGIN = "0x0" }) }, 2)
+		form_title, summary, field_box, notice }, 2)
 	iup.SetAttribute(form, "EXPAND", "HORIZONTAL")
 
 	local function choose_provider(provider)
@@ -123,6 +123,9 @@ function M.new(ctx, opts)
 		header = { title = "Provider", columns = {} },
 		on_select = function(pos) choose_provider(providers[pos]) end })
 	iup.SetAttribute(provider_list.widget, "EXPAND", "YES")
+	-- In a short window the list gives way down to a few rows, then the detail column scrolls,
+	-- so the whole provider form stays reachable.
+	iup.SetAttribute(provider_list.widget, "MINSIZE", L.size(nil, 3 * ROW))
 
 	local left = L.stack(iup, {
 		iup.hbox({ L.sectionTitle(iup, "Your sources"), iup.fill({}), sync, remove, GAP = L.gap(2), ALIGNMENT = "ACENTER",
@@ -137,21 +140,36 @@ function M.new(ctx, opts)
 	iup.SetAttribute(left, "EXPAND", "YES")
 	iup.SetAttribute(right, "EXPAND", "YES")
 
-	local manage = iup.vbox({
-		iup.hbox({ iup.vbox({ iup.flatlabel({ TITLE = "Sources", THEMEROLE = "pagetitle" }),
-			L.hint(iup, "Every library here joins one view, with one card for each title."), GAP = L.gap(1), MARGIN = "0x0" }),
-			MARGIN = INSET .. "x0" }),
-		iup.hbox({ left, right, GAP = L.gap(8), MARGIN = "0x0", EXPAND = "YES", HOMOGENEOUS = "YES" }),
-		GAP = L.gap(6), MARGIN = L.margin(5), EXPAND = "YES",
-	})
+    local manage_toolbar = iup.hbox({ EXPAND = "HORIZONTAL" })
+    local manage_page = Kit.page(iup, { id = "media-source-management", title = "Sources", toolbar = manage_toolbar, primary = { widget = add },
+        nav = { title = "Your sources", widget = source_list.widget },
+        main = iup.scrollbox({ right, EXPAND = "YES", CANVASBOX = "YES", SCROLLBAR = "VERTICAL", BORDER = "NO",
+            THEMEROLE = "page_column" }), secondary = { { title = "Sync now", action = function() if chosen_source then opts.on_sync(chosen_source) end end },
+            { title = "Remove", action = function() if chosen_source then opts.on_remove(chosen_source) end end } },
+        state = { kind = "info", text = "Choose a provider to add a source" } })
+    local manage = manage_page:widget()
+    if ctx.fitPage then ctx:fitPage(manage, function(w) manage_page:fit(w) end) end
+
 	local discovery = require("ui.discover").new(ctx, opts)
 	local pages = iup.zbox({ discovery.widget, manage, EXPAND = "YES", VALUEPOS = "0" })
-	api.widget = iup.vbox({ iup.hbox({
-		Kit.button(iup, { title = "Discover", role = "actionbutton", action = function() iup.SetAttribute(pages, "VALUEPOS", "0") end }),
-		Kit.button(iup, { title = "Manage sources", role = "actionbutton", action = function() iup.SetAttribute(pages, "VALUEPOS", "1") end }),
-		GAP = L.gap(2), MARGIN = "0x0" }), pages,
-		GAP = L.gap(3), MARGIN = L.margin(4), EXPAND = "YES" })
+	local switches = {}
+	for _, toolbar in ipairs({ discovery.page.opts.toolbar, manage_toolbar }) do
+		local switch = RowList.segmented(iup, { labels = { "Discover", "Manage sources" }, value_pos = 0,
+			on_change = function(pos)
+				iup.SetAttribute(pages, "VALUEPOS", tostring(pos))
+				for _, peer in ipairs(switches) do iup.SetAttribute(peer, "VALUEPOS", tostring(pos)) end
+			end })
+		iup.SetAttribute(switch, "RASTERSIZE", L.size(L.PAGE.config, L.PAGE.toolbar))
+		switches[#switches + 1] = switch
+		iup.Insert(toolbar, iup.GetChild(toolbar, 0), switch)
+	end
+	api.widget = pages
 	api.tick = discovery.tick
+    api.capture = function(state)
+        iup.SetAttribute(pages, "VALUEPOS", state == "manage" and "1" or "0")
+        for _, switch in ipairs(switches) do iup.SetAttribute(switch, "VALUEPOS", state == "manage" and "1" or "0") end
+        if state ~= "manage" then discovery.capture(state) end
+    end
 
 	--- Show what the server says.
 	function api.setData(next_sources, next_providers, next_libraries)

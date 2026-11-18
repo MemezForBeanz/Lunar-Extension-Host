@@ -21,6 +21,32 @@
 
 local SettingsView = require("core.ui.SettingsView")
 
+describe("SettingsView consolidated appearance", function()
+ it("discloses advanced controls and reveals them during search", function()
+  local iup = require("core.lui.test").boot({})
+  local view = SettingsView({iup=iup})
+  local entry = {label="Advanced",children={{label="Motion speed",widget=iup.flatbutton({TITLE="1x"})}}}
+  view:addSection("Appearance",{entries={entry}})
+  assert.equal("NO",iup.GetAttribute(entry._advanced_body,"VISIBLE"))
+  entry._advanced_button:flat_action()
+  assert.equal("YES",iup.GetAttribute(entry._advanced_body,"VISIBLE"))
+  entry._advanced_button:flat_action()
+  view:filter("speed")
+  assert.equal("YES",iup.GetAttribute(entry._advanced_body,"VISIBLE"))
+  view:filter("")
+  assert.equal("NO",iup.GetAttribute(entry._advanced_body,"VISIBLE"))
+ end)
+ it("renames Background and retains longer help", function()
+  local iup = require("core.lui.test").boot({})
+  local view = SettingsView({iup=iup})
+  local entry={label="Keep running",description="Long help for the system tray"}
+  local section=view:addSection("Background",{entries={entry}})
+  assert.equal("Startup & services",section.category)
+  assert.equal("Long help for the system tray",entry.help)
+  assert.equal("Keep Lunar available in the system tray.",entry.description)
+ end)
+end)
+
 -- Height the fake reports for any body, so expand/collapse has a real target.
 local BODY_H = 60
 

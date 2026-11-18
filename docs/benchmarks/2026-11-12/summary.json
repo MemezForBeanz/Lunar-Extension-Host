@@ -1,0 +1,1286 @@
+{
+  "primary": {
+    "imgui-all": {
+      "runs": [
+        {
+          "run": 1,
+          "ready_ms": 3216.7859999972,
+          "shown_ms": 3037.1728999962,
+          "load_ms": 55.214700005308,
+          "load_cpu_ms": 15.625,
+          "idle_cpu_ms": 78.125,
+          "idle_core_percent": 3.8938005462032623,
+          "idle_private_mb": 81.73046875,
+          "idle_working_mb": 99.96875,
+          "ready_cpu_ms": 62.5,
+          "repaint_wall_ms": 16.666944444457638,
+          "repaint_cpu_ms": 2.8211805555555554,
+          "relayout_wall_ms": 18.23853925921452,
+          "relayout_cpu_ms": 14.699074074074074,
+          "switch_wall_ms": 17.763904444453335,
+          "switch_cpu_ms": 16.666666666666668,
+          "path": "docs\\benchmarks\\2026-11-12\\default\\imgui-all-1\\result.json"
+        },
+        {
+          "run": 2,
+          "ready_ms": 3190.1823000007,
+          "shown_ms": 3022.4308000033,
+          "load_ms": 61.331600001722,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 62.5,
+          "idle_core_percent": 3.122557691500656,
+          "idle_private_mb": 79.5234375,
+          "idle_working_mb": 99.16015625,
+          "ready_cpu_ms": 140.625,
+          "repaint_wall_ms": 16.66812083335064,
+          "repaint_cpu_ms": 2.951388888888889,
+          "relayout_wall_ms": 17.842182962933187,
+          "relayout_cpu_ms": 14.236111111111112,
+          "switch_wall_ms": 16.991854444414443,
+          "switch_cpu_ms": 14.756944444444445,
+          "path": "docs\\benchmarks\\2026-11-12\\default\\imgui-all-2\\result.json"
+        },
+        {
+          "run": 3,
+          "ready_ms": 3218.8093000004,
+          "shown_ms": 3064.4879000029,
+          "load_ms": 62.459800006764,
+          "load_cpu_ms": 15.625,
+          "idle_cpu_ms": 125,
+          "idle_core_percent": 6.238152189448887,
+          "idle_private_mb": 83.890625,
+          "idle_working_mb": 100.9609375,
+          "ready_cpu_ms": 187.5,
+          "repaint_wall_ms": 16.669519444440137,
+          "repaint_cpu_ms": 4.123263888888889,
+          "relayout_wall_ms": 18.455271111020817,
+          "relayout_cpu_ms": 13.310185185185185,
+          "switch_wall_ms": 17.68732666662111,
+          "switch_cpu_ms": 17.708333333333332,
+          "path": "docs\\benchmarks\\2026-11-12\\default\\imgui-all-3\\result.json"
+        },
+        {
+          "run": 4,
+          "ready_ms": 3215.6364999973,
+          "shown_ms": 3046.6517000023,
+          "load_ms": 54.63299999974,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 31.25,
+          "idle_core_percent": 1.5543564931796903,
+          "idle_private_mb": 82.17578125,
+          "idle_working_mb": 100.97265625,
+          "ready_cpu_ms": 109.375,
+          "repaint_wall_ms": 16.667228888905417,
+          "repaint_cpu_ms": 2.8211805555555554,
+          "relayout_wall_ms": 16.969502962914444,
+          "relayout_cpu_ms": 12.152777777777779,
+          "switch_wall_ms": 17.498030000004444,
+          "switch_cpu_ms": 15.625,
+          "path": "docs\\benchmarks\\2026-11-12\\default\\imgui-all-4\\result.json"
+        },
+        {
+          "run": 5,
+          "ready_ms": 3176.7048000038,
+          "shown_ms": 3036.4677000034,
+          "load_ms": 65.222400000494,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 46.875,
+          "idle_core_percent": 2.3331366779072837,
+          "idle_private_mb": 80.39453125,
+          "idle_working_mb": 100.69140625,
+          "ready_cpu_ms": 125,
+          "repaint_wall_ms": 16.66690833333425,
+          "repaint_cpu_ms": 3.7760416666666665,
+          "relayout_wall_ms": 17.97778888878259,
+          "relayout_cpu_ms": 14.930555555555555,
+          "switch_wall_ms": 18.540922222179997,
+          "switch_cpu_ms": 16.145833333333332,
+          "path": "docs\\benchmarks\\2026-11-12\\default\\imgui-all-5\\result.json"
+        }
+      ],
+      "metrics": {
+        "ready_ms": {
+          "median": 3215.6364999973,
+          "min": 3176.7048000038,
+          "max": 3218.8093000004
+        },
+        "shown_ms": {
+          "median": 3037.1728999962,
+          "min": 3022.4308000033,
+          "max": 3064.4879000029
+        },
+        "load_ms": {
+          "median": 61.331600001722,
+          "min": 54.63299999974,
+          "max": 65.222400000494
+        },
+        "load_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 15.625
+        },
+        "idle_cpu_ms": {
+          "median": 62.5,
+          "min": 31.25,
+          "max": 125
+        },
+        "idle_core_percent": {
+          "median": 3.122557691500656,
+          "min": 1.5543564931796903,
+          "max": 6.238152189448887
+        },
+        "idle_private_mb": {
+          "median": 81.73046875,
+          "min": 79.5234375,
+          "max": 83.890625
+        },
+        "idle_working_mb": {
+          "median": 100.69140625,
+          "min": 99.16015625,
+          "max": 100.97265625
+        },
+        "ready_cpu_ms": {
+          "median": 125,
+          "min": 62.5,
+          "max": 187.5
+        },
+        "repaint_wall_ms": {
+          "median": 16.667228888905417,
+          "min": 16.66690833333425,
+          "max": 16.669519444440137
+        },
+        "repaint_cpu_ms": {
+          "median": 2.951388888888889,
+          "min": 2.8211805555555554,
+          "max": 4.123263888888889
+        },
+        "relayout_wall_ms": {
+          "median": 17.97778888878259,
+          "min": 16.969502962914444,
+          "max": 18.455271111020817
+        },
+        "relayout_cpu_ms": {
+          "median": 14.236111111111112,
+          "min": 12.152777777777779,
+          "max": 14.930555555555555
+        },
+        "switch_wall_ms": {
+          "median": 17.68732666662111,
+          "min": 16.991854444414443,
+          "max": 18.540922222179997
+        },
+        "switch_cpu_ms": {
+          "median": 16.145833333333332,
+          "min": 14.756944444444445,
+          "max": 17.708333333333332
+        }
+      }
+    },
+    "imgui-none": {
+      "runs": [
+        {
+          "run": 1,
+          "ready_ms": 209.61630000238,
+          "shown_ms": 124.2917999989,
+          "load_ms": 0.026100002287421,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 57.8203125,
+          "idle_working_mb": 74.42578125,
+          "ready_cpu_ms": 343.75,
+          "repaint_wall_ms": 16.66638250007975,
+          "repaint_cpu_ms": 1.953125,
+          "relayout_wall_ms": 16.670993333294668,
+          "relayout_cpu_ms": 16.666666666666668,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "docs\\benchmarks\\2026-11-12\\default\\imgui-none-1\\result.json"
+        },
+        {
+          "run": 2,
+          "ready_ms": 210.87809999881,
+          "shown_ms": 129.31250000111,
+          "load_ms": 0.018400001863483,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 62.5,
+          "idle_core_percent": 3.1156816194135923,
+          "idle_private_mb": 53.31640625,
+          "idle_working_mb": 74.69140625,
+          "ready_cpu_ms": 62.5,
+          "repaint_wall_ms": 16.6670650000015,
+          "repaint_cpu_ms": 5.46875,
+          "relayout_wall_ms": 16.666153333305335,
+          "relayout_cpu_ms": 4.166666666666667,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "docs\\benchmarks\\2026-11-12\\default\\imgui-none-2\\result.json"
+        },
+        {
+          "run": 3,
+          "ready_ms": 217.10790000361,
+          "shown_ms": 127.21320000128,
+          "load_ms": 0.052700001106132,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 15.625,
+          "idle_core_percent": 0.7756713714954677,
+          "idle_private_mb": 54.71484375,
+          "idle_working_mb": 75.19140625,
+          "ready_cpu_ms": 31.25,
+          "repaint_wall_ms": 16.66507499994625,
+          "repaint_cpu_ms": 3.125,
+          "relayout_wall_ms": 16.674526666368667,
+          "relayout_cpu_ms": 4.166666666666667,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "docs\\benchmarks\\2026-11-12\\default\\imgui-none-3\\result.json"
+        },
+        {
+          "run": 4,
+          "ready_ms": 214.18550000089,
+          "shown_ms": 126.00759999623,
+          "load_ms": 0.022799998987466,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 15.625,
+          "idle_core_percent": 0.7786911430349119,
+          "idle_private_mb": 58.11328125,
+          "idle_working_mb": 74.23046875,
+          "ready_cpu_ms": 62.5,
+          "repaint_wall_ms": 16.66452250010475,
+          "repaint_cpu_ms": 5.859375,
+          "relayout_wall_ms": 16.666673333384,
+          "relayout_cpu_ms": 1.0416666666666667,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "docs\\benchmarks\\2026-11-12\\default\\imgui-none-4\\result.json"
+        },
+        {
+          "run": 5,
+          "ready_ms": 230.82000000431,
+          "shown_ms": 126.86460000259,
+          "load_ms": 0.01920000067912,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 15.625,
+          "idle_core_percent": 0.7810020318561743,
+          "idle_private_mb": 55.125,
+          "idle_working_mb": 76.05078125,
+          "ready_cpu_ms": 78.125,
+          "repaint_wall_ms": 16.66363250005825,
+          "repaint_cpu_ms": 3.515625,
+          "relayout_wall_ms": 16.67113333339,
+          "relayout_cpu_ms": 2.0833333333333335,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "docs\\benchmarks\\2026-11-12\\default\\imgui-none-5\\result.json"
+        }
+      ],
+      "metrics": {
+        "ready_ms": {
+          "median": 214.18550000089,
+          "min": 209.61630000238,
+          "max": 230.82000000431
+        },
+        "shown_ms": {
+          "median": 126.86460000259,
+          "min": 124.2917999989,
+          "max": 129.31250000111
+        },
+        "load_ms": {
+          "median": 0.022799998987466,
+          "min": 0.018400001863483,
+          "max": 0.052700001106132
+        },
+        "load_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "idle_cpu_ms": {
+          "median": 15.625,
+          "min": 0,
+          "max": 62.5
+        },
+        "idle_core_percent": {
+          "median": 0.7786911430349119,
+          "min": 0.0,
+          "max": 3.1156816194135923
+        },
+        "idle_private_mb": {
+          "median": 55.125,
+          "min": 53.31640625,
+          "max": 58.11328125
+        },
+        "idle_working_mb": {
+          "median": 74.69140625,
+          "min": 74.23046875,
+          "max": 76.05078125
+        },
+        "ready_cpu_ms": {
+          "median": 62.5,
+          "min": 31.25,
+          "max": 343.75
+        },
+        "repaint_wall_ms": {
+          "median": 16.66507499994625,
+          "min": 16.66363250005825,
+          "max": 16.6670650000015
+        },
+        "repaint_cpu_ms": {
+          "median": 3.515625,
+          "min": 1.953125,
+          "max": 5.859375
+        },
+        "relayout_wall_ms": {
+          "median": 16.670993333294668,
+          "min": 16.666153333305335,
+          "max": 16.674526666368667
+        },
+        "relayout_cpu_ms": {
+          "median": 4.166666666666667,
+          "min": 1.0416666666666667,
+          "max": 16.666666666666668
+        },
+        "switch_wall_ms": null,
+        "switch_cpu_ms": null
+      }
+    },
+    "iup-all": {
+      "runs": [
+        {
+          "run": 1,
+          "ready_ms": 3443.6113999982,
+          "shown_ms": 3229.4145999986,
+          "load_ms": 51.241000001028,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 44.4765625,
+          "idle_working_mb": 64.7578125,
+          "ready_cpu_ms": 78.125,
+          "repaint_wall_ms": 5.0209200000205,
+          "repaint_cpu_ms": 0.7378472222222222,
+          "relayout_wall_ms": 6.738396296256119,
+          "relayout_cpu_ms": 1.0416666666666667,
+          "switch_wall_ms": 19.04075111112111,
+          "switch_cpu_ms": 1.3888888888888888,
+          "path": "docs\\benchmarks\\2026-11-12\\default\\iup-all-1\\result.json"
+        },
+        {
+          "run": 2,
+          "ready_ms": 3466.9991999981,
+          "shown_ms": 3236.8471999944,
+          "load_ms": 49.737000001187,
+          "load_cpu_ms": 15.625,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 45.3125,
+          "idle_working_mb": 65.62109375,
+          "ready_cpu_ms": 93.75,
+          "repaint_wall_ms": 4.918060277789972,
+          "repaint_cpu_ms": 1.6493055555555556,
+          "relayout_wall_ms": 6.528449629560644,
+          "relayout_cpu_ms": 1.2731481481481481,
+          "switch_wall_ms": 18.78773555557333,
+          "switch_cpu_ms": 1.3888888888888888,
+          "path": "docs\\benchmarks\\2026-11-12\\default\\iup-all-2\\result.json"
+        },
+        {
+          "run": 3,
+          "ready_ms": 3468.5978000052,
+          "shown_ms": 3242.0429000049,
+          "load_ms": 48.545499994361,
+          "load_cpu_ms": 15.625,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 44.34375,
+          "idle_working_mb": 64.65234375,
+          "ready_cpu_ms": 93.75,
+          "repaint_wall_ms": 4.948925833317194,
+          "repaint_cpu_ms": 1.1284722222222223,
+          "relayout_wall_ms": 6.743157037083304,
+          "relayout_cpu_ms": 1.6203703703703705,
+          "switch_wall_ms": 19.750677777806665,
+          "switch_cpu_ms": 1.0416666666666667,
+          "path": "docs\\benchmarks\\2026-11-12\\default\\iup-all-3\\result.json"
+        },
+        {
+          "run": 4,
+          "ready_ms": 3480.1111999986,
+          "shown_ms": 3250.3873000023,
+          "load_ms": 50.031400001899,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 44.421875,
+          "idle_working_mb": 64.69921875,
+          "ready_cpu_ms": 62.5,
+          "repaint_wall_ms": 5.069061111114777,
+          "repaint_cpu_ms": 0.7378472222222222,
+          "relayout_wall_ms": 6.804290370308489,
+          "relayout_cpu_ms": 0.8101851851851852,
+          "switch_wall_ms": 21.47841888889,
+          "switch_cpu_ms": 0.3472222222222222,
+          "path": "docs\\benchmarks\\2026-11-12\\default\\iup-all-4\\result.json"
+        },
+        {
+          "run": 5,
+          "ready_ms": 3491.9351999997,
+          "shown_ms": 3277.1573999999,
+          "load_ms": 48.171999995247,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 15.625,
+          "idle_core_percent": 0.7787185029540876,
+          "idle_private_mb": 44.35546875,
+          "idle_working_mb": 64.6796875,
+          "ready_cpu_ms": 125,
+          "repaint_wall_ms": 5.131755833281194,
+          "repaint_cpu_ms": 1.7361111111111112,
+          "relayout_wall_ms": 7.031960000070571,
+          "relayout_cpu_ms": 1.5046296296296298,
+          "switch_wall_ms": 18.922715555607777,
+          "switch_cpu_ms": 1.7361111111111112,
+          "path": "docs\\benchmarks\\2026-11-12\\default\\iup-all-5\\result.json"
+        }
+      ],
+      "metrics": {
+        "ready_ms": {
+          "median": 3468.5978000052,
+          "min": 3443.6113999982,
+          "max": 3491.9351999997
+        },
+        "shown_ms": {
+          "median": 3242.0429000049,
+          "min": 3229.4145999986,
+          "max": 3277.1573999999
+        },
+        "load_ms": {
+          "median": 49.737000001187,
+          "min": 48.171999995247,
+          "max": 51.241000001028
+        },
+        "load_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 15.625
+        },
+        "idle_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 15.625
+        },
+        "idle_core_percent": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.7787185029540876
+        },
+        "idle_private_mb": {
+          "median": 44.421875,
+          "min": 44.34375,
+          "max": 45.3125
+        },
+        "idle_working_mb": {
+          "median": 64.69921875,
+          "min": 64.65234375,
+          "max": 65.62109375
+        },
+        "ready_cpu_ms": {
+          "median": 93.75,
+          "min": 62.5,
+          "max": 125
+        },
+        "repaint_wall_ms": {
+          "median": 5.0209200000205,
+          "min": 4.918060277789972,
+          "max": 5.131755833281194
+        },
+        "repaint_cpu_ms": {
+          "median": 1.1284722222222223,
+          "min": 0.7378472222222222,
+          "max": 1.7361111111111112
+        },
+        "relayout_wall_ms": {
+          "median": 6.743157037083304,
+          "min": 6.528449629560644,
+          "max": 7.031960000070571
+        },
+        "relayout_cpu_ms": {
+          "median": 1.2731481481481481,
+          "min": 0.8101851851851852,
+          "max": 1.6203703703703705
+        },
+        "switch_wall_ms": {
+          "median": 19.04075111112111,
+          "min": 18.78773555557333,
+          "max": 21.47841888889
+        },
+        "switch_cpu_ms": {
+          "median": 1.3888888888888888,
+          "min": 0.3472222222222222,
+          "max": 1.7361111111111112
+        }
+      }
+    },
+    "iup-none": {
+      "runs": [
+        {
+          "run": 1,
+          "ready_ms": 284.92810000171,
+          "shown_ms": 168.97460000473,
+          "load_ms": 0.01440000050934,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 30.59375,
+          "idle_working_mb": 49.25,
+          "ready_cpu_ms": 62.5,
+          "repaint_wall_ms": 6.585342499966001,
+          "repaint_cpu_ms": 1.171875,
+          "relayout_wall_ms": 5.423500000324534,
+          "relayout_cpu_ms": 0.0,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "docs\\benchmarks\\2026-11-12\\default\\iup-none-1\\result.json"
+        },
+        {
+          "run": 2,
+          "ready_ms": 284.93919999892,
+          "shown_ms": 193.15429999551,
+          "load_ms": 0.018499995348975,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 30.86328125,
+          "idle_working_mb": 49.53125,
+          "ready_cpu_ms": 31.25,
+          "repaint_wall_ms": 7.28866499994175,
+          "repaint_cpu_ms": 0.78125,
+          "relayout_wall_ms": 6.5713266667444,
+          "relayout_cpu_ms": 1.0416666666666667,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "docs\\benchmarks\\2026-11-12\\default\\iup-none-2\\result.json"
+        },
+        {
+          "run": 3,
+          "ready_ms": 277.75359999941,
+          "shown_ms": 167.06359999807,
+          "load_ms": 0.023599997803103,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 30.89453125,
+          "idle_working_mb": 49.57421875,
+          "ready_cpu_ms": 31.25,
+          "repaint_wall_ms": 7.201992499904,
+          "repaint_cpu_ms": 2.734375,
+          "relayout_wall_ms": 6.2737133334546,
+          "relayout_cpu_ms": 0.0,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "docs\\benchmarks\\2026-11-12\\default\\iup-none-3\\result.json"
+        },
+        {
+          "run": 4,
+          "ready_ms": 252.4035000024,
+          "shown_ms": 162.45679999702,
+          "load_ms": 0.021300002117641,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 31.17578125,
+          "idle_working_mb": 49.828125,
+          "ready_cpu_ms": 15.625,
+          "repaint_wall_ms": 7.3385300000155,
+          "repaint_cpu_ms": 2.734375,
+          "relayout_wall_ms": 6.68574666682,
+          "relayout_cpu_ms": 3.125,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "docs\\benchmarks\\2026-11-12\\default\\iup-none-4\\result.json"
+        },
+        {
+          "run": 5,
+          "ready_ms": 252.76200000371,
+          "shown_ms": 164.94660000171,
+          "load_ms": 0.015100005839486,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 30.890625,
+          "idle_working_mb": 49.5859375,
+          "ready_cpu_ms": 93.75,
+          "repaint_wall_ms": 6.583284999942499,
+          "repaint_cpu_ms": 2.34375,
+          "relayout_wall_ms": 7.630553333243999,
+          "relayout_cpu_ms": 1.0416666666666667,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "docs\\benchmarks\\2026-11-12\\default\\iup-none-5\\result.json"
+        }
+      ],
+      "metrics": {
+        "ready_ms": {
+          "median": 277.75359999941,
+          "min": 252.4035000024,
+          "max": 284.93919999892
+        },
+        "shown_ms": {
+          "median": 167.06359999807,
+          "min": 162.45679999702,
+          "max": 193.15429999551
+        },
+        "load_ms": {
+          "median": 0.018499995348975,
+          "min": 0.01440000050934,
+          "max": 0.023599997803103
+        },
+        "load_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "idle_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "idle_core_percent": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "idle_private_mb": {
+          "median": 30.890625,
+          "min": 30.59375,
+          "max": 31.17578125
+        },
+        "idle_working_mb": {
+          "median": 49.57421875,
+          "min": 49.25,
+          "max": 49.828125
+        },
+        "ready_cpu_ms": {
+          "median": 31.25,
+          "min": 15.625,
+          "max": 93.75
+        },
+        "repaint_wall_ms": {
+          "median": 7.201992499904,
+          "min": 6.583284999942499,
+          "max": 7.3385300000155
+        },
+        "repaint_cpu_ms": {
+          "median": 2.34375,
+          "min": 0.78125,
+          "max": 2.734375
+        },
+        "relayout_wall_ms": {
+          "median": 6.5713266667444,
+          "min": 5.423500000324534,
+          "max": 7.630553333243999
+        },
+        "relayout_cpu_ms": {
+          "median": 1.0416666666666667,
+          "min": 0.0,
+          "max": 3.125
+        },
+        "switch_wall_ms": null,
+        "switch_cpu_ms": null
+      }
+    }
+  },
+  "extensions": [
+    "blackduck",
+    "buildqueue",
+    "hpe-theme",
+    "iloredfish",
+    "logparser",
+    "lsp-c",
+    "lsp-lua",
+    "microchip-theme",
+    "scanchainparser",
+    "timeclock"
+  ],
+  "uncapped": {
+    "imgui-all": {
+      "runs": [
+        {
+          "run": 1,
+          "ready_ms": 3237.1447999976,
+          "shown_ms": 3047.5336999953,
+          "load_ms": 58.019500000228,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 31.25,
+          "idle_core_percent": 1.5584303927954877,
+          "idle_private_mb": 82.09765625,
+          "idle_working_mb": 99.80859375,
+          "ready_cpu_ms": 140.625,
+          "repaint_wall_ms": 4.0147063889485555,
+          "repaint_cpu_ms": 4.036458333333333,
+          "relayout_wall_ms": 16.42858148153652,
+          "relayout_cpu_ms": 14.12037037037037,
+          "switch_wall_ms": 16.625663333333332,
+          "switch_cpu_ms": 16.666666666666668,
+          "path": "docs\\benchmarks\\2026-11-12\\uncapped\\imgui-all-1\\result.json"
+        },
+        {
+          "run": 2,
+          "ready_ms": 3209.5480999997,
+          "shown_ms": 3039.9671999985,
+          "load_ms": 57.838900000206,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 62.5,
+          "idle_core_percent": 3.1124089053896453,
+          "idle_private_mb": 75.55859375,
+          "idle_working_mb": 99.01953125,
+          "ready_cpu_ms": 31.25,
+          "repaint_wall_ms": 4.781511111064472,
+          "repaint_cpu_ms": 4.817708333333333,
+          "relayout_wall_ms": 16.393247407352224,
+          "relayout_cpu_ms": 14.351851851851851,
+          "switch_wall_ms": 16.859468888934444,
+          "switch_cpu_ms": 14.756944444444445,
+          "path": "docs\\benchmarks\\2026-11-12\\uncapped\\imgui-all-2\\result.json"
+        },
+        {
+          "run": 3,
+          "ready_ms": 3190.5811000033,
+          "shown_ms": 3037.630699997,
+          "load_ms": 59.640899999067,
+          "load_cpu_ms": 15.625,
+          "idle_cpu_ms": 46.875,
+          "idle_core_percent": 2.338355764002654,
+          "idle_private_mb": 75.1875,
+          "idle_working_mb": 98.55078125,
+          "ready_cpu_ms": 203.125,
+          "repaint_wall_ms": 4.235863888890056,
+          "repaint_cpu_ms": 3.298611111111111,
+          "relayout_wall_ms": 17.08733259271237,
+          "relayout_cpu_ms": 13.88888888888889,
+          "switch_wall_ms": 17.157314444436665,
+          "switch_cpu_ms": 11.979166666666666,
+          "path": "docs\\benchmarks\\2026-11-12\\uncapped\\imgui-all-3\\result.json"
+        }
+      ],
+      "metrics": {
+        "ready_ms": {
+          "median": 3209.5480999997,
+          "min": 3190.5811000033,
+          "max": 3237.1447999976
+        },
+        "shown_ms": {
+          "median": 3039.9671999985,
+          "min": 3037.630699997,
+          "max": 3047.5336999953
+        },
+        "load_ms": {
+          "median": 58.019500000228,
+          "min": 57.838900000206,
+          "max": 59.640899999067
+        },
+        "load_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 15.625
+        },
+        "idle_cpu_ms": {
+          "median": 46.875,
+          "min": 31.25,
+          "max": 62.5
+        },
+        "idle_core_percent": {
+          "median": 2.338355764002654,
+          "min": 1.5584303927954877,
+          "max": 3.1124089053896453
+        },
+        "idle_private_mb": {
+          "median": 75.55859375,
+          "min": 75.1875,
+          "max": 82.09765625
+        },
+        "idle_working_mb": {
+          "median": 99.01953125,
+          "min": 98.55078125,
+          "max": 99.80859375
+        },
+        "ready_cpu_ms": {
+          "median": 140.625,
+          "min": 31.25,
+          "max": 203.125
+        },
+        "repaint_wall_ms": {
+          "median": 4.235863888890056,
+          "min": 4.0147063889485555,
+          "max": 4.781511111064472
+        },
+        "repaint_cpu_ms": {
+          "median": 4.036458333333333,
+          "min": 3.298611111111111,
+          "max": 4.817708333333333
+        },
+        "relayout_wall_ms": {
+          "median": 16.42858148153652,
+          "min": 16.393247407352224,
+          "max": 17.08733259271237
+        },
+        "relayout_cpu_ms": {
+          "median": 14.12037037037037,
+          "min": 13.88888888888889,
+          "max": 14.351851851851851
+        },
+        "switch_wall_ms": {
+          "median": 16.859468888934444,
+          "min": 16.625663333333332,
+          "max": 17.157314444436665
+        },
+        "switch_cpu_ms": {
+          "median": 14.756944444444445,
+          "min": 11.979166666666666,
+          "max": 16.666666666666668
+        }
+      }
+    },
+    "imgui-none": {
+      "runs": [
+        {
+          "run": 1,
+          "ready_ms": 214.21530000225,
+          "shown_ms": 127.60379999963,
+          "load_ms": 0.023000000510365,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 52.19921875,
+          "idle_working_mb": 72.8671875,
+          "ready_cpu_ms": 46.875,
+          "repaint_wall_ms": 3.4418100000039997,
+          "repaint_cpu_ms": 2.34375,
+          "relayout_wall_ms": 4.9949799999012665,
+          "relayout_cpu_ms": 29.166666666666668,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "docs\\benchmarks\\2026-11-12\\uncapped\\imgui-none-1\\result.json"
+        },
+        {
+          "run": 2,
+          "ready_ms": 216.05640000053,
+          "shown_ms": 124.19039999804,
+          "load_ms": 0.019899998733308,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 15.625,
+          "idle_core_percent": 0.7794884340875327,
+          "idle_private_mb": 55.78515625,
+          "idle_working_mb": 74.77734375,
+          "ready_cpu_ms": 31.25,
+          "repaint_wall_ms": 3.6223600000085,
+          "repaint_cpu_ms": 10.9375,
+          "relayout_wall_ms": 6.732113333418667,
+          "relayout_cpu_ms": 27.083333333333332,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "docs\\benchmarks\\2026-11-12\\uncapped\\imgui-none-2\\result.json"
+        },
+        {
+          "run": 3,
+          "ready_ms": 223.91630000493,
+          "shown_ms": 132.43990000046,
+          "load_ms": 0.017500002286397,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 54.984375,
+          "idle_working_mb": 75.546875,
+          "ready_cpu_ms": 31.25,
+          "repaint_wall_ms": 3.52015249991375,
+          "repaint_cpu_ms": 2.734375,
+          "relayout_wall_ms": 5.789780000244133,
+          "relayout_cpu_ms": 8.333333333333334,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "docs\\benchmarks\\2026-11-12\\uncapped\\imgui-none-3\\result.json"
+        }
+      ],
+      "metrics": {
+        "ready_ms": {
+          "median": 216.05640000053,
+          "min": 214.21530000225,
+          "max": 223.91630000493
+        },
+        "shown_ms": {
+          "median": 127.60379999963,
+          "min": 124.19039999804,
+          "max": 132.43990000046
+        },
+        "load_ms": {
+          "median": 0.019899998733308,
+          "min": 0.017500002286397,
+          "max": 0.023000000510365
+        },
+        "load_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "idle_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 15.625
+        },
+        "idle_core_percent": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.7794884340875327
+        },
+        "idle_private_mb": {
+          "median": 54.984375,
+          "min": 52.19921875,
+          "max": 55.78515625
+        },
+        "idle_working_mb": {
+          "median": 74.77734375,
+          "min": 72.8671875,
+          "max": 75.546875
+        },
+        "ready_cpu_ms": {
+          "median": 31.25,
+          "min": 31.25,
+          "max": 46.875
+        },
+        "repaint_wall_ms": {
+          "median": 3.52015249991375,
+          "min": 3.4418100000039997,
+          "max": 3.6223600000085
+        },
+        "repaint_cpu_ms": {
+          "median": 2.734375,
+          "min": 2.34375,
+          "max": 10.9375
+        },
+        "relayout_wall_ms": {
+          "median": 5.789780000244133,
+          "min": 4.9949799999012665,
+          "max": 6.732113333418667
+        },
+        "relayout_cpu_ms": {
+          "median": 27.083333333333332,
+          "min": 8.333333333333334,
+          "max": 29.166666666666668
+        },
+        "switch_wall_ms": null,
+        "switch_cpu_ms": null
+      }
+    },
+    "iup-all": {
+      "runs": [
+        {
+          "run": 1,
+          "ready_ms": 3473.3557,
+          "shown_ms": 3235.4387000014,
+          "load_ms": 49.282199994195,
+          "load_cpu_ms": 15.625,
+          "idle_cpu_ms": 15.625,
+          "idle_core_percent": 0.7731052587893652,
+          "idle_private_mb": 44.359375,
+          "idle_working_mb": 64.70703125,
+          "ready_cpu_ms": 125,
+          "repaint_wall_ms": 5.028505833353028,
+          "repaint_cpu_ms": 0.4340277777777778,
+          "relayout_wall_ms": 6.688067407500275,
+          "relayout_cpu_ms": 0.34722222222222227,
+          "switch_wall_ms": 18.880978888854443,
+          "switch_cpu_ms": 1.7361111111111112,
+          "path": "docs\\benchmarks\\2026-11-12\\uncapped\\iup-all-1\\result.json"
+        },
+        {
+          "run": 2,
+          "ready_ms": 3489.1454999961,
+          "shown_ms": 3268.991799996,
+          "load_ms": 50.595799999428,
+          "load_cpu_ms": 46.875,
+          "idle_cpu_ms": 15.625,
+          "idle_core_percent": 0.778601082328069,
+          "idle_private_mb": 44.5703125,
+          "idle_working_mb": 64.8515625,
+          "ready_cpu_ms": 250,
+          "repaint_wall_ms": 5.235872222227889,
+          "repaint_cpu_ms": 1.5190972222222223,
+          "relayout_wall_ms": 6.72430296286217,
+          "relayout_cpu_ms": 1.6203703703703705,
+          "switch_wall_ms": 19.161888888872223,
+          "switch_cpu_ms": 2.6041666666666665,
+          "path": "docs\\benchmarks\\2026-11-12\\uncapped\\iup-all-2\\result.json"
+        },
+        {
+          "run": 3,
+          "ready_ms": 3453.0087999956,
+          "shown_ms": 3238.1535000022,
+          "load_ms": 49.552000004041,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 44.453125,
+          "idle_working_mb": 64.77734375,
+          "ready_cpu_ms": 78.125,
+          "repaint_wall_ms": 4.956205277752222,
+          "repaint_cpu_ms": 0.1736111111111111,
+          "relayout_wall_ms": 6.771779259186014,
+          "relayout_cpu_ms": 0.11574074074074076,
+          "switch_wall_ms": 18.856894444454444,
+          "switch_cpu_ms": 3.4722222222222223,
+          "path": "docs\\benchmarks\\2026-11-12\\uncapped\\iup-all-3\\result.json"
+        }
+      ],
+      "metrics": {
+        "ready_ms": {
+          "median": 3473.3557,
+          "min": 3453.0087999956,
+          "max": 3489.1454999961
+        },
+        "shown_ms": {
+          "median": 3238.1535000022,
+          "min": 3235.4387000014,
+          "max": 3268.991799996
+        },
+        "load_ms": {
+          "median": 49.552000004041,
+          "min": 49.282199994195,
+          "max": 50.595799999428
+        },
+        "load_cpu_ms": {
+          "median": 15.625,
+          "min": 0,
+          "max": 46.875
+        },
+        "idle_cpu_ms": {
+          "median": 15.625,
+          "min": 0,
+          "max": 15.625
+        },
+        "idle_core_percent": {
+          "median": 0.7731052587893652,
+          "min": 0.0,
+          "max": 0.778601082328069
+        },
+        "idle_private_mb": {
+          "median": 44.453125,
+          "min": 44.359375,
+          "max": 44.5703125
+        },
+        "idle_working_mb": {
+          "median": 64.77734375,
+          "min": 64.70703125,
+          "max": 64.8515625
+        },
+        "ready_cpu_ms": {
+          "median": 125,
+          "min": 78.125,
+          "max": 250
+        },
+        "repaint_wall_ms": {
+          "median": 5.028505833353028,
+          "min": 4.956205277752222,
+          "max": 5.235872222227889
+        },
+        "repaint_cpu_ms": {
+          "median": 0.4340277777777778,
+          "min": 0.1736111111111111,
+          "max": 1.5190972222222223
+        },
+        "relayout_wall_ms": {
+          "median": 6.72430296286217,
+          "min": 6.688067407500275,
+          "max": 6.771779259186014
+        },
+        "relayout_cpu_ms": {
+          "median": 0.34722222222222227,
+          "min": 0.11574074074074076,
+          "max": 1.6203703703703705
+        },
+        "switch_wall_ms": {
+          "median": 18.880978888854443,
+          "min": 18.856894444454444,
+          "max": 19.161888888872223
+        },
+        "switch_cpu_ms": {
+          "median": 2.6041666666666665,
+          "min": 1.7361111111111112,
+          "max": 3.4722222222222223
+        }
+      }
+    },
+    "iup-none": {
+      "runs": [
+        {
+          "run": 1,
+          "ready_ms": 290.04410000198,
+          "shown_ms": 166.4346999969,
+          "load_ms": 0.022799998987466,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 30.75,
+          "idle_working_mb": 49.48046875,
+          "ready_cpu_ms": 46.875,
+          "repaint_wall_ms": 7.10304499989425,
+          "repaint_cpu_ms": 0.78125,
+          "relayout_wall_ms": 6.9386533335393334,
+          "relayout_cpu_ms": 1.0416666666666667,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "docs\\benchmarks\\2026-11-12\\uncapped\\iup-none-1\\result.json"
+        },
+        {
+          "run": 2,
+          "ready_ms": 265.48650000041,
+          "shown_ms": 152.021899994,
+          "load_ms": 0.016500001947861,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 31.0703125,
+          "idle_working_mb": 49.78125,
+          "ready_cpu_ms": 46.875,
+          "repaint_wall_ms": 7.3567299999922495,
+          "repaint_cpu_ms": 0.390625,
+          "relayout_wall_ms": 6.647939999917667,
+          "relayout_cpu_ms": 1.0416666666666667,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "docs\\benchmarks\\2026-11-12\\uncapped\\iup-none-2\\result.json"
+        },
+        {
+          "run": 3,
+          "ready_ms": 244.75009999878,
+          "shown_ms": 159.01840000151,
+          "load_ms": 0.02669999958016,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 31.0625,
+          "idle_working_mb": 49.7578125,
+          "ready_cpu_ms": 46.875,
+          "repaint_wall_ms": 6.571502500082749,
+          "repaint_cpu_ms": 0.390625,
+          "relayout_wall_ms": 6.239820000094666,
+          "relayout_cpu_ms": 0.0,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "docs\\benchmarks\\2026-11-12\\uncapped\\iup-none-3\\result.json"
+        }
+      ],
+      "metrics": {
+        "ready_ms": {
+          "median": 265.48650000041,
+          "min": 244.75009999878,
+          "max": 290.04410000198
+        },
+        "shown_ms": {
+          "median": 159.01840000151,
+          "min": 152.021899994,
+          "max": 166.4346999969
+        },
+        "load_ms": {
+          "median": 0.022799998987466,
+          "min": 0.016500001947861,
+          "max": 0.02669999958016
+        },
+        "load_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "idle_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "idle_core_percent": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "idle_private_mb": {
+          "median": 31.0625,
+          "min": 30.75,
+          "max": 31.0703125
+        },
+        "idle_working_mb": {
+          "median": 49.7578125,
+          "min": 49.48046875,
+          "max": 49.78125
+        },
+        "ready_cpu_ms": {
+          "median": 46.875,
+          "min": 46.875,
+          "max": 46.875
+        },
+        "repaint_wall_ms": {
+          "median": 7.10304499989425,
+          "min": 6.571502500082749,
+          "max": 7.3567299999922495
+        },
+        "repaint_cpu_ms": {
+          "median": 0.390625,
+          "min": 0.390625,
+          "max": 0.78125
+        },
+        "relayout_wall_ms": {
+          "median": 6.647939999917667,
+          "min": 6.239820000094666,
+          "max": 6.9386533335393334
+        },
+        "relayout_cpu_ms": {
+          "median": 1.0416666666666667,
+          "min": 0.0,
+          "max": 1.0416666666666667
+        },
+        "switch_wall_ms": null,
+        "switch_cpu_ms": null
+      }
+    }
+  },
+  "settled_idle": {
+    "imgui-all": {
+      "cpu_ms": 109.375,
+      "memory": {
+        "lua_mb": 29.835283279419,
+        "working_mb": 101.125,
+        "peak_working_mb": 101.69921875,
+        "private_mb": 84.08984375
+      },
+      "duration_s": 10.010473299997,
+      "frames": 24
+    },
+    "imgui-none": {
+      "memory": {
+        "private_mb": 53.38671875,
+        "lua_mb": 14.39453792572,
+        "working_mb": 73.69921875,
+        "peak_working_mb": 78.3125
+      },
+      "cpu_ms": 15.625,
+      "duration_s": 10.001287899999,
+      "frames": 1
+    },
+    "iup-all": {
+      "cpu_ms": 0,
+      "duration_s": 10.007280599995,
+      "memory": {
+        "working_mb": 65.734375,
+        "lua_mb": 12.735877037048,
+        "private_mb": 45.44921875,
+        "peak_working_mb": 65.734375
+      }
+    },
+    "iup-none": {
+      "memory": {
+        "private_mb": 30.7890625,
+        "lua_mb": 8.3227853775024,
+        "working_mb": 49.46484375,
+        "peak_working_mb": 49.46484375
+      },
+      "cpu_ms": 0,
+      "duration_s": 10.002448400002
+    }
+  }
+}

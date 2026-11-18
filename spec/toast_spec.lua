@@ -273,6 +273,27 @@ describe("ToastHost:show with motion enabled", function()
 		host:show({ title = "Hello" })
 		assert.are.equal(1, host:count())
 	end)
+	it("shows without taking the keyboard focus", function()
+		local d, _, diup = make_director()
+		local host = make_host(d, diup)
+		host:show({ title = "Hello" })
+		assert.equals("YES", host._stack[1].dlg.attrs.SHOWNOFOCUS)
+	end)
+	it("gives success and error toasts distinct icons and a flush support rail", function()
+		local d, _, diup = make_director()
+		local host = make_host(d, diup)
+		for _, kind in ipairs({"success", "error"}) do
+			host:show({title="Result", kind=kind})
+			local panel = host._stack[#host._stack].dlg.children[1]
+			local row = panel.children[1]
+			assert.equals("0x0", panel.attrs.MARGIN)
+			assert.equals("toast_bar_" .. kind, row.children[1].attrs.THEMEROLE)
+			assert.equals("3x48", row.children[1].attrs.RASTERSIZE)
+			local title = row.children[2].children[1].children[1]
+			local spec = title.attrs._IUPLUNAR_KITICON
+			assert.matches(kind == "success" and "checkmark" or "error", spec)
+		end
+	end)
 
 	it("stacks multiple toasts", function()
 		local d, _, diup = make_director()

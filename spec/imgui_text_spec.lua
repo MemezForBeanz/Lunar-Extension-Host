@@ -1,0 +1,51 @@
+local Element = require("core.imgui.Element")
+local Classes = require("core.imgui.Classes")
+local iup = require("core.imgui.iup")
+
+describe("ImGui text controls", function()
+	local function rt()
+		local r = { clipboard = "" }
+		r.focused = function() return nil end
+		r.clipboard_get = function() return r.clipboard end
+		r.clipboard_set = function(v) r.clipboard = v end
+		return r
+	end
+	it("edits, selects, and exposes UTF-16 positions", function()
+		local t = iup.text({ VALUE = "héllo" })
+		local st = Element.state(t)
+		local r = rt()
+		Classes.get("text").event(t, st, { type = "key", key = iup.K_cA, mods = { ctrl = true } }, r)
+		assert.equal("1:6", iup.GetAttribute(t, "SELECTION")) -- UTF-16 units, as the EDIT counts
+		Classes.get("text").event(t, st, { type = "char", char = "世界" }, r)
+		assert.equal("世界", iup.GetAttribute(t, "VALUE"))
+	end)
+	it("honours ACTION veto and filters", function()
+		local veto = iup.text({ VALUE = "a", FILTER = "UPPERCASE", action = function() return iup.IGNORE end })
+		local st = Element.state(veto)
+		Classes.get("text").event(veto, st, { type = "char", char = "b" }, rt())
+		assert.equal("a", iup.GetAttribute(veto, "VALUE"))
+	end)
+	it("supports clipboard and undo", function()
+		local r = rt()
+		local t = iup.text({ VALUE = "abc" })
+		local st = Element.state(t)
+		Classes.get("text").event(t, st, { type = "key", key = iup.K_cA, mods = { ctrl = true } }, r)
+		Classes.get("text").event(t, st, { type = "key", key = iup.K_cC, mods = { ctrl = true } }, r)
+		Classes.get("text").event(t, st, { type = "key", key = iup.K_cX, mods = { ctrl = true } }, r)
+		assert.equal("", iup.GetAttribute(t, "VALUE"))
+		Classes.get("text").event(t, st, { type = "key", key = iup.K_cV, mods = { ctrl = true } }, r)
+		assert.equal("abc", iup.GetAttribute(t, "VALUE"))
+		Classes.get("text").event(t, st, { type = "key", key = iup.K_cZ, mods = { ctrl = true } }, r)
+		assert.equal("", iup.GetAttribute(t, "VALUE"))
+	end)
+end)
+
+describe("imgui text: PADDING", function()
+	-- winTextSetPaddingAttrib sets vert_padding to 0 and iTextGetPaddingAttrib returns both:
+	-- the IUP build answers 4x0 for the theme's 4x2 (ui_probe A lines, every Settings
+	-- section); the host answered 4x2.
+	it("keeps only the horizontal padding", function()
+		local t = iup.text({ PADDING = "4x2" })
+		assert.equal("4x0", iup.GetAttribute(t, "PADDING"))
+	end)
+end)

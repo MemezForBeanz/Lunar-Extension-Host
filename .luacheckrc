@@ -49,7 +49,9 @@ ignore = {
 files["scripts/"] = {
 	-- CLI scripts legitimately read the global `arg` table (populated by the
 	-- host / argparse) and print a lot; keep them lenient on unused locals.
-	globals = { "arg" },
+	-- The capture and probe scripts run the app from the repo, so they set
+	-- LUNAR_SOURCE_DIR themselves, the way a dev build's host does.
+	globals = { "arg", "LUNAR_SOURCE_DIR" },
 }
 
 files["scripts/luarocks-config.lua"] = {
@@ -60,4 +62,10 @@ files["scripts/luarocks-config.lua"] = {
 files["spec/"] = {
 	-- busted defines these test DSL globals.
 	std = "+busted",
+	-- Specs swap these out and put them back (environment, clock, stderr, file
+	-- failures); every other standard field stays read-only.
+	read_globals = {
+		os = { fields = { getenv = { read_only = false }, time = { read_only = false } } },
+		io = { fields = { stderr = { read_only = false }, open = { read_only = false } } },
+	},
 }

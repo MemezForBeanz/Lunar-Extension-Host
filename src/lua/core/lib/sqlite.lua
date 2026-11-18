@@ -1,7 +1,12 @@
 --- Small synchronous SQLite binding. All failures return nil, string.
 -- Calls perform disk I/O on the calling thread; keep transactions short.
 -- @module core.lib.sqlite
-local ffi = require("ffi")
+-- The FFI is optional: without it the module loads and reports SQLite unavailable.
+local ok_ffi, ffi = pcall(require, "ffi")
+if not ok_ffi then
+	return { NULL = {}, available = false, unavailable_reason = "SQLite needs the FFI, unavailable here",
+		open = function() return nil, "SQLite needs the FFI, unavailable here" end }
+end
 -- pcall: a module reload must not fail on "attempt to redefine".
 pcall(ffi.cdef, [[
 typedef struct sqlite3 sqlite3;

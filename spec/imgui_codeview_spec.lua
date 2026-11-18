@@ -1,0 +1,87 @@
+local Runtime = require("core.imgui.Runtime")
+local Null = require("core.imgui.backend.Null")
+local iup = require("core.imgui.iup")
+local Element = require("core.imgui.Element")
+local CodeView = require("core.ui.CodeView")
+
+describe("ImGui CodeView", function()
+	local function view(opts)
+		Runtime.init(Null.new())
+		local v = CodeView.new(iup, opts or { framed = false, read_only = false, language = "lua" })
+		local d = iup.dialog{ iup.vbox{ v:widget() }, RASTERSIZE = "800x300" }
+		iup.Show(d); Runtime.frame()
+		return v, d
+	end
+	it("keeps diagnostic indicator ranges and markers in the virtual control", function()
+		local v, d = view({ framed = false, read_only = false, text = "naïve()\nnext" })
+		v:setDiagnostics({ { line = 0, column = 0, end_column = 5, severity = 1, message = "bad" } })
+		local st = Element.state(v:control())
+		assert.same({ 0, 5 }, st.data.indicators[8][1])
+		assert.equal(0, st.data.markers[0])
+		iup.Destroy(d)
+	end)
+	it("reports hover and click positions as byte columns", function()
+		local v, d = view({ framed = false, read_only = false, text = "naïve\nx" })
+		local hover, click
+		v:onHover(function(line, column) hover = { line, column } end)
+		v:onClick(function(line, column) click = { line, column }; return true end)
+		local c = v:control()
+		Element.call(c, "DWELL_CB", 1, 0, 0, 0)
+		Element.call(c, "BUTTON_CB", iup.BUTTON1, 1, 0, 0, "")
+		assert.same({ 0, 0 }, hover)
+		assert.same({ 0, 0 }, click)
+		assert.equal(6, #("naïve"))
+		iup.Destroy(d)
+	end)
+	it("inserts completion text and follows definition clicks", function()
+		local v, d = view({ framed = false, read_only = false, text = "pri" })
+		v:goTo(0, 3)
+		assert.is_true(v:replace(0, 0, 3, "print"))
+		assert.equal("print", v:text())
+		local requested
+		v:onClick(function(line, column, status) requested = { line, column, status }; return true end)
+		Element.call(v:control(), "BUTTON_CB", iup.BUTTON1, 1, 0, 0, "C")
+		assert.same({ 0, 0, "C" }, requested)
+		iup.Destroy(d)
+	end)
+end)
+
+describe("ImGui CodeView through real input", function()
+	local R = require("core.imgui.Runtime")
+	local B
+	local function view(text)
+		B = Null.new(); R.init(B)
+		local v = CodeView.new(iup, { framed = false, read_only = false, language = "lua", text = text })
+		local d = iup.dialog{ iup.vbox{ v:widget(), MARGIN = "0x0" }, RASTERSIZE = "600x300", BORDER = "NO" }
+		iup.Show(d); R.frame(); R.frame()
+		return v, Element.state(v:control())
+	end
+
+	it("starts a dwell after the pointer rests (SETMOUSEDWELLTIME) and ends it on a move", function()
+		local v, st = view("local value = 1\nprint(value)")
+		local seen = {}
+		v:onHover(function(line, column) seen[#seen + 1] = line and { line, column } or "end" end)
+		local _, ch = require("core.imgui.widgets.scintilla")._style_font(v:control(), st, 32):charsize()
+		B.queue({ events = { { type = "move", x = st.x + 80, y = st.y + 2 } } }); R.frame()
+		assert.equal(0, #seen)
+		B.advance(1); R.step(0)
+		assert.equal(1, #seen)
+		assert.equal(0, seen[1][1])                -- the first line
+		B.queue({ events = { { type = "move", x = st.x + 90, y = st.y + ch + 2 } } }); R.frame()
+		assert.equal("end", seen[2])
+		B.advance(1); R.step(0)
+		assert.equal(1, seen[3][1])                -- the second line, a line height below
+	end)
+
+	it("hands a Ctrl+click to onClick through BUTTON_CB", function()
+		local v, st = view("print(value)")
+		local got
+		v:onClick(function(line, column, status) got = { line, column, status }; return true end)
+		B.queue({ events = { { type = "move", x = st.x + 60, y = st.y + 4 },
+			{ type = "press", x = st.x + 60, y = st.y + 4, button = 1, mods = { ctrl = true, b1 = true } } } }); R.frame()
+		B.queue({ events = { { type = "release", x = st.x + 60, y = st.y + 4, button = 1 } } }); R.frame()
+		assert.is_truthy(got)
+		assert.equal(0, got[1])
+		assert.is_truthy(tostring(got[3]):find("C", 1, true))
+	end)
+end)

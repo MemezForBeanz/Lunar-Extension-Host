@@ -11,6 +11,38 @@
 local iup = require("iup")
 local ffi = require("ffi")
 
+-- This checkout's Lua, whichever build runs the script (as scripts/ui_probe.lua).
+do
+	local here = debug.getinfo(1, "S").source:gsub("^@", ""):gsub("\\", "/")
+	local root = here:match("^(.*)/scripts/[^/]+$")
+	if root and root ~= "" then
+		LUNAR_SOURCE_DIR = root
+		local mine = root .. "/src/lua/?.lua;" .. root .. "/src/lua/?/init.lua"
+		table.insert(package.loaders, 2, function(name)
+			local file = package.searchpath(name, mine)
+			if not file then return nil end
+			return assert(loadfile(file))
+		end)
+		for name in pairs(package.preload) do
+			local f = io.open(root .. "/src/lua/" .. name:gsub("%.", "/") .. ".lua", "r")
+			if f then f:close(); local path = root .. "/src/lua/" .. name:gsub("%.", "/") .. ".lua"; package.preload[name] = function(...) return assert(loadfile(path))(...) end end -- kept, so preload-driven discovery (themes) still sees it
+		end
+	end
+end
+
+-- The executable boots the ImGui runtime before it invokes this script. Reload
+-- paint code from this checkout before any widgets exist, just as we reload UI
+-- modules above; otherwise draw-context/runtime edits silently use embedded Lua.
+if rawget(iup, "_IMGUI") then
+	package.loaded["core.imgui.Draw"] = nil
+	package.loaded["core.imgui.Runtime"] = nil
+	-- Draw secondary dialogs as panels in this capture-only runtime. Their
+	-- rendered pixels then belong to the full app buffer (no desktop reads).
+	local backend = require("core.imgui.backend.Native")
+	backend.dialog_windows = false
+	require("core.imgui.Runtime").init(backend)
+end
+
 -- Nobody is there to dismiss a dialog, and one would stop the run with nothing to show for it.
 iup.Message = function(title, text)
 	io.stderr:write("ui_capture: ", tostring(title), ": ", tostring(text), string.char(10))
@@ -40,13 +72,58 @@ int GetDIBits(void*, void*, unsigned, unsigned, void*, CAP_BMIH*, unsigned);
 int DeleteObject(void*);
 int DeleteDC(void*);
 long DwmGetWindowAttribute(void*, unsigned, void*, unsigned);
+int PostMessageW(void*, unsigned, uintptr_t, intptr_t);
 ]]
 local user32, gdi32, dwmapi = ffi.load("user32"), ffi.load("gdi32"), ffi.load("dwmapi")
 
 -- from_screen copies what is really on screen, title bar and menu included: a popup,
 -- and an edit control's cue banner, only paint for WM_PAINT, which PrintWindow does not
 -- send. Set LUNAR_CAPTURE_CLIENT=1 for the old client-only shot of a covered window.
-local function save_bmp(hwnd, path, from_screen)
+-- On the ImGui host there is no HWND per dialog and the GL surface does not answer
+-- PrintWindow: the backend reads its own back buffer instead (the whole window, or one
+-- dialog's panel), which also means the shot never touches the screen.
+local IMGUI = rawget(iup, "_IMGUI") == true
+local function window_of(dlg)
+	if IMGUI then return dlg end
+	local IupFFI = require("core.classes.IupFFI")
+	return ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(dlg), "HWND"))
+end
+
+local save_bmp_native
+local function save_bmp(target, path, from_screen)
+	if not IMGUI then return save_bmp_native(target, path, from_screen) end
+	local Runtime = require("core.imgui.Runtime")
+	local B = Runtime.backend()
+	local Element = require("core.imgui.Element")
+	local st = Element.state(target)
+	-- Native popovers may extend beyond the parent window. In panel capture
+	-- mode keep the complete floating surface inside the app buffer.
+	local main = Runtime.mainDialog()
+	local mst = main and Element.state(main)
+	if mst then
+		local inset = require("core.lib.CarbonLayout").px(3)
+		for _, dialog in ipairs(Runtime.dialogs()) do
+			local ds = Element.state(dialog)
+			if dialog ~= main and ds then
+				ds.data.ox = math.max(inset, math.min(ds.data.ox or inset, mst.w - ds.w - inset))
+				ds.data.oy = math.max(inset, math.min(ds.data.oy or inset, mst.h - ds.h - inset))
+			end
+		end
+	end
+	-- The backend reads the back buffer at the end of the next frame, which also shows
+	-- the state after the step that asked for the shot.
+	if target == Runtime.mainDialog() or not st then B.screenshot(path)
+	elseif st.data.win then
+		-- a dialog in its own window (secondary dialogs are native windows): its back buffer
+		B.screenshot(path, 0, 0, 0, 0, st.data.win)
+	else
+		local top = st.data.chrome and st.data.chrome.top or 0
+		B.screenshot(path, st.data.ox or 0, (st.data.oy or 0) - top, st.w, st.h + top)
+	end
+	Runtime.frame()
+end
+
+function save_bmp_native(hwnd, path, from_screen)
 	local rc = ffi.new("CAP_RECT")
 	if from_screen then
 		-- The visible frame: GetWindowRect also counts the invisible resize border.
@@ -232,7 +309,72 @@ function activity_scene.finish(shell)
 	activity_scene.flash:finish(true, "Firmware flash finished.")
 end
 
+-- The layout next to each shot: one line per visible element, "path class x y w h label",
+-- in main-window client pixels, the same on both builds (diff them with
+-- scripts/ui_tree_diff.lua).
+local function dump_tree(dlg, path)
+	local f = io.open(path, "w")
+	if not f then return end
+	local pt = ffi.new("CAP_RECT")
+	local ox, oy
+	if IMGUI then
+		local Runtime = require("core.imgui.Runtime")
+		local x, y = Runtime.backend().window("client_origin")
+		ox, oy = x or 0, y or 0
+	else
+		user32.ClientToScreen(window_of(dlg), pt)
+		ox, oy = pt.left, pt.top
+	end
+	local function vis(h)
+		if IMGUI then return require("core.imgui.Runtime").isVisible(h) end
+		return iup.GetAttribute(h, "VISIBLE") == "YES"
+	end
+	-- IUP has no SCREENPOSITION for a box: its POSITION is relative to the nearest
+	-- ancestor that has a window, whose screen position is known.
+	local function screen_of(h)
+		local x, y = tostring(iup.GetAttribute(h, "SCREENPOSITION") or ""):match("^(-?%d+),(-?%d+)")
+		if x or IMGUI then return tonumber(x), tonumber(y) end
+		local px, py = tostring(iup.GetAttribute(h, "POSITION") or ""):match("^(-?%d+),(-?%d+)")
+		local a = iup.GetParent(h)
+		while a do
+			local ax, ay = tostring(iup.GetAttribute(a, "SCREENPOSITION") or ""):match("^(-?%d+),(-?%d+)")
+			if ax and iup.GetClassName(a) ~= "dialog" then return tonumber(ax) + tonumber(px or 0), tonumber(ay) + tonumber(py or 0) end
+			if iup.GetClassName(a) == "dialog" then return ox + tonumber(px or 0), oy + tonumber(py or 0) end
+			a = iup.GetParent(a)
+		end
+	end
+	local function walk(h, p)
+		if vis(h) then
+			local sz = iup.GetAttribute(h, "RASTERSIZE")
+			local x, y = screen_of(h)
+			local w, hh = tostring(sz or ""):match("^(%d+)x(%d+)")
+			local label = ""
+			for _, a in ipairs({ "TITLE", "TIP", "NAME", "THEMEROLE" }) do
+				local v = iup.GetAttribute(h, a)
+				if v and v ~= "" then label = tostring(v):gsub("[\r\n\t]", " "):sub(1, 40); break end
+			end
+			if x and w then
+				f:write(table.concat({ p, iup.GetClassName(h), tonumber(x) - ox, tonumber(y) - oy, w, hh, label }, "\t"), "\n")
+			end
+		end
+		local i, c = 0, iup.GetChild(h, 0)
+		while c do
+			walk(c, p .. "/" .. iup.GetClassName(c) .. "[" .. i .. "]")
+			i = i + 1
+			c = iup.GetChild(h, i)
+		end
+	end
+	walk(dlg, "dialog")
+	f:close()
+end
+
 local fixtures = dofile((LUNAR_SOURCE_DIR or ".") .. "/scripts/ui_fixtures.lua")
+-- Every shot of the main window is also checked for scroll problems (scripts/ui_scroll_audit.lua):
+-- a report lands next to the shots, and SCROLL-AUDIT-FAILED.txt when anything fails.
+local audit = IMGUI and not os.getenv("LUNAR_CAPTURE_NO_AUDIT")
+	and dofile((LUNAR_SOURCE_DIR or ".") .. "/scripts/ui_scroll_audit.lua").new(iup) or nil
+-- scripts/ui_audit.lua: more window sizes to walk every page at after the first.
+local more_sizes = rawget(_G, "LUNAR_AUDIT_SIZES")
 
 local real_mainloop = iup.MainLoop
 iup.MainLoop = function()
@@ -244,16 +386,25 @@ iup.MainLoop = function()
 		local shell = rawget(_G, "LUNAR_DEV_SHELL")
 		if not shell then return false end
 		scene = scene + 1
-		local IupFFI = require("core.classes.IupFFI")
+		require("core.classes.IupFFI")
 		local function snap(name)
-			save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(dlg), "HWND")),
+			save_bmp(window_of(dlg),
 				string.format("%s/%s-%s.bmp", out_dir, prefix, name), whole_window)
 		end
 		-- One window's own pixels, whatever is over it: a shared desktop can cover the
 		-- status bar, and a screen grab would then show the taskbar instead.
 		local function snap_window(window, name)
-			save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(window), "HWND")),
+			save_bmp(window_of(window),
 				string.format("%s/%s-%s.bmp", out_dir, prefix, name), false)
+			if audit and window == dlg then audit:check(dlg, prefix .. "-" .. name) end
+		end
+		local function snap_overlays(name)
+			if not IMGUI then return end
+			local R=require("core.imgui.Runtime")
+			for i,o in ipairs(R.overlays()) do
+				if o.open and o.win then R.backend().screenshot(string.format("%s/%s-%s-%d.bmp",out_dir,prefix,name,i),0,0,0,0,o.win) end
+			end
+			R.frame()
 		end
 		if scene == 1 then
 			if os.getenv("LUNAR_CAPTURE_NEST") then
@@ -278,21 +429,44 @@ iup.MainLoop = function()
 			if pages_now[4] then shell.panes:move(pages_now[4], "bottom") end
 		elseif scene == 5 then -- one tick later: pages recentre after the panes settle
 			snap("91-split")
+			if audit then audit:check(dlg, prefix .. "-91-split") end
 		elseif scene == 6 then
-			shell.open_menu()
+			-- Exercise the actual overflow renderer, rather than the menu search palette.
+			if IMGUI then
+				local menu = iup.menu({ iup.item({TITLE="Open file...\tCtrl+O"}),
+					iup.item({TITLE="Settings\tCtrl+,"}), iup.separator({}),
+					iup.item({TITLE="Check for updates"}), iup.item({TITLE="Show activity"}) })
+				shell._capture_menu = require("core.imgui.widgets.menu").popupMenu(menu, 300, 64, require("core.imgui.Runtime"))
+			else shell.open_menu() end
 		elseif scene == 7 then
 			snap("92-menu")
+			snap_overlays("92-menu-window")
+			if IMGUI then for _,o in ipairs(require("core.imgui.Runtime").overlays()) do if o.open then o:close() end end end
 			shell.palette:close()
 			-- Another window taking focus would dismiss the panel between shots.
 			shell.activity._hasFocus = function() return true end
 			shell.activity:open()
 		elseif scene == 8 then
+			-- LUNAR_CAPTURE_TREE=1: every element of the open panel, with its rectangle, so the
+			-- two builds' geometry can be compared line by line
+			if os.getenv("LUNAR_CAPTURE_TREE") == "1" then
+				local tree = assert(io.open(out_dir .. "/activity-tree.txt", "w"))
+				local function walk(h, depth)
+					tree:write(string.format("%s%s pos=%s size=%s client=%s" .. string.char(10), string.rep(" ", depth),
+						tostring(iup.GetClassName(h)), tostring(iup.GetAttribute(h, "SCREENPOSITION")),
+						tostring(iup.GetAttribute(h, "RASTERSIZE")), tostring(iup.GetAttribute(h, "CLIENTSIZE"))))
+					local i, c = 0, iup.GetChild(h, 0)
+					while c do walk(c, depth + 1); i = i + 1; c = iup.GetChild(h, i) end
+				end
+				walk(shell.activity._dialog, 0)
+				tree:close()
+			end
 			snap_window(shell.activity._dialog, "93-activity-empty")
 			shell.activity:close()
 			activity_scene.start(shell)
 		elseif scene == 10 then
-			snap_window(dlg, "94-activity-running") -- the bar's slot, with the panel shut
 			shell.activity:open()
+			snap("94-activity-running")
 			shell.activity:_move(2) -- onto the Build Queue row, which offers both actions
 		elseif scene == 11 then
 			snap_window(shell.activity._dialog, "95-activity")
@@ -301,12 +475,111 @@ iup.MainLoop = function()
 			activity_scene.finish(shell)
 		elseif scene == 12 then
 			snap_window(dlg, "96-activity-result")
+			local toasts=shell.host:toasts()
+			local pending={}; for _,rec in ipairs(toasts and toasts._stack or {}) do pending[#pending+1]=rec end
+			for _,rec in ipairs(pending) do if rec.alive then toasts:_exitToast(rec) end end
 			-- LUNAR_CAPTURE_CODE=path: a real file in the Code tab, against whatever language
 			-- server this machine has, through the path a user takes.
 			local code_file = os.getenv("LUNAR_CAPTURE_CODE")
-			if not (code_file and shell.code) then return false end
+			if not (code_file and shell.code) then
+				if shell.host.notify then shell.host:notify({ kind = "info", title = "Settings saved", body = "Your appearance preferences are up to date.", timeout = 1500 }) end
+				return true
+			end
 			local opened, why = shell.code:open(code_file, { line = 1 })
 			io.stderr:write("ui_capture: open ", tostring(opened), " ", tostring(why), string.char(10))
+		elseif scene == 13 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			-- The toast is taken at rest: say where the pointer and the keyboard are, so the
+			-- shot can be checked against them (a close outline would mean focus or hover).
+			if IMGUI then
+				local Runtime = require("core.imgui.Runtime")
+				local function in_toast(h)
+					local toasts = shell.host:toasts()
+					for _, rec in ipairs(toasts and toasts._stack or {}) do
+						local p = h
+						while p do if p == rec.dlg then return true end; p = iup.GetParent(p) end
+					end
+					return false
+				end
+				local hovered, focus = Runtime.hovered(), iup.GetFocus()
+				local mx, my = Runtime.lastMouse()
+				local line = string.format("toast at rest: pointer %s,%s over %s (in toast: %s); focus in toast: %s",
+					tostring(mx), tostring(my), hovered and iup.GetClassName(hovered) or "nothing",
+					tostring(hovered ~= nil and in_toast(hovered)), tostring(focus ~= nil and in_toast(focus)))
+				local f = io.open(string.format("%s/%s-96-toast.state", out_dir, prefix), "w")
+				if f then f:write(line, string.char(10)); f:close() end
+			end
+			snap("96-toast")
+			local toasts=shell.host:toasts()
+			for i,rec in ipairs(toasts and toasts._stack or {}) do if rec.alive then snap_window(rec.dlg,"96-toast-window-"..i) end end
+			snap("97-glass-on")
+			require("core.ui.Glass").setEnabled(false)
+			iup.Update(dlg)
+		elseif scene == 14 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			snap("97-glass-off")
+			require("core.ui.Glass").setEnabled(true)
+		elseif scene == 15 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			for _,page in ipairs(leaves(find_strip(dlg),{},{})) do
+				if page.title:lower()=="settings" then for _,s in ipairs(page.path) do iup.SetAttribute(s.strip,"VALUEPOS",tostring(s.pos)) end end
+			end
+			iup.Refresh(dlg)
+		elseif scene == 16 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			local R,E=require("core.imgui.Runtime"),require("core.imgui.Element")
+			local function find(h)
+				if class(h)=="dropbutton" and R.isVisible(h) then return h end
+				for _,c in ipairs(E.children(h)) do local result=find(c); if result then return result end end
+			end
+			shell._capture_dropdown=find(dlg)
+			if shell._capture_dropdown then
+				local list=iup.GetHandle(iup.GetAttribute(shell._capture_dropdown,"DROPCHILD"))
+				if list then
+					for i,label in ipairs({"Local build logs", "Nightly validation", "Release qualification"}) do iup.SetAttribute(list,tostring(i),label) end
+					iup.SetAttribute(list,"4",nil)
+					iup.SetAttribute(list,"VISIBLELINES","3")
+					iup.SetAttribute(list,"VALUE","1")
+				end
+				iup.SetAttribute(shell._capture_dropdown,"SHOWDROPDOWN","YES")
+			end
+		elseif scene == 17 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			snap("98-dropdown-over-app")
+			snap_overlays("98-dropdown")
+			if shell._capture_dropdown then iup.SetAttribute(shell._capture_dropdown,"SHOWDROPDOWN","NO") end
+		elseif scene == 18 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			local R,E=require("core.imgui.Runtime"),require("core.imgui.Element")
+			local widget=shell._capture_dropdown
+			if widget then
+				iup.SetAttribute(widget,"TIP","Choose the application colour palette")
+				iup.SetAttribute(widget,"TIP","Choose a location to scan")
+				local st=E.state(widget); local B=R.backend()
+				local surface=B.surface
+				B.surface=function(id) if id and id~=0 then shell._capture_tip_surface=id end; return surface(id) end
+				local begin=B.frame_begin
+				shell._capture_restore_input=function() B.frame_begin=begin end
+				B.frame_begin=function()
+					local input=begin()
+					input.events={{type="move",x=st.x+10,y=st.y+10,mods={}}}
+					return input
+				end
+			end
+		elseif scene == 21 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			local R=require("core.imgui.Runtime")
+			snap("99-tooltip-over-app")
+			if shell._capture_tip_surface then
+				R.backend().screenshot(string.format("%s/%s-99-tooltip.bmp",out_dir,prefix),0,0,0,0,shell._capture_tip_surface)
+				R.frame()
+			end
+			if shell._capture_restore_input then shell._capture_restore_input() end
+			if shell.code then assert(shell.code:open(LUNAR_SOURCE_DIR .. "/src/lua/core/ui/Glass.lua", {line=0})) end
+		elseif scene == 23 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			snap_window(dlg,"100-editor")
+			if shell.view_layout and shell.terminal then
+				shell.view_layout:toggleTerminal()
+			end
+		elseif scene == 24 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			snap_window(dlg,"100-terminal-fitting")
+			if shell.terminal then shell.terminal:execute("help") end
+		elseif scene == 25 and not os.getenv("LUNAR_CAPTURE_CODE") then
+			snap_window(dlg,"101-terminal")
+			return false
 		elseif scene == 34 then -- about 20 seconds: a server has to index before it reports
 			io.stderr:write("ui_capture: servers ", tostring(shell.code:_serverSummary()), string.char(10))
 			snap_window(dlg, "97-code")
@@ -352,6 +625,23 @@ iup.MainLoop = function()
 		return true
 	end
 
+	local first_prefix = nil -- set while a walk at another size runs
+	-- "WxH": a restored window of that size at the top left; anything else leaves it as it is.
+	local function resize(spec)
+		local width, height = tostring(spec or ""):match("^(%d+)x(%d+)$")
+		if not width then return end
+		if IMGUI then
+			local B = require("core.imgui.Runtime").backend()
+			B.window("restore")
+			B.window("pos", 0, 0)
+			B.window("size", tonumber(width), tonumber(height))
+		else
+			local hwnd = window_of(dlg)
+			user32.ShowWindow(hwnd, 9) -- SW_RESTORE
+			user32.MoveWindow(hwnd, 0, 0, tonumber(width), tonumber(height), 1)
+		end
+	end
+
 	local t = iup.timer({ time = 900 })
 	local step
 	function t:action_cb()
@@ -374,13 +664,19 @@ iup.MainLoop = function()
 			dlg = main_dialog()
 			if not dlg then return iup.DEFAULT end
 			pages = leaves(find_strip(dlg), {}, {})
-			local width, height = (os.getenv("LUNAR_CAPTURE_SIZE") or ""):match("^(%d+)x(%d+)$")
-			if width then
-				local IupFFI = require("core.classes.IupFFI")
-				local hwnd = ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(dlg), "HWND"))
-				user32.ShowWindow(hwnd, 9) -- SW_RESTORE
-				user32.MoveWindow(hwnd, 0, 0, tonumber(width), tonumber(height), 1)
+			local pattern=os.getenv("LUNAR_CAPTURE_PAGE_PATTERN")
+			if pattern then
+				local selected={}; for _,page in ipairs(pages) do if page.title:lower():match(pattern:lower()) then selected[#selected+1]=page end end
+				pages=selected
 			end
+			if os.getenv("LUNAR_CAPTURE_TOOLS_ONLY") then
+				local tools = { ["Build Queue"] = true, ["iLO Redfish"] = true, ["Log Parser"] = true,
+					["Scan Chain"] = true, ["Black Duck"] = true, ["Time Clock"] = true }
+				local selected = {}
+				for _, page in ipairs(pages) do if tools[page.title] then selected[#selected + 1] = page end end
+				pages = selected
+			end
+			resize(os.getenv("LUNAR_CAPTURE_SIZE"))
 			fill_lists(dlg)
 			for _, p in ipairs(pages) do
 				for _, s in ipairs(p.path) do iup.SetAttribute(s.strip, "VALUEPOS", tostring(s.pos)) end
@@ -389,7 +685,29 @@ iup.MainLoop = function()
 		end
 		local page = pages[math.ceil(index / 2)]
 		if not page then
-			if extra_scene() then return iup.DEFAULT end
+			local size = more_sizes and table.remove(more_sizes, 1)
+			if size then
+				-- the same walk at the next size, before the extras split the panes; the pages
+				-- keep the state the last walk left
+				first_prefix = first_prefix or prefix
+				resize(size)
+				prefix = (size:match("^(%d+)x") or "next") .. "-" .. first_prefix
+				index = 1
+				for _, p in ipairs(pages) do p.stage, p.tool_step, p.view_step = nil, nil, nil end
+				iup.Refresh(dlg)
+				return iup.DEFAULT
+			end
+			if first_prefix then
+				-- the extras at the first size again
+				prefix, first_prefix = first_prefix, nil
+				if os.getenv("LUNAR_CAPTURE_SIZE") then resize(os.getenv("LUNAR_CAPTURE_SIZE"))
+				elseif IMGUI then require("core.imgui.Runtime").backend().window("maximize")
+				else user32.ShowWindow(window_of(dlg), 3) end -- SW_MAXIMIZE
+				iup.Refresh(dlg)
+				return iup.DEFAULT
+			end
+			if not os.getenv("LUNAR_CAPTURE_NO_EXTRAS") and extra_scene() then return iup.DEFAULT end
+			if audit then audit:finish(out_dir, prefix) end
 			self.run = "NO"
 			iup.ExitLoop()
 			return iup.CLOSE
@@ -403,10 +721,12 @@ iup.MainLoop = function()
 			iup.Refresh(dlg)
 		else
 			local slug = page.title:lower():gsub("[^%w]+", "-")
-			local IupFFI = require("core.classes.IupFFI")
+			require("core.classes.IupFFI")
 			local function shoot(suffix)
-				save_bmp(ffi.cast("void*", IupFFI.getptr(IupFFI.ptr(dlg), "HWND")), string.format("%s/%s-%02d-%s%s.bmp",
-					out_dir, prefix, index / 2, slug, suffix), whole_window)
+				local base = string.format("%s/%s-%02d-%s%s", out_dir, prefix, index / 2, slug, suffix)
+				save_bmp(window_of(dlg), base .. ".bmp", whole_window)
+				dump_tree(dlg, base .. ".tree")
+				if audit then audit:check(dlg, base:match("[^/]+$")) end
 			end
 			local fixture = fixtures.for_tab(rawget(_G, "LUNAR_DEV_SHELL") or {}, page.title)
 			page.stage = (page.stage or 0) + 1
@@ -416,7 +736,19 @@ iup.MainLoop = function()
 				iup.Refresh(dlg)
 				return iup.DEFAULT
 			end
-			if fixture then shoot("-data") end
+			if fixture and page.stage == 3 then shoot("-data") end
+			local tool_shell = rawget(_G, "LUNAR_DEV_SHELL")
+			local tool = tool_shell and tool_shell.toolPages and tool_shell.toolPages[page.title]
+			if tool then
+				page.tool_step = (page.tool_step or 0) + 1
+				local phase = (page.tool_step - 1) % 3
+				local tool_state = ({ "working", "failed" })[math.floor((page.tool_step - 1) / 3) + 1]
+				if tool_state then
+					if phase == 0 then fixtures.tool_state(tool, tool_state); iup.Refresh(dlg)
+					elseif phase == 2 then fixtures.tool_state(tool, tool_state); shoot("-" .. tool_state) end
+					return iup.DEFAULT
+				end
+			end
 			-- A page can list named views. Each is shown, given a few ticks for art to arrive, and shot.
 			local shell = rawget(_G, "LUNAR_DEV_SHELL")
 			local views = shell and shell.pages and shell.pages[page.title]

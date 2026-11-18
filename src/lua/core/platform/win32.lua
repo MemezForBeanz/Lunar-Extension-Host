@@ -495,7 +495,16 @@ function M.apply_native_style()
 end
 
 --- Open a file, folder or URL with its default application.
+-- A capture or probe run (LUNAR_CAPTURE_CLIENT, LUNAR_NO_SHELL_OPEN) runs on a private
+-- desktop, but the shell hands a URL or file to programs already on the user's screen:
+-- such a run must never open anything.
+local function shell_blocked()
+	return os.getenv("LUNAR_CAPTURE_CLIENT") ~= nil or os.getenv("LUNAR_NO_SHELL_OPEN") ~= nil
+end
+M.shell_blocked = shell_blocked
+
 function M.open(target)
+	if shell_blocked() then return false, "opening is disabled in a capture run" end
 	local shell32 = ffi and lib("shell32")
 	if not shell32 then return false, "shell32 unavailable" end
 	local ok, h = pcall(shell32.ShellExecuteW, nil, widen("open"), widen(target), nil, nil, 1)
@@ -543,6 +552,7 @@ M.quote_arg = quote_arg
 -- nil), `output()` (always "": an elevated program's output isn't ours) and
 -- `close()`; or nil and why. Declining the prompt gives nil and `"cancelled"`.
 function M.elevate(argv)
+	if shell_blocked() then return nil, "cancelled" end
 	local shell32 = ffi and lib("shell32")
 	if not shell32 then return nil, "shell32 unavailable" end
 	local params = {}

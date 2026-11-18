@@ -1,0 +1,61 @@
+ 9%  [string]:place < [string]:placeChildren
+  -- 33%  [string]:132
+  -- 33%  [string]:133
+  -- 33%  [string]:179
+ 6%  [string]:exists < [string]:onPath
+  -- 100%  [string]:22
+ 6%  [string]:face_id < [string]:font
+  -- 100%  [string]:172
+ 6%  [string]:body < [string]:with_rotation
+  -- 50%  [string]:448
+  -- 50%  [string]:447
+ 3%  [string]:attr < [string]:frame_kind
+  -- 100%  [string]:339
+ 3%  [string]:frame_begin < [string]:frame
+  -- 100%  [string]:114
+ 3%  [string]:loadfile < [string]:require
+  -- 100%  [string]:70
+ 3%  [string]:isInternal < [string]:inherits
+  -- 100%  [string]:70
+ 3%  [string]:intint < [string]:natural
+  -- 100%  [string]:39
+ 3%  [string]:registered_default < [string]:getAttribute
+  -- 100%  [string]:309
+ 3%  [string]:inherits < [string]:setAttribute
+  -- 100%  [string]:290
+ 3%  [string]:dialog_of < [string]:invalidate
+  -- 100%  [string]:88
+ 3%  [string]:_attrsFromRule < [string]:_applyElement
+  -- 100%  [string]:513
+ 3%  [string]:gdi_text_size < [string]:measure
+  -- 100%  [string]:229
+ 3%  [string]:loadfile < [string]:load
+  -- 100%  [string]:70
+ 3%  [string]:fn < ui_benchmark.lua:236
+  -- 100%  [string]:771
+ 3%  [string]:apply_minmax < [string]:compute
+  -- 100%  [string]:113
+ 3%  [string]:attr < [string]:natural
+  -- 100%  [string]:330
+ 3%  [string]:_applyElement < [string]:fn
+  -- 100%  [string]:1189
+ 3%  [string]:attributes < [string]:work
+  -- 100%  [string]:359
+ 3%  [string]:_send < [string]:_applyTheme
+  -- 100%  [string]:147
+ 3%  [string]:natural < [string]:compute
+  -- 100%  [string]:100
+ 3%  [string]:alignment < [string]:place
+  -- 100%  [string]:116
+ 3%  [string]:rules < [string]:_repaintSubtree
+  -- 100%  [string]:397
+ 3%  [string]:registration < [string]:inherits
+  -- 100%  [string]:281
+ 3%  [string]:inherits < [string]:getAttribute
+  -- 100%  [string]:294
+ 3%  [string]:save < [string]:88
+  -- 100%  [string]:229
+ 3%  [string]:_walk < [string]:_walk
+  -- 100%  [string]:1312
+ 3%  [string]:setAttribute < [string]:SetAttribute
+  -- 100%  [string]:219

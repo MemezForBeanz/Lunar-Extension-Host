@@ -1,0 +1,6 @@
+50%  [string]:natural < [string]:compute
+  -- 100%  [string]:64
+25%  [string]:floating < [string]:place
+  -- 100%  [string]:65
+25%  [string]:attr < [string]:61
+  -- 100%  [string]:330

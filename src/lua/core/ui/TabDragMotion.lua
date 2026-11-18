@@ -48,6 +48,7 @@ local class = require("middleclass")
 
 local Compositor = require("core.lib.Compositor")
 local ThemeReactor = require("core.ui.ThemeReactor")
+local handle = require("core.lib.handle")
 
 local TabDragMotion = class("TabDragMotion")
 
@@ -94,6 +95,9 @@ end
 function TabDragMotion:initialize(opts)
 	opts = opts or {}
 	self._iup       = opts.iup
+	self._draw_dialog = opts.dialog
+	self._custom_comp = opts.compositor ~= nil
+	self._listening = setmetatable({}, { __mode = "k" })
 	self._director  = opts.director
 	self._log       = opts.log
 	self._spring_ms = tonumber(opts.spring_ms) or 500
@@ -118,15 +122,23 @@ function TabDragMotion:_comp()
 		return nil
 	end
 	self._compositor = comp
+	self:_watch(comp)
+	return comp
+end
+
+function TabDragMotion:_watch(comp)
+	if self._listening[comp] then return end
+	self._listening[comp] = true
 	local me = self
 	local function relayout() if me._state then me:_render() end end
 	comp:on("resize", relayout)
 	comp:on("dpi", relayout)
-	return comp
 end
 
 function TabDragMotion:_ready()
-	return self._director ~= nil and self._director:enabled() and self:_comp() ~= nil
+	-- These shapes describe the pending drop, even with reduced motion. The
+	-- director already settles animations immediately when motion is disabled.
+	return self._director ~= nil and self:_comp() ~= nil
 end
 
 -- Theme colors, read live so a theme switch mid-drag is reflected immediately.
@@ -148,8 +160,29 @@ end
 
 -- Track `strip`; false when there is nowhere to draw.
 function TabDragMotion:_attach(strip)
+	-- A popped-out strip belongs to another render surface. Drawing its local
+	-- bounds on the main dialog would put its drop cues in the wrong window.
+	if self._iup._IMGUI and not self._custom_comp then
+		local dialog = self._iup.GetDialog(strip)
+		if dialog and not handle.same(self._iup, dialog, self._draw_dialog) then
+			local comp = Compositor.forDialog(self._iup, dialog)
+			if not comp then return false end
+			if self._compositor then
+				self._compositor:remove(GROUP)
+				self._compositor:schedule(self._director)
+			end
+			self._director:cancel({ tag = TAG })
+			self._compositor, self._draw_dialog = comp, dialog
+			self._state, self._strip = nil, nil
+			self:_watch(comp)
+		end
+	end
 	if not self:_ready() then return false end
 	if not self._compositor:rect(strip) then return false end
+	if self._strip and not handle.same(self._iup, self._strip, strip) then
+		self._director:cancel({ tag = TAG })
+		self._state = nil
+	end
 	self._strip = strip
 	return true
 end
@@ -190,6 +223,10 @@ function TabDragMotion:_sprites(ox, oy, scale)
 		local x = st.x + (st.w - w) / 2
 		local y = st.y + (st.h - h) / 2
 		outline(sprites, ox + x, oy + y, w, h, c.fill, 2)
+		-- A translucent target surface stays legible behind the lifted tab. The
+		-- outline and spring countdown still distinguish grouping from insertion.
+		fill(sprites, ox + x + 2, oy + y + 2, w - 4, h - 4, c.fill)
+		if sprites[2] then sprites[2].alpha = 0.16 end
 
 	elseif st.kind == "merge" then
 		-- The folder-creation flourish: one rectangle contracting from the span of
@@ -315,7 +352,7 @@ function TabDragMotion:showCombine(strip, x, w, band)
 	if not self:_attach(strip) then return end
 
 	local st = self._state
-	if st and st.kind == "combine" and st.x == x and st.w == w then
+	if st and st.kind == "combine" and st.x == x and st.w == w and st.h == band then
 		return   -- already announcing this exact target
 	end
 
@@ -420,7 +457,7 @@ function TabDragMotion:playMerge(strip, from, to, band, done)
 		if done then pcall(done) end
 	end
 
-	if not self:_ready() or not from or not to then
+	if not self:_ready() or not self._director:enabled() or not from or not to then
 		self:clear()
 		finish()
 		return

@@ -1,0 +1,43 @@
+found mode true bars true term true tabs true
+rect mode 8 6 32 28
+rect term 1214 6 32 28
+rect bars 1182 6 32 28
+before: bars true terminal false
+EVENTS move@1198,20 press1@1198,20 release1@1198,20 leave@-1,-1
+FLAT_ACTION bars
+after bars click: bars false
+EVENTS move@1230,20 press1@1230,20 release1@1230,20 leave@-1,-1
+FLAT_ACTION term
+after terminal click: terminal true
+mode tip before: Switch to light theme
+EVENTS move@24,20 press1@24,20 release1@24,20 leave@-1,-1
+FLAT_ACTION mode
+mode tip after: Switch to dark theme distinct images during the turn: 5
+titlebar tabs before: HPE Build Tools | Microchip Tools | Settings
+xy2pos 0:-1 20:-1 40:-1 60:-1 80:-1 100:-1 120:-1 140:-1 160:-1 180:-1 200:-1 220:-1 240:-1 260:-1 280:-1 300:-1
+tab_order table
+has flat_button_cb function
+has flat_motion_cb function
+EVENTS move@150,14 press1@150,14
+EVENTS move@134,14
+TO _resolveDrop ok nil
+EVENTS move@118,14
+TO _resolveDrop ok nil
+EVENTS move@102,14
+TO _resolveDrop ok nil
+EVENTS move@86,14
+TO _resolveDrop ok nil
+EVENTS move@70,14
+TO _resolveDrop ok nil
+EVENTS move@54,14
+TO _resolveDrop ok nil
+EVENTS move@38,14
+TO _resolveDrop ok nil
+EVENTS move@22,14
+TO _resolveDrop ok nil
+EVENTS move@6,14
+TO _resolveDrop ok nil
+EVENTS release1@10,14
+TO _resolveDrop ok nil
+TO _resolveDrop ok nil
+titlebar tabs after drag: HPE Build Tools | Microchip Tools | Settings

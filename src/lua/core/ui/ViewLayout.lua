@@ -2,6 +2,7 @@
 local winbatch = require("core.lib.winbatch")
 local Layout = {}
 Layout.__index = Layout
+local MIN_HEIGHT = 120 -- the terminal's own minimum
 
 function Layout.new(opts)
 	local settings = opts.settings
@@ -9,7 +10,7 @@ function Layout.new(opts)
 		_settings = settings, _rail = opts.rail, _status = opts.status, _terminal = opts.terminal,
 		_listeners = {}, _bars = not settings or settings:get("view_bars_visible") ~= false,
 		_open = settings and settings:get("terminal_open") == true or false,
-		_height = math.max(120, math.min(900, tonumber(settings and settings:get("terminal_height")) or 260)),
+		_height = math.max(MIN_HEIGHT, math.min(900, tonumber(settings and settings:get("terminal_height")) or 260)),
 		_bar_target = {}, _terminal_target = {} }, Layout)
 	self._bar_progress = self._bars and 1 or 0
 	self._terminal_height = self._open and self._height or 0
@@ -48,7 +49,13 @@ function Layout:_barsFrame(value)
 		if self._budget then self._budget() end
 	end)
 end
+--- Say how tall the terminal may be: `fn()` returns the height the panes above leave
+-- (nil when unknown). The terminal keeps its own minimum.
+-- @tparam function fn
+function Layout:setRoom(fn) self._room = fn end
 function Layout:_terminalFrame(value)
+	local room = value > 0 and self._room and self._room()
+	if room then value = math.min(value, math.max(MIN_HEIGHT, math.floor(room))) end
 	self._terminal_height = value
 	self:_refresh(function() self._terminal:setHeight(value) end)
 end
@@ -76,7 +83,7 @@ function Layout:toggleTerminal()
 	if self._open and self._terminal.focus then self._terminal:focus() end
 end
 function Layout:setTerminalHeight(height)
-	self._height = math.max(120, math.min(900, math.floor(height + 0.5)))
+	self._height = math.max(MIN_HEIGHT, math.min(900, math.floor(height + 0.5)))
 	if self._motion then self._motion:cancel({ target = self._terminal_target }) end
 	if self._open then self:_terminalFrame(self._height) end
 end

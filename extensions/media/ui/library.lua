@@ -9,7 +9,6 @@ local CellGrid = require("core.ui.CellGrid")
 local RowList = require("core.ui.RowList")
 local SeekBar = require("core.ui.SeekBar")
 local FlatDropdown = require("core.ui.FlatDropdown")
-local Adaptive = require("core.ui.Adaptive")
 local spotlight = require("ui.spotlight")
 local title_page = require("ui.title")
 local FlatField = require("core.ui.FlatField")
@@ -270,6 +269,7 @@ function M.new(ctx, opts)
 	drains[#drains + 1] = inspector_posters
 
 	local shelves, sheet, ledger, hero
+	local workspace, opened, page_stack, last_inspector_open
 	local sources_anchor
 
 	local function position_in(list, item)
@@ -290,6 +290,8 @@ function M.new(ctx, opts)
 	local function choose(item)
 		if not item then return end
 		chosen = item
+		if workspace and source_id ~= "home" and not opened then workspace:openInspector(true) end
+		if api.last_width then api.fit(api.last_width) end
 		show_item(item)
 		mark_chosen()
 		if source_id == "home" and hero then hero.show(item, true) end
@@ -364,6 +366,11 @@ function M.new(ctx, opts)
 	local plan_starts = tonight.starts(os.time())
 	local plan_start_at = plan_starts[1][2]
 	local plan_summary = L.sectionTitle(iup, "")
+	-- The summary takes the row's spare room and shortens in a narrow pane, so this row
+	-- never sets Home's width: the hero above then wraps inside the visible column.
+	iup.SetAttribute(plan_summary, "RASTERSIZE", "1x")
+	iup.SetAttribute(plan_summary, "EXPAND", "HORIZONTAL")
+	iup.SetAttribute(plan_summary, "TEXTELLIPSIS", "YES")
 	local function refill_plan()
 		plan = tonight.plan(films, plan_limit, plan_start_at, plan_seed)
 		local rows = {}
@@ -375,6 +382,7 @@ function M.new(ctx, opts)
 		plan_list:setRows(rows)
 		iup.SetAttribute(plan_list.widget, "RASTERSIZE", "x" .. (PLAN_ROW * math.max(#rows, 1) + 8))
 		iup.SetAttribute(plan_summary, "TITLE", tonight.summary(plan))
+		iup.SetAttribute(plan_summary, "TIP", tonight.summary(plan))
 	end
 	local time_labels = {}
 	for i, entry in ipairs(tonight.TIMES) do time_labels[i] = entry[2] end
@@ -403,7 +411,7 @@ function M.new(ctx, opts)
 	end })
 	iup.SetAttribute(plan_play, "RASTERSIZE", "x32")
 	local plan_section = L.stack(iup, {
-		iup.hbox({ L.sectionTitle(iup, "Fits tonight"), plan_summary, iup.fill({}), plan_from.widget, plan_time.widget,
+		iup.hbox({ L.sectionTitle(iup, "Fits tonight"), plan_summary, plan_from.widget, plan_time.widget,
 			plan_again, plan_play, GAP = L.gap(3), ALIGNMENT = "ACENTER", MARGIN = RING .. "x0", EXPAND = "HORIZONTAL" }),
 		plan_list.widget,
 	}, 2)
@@ -471,8 +479,8 @@ function M.new(ctx, opts)
 	set_empty(true)
 
 	-- A title opens over the collection and goes back to it, so nothing is lost by looking.
-	local opened
 	local details = title_page.new(ctx, { cache = cache, art = wide_art, poster = art_of,
+		model = model, on_sources = opts.on_sources,
 		on_metadata = opts.on_metadata, on_metadata_changed = opts.on_metadata_changed,
 		on_back = function()
 			opened = nil
@@ -493,7 +501,7 @@ function M.new(ctx, opts)
 		on_open = function(item) api.open(item) end })
 	drains[#drains + 1] = details.tick
 
-	local stack = iup.zbox({ home, sheet.widget, ledger.widget, empty, details.widget, EXPAND = "YES" })
+	local stack = iup.zbox({ home, sheet.widget, ledger.widget, empty, EXPAND = "YES" })
 
 	-- The jump bar: letters that scroll the sheet. Slots stay for good; a list only retitles them.
 	local jump_slots = {}
@@ -531,7 +539,7 @@ function M.new(ctx, opts)
 		local index = 0
 		if source_id ~= "home" then index = view == "ledger" and 2 or 1 end
 		if #active == 0 and source_id ~= "home" then index = 3 end
-		if opened then index = 4 end
+		if page_stack then iup.SetAttribute(page_stack, "VALUEPOS", opened and "1" or "0") end
 		iup.SetAttribute(stack, "VALUEPOS", tostring(index))
 		fill_jump()
 	end
@@ -540,7 +548,7 @@ function M.new(ctx, opts)
 		on_change = function(pos)
 			view = pos == 1 and "ledger" or "sheet"
 			apply_view()
-			Kit.show(iup, density_box, view == "sheet", sources_anchor())
+			Kit.show(iup, density_box, view == "sheet" and (not api.last_width or api.last_width >= L.PAGE.drawer_break + L.PAGE.config + L.PAGE.inspector), sources_anchor())
 			iup.Refresh(api.widget)
 		end })
 	-- A filter in use looks in use, so the bar says at a glance what is hiding things.
@@ -577,8 +585,10 @@ function M.new(ctx, opts)
 			sort = index
 			refilter()
 		end })
-	local controls = iup.hbox({ segmented, sort_box.widget, GAP = L.gap(3), ALIGNMENT = "ACENTER" })
-	local toolbar = iup.hbox({ heading, count, iup.fill({}), controls, GAP = L.gap(3), ALIGNMENT = "ACENTER",
+	-- Parents the two so tree.place can move them into the toolbar below: it only
+	-- reparents a widget that already has a parent.
+	iup.hbox({ segmented, sort_box.widget, GAP = L.gap(3), ALIGNMENT = "ACENTER" })
+	local toolbar = iup.hbox({ GAP = L.gap(3), ALIGNMENT = "ACENTER",
 		EXPAND = "HORIZONTAL", MARGIN = RING .. "x0" })
 
 	local WATCH_VALUES = { false, "unwatched", "progress", "watched" }
@@ -662,9 +672,17 @@ function M.new(ctx, opts)
 		filter_changed()
 	end })
 	api.search_field = search
-	local filter_bar = iup.hbox({ search.widget, watch_box.widget, genre_box.widget, decade_box.widget, quality_box.widget,
-		clear_button, iup.fill({}), save_button, density_box,
-		GAP = L.gap(2), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL", MARGIN = RING .. "x0" })
+    local filter_dialog
+    local filters_button = Kit.button(iup, { title = "Filters", icon = "filter", action = function()
+        if filter_dialog then iup.Popup(filter_dialog, iup.MOUSEPOS, iup.MOUSEPOS) end
+    end })
+    local close_filters = Kit.button(iup, { title = "Done", action = function() if filter_dialog then iup.Hide(filter_dialog) end end })
+    filter_dialog = iup.dialog({ iup.vbox({ L.sectionTitle(iup, "Filter library"),
+        L.hint(iup, "Watch status"), watch_box.widget, L.hint(iup, "Genre"), genre_box.widget,
+        L.hint(iup, "Decade"), decade_box.widget, L.hint(iup, "Quality"), quality_box.widget,
+        close_filters, GAP = L.gap(3), MARGIN = L.margin(5) }), TITLE = "Filters", RESIZE = "NO" })
+    local filter_bar = iup.hbox({ search.widget, filters_button, clear_button, iup.fill({}), save_button, density_box,
+        GAP = L.gap(3), ALIGNMENT = "ACENTER", EXPAND = "HORIZONTAL" })
 
 	-- Icons are asked for at paint time, so they follow the theme instead of the colours that
 	-- were current when the extension loaded.
@@ -726,10 +744,12 @@ function M.new(ctx, opts)
 			shelf_list:select(0)
 			go_source("collection", (model.origins or {})[pos])
 		end })
-	iup.SetAttribute(origin_list.widget, "EXPAND", "YES")
+	-- Sized to its rows like the lists above it, so what follows sits right under it.
+	iup.SetAttribute(origin_list.widget, "EXPAND", "HORIZONTAL")
 	iup.SetAttribute(origin_list.widget, "FLATSCROLLBAR", "NO")
 	local function size_rail()
 		iup.SetAttribute(shelf_list.widget, "RASTERSIZE", "x" .. (32 * math.max(#(model.collections or {}), 1) + 8))
+		iup.SetAttribute(origin_list.widget, "RASTERSIZE", "x" .. (32 * math.max(#(model.origins or {}), 1) + 8))
 	end
 	size_rail()
 	local rail_group = function(text)
@@ -737,14 +757,25 @@ function M.new(ctx, opts)
 	end
 	local scanning = Kit.statusLine(iup, "info", "")
 	Kit.show(iup, scanning, false, sources.widget)
+	-- The rail's own type, starting at its rows' text column (flatrows: a 12 px lead, the
+	-- 16 px image, an 8 px gap). The tagline speaks only for an empty rail.
+	local sample_tagline = iup.flatlabel({ TITLE = "Your media, in one library.", THEMEROLE = "reading_muted" })
+	local text_column = L.px(4) + L.px(5) + L.px(3)
+	local tagline_row = iup.hbox({ sample_tagline, MARGIN = text_column .. "x0" })
 	local sample_note = iup.vbox({
-		L.hint(iup, "This is a sample library."),
-		iup.flatbutton({ TITLE = "Connect a server", THEMEROLE = "link_btn", CANFOCUS = "YES", flat_action = function()
-			if opts.on_connect then opts.on_connect() end
-			return iup.DEFAULT
-		end }),
+		tagline_row,
+		-- less link_btn's own 2 px pad, so its label starts on the same column
+		iup.hbox({ iup.flatbutton({ TITLE = "Connect a server", THEMEROLE = "link_btn", CANFOCUS = "YES",
+			flat_action = function()
+				if opts.on_connect then opts.on_connect() end
+				return iup.DEFAULT
+			end }), MARGIN = (text_column - 2) .. "x0" }),
 		GAP = L.gap(1), MARGIN = "0x0", ALIGNMENT = "ALEFT",
 	})
+	local function show_sample_note()
+		Kit.show(iup, sample_note, model.sample == true, sources.widget)
+		Kit.show(iup, tagline_row, model.sample == true and #(model.origins or {}) == 0, sources.widget)
+	end
 	local source_rail = iup.vbox({ iup.hbox({ RASTERSIZE = L.size(SOURCE_WIDTH) }),
 		rail_group("Libraries"), sources.widget,
 		rail_group("Collections"), shelf_list.widget,
@@ -785,6 +816,11 @@ function M.new(ctx, opts)
 			if source.id == id then title = source.title end
 		end
 		iup.SetAttribute(heading, "TITLE", title)
+        if workspace then
+			local failure = workspace.feedMessage
+			workspace:setState(failure and "error" or "info", failure or (id == "home" and "Pick something to watch" or (#base .. (id == "shows" and " shows" or id == "films" and " films" or " titles"))))
+            workspace:openInspector(false)
+        end
 		if api.fit and api.last_width then api.fit(api.last_width) end
 		Kit.show(iup, toolbar, id ~= "home", sources.widget)
 		Kit.show(iup, filter_bar, id ~= "home", sources.widget)
@@ -804,15 +840,41 @@ function M.new(ctx, opts)
 	end
 
 	local reliability = require("ui.reliability").new(ctx, model, opts.on_sources)
-	local main = iup.vbox({ reliability.widget, toolbar, filter_bar, iup.hbox({ stack, jump_box, GAP = "0", MARGIN = "0x0", EXPAND = "YES" }),
+	local browser_options = Kit.button(iup, { title = "View options", action = function()
+        local menu = require("core.ui.ContextMenu"):new(iup, {})
+        local items = {
+            { title = "Grid", action = function() view = "sheet"; apply_view() end },
+            { title = "Table", action = function() view = "ledger"; apply_view() end },
+        }
+        for index, label in ipairs({"Sort by title", "Sort by date added", "Sort by year"}) do
+            local chosen_sort = index
+            items[#items + 1] = {title = label, action = function() sort = chosen_sort; refilter() end}
+        end
+        for _, pixels in ipairs({DENSITY_LEAST, CELL, DENSITY_LEAST + DENSITY_RANGE}) do
+            local size = pixels
+            items[#items + 1] = { title = "Poster size " .. size, action = function() ideal_cell = size; api.refit() end }
+        end
+        menu:setItems(items); menu:popup()
+    end })
+    require("core.lib.tree").place(iup, toolbar, search.widget)
+    for _, widget in ipairs({filters_button, clear_button, save_button, segmented, sort_box.widget, density_box, browser_options}) do require("core.lib.tree").place(iup, toolbar, widget) end
+    local main = iup.vbox({ reliability.widget, toolbar, iup.hbox({ stack, jump_box, GAP = "0", MARGIN = "0x0", EXPAND = "YES" }),
 		GAP = L.gap(3), MARGIN = "0x0", EXPAND = "YES" })
-	local right = iup.vbox({ iup.hbox({ RASTERSIZE = L.size(INSPECTOR_WIDTH) }), inspector_body, MARGIN = "0x0", EXPAND = "VERTICAL" })
-	-- Collections run to the bottom of the panel, so nothing is cut short of its edge.
-	api.widget = iup.vbox({
-		iup.fill({ RASTERSIZE = "1x16" }),
-		iup.hbox({ source_rail, main, right, GAP = L.gap(5), MARGIN = "0x0", EXPAND = "YES" }),
-		MARGIN = "16x0", EXPAND = "YES",
-	})
+	workspace = Kit.page(iup, { id = "media-browser", title = "Media", icon = "media--library",
+        -- A short window scrolls the rail rather than cutting off its last group.
+        nav = { widget = iup.scrollbox({ source_rail, EXPAND = "YES", CANVASBOX = "YES", SCROLLBAR = "VERTICAL",
+            BORDER = "NO", THEMEROLE = "page_column" }), title = "Browse" }, main = main,
+        -- The details scroll inside the inspector: as a drawer in a short window it keeps the
+        -- page's height instead of running past its bottom (CANVASBOX: no natural height). The
+        -- bar floats over the edge, so the fixed-width details keep their width.
+        inspector = { widget = iup.flatscrollbox({ inspector_body, EXPAND = "YES", CANVASBOX = "YES", SCROLLBAR = "VERTICAL",
+            FLATSCROLLBAR = "VERTICAL", SHOWFLOATING = "YES", THEMEROLE = "tabscroll" }), title = "Selected title", width = L.PAGE.inspector },
+        state = { kind = "info", text = "Choose a library or collection" } })
+    page_stack = iup.zbox({workspace:widget(), details.widget, EXPAND = "YES"})
+	workspace.feedMessage = reliability.summary
+    api.widget = page_stack
+    local drawer = require("ui.drawer").new(iup, workspace)
+    workspace.mediaCaptureState = function() workspace:setState(reliability.summary and "error" or "info", reliability.summary or "Browse your library") end
 
 	local fill_spotlight
 	choose(continuing[1] or model.films[1])
@@ -848,7 +910,7 @@ function M.new(ctx, opts)
 		if state == "filtered" then
 			pick_view("sheet", 2)
 			go_source("films")
-			Kit.show(iup, density_box, true, sources_anchor())
+			Kit.show(iup, density_box, not api.last_width or api.last_width >= L.PAGE.drawer_break + L.PAGE.config + L.PAGE.inspector, sources_anchor())
 			filters = { watch = "unwatched" }
 			fill_pickers()
 			watch_box:setItems({ "Any status", "Unwatched", "In progress", "Watched" }, 2)
@@ -876,7 +938,8 @@ function M.new(ctx, opts)
 		elseif state == "ledger" then
 			pick_view("ledger", 2)
 			go_source("films")
-			choose(model.films[3])
+			choose(active[3] or active[1])
+            if ledger.scrollTo then ledger:scrollTo(3) end
 		elseif state == "shows" then
 			pick_view("sheet", 3)
 			go_source("shows")
@@ -886,10 +949,41 @@ function M.new(ctx, opts)
 
 	function api.fit(width)
 		api.last_width = width
-		-- Anchored on the rail, which shows exactly when this tab does: the inspector must never
-		-- come back while another tab is in front.
-		Kit.show(iup, right, width >= Adaptive.MEDIUM and source_id ~= "home" and not opened, sources.widget)
-		Kit.show(iup, source_rail, width >= Adaptive.NARROW, stack)
+        -- Keep the title and identifying columns usable; full file metadata stays in the inspector.
+        local widths = width < (L.PAGE.main_min + L.PAGE.config + L.PAGE.inspector + 2 * L.PAGE.padding + L.px(13))
+            and { 72, 112, 0, 0, 0, 0 } or { 72, 112, 88, 128, 128, 80 }
+        for column, pixels in ipairs(widths) do iup.SetAttribute(ledger.widget, "COLUMN" .. column .. "WIDTH", tostring(pixels)) end
+        workspace:fit(width)
+		-- Clamp the browser before natural sizes from its poster grid can widen it.
+		local nav_width = width - L.PAGE.padding * 2 >= L.PAGE.config_break and workspace.configSize + L.PAGE.gutter or 0
+		local client = math.max(L.PAGE.control, width - L.PAGE.padding * 2 - nav_width)
+		local drawer_break = L.PAGE.config + L.PAGE.main_min + L.PAGE.inspector + L.PAGE.padding * 2 + L.PAGE.gutter * 2
+		if workspace.inspectorOpen and (width >= drawer_break or not rawget(iup, "_IMGUI")) then client = client - workspace.inspectorSize - L.PAGE.gutter end
+		-- MAXSIZE alone: a vbox's RASTERSIZE sets only its height, and "<width>x0" made the
+		-- browser as tall as it is wide, pushing the rail and the home's end off the page.
+		iup.SetAttribute(main, "MAXSIZE", L.maxSize(client))
+        details.setWidth(width)
+        local compact = width < L.PAGE.drawer_break + L.PAGE.config + L.PAGE.inspector
+        Kit.show(iup, segmented, not compact, sources.widget)
+        Kit.show(iup, sort_box.widget, not compact, sources.widget)
+        Kit.show(iup, density_box, not compact and view == "sheet", sources.widget)
+        Kit.show(iup, browser_options, compact, sources.widget)
+        workspace:openInspector(source_id ~= "home" and not opened and workspace.inspectorOpen)
+        last_inspector_open = workspace.inspectorOpen
+        drawer:fit(width)
+        -- The drawer is positioned relative to main, after the navigation column.
+        if workspace.inspector and workspace.inspectorOpen and width < L.PAGE.config + L.PAGE.main_min + L.PAGE.inspector + L.PAGE.padding * 2 + L.PAGE.gutter * 2 and rawget(iup, "_IMGUI") then
+            local available = width - L.PAGE.padding * 2 - (width - L.PAGE.padding * 2 >= L.PAGE.config_break and workspace.configSize + L.PAGE.gutter or 0)
+            require("core.lib.tree").place(iup, workspace.inspectorOverlay, workspace.inspector)
+            iup.SetAttribute(workspace.inspector, "_IUPLUNAR_OVERLAY", "YES")
+            iup.SetAttribute(workspace.inspector, "FLOATING", "YES")
+            iup.SetAttribute(workspace.inspector, "VISIBLE", "YES")
+            local height = tonumber((iup.GetAttribute(workspace.inspectorFrame, "RASTERSIZE") or ""):match("x(%d+)$")) or L.PAGE.dock
+            iup.SetAttribute(workspace.inspector, "RASTERSIZE", L.size(workspace.inspectorSize, height))
+            iup.SetAttribute(workspace.inspectorSplit, "VALUE", "1000")
+            iup.SetAttribute(workspace.inspector, "POSITION", tostring(math.max(0, available - workspace.inspectorSize)) .. ",0")
+        end
+
 	end
 
 	-- Cells follow the width the collection really got, measured after layout.
@@ -898,7 +992,6 @@ function M.new(ctx, opts)
 		local width = tonumber((iup.GetAttribute(stack, "RASTERSIZE") or ""):match("^(%d+)"))
 		if not width or width == last_width or width < CELL then return end
 		last_width = width
-		details.setWidth(width)
 		sheet:setCellWidth(fitted_cell(width - 2 * RING - SCROLLBAR, ideal_cell))
 		local shelf_cell = fitted_cell(width - 3 * RING - SCROLLBAR, ideal_cell)
 		local wide_cell = fitted_cell(width - 3 * RING - SCROLLBAR, WIDE_CELL)
@@ -944,7 +1037,9 @@ function M.new(ctx, opts)
 	function api.setModel(next_model, preserve)
 		local old_source, old_collection, old_title = source_id, collection, opened and opened.id
 		model = next_model
+		details.setModel(model)
 		reliability.setModel(model)
+		workspace.feedMessage = reliability.summary
 		refill(films, model.films)
 		refill(shows, model.shows)
 		refill(continuing, model.continuing or {})
@@ -960,7 +1055,7 @@ function M.new(ctx, opts)
 		size_rail()
 		Kit.setStatus(iup, scanning, "info", model.scanning and ("Scanning " .. model.scanning) or "")
 		Kit.show(iup, scanning, model.scanning ~= nil, sources.widget)
-		Kit.show(iup, sample_note, model.sample == true, sources.widget)
+		show_sample_note()
 		sources:select(1)
 		count_collections()
 		shelf_list:setProvider(#(model.collections or {}), collection_value)
@@ -1022,7 +1117,34 @@ function M.new(ctx, opts)
 		return continuing[1] or recent[1]
 	end
 
+	-- The jump bar takes the height the page really has: in a short window its letters thin
+	-- out (organize.fit) instead of making the page taller than its window.
+	local function fit_jump()
+		local function y_of(widget) return tonumber((iup.GetAttribute(widget, "SCREENPOSITION") or ""):match(",(-?%d+)$")) end
+		local root = workspace and workspace:widget()
+		local top, root_top = y_of(stack), root and y_of(root)
+		local root_h = root and tonumber((iup.GetAttribute(root, "RASTERSIZE") or ""):match("x(%d+)$"))
+		if not (top and root_top and root_h) then return end
+		local room = math.max(2, math.min(JUMP_SLOTS, math.floor((root_top + root_h - L.PAGE.padding - top) / JUMP_ROW)))
+		if room ~= jump_room then
+			jump_room = room
+			fill_jump()
+		end
+	end
+	-- The inspector drawer is sized from the frame it covers; a new height re-fits it, as a
+	-- new width does.
+	local last_frame_height
 	function api.tick()
+		reliability.tick()
+		if last_inspector_open ~= workspace.inspectorOpen and api.last_width then api.fit(api.last_width) end
+		local frame_height = workspace.inspectorFrame
+			and tonumber((iup.GetAttribute(workspace.inspectorFrame, "RASTERSIZE") or ""):match("x(%d+)$"))
+		if frame_height ~= last_frame_height then
+			last_frame_height = frame_height
+			if workspace.inspectorOpen and api.last_width then api.fit(api.last_width) end
+		end
+		drawer:sync()
+		fit_jump()
 		fit_cells()
 		for _, drain in ipairs(drains) do drain() end
 	end
@@ -1032,7 +1154,7 @@ function M.new(ctx, opts)
 	go_source("home")
 	fill_spotlight()
 	refill_plan()
-	Kit.show(iup, sample_note, model.sample == true, sources.widget)
+	show_sample_note()
 	return api
 end
 

@@ -19,6 +19,8 @@ vendor/*
 !vendor/nanosvg/
 !vendor/stb/
 !vendor/certs/
+!vendor/imgui/
+!vendor/cimgui/
 
 # Generated sources
 src/lua_bundle.h
@@ -67,3 +69,4 @@ luacov.*.out
 *.user
 .DS_Store
 Thumbs.db
+imgui.ini

@@ -42,6 +42,7 @@ local function native()
 end
 
 local CodeView = {}
+local UTF16 = require("core.lib.utf16")
 CodeView.__index = CodeView
 
 --- Is the real code view (Scintilla) in this build?
@@ -294,7 +295,7 @@ end
 -- A monospaced face from a theme font (`"Segoe UI, 10"`): the size follows the theme.
 function CodeView.font(theme_font)
 	local size = tonumber(tostring(theme_font or ""):match("(%d+)%s*$")) or 10
-	return WINDOWS and "Consolas" or "DejaVu Sans Mono", size
+	return "IBM Plex Mono", size
 end
 
 local function bgr(color)
@@ -356,7 +357,7 @@ function CodeView:_buildPlain()
 	local iup = self._iup
 	self._control = iup.text({
 		MULTILINE = self._single_line and "NO" or "YES", READONLY = self._read_only and "YES" or "NO", EXPAND = "YES",
-		WORDWRAP = self._wrap and "YES" or "NO", BORDER = "NO", FONT = "Consolas, 10",
+		WORDWRAP = self._wrap and "YES" or "NO", BORDER = "NO", FONT = "IBM Plex Mono, 10",
 		VALUE = self._text, THEMEROLE = "outputlog",
 	})
 	-- Match the org-pack log viewers: set this after construction so IUP's
@@ -397,6 +398,8 @@ end
 function CodeView:_send(message, wparam, lparam)
 	return sci.send(self._control, message, wparam or 0, lparam or 0)
 end
+
+local MIN_LINES = 3 -- what a code view keeps in a short pane
 
 function CodeView:_buildScintilla()
 	local iup = self._iup
@@ -666,7 +669,10 @@ function CodeView:_applyTheme()
 	local colors = CodeView.colors(p)
 	self._colors = colors
 	if not self._ready then return end
-	if not sci then return end
+	if not sci then
+		self._iup.SetAttribute(self._control, "FONT", "IBM Plex Mono, 10")
+		return
+	end
 	local face, size = CodeView.font(p.font)
 	sci.sends(self._control, SCI.STYLESETFONT, STYLE_DEFAULT, face)
 	self:_send(SCI.STYLESETSIZE, STYLE_DEFAULT, size)
@@ -700,6 +706,12 @@ function CodeView:_applyTheme()
 	self:_syncNumbers()
 	self:_updateBars()
 	if self._corner then pcall(self._iup.Update, self._corner) end
+	-- A short pane (an editor above the terminal) still shows a few lines of code: the
+	-- page around the view keeps this, and the pane split gives way to it.
+	if not self._single_line then
+		local line = tonumber(self:_send(SCI.TEXTHEIGHT, 0)) or 0
+		if line > 0 then self._iup.SetAttribute(self._control, "MINSIZE", "0x" .. (MIN_LINES * line)) end
+	end
 end
 
 --- Put the control's own look back after a generic theme pass.
@@ -836,7 +848,7 @@ function CodeView:scrollToEnd()
 		self._iup.Refresh(self._plain_scroll)
 		self._iup.SetAttribute(self._plain_scroll, "POSY", self._iup.GetAttribute(self._plain_scroll, "YMAX") or "0")
 	else
-		self._iup.SetAttribute(self._control, "SCROLLTOPOS", tostring(#self._text))
+		self._iup.SetAttribute(self._control, "SCROLLTOPOS", tostring(UTF16.length(self._text)))
 		self:_syncPlainScroll()
 	end
 end

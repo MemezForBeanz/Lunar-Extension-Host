@@ -1,56 +1,17 @@
--- carbon_rules.lua
--- Shared, token-driven rules() builder for the IBM Carbon Design System themes
--- (White, Gray 10, Gray 90, Gray 100). This is intentionally a plain module -- NOT a
--- Theme subclass -- so ThemeManager's auto-discovery (which only instantiates
--- Theme subclasses under core.classes.Themes.*) skips it.
---
--- Every Carbon theme differs only in its color tokens; the mapping of those tokens
--- onto widget roles is identical and lives here. This mirrors the exact role-key set
--- used by the app so no widget is left unstyled, while
--- following Carbon's own language: subtle gray borders, a single blue (or brand)
--- interactive accent for selection/links, layered surfaces, and semantic support colors.
---
--- The three surface states are distinct:
---
---   * `p.layerHover01`    -- $layer-hover-01: pointer-enter feedback, slightly lighter
---   * `p.layerSelected01` -- $layer-selected-01: persistent selection, visibly darker
---   * `p.layer02`         -- $layer-02: elevation step, the raised surface itself
---
--- Making hover, selection, and elevation the same color is what made the old themes
--- feel flat and muddled: a hovered-but-not-selected item looked selected, and a
--- second-level surface looked like a selection. Each state now resolves to its own
--- token, and `p.surface2` is kept as a backward-compat alias for `layerHover01` so
--- no external consumer breaks.
---
--- Expected palette tokens (all "R G B" strings unless noted):
---   bg              $background
---   layer01         $layer-01 / $field-01
---   layer02         $layer-02 / $field-02
---   layerHover01    $layer-hover-01       (pointer-enter feedback on layer-01)
---   layerSelected01 $layer-selected-01    (persistent selection on layer-01)
---   borderSubtle01  $border-subtle-01
---   borderStrong01  $border-strong-01
---   text            $text-primary
---   textMuted       $text-secondary
---   textOnColor     $text-on-color
---   accent          $interactive
---   accentText      same as textOnColor (text rendered on accent fill)
---   error/success/warning/warningText/info  ($support-*)
---   font            IUP font string  (e.g. "IBM Plex Sans, 10")
---
--- Legacy aliases (set by each theme's initialize()):
---   surface      = layer01          surface2     = layerHover01
---   border       = borderSubtle01   borderStrong = borderStrong01
---   listBg       = layer01          listText     = text
---   listSelText  = accent
+-- Carbon v11 component anatomy, states, sizing and typography:
+-- https://carbondesignsystem.com/components/button/style/
+-- https://carbondesignsystem.com/components/text-input/style/
+-- https://carbondesignsystem.com/components/dropdown/style/
+-- https://carbondesignsystem.com/components/data-table/style/
+-- https://carbondesignsystem.com/components/tabs/style/
+-- https://carbondesignsystem.com/elements/typography/type-sets/
+-- https://carbondesignsystem.com/elements/spacing/overview/
+-- Values are mapped to existing host roles; native IUP ignores ImGui-only flags.
 
 local L = require("core.lib.CarbonLayout")
 
 local M = {}
 
---- Convert a "#rrggbb" (or "rrggbb") hex string to IUP's "R G B" decimal form.
--- @tparam string hex Six-digit hex color, with or without the leading `#`.
--- @treturn string `"R G B"` decimal string.
 function M.rgb(hex)
     hex = hex:gsub("#", "")
     return string.format("%d %d %d",
@@ -59,78 +20,57 @@ function M.rgb(hex)
         tonumber(hex:sub(5, 6), 16))
 end
 
--- Re-size a theme's IUP font string, keeping its family.
---
--- Carbon's type scale is a set of sizes and weights applied to one typeface, so a
--- heading must be the theme's own family at a larger size -- not a second font
--- named somewhere else. Parsing the family out of the palette's font string is
--- what lets a theme's headings come out in its own typeface without the palette
--- having to carry a separate entry per heading level.
---
--- Point sizes follow Carbon's productive type scale at 96 DPI (pt = px * 0.75):
---
---   label-01 / helper-text-01  12px → 9pt
---   body-01 / body-compact-01  14px → 10.5pt → 11pt
---     IUP font sizes are integers, so 10.5pt must round to either 10 or 11.
---     Carbon's guidance treats "too small" as the worse failure mode (legibility
---     before pixel-precision), so 11pt is chosen over 10pt.
---   heading-compact-01         14px semibold → 11pt Bold
---   heading-03                 20px → 15pt
---   heading-04                 28px → 21pt
 local function sized(font, points, bold)
     local family = tostring(font or "Segoe UI"):match("^%s*([^,]+)") or "Segoe UI"
     return string.format("%s, %s%d", family, bold and "Bold " or "", points)
 end
 
---- Build the full widget rule table from a Carbon palette.
---
--- Consumes the expanded token set introduced in Work Item 1 while maintaining
--- full backward compatibility with callers that built palettes using only the
--- legacy six-key set (`bg`, `surface`, `surface2`, `border`, …).
---
--- @tparam table p Palette table. See module header for the full token list.
--- @treturn table Widget class/role → style mapping.
+--- Carbon's `text-disabled` on a given surface, as the colour to store on a disabled control.
+-- The token is translucent (25% of text-primary), so it is composed over the surface the
+-- label actually sits on. The flat controls then fade a disabled label halfway to its
+-- background again (IUP patch 0005, kept by the ImGui host); the stored colour is the one
+-- that fade lands on the token, instead of fading it twice into the surface.
+-- @tparam table p palette (with `carbonTokens`)
+-- @tparam string surface "r g b"
+-- @treturn string "r g b"
+function M.disabledText(p, surface)
+    local raw = p.carbonTokens and p.carbonTokens.textDisabled
+    local r, g, b, a = tostring(raw or ""):match("rgba%((%d+),%s*(%d+),%s*(%d+),%s*([%d%.]+)%)")
+    local sr, sg, sb = tostring(surface or ""):match("(%d+)%s+(%d+)%s+(%d+)")
+    if not (r and sr) then return p.textDisabled or p.textMuted end
+    a = tonumber(a)
+    local function channel(c, s)
+        local target = math.floor(c * a + s * (1 - a) + 0.5)
+        return math.max(0, math.min(255, 2 * target - s))
+    end
+    return string.format("%d %d %d", channel(tonumber(r), tonumber(sr)),
+        channel(tonumber(g), tonumber(sg)), channel(tonumber(b), tonumber(sb)))
+end
+
+--- The inline notification's fill (Carbon low-contrast inline notification): a layer fill
+-- with the support-colour leading border. Carbon's page sits on `background` and the notice
+-- on layer-01; this app's page floor is layer-01, so the notice is one layer up, layer-02.
+-- The same rule in White, Gray 10, 90 and 100 (Gray 100's `notification-background-*`
+-- equals layer-01 here, which would leave the notice without a visible surface).
+function M.notificationFill(p)
+    return p.layer02 or p.surface2 or p.bg
+end
+
 function M.build(p)
-    -- Button size: VS Code / Obsidian scale rather than Carbon's own 40px
-    -- `$field-01` target. Carbon's slab buttons were the single loudest
-    -- "everything is too big" complaint -- a ~15px body line with 5px above
-    -- and below is a ~27px control, and 12px sides keep the label snug. This
-    -- deliberately departs from the Carbon spec; everything else about the
-    -- Carbon themes (tokens, layers, type scale) is unchanged.
     local BTN_PAD = "12x5"
 
-    -- Carbon's `$field-01` text-input height (40px). IUP's text/multiline/list
-    -- controls have no explicit height attribute that the theme layer can set, but
-    -- PADDING is respected: vertical padding of $spacing-04 (12px) around a
-    -- ~15px body line approximates the 40px target without pinning a raster size
-    -- that would break multi-line fields.
-    --
-    -- `L.CARBON.input_height` is the canonical value; the padding is derived
-    -- from it so this stays in step if the constant ever changes.
     local FIELD_PAD = string.format("0x%d", math.floor((L.CARBON.input_height - 16) / 2))
-    -- Resolve each semantic use to the right token. Falling back to the legacy
-    -- aliases means a palette that was built before the token expansion still
-    -- produces correct (if slightly less differentiated) output.
     local hover    = p.layerHover01    or p.surface2
     local selected = p.layerSelected01 or p.surface2
     local elevated = p.layer02         or p.surface2
     local layer1   = p.layer01        or p.surface
 
     local rules = {
-        -- Type scale. Owner-drawn flatlabels, so these follow the theme rather
-        -- than baking a literal color the way the extensions' own headings used
-        -- to -- which is why a dark-blue page title survived onto a dark theme.
-        --
-        -- heading-04 (21pt) for the page title; heading-03 (15pt) for section
-        -- headings; body-compact-01 (11pt) for subtitles; label-01 (9pt) for
-        -- helper text. All semibold weights are expressed as Bold in IUP.
         pagetitle     = { fg = p.text,      font = sized(p.font, 21, true) },
         pagesubtitle  = { fg = p.textMuted, font = sized(p.font, 11) },
         sectiontitle  = { fg = p.text,      font = sized(p.font, 15, true) },
         hint          = { fg = p.textMuted, font = sized(p.font, 9) },
 
-        -- Semantic text roles ($support-* as text): extensions state meaning,
-        -- the theme supplies the color, so no widget carries a literal.
         error_label   = { fg = p.error,   font = p.font },
         success_label = { fg = p.success, font = p.font },
         warning_label = { fg = p.warning, font = p.font },
@@ -138,13 +78,9 @@ function M.build(p)
         mono          = { fg = p.text,      font = "Consolas, 10" },
         mono_hint     = { fg = p.textMuted, font = "Consolas, 9" },
 
-        -- The bottom status bar: the shell's floor, muted text (it is
-        -- peripheral by definition).
         statusbar      = { bg = p.bg, fg = p.textMuted, border = p.borderSubtle01 or p.border },
         statusbar_text = { bg = p.bg, fg = p.textMuted, font = sized(p.font, 9) },
 
-        -- Carbon's ghost button: borderless, reveals itself on hover. For
-        -- small inline row actions ("Change...", a rail's tool buttons).
         ghost_btn = {
             bg = layer1, fg = p.textMuted, font = p.font,
             border = layer1, borderwidth = 0, padding = "8x3",
@@ -152,8 +88,6 @@ function M.build(p)
             pressed = selected, pressedtext = p.text,
         },
 
-        -- Hyperlink button ($link-01 as a control): accent text, no fill, no
-        -- border, at rest and under the pointer alike.
         link_btn = {
             bg = layer1, fg = p.accent, font = p.font,
             border = layer1, borderwidth = 0, padding = "2x1",
@@ -161,8 +95,6 @@ function M.build(p)
             pressed = layer1, pressedtext = p.textMuted,
         },
 
-        -- Icon button: square quiet target for glyph-only actions; invisible
-        -- at rest, $layer-hover-01 under the pointer.
         icon_btn = {
             bg = layer1, fg = p.textMuted, font = p.font,
             border = layer1, borderwidth = 0, padding = "4x4",
@@ -170,32 +102,12 @@ function M.build(p)
             pressed = selected, pressedtext = p.text,
         },
 
-        -- UI shell header. Carbon's shell sits on $background -- the darkest
-        -- surface in the theme -- while the content below it sits on $layer-01, so
-        -- the band reads as the floor the application stands on rather than as
-        -- another panel. That inversion is the point: everywhere else in Carbon a
-        -- raised element is lighter, and the shell is the one thing that is not
-        -- raised at all.
-        --
-        -- The product name is split across two labels so the brand can be
-        -- semibold and the product name regular, which is Carbon's own shell
-        -- treatment. One typeface, two weights -- never two families.
         shellheader   = { bg = p.bg, fg = p.text, border = p.borderSubtle01 or p.border, borderwidth = 1 },
-        -- Zero padding on the two name labels so the only space between them is
-        -- the box's own GAP. IupFlatLabel pads itself by default, which on a
-        -- two-part product name reads as a stray double space rather than as one
-        -- name in two weights.
         shellbrand    = { bg = p.bg, fg = p.text, font = sized(p.font, 11, true), padding = "0x0" },
         shellproduct  = { bg = p.bg, fg = p.text, font = sized(p.font, 11), padding = "0x0" },
-        -- Version, right-aligned. $text-secondary: present for when it is wanted,
-        -- never competing with the product name for the eye.
         shellmeta     = { bg = p.bg, fg = p.textMuted, font = sized(p.font, 9), padding = "0x0" },
-        -- The strip above the tabs: Carbon draws none, so it takes the shell's floor.
         accentstrip   = { bg = p.bg },
 
-        -- Notifications (core.ui.Toast): Carbon's low-contrast toast, a raised
-        -- surface with a bar in the kind's support colour down the left edge. The
-        -- toast sets its own fonts.
         toast_bg_info     = { bg = elevated, fg = p.text },
         toast_bg_success  = { bg = elevated, fg = p.text },
         toast_bg_warning  = { bg = elevated, fg = p.text },
@@ -221,23 +133,6 @@ function M.build(p)
         flatframe     = { bg = p.bg,     fg = p.text, font = p.font, border = p.border },
         flatseparator = { bg = p.bg, border = p.border },
         tabs          = { bg = p.bg,     fg = p.text, font = p.font, border = p.border },
-        -- hover/selbg drive the tab strip's trailing "extra" buttons (the host's
-        -- "+ new tab group"). Without them IupFlatTabs falls back to its own
-        -- IUP_FLAT_HIGHCOLOR/PRESSCOLOR, which are blue regardless of theme.
-        -- hover is $layer-hover-01 and selbg is $layer-selected-01: Carbon
-        -- distinguishes "the pointer is over this" from "this is the one that is
-        -- chosen", and collapsing them is what made every hover in the old palette
-        -- look like a selection.
-        --
-        -- Carbon's *contained tabs*. The selected tab sits on $layer-01 -- the same
-        -- surface as the page below it, so the two read as one continuous
-        -- container -- while the strip itself is $background. That contrast is
-        -- what marks the selection; the published 3px $border-interactive bar is
-        -- not reachable, because IupFlatTabs exposes no accent-bar attribute and
-        -- patching the vendored fork to add one is far more than this is worth.
-        --
-        -- Unselected labels drop to $text-secondary so the selected tab wins on
-        -- both fill and text weight rather than relying on either alone.
         flattabs      = {
             bg = layer1, fg = p.text, font = p.font,
             tabsbg = p.bg, tabsfg = p.textMuted,
@@ -246,9 +141,6 @@ function M.build(p)
         },
         scrollbox     = { bg = layer1, fg = p.text, border = p.border },
         flatscrollbox = { bg = layer1, fg = p.text, border = p.border, borderwidth = 1 },
-        -- Invisible scroll host that HostAPI:addTab wraps every tab in, so content
-        -- taller than the window scrolls instead of being clipped off the bottom.
-        -- It must disappear visually: dialog background, no border.
         tabscroll     = { bg = p.bg, fg = p.text, border = p.bg, borderwidth = 0 },
         label         = { fg = p.text,    font = p.font },
         settingslabel       = { fg = p.text,      font = p.font },
@@ -259,22 +151,12 @@ function M.build(p)
         palette_rows = { bg = layer1, fg = p.text, secondary = p.textMuted, font = p.font,
             border = layer1, borderwidth = 0, scrollbg = layer1,
             selbg = selected, seltext = p.text, selalpha = "0" },
-        settingspanel = { bg = layer1 },
-        -- Collapsible section header in the Settings tab. Carbon's accordion
-        -- header is a full-width button that reads as a heading at rest and only
-        -- reveals itself as interactive on hover, so it carries no border and no
-        -- fill of its own -- it sits on the panel surface until the pointer
-        -- arrives, then takes $layer-hover-01 (not $layer-selected-01, because
-        -- the header is not persistently selected, it is momentarily lit up).
+        settingspanel = { bg = layer1, border = p.border },
         settingsheader = {
             bg = layer1, fg = p.text, font = p.font,
             border = layer1, borderwidth = 0,
             hover = hover, hovertext = p.text,
         },
-        -- The label of a settings row that has a description to reveal. Same
-        -- borderless-until-hovered contract as the section header, in body rather
-        -- than heading color, so an expandable row is indistinguishable from a
-        -- plain one at rest and obviously clickable under the pointer.
         settingsrow = {
             bg = layer1, fg = p.text, font = p.font,
             border = layer1, borderwidth = 0,
@@ -283,16 +165,11 @@ function M.build(p)
         separator     = { bg = p.bg, border = p.border },
         button        = { fg = p.text, font = p.font },
         flatbutton    = { bg = layer1, fg = p.text, font = p.font },
-        -- Action buttons follow Carbon's tertiary/ghost button: transparent fill with
-        -- a blue accent outline + label; hovering fills the button with the accent and
-        -- inverts the label to text-on-color.
         actionbutton  = {
             bg = p.bg, fg = p.text, font = p.font,
             border = p.accent, borderwidth = 1, showborder = true, padding = BTN_PAD,
             hover = p.accent, hovertext = p.accentText,
         },
-        -- Semantic buttons (primary, warning, danger, info): Carbon-tertiary baseline (accent outline), then
-        -- the relevant $support-* color fills on hover.
         primary_btn = {
             bg = p.bg, fg = p.text, font = p.font,
             border = p.accent, borderwidth = 1, showborder = true, padding = BTN_PAD,
@@ -313,15 +190,11 @@ function M.build(p)
             border = p.accent, borderwidth = 1, showborder = true, padding = BTN_PAD,
             hover = p.info, hovertext = p.accentText,
         },
-        -- Dropbutton sits on an elevated surface ($layer-02), uses $layer-hover-01
-        -- for pointer-enter since hovering should feel lighter than the pressed state.
         dropbutton    = {
             bg = elevated, fg = p.text, font = p.font,
             border = p.border, borderwidth = 1, showborder = true,
             hover = hover, hovertext = p.text,
         },
-        -- Dropdown list opens into an elevated container; selected row takes
-        -- $layer-selected-01 so the chosen item reads as persistently active.
         dropdown_list = {
             bg = elevated, fg = p.text, font = p.font,
             border = p.border, borderwidth = 1,
@@ -350,24 +223,6 @@ function M.build(p)
         toggle        = { fg = p.text, font = p.font },
         flattoggle    = { bg = layer1, fg = p.accent, font = p.font },
         flattoggle_noborder = { bg = layer1, fg = p.accent, font = p.font, border = layer1, borderwidth = 0 },
-        -- Carbon draws text inputs on $field-01 with a single strong bottom edge
-        -- ($border-strong-01), not the four-sided subtle box that a native Win32
-        -- edit would use. A true bottom-only border is not expressible through
-        -- IUP's BORDERCOLOR/BORDERWIDTH (which apply to all four sides uniformly)
-        -- and cannot be reached from the theme layer without wrapping every text
-        -- widget in a flatframe that supplies the underline -- a widget-construction
-        -- change this module deliberately avoids. The minimum honest improvement is
-        -- therefore to use $border-strong-01 so fields read as fields at all; on
-        -- Gray 100 the subtle border ($border-subtle-01, #393939) is nearly
-        -- invisible against $layer-01 (#262626) and makes fields look like vague
-        -- dark rectangles rather than input targets.
-        --
-        -- No PADDING on single-line text. Windows' single-line edit control
-        -- ignores vertical padding, so the field Lunar has always shipped is the
-        -- native height; GTK honours it, and the same 0x12 made the Settings
-        -- search box a 40px field in a 62px row on Linux. Leaving it off keeps
-        -- Windows exactly as it was and gives Linux the same field.
-        -- Multi-line fields and lists keep FIELD_PAD: they are boxes either way.
         text      = { bg = layer1, fg = p.text, font = p.font,
                       border = p.borderStrong01 or p.borderStrong or p.border },
         multiline = { bg = layer1, fg = p.text, font = p.font,
@@ -392,7 +247,6 @@ function M.build(p)
         progressbar   = { bg = layer1, fg = p.accent, border = p.border },
         gauge         = { bg = layer1, fg = p.accent, border = p.border },
     }
-    -- Roles replace class rules: preserve the entire bordered-list definition.
     rules.list_mono = {}
     for key, value in pairs(rules.list_bordered) do rules.list_mono[key] = value end
     rules.list_mono.font = "Consolas, 9"
@@ -404,10 +258,128 @@ function M.build(p)
     require("core.classes.Themes.fluent_rules").addShellRoles(rules, p)
     require("core.classes.Themes.fluent_rules").addPlainRoles(rules, p.bg)
     rules.flattabs_sub = rules.flattabs
-    return require("core.classes.Themes.shell_rules")(rules, p, {
+    -- U3 page-template roles: opaque work surfaces, shared by every tool.
+    local page_bg = p.layer02 or p.surface or p.bg
+    for _, role in ipairs({ "page_surface", "page_header", "page_toolbar", "page_column", "page_inspector", "page_dock" }) do
+        rules[role] = { bg = page_bg, fg = p.text, font = p.font, borderwidth = 0 }
+    end
+    -- End U3 page-template roles.
+    rules = require("core.classes.Themes.shell_rules")(rules, p, {
         well = layer1, hover = hover, selected = selected, border = p.borderSubtle01 or p.border,
         font = p.font, small_font = sized(p.font, 9),
     })
+    -- IUP point sizes: body rounds 14px to 11pt (15px at 96 DPI).
+    rules.pagetitle.font = sized(p.font, 15)
+    rules.sectiontitle.font = sized(p.font, 11, true)
+    rules.pagesubtitle.font = sized(p.font, 11)
+    rules.hint.font = sized(p.font, 9)
+    for _, role in ipairs({ "mono", "mono_hint", "outputlog", "list_mono" }) do
+        rules[role].font = "IBM Plex Mono, 10"
+    end
+    local function button(bg, fg, hi, press, edge, height)
+        return { bg = bg, fg = fg, font = p.font, hover = hi, pressed = press,
+            hovertext = fg, pressedtext = fg, border = edge or bg,
+            borderwidth = edge and 1 or 0, showborder = edge ~= nil,
+            radius = 0, padding = L.margin(5, 3), controlheight = height or L.px(8),
+            inactivebg = p.buttonDisabled or selected, inactivefg = p.textOnColorDisabled or p.textMuted,
+            focuscolor = p.focus, focusinset = p.focusInset }
+    end
+    rules.primary_btn = button(p.buttonPrimary or p.accent, p.textOnColor or p.accentText,
+        p.buttonPrimaryHover or p.accent, p.buttonPrimaryActive or p.accent)
+    rules.secondary_btn = button(p.buttonSecondary or elevated, p.textOnColor or p.accentText,
+        p.buttonSecondaryHover or hover, p.buttonSecondaryActive or selected)
+    -- Supporting actions are ghost; only the page primary carries a solid fill.
+    rules.actionbutton = button(layer1, p.linkPrimary or p.accent, hover, selected)
+    rules.actionbutton.inactivebg = layer1
+    rules.actionbutton.inactivefg = M.disabledText(p, layer1)
+    rules.tertiary_btn = button(p.bg, p.buttonTertiary or p.accent, p.buttonTertiaryHover or hover,
+        p.buttonTertiaryActive or selected, p.buttonTertiary or p.accent)
+    rules.tertiary_btn.hovertext = p.textInverse or p.accentText
+    rules.tertiary_btn.pressedtext = p.textInverse or p.accentText
+    rules.ghost_btn = button(layer1, p.linkPrimary or p.accent, hover, selected)
+    rules.ghost_btn.inactivebg = layer1
+    rules.ghost_btn.inactivefg = M.disabledText(p, layer1)
+    rules.flatbutton = rules.ghost_btn
+    rules.button = rules.ghost_btn
+    rules.danger_btn = button(p.buttonDangerPrimary or p.error, p.textOnColor or p.accentText,
+        p.buttonDangerHover or p.error, p.buttonDangerActive or p.error)
+    for _, role in ipairs({ "primary_btn", "actionbutton", "tertiary_btn", "danger_btn" }) do
+        rules[role].alignment = "ALEFT:ACENTER"
+        rules[role].imageposition = "RIGHT"
+        rules[role].spacing = L.px(5)
+        rules[role].textRightPadding = L.px(5)
+    end
+    rules.warning_btn = rules.tertiary_btn
+    -- A disclosure ("Technical details") is a quiet button whose text starts at the
+    -- content edge it opens under.
+    rules.disclosure_btn = {}
+    for key, value in pairs(rules.actionbutton) do rules.disclosure_btn[key] = value end
+    -- Carbon's ghost has no fill to align by, so its text is the edge: no leading pad.
+    rules.disclosure_btn.padding = L.margin(0, 3)
+    rules.info_btn = rules.tertiary_btn
+    local field = p.field01 or layer1
+    for _, role in ipairs({ "text", "multiline", "list", "dropbutton", "dropbutton_quiet" }) do
+        rules[role] = { bg = field, fg = p.text, font = p.font,
+            hover = p.layerHover01, pressed = field, hovertext = p.text, pressedtext = p.text,
+            border = p.borderStrong01 or p.border, borderwidth = 1, borderstyle = "BOTTOM",
+            padding = L.margin(5, 0), controlheight = L.px(8), radius = 0,
+            focuscolor = p.focus, focusinset = p.focusInset }
+    end
+    for _, role in ipairs({ "flatrows", "flatrows_plain", "flatlist", "list_plain", "list_bordered", "dropdown_list", "palette_rows" }) do
+        local r = rules[role]
+        r.selbg, r.seltext, r.selalpha = selected, p.text, "0"
+        r.itemradius, r.itemmarker, r.header = 0, p.borderInteractive or p.accent, p.layerAccent01 or selected
+        r.hover = hover
+        r.border = p.borderSubtle01 or p.border
+        r.padding = L.margin(5, 2)
+    end
+    for k,v in pairs(rules.list_bordered) do if k ~= "font" then rules.list_mono[k] = v end end
+    -- Data table (https://carbondesignsystem.com/components/data-table/style/): on the
+    -- layer-01 page the table is one layer up. Header layer-accent-02, body layer-02, the
+    -- same rule in every Carbon theme (body was `background`: white in White, darker than
+    -- the page in Gray 100, so the empty body read differently in the two).
+    local table_rule = rules.flatrows_plain
+    local body = p.layer02 or elevated
+    table_rule.bg, table_rule.scrollbg = body, body
+    table_rule.header = p.layerAccent02 or table_rule.header
+    table_rule.hover = p.layerHover02 or table_rule.hover
+    table_rule.selbg = p.layerSelected02 or table_rule.selbg
+    for _, role in ipairs({ "toggle", "flattoggle", "flattoggle_noborder" }) do
+        rules[role].bg, rules[role].fg = page_bg, p.text
+        rules[role].checkbg = p.field01 or layer1
+        rules[role].checkfg = p.iconOnColor
+        rules[role].checkon = p.iconPrimary or p.text
+        rules[role].pressed = selected
+        rules[role].pressedtext = p.text
+        rules[role].switchoff = p.toggleOff
+        rules[role].switchon = p.supportSuccess
+        rules[role].switchknob = p.iconOnColor
+        rules[role].switchwidth, rules[role].switchheight, rules[role].switchknobsize = L.px(9), L.px(6), 18
+    end
+    rules.flatsegmented.bg, rules.flatsegmented.selbg = p.layerAccent01 or selected, p.layerSelectedInverse or p.text
+    rules.flatsegmented.seltext = p.textInverse or p.accentText
+    -- Labels containing vector icons must not inherit the surrounding field padding.
+    rules.label.padding = "0x0"
+    rules.settings_nav_on.borderstyle = "LEADING"
+    rules.settings_nav_on.showborder = true
+    rules.settings_nav_on.borderwidth = 3
+    rules.settings_nav_on.border = p.borderInteractive or p.accent
+    rules.flattabs.tabspadding = L.margin(5, 3)
+    rules.flattabs.controlheight = L.px(8)
+    rules.flattabs.activeline = p.borderInteractive or p.accent
+    rules.flattabs_sub = {}
+    for k,v in pairs(rules.flattabs) do rules.flattabs_sub[k] = v end
+    rules.flattabs_sub.tabsbg, rules.flattabs_sub.selbg = p.bg, p.bg
+    for _, r in pairs(rules) do
+        r.radius = 0
+        r.carbonstyle = true
+        -- All scrollable roles share Carbon's neutral, arrowless treatment.
+        r.scrollsize, r.scrollinset, r.scrollradius = L.px(3), L.px(1), 0
+        r.scrollfg, r.scrollhi, r.scrollpress = p.borderStrong01 or p.border, p.textMuted, p.text
+    end
+    rules.flatsegmented.radius = 4 -- Carbon content switcher is a rounded exception.
+    return rules
+
 end
 
 return M

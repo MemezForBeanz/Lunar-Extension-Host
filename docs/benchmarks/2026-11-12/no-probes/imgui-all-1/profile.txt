@@ -1,0 +1,16 @@
+37%  ui_benchmark.lua:frame_end < [string]:frame
+  -- 100%  ui_benchmark.lua:198
+ 3%  [string]:attr < [string]:boxAttrib
+  -- 50%  [string]:23
+  -- 50%  [string]:330
+ 3%  [string]:setAttribute < [string]:SetAttribute
+  -- 50%  [string]:216
+  -- 50%  [string]:194
+ 3%  [string]:fn < [string]:_emit
+  -- 50%  [string]:221
+  -- 50%  [string]:206
+ 3%  [string]:_color < [string]:line
+  -- 50%  [string]:59
+  -- 50%  [string]:57
+ 3%  [string]:split_lines < [string]:text
+  -- 100%  [string]:164

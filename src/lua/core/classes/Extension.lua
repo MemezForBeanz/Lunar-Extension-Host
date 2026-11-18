@@ -191,6 +191,23 @@ function Extension:motion()
     return host:motion()
 end
 
+--- Add a tab page transition kind, filed under this extension (removed when it
+-- unloads). See `HostAPI:registerPageTransition` and docs/motion.md.
+-- @tparam string name the kind's name
+-- @tparam table def `{ label, frame = function(t, ctx) return outgoing, incoming end, role }`
+-- @treturn boolean|nil true, or nil and why
+-- @usage
+--   self:registerPageTransition("drop", {
+--     label = "Drop in", role = { duration = 240, curve = "entrance", style = "expressive" },
+--     frame = function(t) return { alpha = 1 - t }, { dy = -24 * (1 - t), alpha = t } end,
+--   })
+-- @since host API 5
+function Extension:registerPageTransition(name, def)
+    local host = self._ctx
+    if not host then return nil, "not registered" end
+    return host:registerPageTransition(name, def, self)
+end
+
 --- Register a settings section in the centralized Settings view.
 -- See `HostAPI:addSettings` for the full option set (title, fields, callbacks).
 -- @tparam string category Display category for this settings section.

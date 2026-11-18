@@ -104,7 +104,7 @@ function ThemeManager:initialize(opts)
 	-- -- no change to ThemeManager required.
 	local themeInstances = {}
 	for modname in pairs(package.preload) do
-		if modname:match("^core%.classes%.Themes%.") then
+		if modname:match("^core%.classes%.Themes%.") and not modname:match("%.Classic.*Theme$") then
 			local ok, mod = pcall(require, modname)
 			if ok and isThemeSubclass(mod) then
 				themeInstances[#themeInstances + 1] = mod:new()
@@ -118,8 +118,8 @@ function ThemeManager:initialize(opts)
 		self._theme_by_id[t:id()] = t
 	end
 
-	self._current = "classic"
-	self._active = self._theme_by_id.classic
+	self._current = "carbon_white"
+	self._active = self._theme_by_id.carbon_white
 	self._menu_items = {}
 	self._dropdown = nil
 	self._applying = false
@@ -287,7 +287,7 @@ function ThemeManager:unregisterTheme(id)
 	end
 	self:_fillDropdown()
 	if self._current == id then
-		self:apply("classic_dark", { skip_save = true })
+		self:apply("carbon_g100", { skip_save = true })
 	end
 	self:_syncControls()
 end
@@ -319,15 +319,19 @@ end
 function ThemeManager:palettes()
 	local order, by_id = {}, {}
 	for _, t in ipairs(self._themes) do
-		local family = t:family()
+		local family = t:family() == "carbon" and t:id() or t:family()
 		local palette = by_id[family]
 		if not palette then
-			palette = { id = family, label = t:familyLabel() }
+			palette = { id = family, label = t:family() == "carbon" and ("Carbon / " .. t:label()) or t:familyLabel() }
 			by_id[family] = palette
 			order[#order + 1] = palette
 		end
 		local mode = t:isDark() and "dark" or "light"
 		palette[mode] = palette[mode] or t:id()
+        if t:family() == "carbon" then
+            local paired = ({ carbon_white = "carbon_g100", carbon_g100 = "carbon_white", carbon_g10 = "carbon_g90", carbon_g90 = "carbon_g10" })[t:id()]
+            palette[mode == "dark" and "light" or "dark"] = paired
+        end
 	end
 	return order
 end
@@ -339,7 +343,7 @@ function ThemeManager:paletteOf(id)
 	local theme = self._theme_by_id[id]
 	if not theme then return nil end
 	for _, palette in ipairs(self:palettes()) do
-		if palette.id == theme:family() then return palette end
+		if palette.id == (theme:family() == "carbon" and theme:id() or theme:family()) then return palette end
 	end
 end
 
@@ -347,6 +351,8 @@ end
 -- @tparam string id theme id
 -- @treturn string|nil theme id
 function ThemeManager:counterpart(id)
+    local carbon = { carbon_white = "carbon_g100", carbon_g100 = "carbon_white", carbon_g10 = "carbon_g90", carbon_g90 = "carbon_g10" }
+    if carbon[id] then return carbon[id] end
 	local theme, palette = self._theme_by_id[id], self:paletteOf(id)
 	if not palette then return nil end
 	return palette[theme:isDark() and "light" or "dark"]
@@ -378,7 +384,7 @@ end
 function ThemeManager:_choosePalette(palette)
 	local active = self._theme_by_id[self._current]
 	local mode = active and active:isDark() and "dark" or "light"
-	local id = palette[mode] or palette.dark or palette.light
+	local id = palette.id:match("^carbon_") and palette.id or palette[mode] or palette.dark or palette.light
 	if id then return self:_choose(id) end
 end
 
@@ -720,9 +726,23 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 	-- PADDING gets there -- a flat control's height is its text plus twice the
 	-- vertical padding -- and unlike RASTERSIZE it does not pin the width, so a
 	-- long label still grows the button instead of being clipped.
+    if rawget(self._iup or {}, "_IMGUI") then
+        if r.carbonstyle then attrs.CARBONSTYLE = "YES" end
+        if r.textRightPadding then attrs.TEXTRIGHTPADDING = tostring(r.textRightPadding) end
+        if r.switchwidth then attrs.SWITCHWIDTH = tostring(r.switchwidth) end
+        if r.switchheight then attrs.SWITCHHEIGHT = tostring(r.switchheight) end
+        if r.switchknobsize then attrs.SWITCHKNOBSIZE = tostring(r.switchknobsize) end
+        if r.borderstyle then attrs.BORDERSTYLE = r.borderstyle end
+        if r.focuscolor then attrs.FOCUSCOLOR = r.focuscolor end
+        if r.focusinset then attrs.FOCUSINSETCOLOR = r.focusinset end
+        if r.controlheight then attrs.CONTROLHEIGHT = tostring(r.controlheight) end
+    end
 	if r.padding then
 		attrs.PADDING = r.padding
 	end
+    if r.alignment then attrs.ALIGNMENT = r.alignment end
+    if r.imageposition then attrs.IMAGEPOSITION = r.imageposition end
+    if r.spacing then attrs.SPACING = tostring(r.spacing) end
 
 	-- Native gradient fill and rounded corners (IUP fork additions). These three
 	-- attributes are registered ONLY on the five fork-patched flat controls:
@@ -1019,13 +1039,20 @@ end
 -- walks, so the Lua handle itself is not a reliable table key (using it caused
 -- restore to miss on theme switch-back). Stamp each widget once with a small
 -- string id held as a native attribute and key the store by that id instead.
+--
+-- The name starts with `_IUP` so it never inherits (see `core.lib.handle`). Under a plain
+-- name, IupGetAttribute handed every widget below a stamped one its ancestor's id: the
+-- whole subtree shared one originals store, and a restore wrote one widget's saved values
+-- (FOCUSFEEDBACK, ARROWCOLOR, fonts) onto the others, differently for each order the theme
+-- passes happened to run in.
+local THEME_ID_ATTR = "_IUPLUNAR_THEMEMGR_ID"
 function ThemeManager:_widgetKey(ih, p)
 	local ffi = p and self._ffi
 	local id
 	if ffi then
-		id = ffi.get(p, "THEMEMGR_ID")
+		id = ffi.get(p, THEME_ID_ATTR)
 	else
-		id = self._iup.GetAttribute(ih, "THEMEMGR_ID")
+		id = self._iup.GetAttribute(ih, THEME_ID_ATTR)
 	end
 	if id and id ~= "" then
 		return id
@@ -1033,9 +1060,9 @@ function ThemeManager:_widgetKey(ih, p)
 	self._key_seq = (self._key_seq or 0) + 1
 	id = tostring(self._key_seq)
 	if ffi then
-		ffi.setstr(p, "THEMEMGR_ID", id)
+		ffi.setstr(p, THEME_ID_ATTR, id)
 	else
-		self._iup.SetAttribute(ih, "THEMEMGR_ID", id)
+		self._iup.SetAttribute(ih, THEME_ID_ATTR, id)
 	end
 	return id
 end
@@ -1131,6 +1158,15 @@ function ThemeManager:_applyElement(ih, rules, cls, role, p)
 	end
 	local inactive = cls == "flatbutton" and self:_isInactive(ih)
 	local attrs = self:_attrsFromRule(cls, r, inactive)
+	-- Colours a component owns (core.lui: explicit colours on a widget with no role) are
+	-- neither written nor captured as originals, so a switch never restores a colour the
+	-- component resolved for an earlier theme.
+	local claimed = ThemeReactor().claimed(ih)
+	if claimed then
+		local copy = {}
+		for k, v in pairs(attrs) do if not claimed[k] then copy[k] = v end end
+		attrs = copy
+	end
 	if not next(attrs) then
 		return
 	end
@@ -1390,8 +1426,8 @@ function ThemeManager:_applyGlobalTooltip(theme)
 	if theme then
 		local palette = theme:palette()
 		if palette then
-			tip_bg = palette.surface or palette.bg or tip_bg
-			tip_fg = palette.text or tip_fg
+			tip_bg = palette.backgroundInverse or palette.surface or palette.bg or tip_bg
+			tip_fg = palette.textInverse or palette.text or tip_fg
 			tip_font = palette.font or tip_font
 			tip_border = palette.borderStrong or palette.border or tip_border
 		end
@@ -1600,6 +1636,7 @@ function ThemeManager:_repaintRoot(theme)
 end
 
 function ThemeManager:apply(name, opts)
+    name = ({ classic = "carbon_white", classic_dark = "carbon_g100" })[name] or name
 	opts = opts or {}
 
 	-- A theme locked by the org profile can't be switched by the user: refuse
@@ -1610,7 +1647,7 @@ function ThemeManager:apply(name, opts)
 		return false
 	end
 
-	local theme = self._theme_by_id[name] or self._theme_by_id.classic
+	local theme = self._theme_by_id[name] or self._theme_by_id.carbon_white
 	local theme_id = theme:id()
 
 	-- No-op guard: skip the (expensive) re-theme only if THIS theme has actually
@@ -1642,6 +1679,15 @@ function ThemeManager:_paintTheme(theme, opts)
 	self._current = theme_id
 
 	ThemePalette.set(theme:isClassic() and nil or theme:palette())
+	-- On the ImGui host the native controls' system colours (scroll bars, a combo box's
+	-- edges and button, a frame's groove) are drawn by the host, so they follow the
+	-- theme instead of staying Windows' light grey (core.imgui.syscolors). The classic
+	-- theme keeps Windows' own; the IUP build's native parts stay the system's.
+	if package.loaded["core.imgui.Runtime"] then
+		pcall(function()
+			require("core.imgui.syscolors").fromPalette(not theme:isClassic() and theme:palette() or nil)
+		end)
+	end
 	self:_applyMotion(theme)
 
 	self:_repaintRoot(theme)

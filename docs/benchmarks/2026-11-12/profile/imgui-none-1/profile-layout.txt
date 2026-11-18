@@ -1,0 +1,54 @@
+12%  [string]:natural < [string]:compute
+  -- 25%  [string]:77
+  -- 25%  [string]:163
+  -- 25%  [string]:100
+  -- 25%  [string]:105
+12%  ui_benchmark.lua:frame_end < [string]:frame
+  -- 100%  ui_benchmark.lua:194
+ 9%  [string]:place < [string]:placeChildren
+  -- 33%  [string]:162
+  -- 33%  [string]:133
+  -- 33%  [string]:179
+ 6%  [string]:placeChildren < [string]:place
+  -- 50%  [string]:295
+  -- 50%  [string]:294
+ 3%  [string]:60 < xpcall
+  -- 100%  [string]:122
+ 3%  [string]:sized < [string]:rules
+  -- 100%  [string]:52
+ 3%  [string]:minContent < [string]:update_content
+  -- 100%  [string]:359
+ 3%  [string]:frame < [string]:step
+  -- 100%  [string]:1752
+ 3%  [string]:state < [string]:nativeParentBg
+  -- 100%  [string]:84
+ 3%  [string]:apply_minmax < [string]:currentSize
+  -- 100%  [string]:112
+ 3%  [string]:_emit < [string]:line
+  -- 100%  [string]:66
+ 3%  [string]:rules < [string]:12
+  -- 100%  [string]:435
+ 3%  [string]:12 < xpcall
+  -- 100%  [string]:32
+ 3%  [string]:arc < [string]:cornerSheen
+  -- 100%  [string]:186
+ 3%  [string]:inherits < [string]:getAttribute
+  -- 100%  [string]:291
+ 3%  [string]:begin < [string]:frame
+  -- 100%  [string]:34
+ 3%  [string]:_emit < [string]:text
+  -- 100%  [string]:65
+ 3%  [string]:typeOf < [string]:clientRect
+  -- 100%  [string]:26
+ 3%  [string]:attr < [string]:22
+  -- 100%  [string]:23
+ 3%  [string]:own_visible < [string]:paint
+  -- 100%  [string]:325
+ 3%  [string]:draw_text_image < [string]:87
+  -- 100%  [string]:61
+ 3%  [string]:compute < [string]:compute
+  -- 100%  [string]:253
+ 3%  [string]:registered_default < [string]:attr
+  -- 100%  [string]:307
+ 3%  [string]:setAttribute < [string]:SetAttribute
+  -- 100%  [string]:198

@@ -41,6 +41,7 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -311,7 +312,9 @@ static void child_error(int stage, int error)
 }
 static int close_extras(unsigned int first, unsigned int limit)
 {
-    if (close_range(first, ~0U, 0) == 0) return 1;
+#ifdef SYS_close_range
+    if (syscall(SYS_close_range, first, ~0U, 0) == 0) return 1;
+#endif
     if (limit == 0 || limit < first) return 0;
     for (unsigned int fd = first; fd < limit; fd++)
         if (close((int)fd) < 0 && errno != EBADF) return 0;

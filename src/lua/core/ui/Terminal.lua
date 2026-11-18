@@ -19,6 +19,7 @@ function Terminal.new(opts)
 	local self = setmetatable({ _iup = iup, _opts = opts, _shell = Shell.new(), _buffer = Buffer.new(),
 		_cwd = lfs.currentdir(), _requests = {}, _generation = 0 }, Terminal)
 	self._output = CodeView.new(iup, { line_numbers = false, framed = false, wrap = false })
+	if rawget(iup, "_IMGUI") then iup.SetAttribute(self._output:control(), "FULLLINESONLY", "YES") end
 	self._input = CodeView.new(iup, { line_numbers = false, framed = false, read_only = false, single_line = true })
 	iup.SetAttribute(self._input:widget(), "EXPAND", "HORIZONTAL")
 	iup.SetAttribute(self._input:widget(), "RASTERSIZE", "x28")
@@ -92,6 +93,14 @@ function Terminal.new(opts)
 	end)
 	self._timer = iup.timer({ TIME = "40" })
 	function self._timer:action_cb() terminal:_pump(); return iup.DEFAULT end
+	-- Output may arrive before a newly opened/resized pane has been laid out.
+	-- Follow once on the next UI tick, when its final visible line count is known.
+	self._follow_timer = iup.timer({ TIME = "1" })
+	function self._follow_timer:action_cb()
+		iup.SetAttribute(self, "RUN", "NO")
+		terminal._output:scrollToEnd()
+		return iup.DEFAULT
+	end
 	function self._widget:destroy_cb() terminal:destroy() end
 	Reactor.register(self)
 	self:write("Lunar terminal\nType help for commands; script.lua [args] runs the bundled Lunar CLI.\n\n", "comment")
@@ -109,6 +118,7 @@ function Terminal:setHeight(height)
 	iup.SetAttribute(widget, "RASTERSIZE", "x" .. height)
 	iup.SetAttribute(widget, "MINSIZE", "1x" .. height)
 	iup.SetAttribute(widget, "MAXSIZE", "65535x" .. height)
+	if height > 0 and self._follow_timer then iup.SetAttribute(self._follow_timer, "RUN", "YES") end
 end
 function Terminal:_beginDrag(y)
 	self._drag_y, self._drag_height = y, self._layout:terminalHeight()
@@ -175,12 +185,13 @@ end
 function Terminal:write(text, role, language)
 	local block = self._buffer:append(text, { role = role, language = language })
 	self:_render()
-	self._output:scrollToEnd()
 	return block
 end
 function Terminal:_render()
 	local text, fragments = self._buffer:snapshot()
 	self._output:setTranscript(text, fragments)
+	self._output:scrollToEnd()
+	if self._follow_timer then self._iup.SetAttribute(self._follow_timer, "RUN", "YES") end
 end
 function Terminal:clear()
 	self._generation = self._generation + 1
@@ -307,5 +318,7 @@ function Terminal:destroy()
 	self._requests = {}
 	self._iup.SetAttribute(self._timer, "RUN", "NO")
 	self._iup.Destroy(self._timer)
+	self._iup.SetAttribute(self._follow_timer, "RUN", "NO")
+	self._iup.Destroy(self._follow_timer)
 end
 return Terminal

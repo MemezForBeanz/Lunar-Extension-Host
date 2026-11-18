@@ -179,6 +179,7 @@ function HostAPI:_record(owner)
     local r = self._owners[owner]
     if not r then
         r = { tabs = {}, items = {}, timers = {}, settings = {}, shortcuts = {}, statuswidgets = {}, themes = {},
+              page_transitions = {},
               requests = {}, jobs = {}, processes = {}, subprocesses = {} }
         self._owners[owner] = r
     end
@@ -1009,6 +1010,27 @@ function HostAPI:registerTheme(theme_class, owner)
     return id, err
 end
 
+--- Add a tab page transition kind (host API 5).
+--
+-- The kind is geometry only (core.lib.PageTransitions): `frame(t, ctx)` returns the
+-- outgoing and incoming pages' `{ dx, dy, alpha, dim }` for eased progress `t`, and
+-- `role` its own duration, curve and style. It plays on both hosts, appears in
+-- Appearance settings, and a theme names it with `tab_transition = { kind = name }`.
+-- Unloading the extension removes it.
+-- @tparam string name a word (`[%w_-]+`); an existing extension kind is replaced
+-- @tparam table def `{ label, frame, role, backdrop }`
+-- @tparam[opt] table owner owning extension
+-- @treturn boolean|nil true, or nil and why
+-- @since host API 5
+function HostAPI:registerPageTransition(name, def, owner)
+    local PT = require("core.lib.PageTransitions")
+    local existing = PT.get(name)
+    if existing and existing.builtin then return nil, "a built-in kind cannot be replaced" end
+    local ok, err = PT.register(name, def)
+    if ok then table.insert(self:_record(owner).page_transitions, name) end
+    return ok, err
+end
+
 --- Make a font file available to this process (host API 2), e.g. a theme's
 -- typeface shipped inside an org pack. Lasts until the app exits.
 -- @tparam string path font file (`.ttf`, `.otf`, `.ttc`)
@@ -1454,6 +1476,10 @@ function HostAPI:removeOwned(owner)
         for _, theme_id in ipairs(r.themes or {}) do
             if self._theme_mgr then step("unregister theme", self._theme_mgr.unregisterTheme, self._theme_mgr, theme_id) end
         end
+        for _, kind in ipairs(r.page_transitions or {}) do
+            step("unregister page transition", require("core.lib.PageTransitions").unregister, kind)
+        end
+        r.page_transitions = {}
         for _, item in ipairs(r.items) do
             pcall(iup.Detach, item)   -- may already be detached if its tab was inactive
             step("destroy menu item", iup.Destroy, item)

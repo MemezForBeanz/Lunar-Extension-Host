@@ -38,6 +38,14 @@ describe("RowList", function()
 		assert.equals(30, bound.value(1, "PROGRESS"))
 	end)
 
+	it("bounds content without imposing a minimum on narrow layouts", function()
+		local list = RowList.new(iup, {title_width=280,column_widths={112,80}})
+		assert.equals("472x", attrs.MAXSIZE)
+		assert.is_nil(attrs.MINSIZE)
+		list:setContentWidth(320)
+		assert.equals("512x", attrs.MAXSIZE)
+	end)
+
 	it("turns the sort round on a second click of the same column", function()
 		local sorts = {}
 		RowList.new(iup, {
@@ -74,5 +82,28 @@ describe("RowList", function()
 		assert.is_nil(bound.bits)
 		RowList.new(iup, { bits = function() end })
 		assert.is_function(bound.bits)
+	end)
+
+	it("retains state controllers on queue refresh and disposes removed rows", function()
+		local StateIcon = require("core.ui.StateIcon")
+		local original, made, destroyed = StateIcon.new, 0, 0
+		StateIcon.new = function()
+			made = made + 1
+			return {set=function() end, destroy=function() destroyed=destroyed+1 end}
+		end
+		local ok, err = pcall(function()
+			local list = RowList.new(iup, {rows={{title="One"},{title="Two"}}})
+			list:setState(1,"running"); list:setState(2,"queued")
+			list:setRows({{title="One"},{title="Two"}}, true)
+			list:setState(1,"running"); list:setState(2,"queued")
+			assert.equals(2, made)
+			assert.equals(0, destroyed)
+			list:setRows({{title="One"}}, true)
+			assert.equals(1, destroyed)
+			list:setRows({})
+			assert.equals(2, destroyed)
+		end)
+		StateIcon.new = original
+		assert.is_true(ok, tostring(err))
 	end)
 end)

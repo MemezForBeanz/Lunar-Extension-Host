@@ -110,7 +110,7 @@ describe("lsp Rpc", function()
 	end)
 
 	it("refuses a request nobody handles with MethodNotFound", function()
-		local rpc, sent, receive = harness()
+		local _, sent, receive = harness()
 		receive({ id = 4, method = "workspace/semanticTokens/refresh" })
 		assert.are.equal(Rpc.ERRORS.MethodNotFound, sent[1].error.code)
 	end)

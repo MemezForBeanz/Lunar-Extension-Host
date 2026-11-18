@@ -49,9 +49,34 @@ local function make_iup()
 
 	function iup.GetAttribute(w, name) return w.attrs and w.attrs[name] end
 	function iup.SetAttribute(w, name, value) w.attrs[name] = value end
+	iup.SetAttributeHandle = iup.SetAttribute
+	-- The tree calls a dialog built with core.lui makes (it appends children after
+	-- construction, as iuplua code does with IupAppend).
+	function iup.ihandle(v) return type(v) == "table" and v.cls ~= nil end
+	function iup.GetChildCount(w) return #w.children end
+	function iup.GetChild(w, i) return w.children[i + 1] end
+	function iup.GetParent(w) return w.parent end
+	function iup.Append(p, c) p.children[#p.children + 1] = c; c.parent = p end
+	function iup.Detach(c)
+		local p = c.parent
+		if not p then return end
+		for i, x in ipairs(p.children) do if x == c then table.remove(p.children, i); break end end
+		c.parent = nil
+	end
+	function iup.Map() end
 	function iup.Refresh() end
 	function iup.Hide() RECORDED.closed = RECORDED.closed + 1 end
-	function iup.Popup() end
+	-- While the dialog is up, press Enter, Escape and an unrelated key on it and record
+	-- whether each dismissed it: a dialog built with core.lui detaches its handlers once
+	-- it is gone, so the keys are pressed when a user could press them.
+	function iup.Popup(dlg)
+		RECORDED.keys = {}
+		for _, key in ipairs({ 13, 27, 65 }) do
+			local before = RECORDED.closed
+			local ret = dlg.k_any and dlg:k_any(key)
+			RECORDED.keys[key] = { ret = ret, dismissed = ret == -3 or RECORDED.closed > before }
+		end
+	end
 	function iup.Destroy() end
 	return iup
 end
@@ -90,16 +115,10 @@ local function check_common(name)
 		-- "Acted on" means the dialog closed: either by returning IUP_CLOSE or by
 		-- calling IupHide. Asserting the return code alone would be wrong -- both
 		-- are legitimate ways to dismiss a popup, and the two dialogs differ.
-		local function dismisses(key)
-			local before = RECORDED.closed
-			local ret = dlg:k_any(key)
-			return ret == -3 or RECORDED.closed > before
-		end
-
-		assert.is_true(dismisses(13))   -- Enter
-		assert.is_true(dismisses(27))   -- Escape
+		assert.is_true(RECORDED.keys[13].dismissed)   -- Enter
+		assert.is_true(RECORDED.keys[27].dismissed)   -- Escape
 		-- An unrelated key must fall through to normal handling.
-		assert.are.equal(0, dlg:k_any(65))
+		assert.are.equal(0, RECORDED.keys[65].ret)
 	end)
 
 	it(name .. ": drops the native border on text entries and themes them", function()

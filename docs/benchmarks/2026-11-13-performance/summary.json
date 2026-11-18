@@ -1,0 +1,1134 @@
+{
+  "primary": {
+    "imgui-all": {
+      "runs": [
+        {
+          "run": 1,
+          "ready_ms": 564.8713000046,
+          "shown_ms": 430.9590000048,
+          "load_ms": 91.638300000341,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 46.875,
+          "idle_core_percent": 2.3373340181165303,
+          "idle_private_mb": 107.85546875,
+          "idle_working_mb": 100.421875,
+          "ready_cpu_ms": 140.625,
+          "repaint_wall_ms": 16.665277777792667,
+          "repaint_cpu_ms": 0.1736111111111111,
+          "relayout_wall_ms": 16.66589703699748,
+          "relayout_cpu_ms": 0.2314814814814815,
+          "switch_wall_ms": 16.659808888895554,
+          "switch_cpu_ms": 1.2152777777777777,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\shipping\\imgui-all-1\\result.json"
+        },
+        {
+          "run": 2,
+          "ready_ms": 532.2851000019,
+          "shown_ms": 413.92990000168,
+          "load_ms": 55.513300001621,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 104.796875,
+          "idle_working_mb": 98.59375,
+          "ready_cpu_ms": 218.75,
+          "repaint_wall_ms": 16.663716666658335,
+          "repaint_cpu_ms": 0.2604166666666667,
+          "relayout_wall_ms": 16.667694074082295,
+          "relayout_cpu_ms": 0.2314814814814815,
+          "switch_wall_ms": 16.655950000049998,
+          "switch_cpu_ms": 0.3472222222222222,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\shipping\\imgui-all-2\\result.json"
+        },
+        {
+          "run": 3,
+          "ready_ms": 506.21759999922,
+          "shown_ms": 372.64829999913,
+          "load_ms": 57.588899995608,
+          "load_cpu_ms": 15.625,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 105.19140625,
+          "idle_working_mb": 98.48046875,
+          "ready_cpu_ms": 125,
+          "repaint_wall_ms": 16.663715277779083,
+          "repaint_cpu_ms": 0.5208333333333334,
+          "relayout_wall_ms": 16.665742962989853,
+          "relayout_cpu_ms": 1.0416666666666667,
+          "switch_wall_ms": 16.65949555552111,
+          "switch_cpu_ms": 1.0416666666666667,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\shipping\\imgui-all-3\\result.json"
+        }
+      ],
+      "metrics": {
+        "ready_ms": {
+          "median": 532.2851000019,
+          "min": 506.21759999922,
+          "max": 564.8713000046
+        },
+        "shown_ms": {
+          "median": 413.92990000168,
+          "min": 372.64829999913,
+          "max": 430.9590000048
+        },
+        "load_ms": {
+          "median": 57.588899995608,
+          "min": 55.513300001621,
+          "max": 91.638300000341
+        },
+        "load_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 15.625
+        },
+        "idle_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 46.875
+        },
+        "idle_core_percent": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 2.3373340181165303
+        },
+        "idle_private_mb": {
+          "median": 105.19140625,
+          "min": 104.796875,
+          "max": 107.85546875
+        },
+        "idle_working_mb": {
+          "median": 98.59375,
+          "min": 98.48046875,
+          "max": 100.421875
+        },
+        "ready_cpu_ms": {
+          "median": 140.625,
+          "min": 125,
+          "max": 218.75
+        },
+        "repaint_wall_ms": {
+          "median": 16.663716666658335,
+          "min": 16.663715277779083,
+          "max": 16.665277777792667
+        },
+        "repaint_cpu_ms": {
+          "median": 0.2604166666666667,
+          "min": 0.1736111111111111,
+          "max": 0.5208333333333334
+        },
+        "relayout_wall_ms": {
+          "median": 16.66589703699748,
+          "min": 16.665742962989853,
+          "max": 16.667694074082295
+        },
+        "relayout_cpu_ms": {
+          "median": 0.2314814814814815,
+          "min": 0.2314814814814815,
+          "max": 1.0416666666666667
+        },
+        "switch_wall_ms": {
+          "median": 16.65949555552111,
+          "min": 16.655950000049998,
+          "max": 16.659808888895554
+        },
+        "switch_cpu_ms": {
+          "median": 1.0416666666666667,
+          "min": 0.3472222222222222,
+          "max": 1.2152777777777777
+        }
+      }
+    },
+    "imgui-none": {
+      "runs": [
+        {
+          "run": 1,
+          "ready_ms": 745.48860000505,
+          "shown_ms": 674.30690000037,
+          "load_ms": 0.023699998564553,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 86.671875,
+          "idle_working_mb": 78.91796875,
+          "ready_cpu_ms": 31.25,
+          "repaint_wall_ms": 16.66558500000975,
+          "repaint_cpu_ms": 0.0,
+          "relayout_wall_ms": 16.662520000439333,
+          "relayout_cpu_ms": 0.0,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\shipping\\imgui-none-1\\result.json"
+        },
+        {
+          "run": 2,
+          "ready_ms": 294.71880000347,
+          "shown_ms": 211.06690000306,
+          "load_ms": 0.034199998481199,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 86.3203125,
+          "idle_working_mb": 79.453125,
+          "ready_cpu_ms": 156.25,
+          "repaint_wall_ms": 16.66788250004175,
+          "repaint_cpu_ms": 0.78125,
+          "relayout_wall_ms": 16.659679999672,
+          "relayout_cpu_ms": 0.0,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\shipping\\imgui-none-2\\result.json"
+        },
+        {
+          "run": 3,
+          "ready_ms": 288.07769999548,
+          "shown_ms": 207.2382999977,
+          "load_ms": 0.017200000002049,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 84.64453125,
+          "idle_working_mb": 78.57421875,
+          "ready_cpu_ms": 140.625,
+          "repaint_wall_ms": 16.665749999992748,
+          "repaint_cpu_ms": 0.78125,
+          "relayout_wall_ms": 16.665679999762666,
+          "relayout_cpu_ms": 0.0,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\shipping\\imgui-none-3\\result.json"
+        }
+      ],
+      "metrics": {
+        "ready_ms": {
+          "median": 294.71880000347,
+          "min": 288.07769999548,
+          "max": 745.48860000505
+        },
+        "shown_ms": {
+          "median": 211.06690000306,
+          "min": 207.2382999977,
+          "max": 674.30690000037
+        },
+        "load_ms": {
+          "median": 0.023699998564553,
+          "min": 0.017200000002049,
+          "max": 0.034199998481199
+        },
+        "load_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "idle_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "idle_core_percent": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "idle_private_mb": {
+          "median": 86.3203125,
+          "min": 84.64453125,
+          "max": 86.671875
+        },
+        "idle_working_mb": {
+          "median": 78.91796875,
+          "min": 78.57421875,
+          "max": 79.453125
+        },
+        "ready_cpu_ms": {
+          "median": 140.625,
+          "min": 31.25,
+          "max": 156.25
+        },
+        "repaint_wall_ms": {
+          "median": 16.665749999992748,
+          "min": 16.66558500000975,
+          "max": 16.66788250004175
+        },
+        "repaint_cpu_ms": {
+          "median": 0.78125,
+          "min": 0.0,
+          "max": 0.78125
+        },
+        "relayout_wall_ms": {
+          "median": 16.662520000439333,
+          "min": 16.659679999672,
+          "max": 16.665679999762666
+        },
+        "relayout_cpu_ms": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "switch_wall_ms": null,
+        "switch_cpu_ms": null
+      }
+    },
+    "iup-all": {
+      "runs": [
+        {
+          "run": 1,
+          "ready_ms": 867.45710000105,
+          "shown_ms": 603.06169999967,
+          "load_ms": 82.605799994781,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 45.10546875,
+          "idle_working_mb": 65.5,
+          "ready_cpu_ms": 171.875,
+          "repaint_wall_ms": 5.884393888926639,
+          "repaint_cpu_ms": 1.4322916666666667,
+          "relayout_wall_ms": 7.8040074073618815,
+          "relayout_cpu_ms": 2.0833333333333335,
+          "switch_wall_ms": 22.83627111109,
+          "switch_cpu_ms": 4.861111111111111,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\shipping\\iup-all-1\\result.json"
+        },
+        {
+          "run": 2,
+          "ready_ms": 828.9900000018,
+          "shown_ms": 588.75470000203,
+          "load_ms": 49.515700004122,
+          "load_cpu_ms": 15.625,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 44.30859375,
+          "idle_working_mb": 64.625,
+          "ready_cpu_ms": 125,
+          "repaint_wall_ms": 5.541349166641278,
+          "repaint_cpu_ms": 1.4756944444444444,
+          "relayout_wall_ms": 7.057682222188697,
+          "relayout_cpu_ms": 1.388888888888889,
+          "switch_wall_ms": 22.601785555565556,
+          "switch_cpu_ms": 3.298611111111111,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\shipping\\iup-all-2\\result.json"
+        },
+        {
+          "run": 3,
+          "ready_ms": 834.95469999616,
+          "shown_ms": 570.70219999878,
+          "load_ms": 48.264899996866,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 44.1796875,
+          "idle_working_mb": 64.59765625,
+          "ready_cpu_ms": 171.875,
+          "repaint_wall_ms": 5.391360833305583,
+          "repaint_cpu_ms": 0.5642361111111112,
+          "relayout_wall_ms": 7.000820740736193,
+          "relayout_cpu_ms": 1.1574074074074074,
+          "switch_wall_ms": 22.197146666682222,
+          "switch_cpu_ms": 3.4722222222222223,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\shipping\\iup-all-3\\result.json"
+        }
+      ],
+      "metrics": {
+        "ready_ms": {
+          "median": 834.95469999616,
+          "min": 828.9900000018,
+          "max": 867.45710000105
+        },
+        "shown_ms": {
+          "median": 588.75470000203,
+          "min": 570.70219999878,
+          "max": 603.06169999967
+        },
+        "load_ms": {
+          "median": 49.515700004122,
+          "min": 48.264899996866,
+          "max": 82.605799994781
+        },
+        "load_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 15.625
+        },
+        "idle_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "idle_core_percent": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "idle_private_mb": {
+          "median": 44.30859375,
+          "min": 44.1796875,
+          "max": 45.10546875
+        },
+        "idle_working_mb": {
+          "median": 64.625,
+          "min": 64.59765625,
+          "max": 65.5
+        },
+        "ready_cpu_ms": {
+          "median": 171.875,
+          "min": 125,
+          "max": 171.875
+        },
+        "repaint_wall_ms": {
+          "median": 5.541349166641278,
+          "min": 5.391360833305583,
+          "max": 5.884393888926639
+        },
+        "repaint_cpu_ms": {
+          "median": 1.4322916666666667,
+          "min": 0.5642361111111112,
+          "max": 1.4756944444444444
+        },
+        "relayout_wall_ms": {
+          "median": 7.057682222188697,
+          "min": 7.000820740736193,
+          "max": 7.8040074073618815
+        },
+        "relayout_cpu_ms": {
+          "median": 1.388888888888889,
+          "min": 1.1574074074074074,
+          "max": 2.0833333333333335
+        },
+        "switch_wall_ms": {
+          "median": 22.601785555565556,
+          "min": 22.197146666682222,
+          "max": 22.83627111109
+        },
+        "switch_cpu_ms": {
+          "median": 3.4722222222222223,
+          "min": 3.298611111111111,
+          "max": 4.861111111111111
+        }
+      }
+    },
+    "iup-none": {
+      "runs": [
+        {
+          "run": 1,
+          "ready_ms": 638.58479999908,
+          "shown_ms": 529.67619999981,
+          "load_ms": 0.024799999664538,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 30.92578125,
+          "idle_working_mb": 49.6015625,
+          "ready_cpu_ms": 62.5,
+          "repaint_wall_ms": 7.16190250004725,
+          "repaint_cpu_ms": 0.78125,
+          "relayout_wall_ms": 6.801973333737333,
+          "relayout_cpu_ms": 0.0,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\shipping\\iup-none-1\\result.json"
+        },
+        {
+          "run": 2,
+          "ready_ms": 277.48229999997,
+          "shown_ms": 167.10389999935,
+          "load_ms": 0.017400001524948,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 31.2578125,
+          "idle_working_mb": 50.02734375,
+          "ready_cpu_ms": 93.75,
+          "repaint_wall_ms": 7.46643000002225,
+          "repaint_cpu_ms": 0.0,
+          "relayout_wall_ms": 7.390373333085334,
+          "relayout_cpu_ms": 0.0,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\shipping\\iup-none-2\\result.json"
+        },
+        {
+          "run": 3,
+          "ready_ms": 280.61379999417,
+          "shown_ms": 187.84569999843,
+          "load_ms": 0.023000000510365,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 30.69140625,
+          "idle_working_mb": 49.46484375,
+          "ready_cpu_ms": 15.625,
+          "repaint_wall_ms": 7.14554749993125,
+          "repaint_cpu_ms": 1.953125,
+          "relayout_wall_ms": 6.844693333550667,
+          "relayout_cpu_ms": 0.0,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\shipping\\iup-none-3\\result.json"
+        }
+      ],
+      "metrics": {
+        "ready_ms": {
+          "median": 280.61379999417,
+          "min": 277.48229999997,
+          "max": 638.58479999908
+        },
+        "shown_ms": {
+          "median": 187.84569999843,
+          "min": 167.10389999935,
+          "max": 529.67619999981
+        },
+        "load_ms": {
+          "median": 0.023000000510365,
+          "min": 0.017400001524948,
+          "max": 0.024799999664538
+        },
+        "load_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "idle_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "idle_core_percent": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "idle_private_mb": {
+          "median": 30.92578125,
+          "min": 30.69140625,
+          "max": 31.2578125
+        },
+        "idle_working_mb": {
+          "median": 49.6015625,
+          "min": 49.46484375,
+          "max": 50.02734375
+        },
+        "ready_cpu_ms": {
+          "median": 62.5,
+          "min": 15.625,
+          "max": 93.75
+        },
+        "repaint_wall_ms": {
+          "median": 7.16190250004725,
+          "min": 7.14554749993125,
+          "max": 7.46643000002225
+        },
+        "repaint_cpu_ms": {
+          "median": 0.78125,
+          "min": 0.0,
+          "max": 1.953125
+        },
+        "relayout_wall_ms": {
+          "median": 6.844693333550667,
+          "min": 6.801973333737333,
+          "max": 7.390373333085334
+        },
+        "relayout_cpu_ms": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "switch_wall_ms": null,
+        "switch_cpu_ms": null
+      }
+    }
+  },
+  "extensions": [
+    "blackduck",
+    "buildqueue",
+    "hpe-theme",
+    "iloredfish",
+    "logparser",
+    "lsp-c",
+    "lsp-lua",
+    "microchip-theme",
+    "scanchainparser",
+    "timeclock"
+  ],
+  "uncapped": {
+    "imgui-all": {
+      "runs": [
+        {
+          "run": 1,
+          "ready_ms": 538.65360000054,
+          "shown_ms": 402.72730000288,
+          "load_ms": 59.636899997713,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 106.56640625,
+          "idle_working_mb": 98.5546875,
+          "ready_cpu_ms": 140.625,
+          "repaint_wall_ms": 1.4367266666441583,
+          "repaint_cpu_ms": 0.4774305555555556,
+          "relayout_wall_ms": 2.3559414815045483,
+          "relayout_cpu_ms": 0.925925925925926,
+          "switch_wall_ms": 5.249362222174445,
+          "switch_cpu_ms": 0.3472222222222222,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\gpu-uncapped\\imgui-all-1\\result.json"
+        },
+        {
+          "run": 2,
+          "ready_ms": 481.05999999825,
+          "shown_ms": 380.33300000097,
+          "load_ms": 58.373099993332,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 15.625,
+          "idle_core_percent": 0.7779583028286822,
+          "idle_private_mb": 106.51171875,
+          "idle_working_mb": 98.703125,
+          "ready_cpu_ms": 187.5,
+          "repaint_wall_ms": 1.8368636111012668,
+          "repaint_cpu_ms": 0.6510416666666666,
+          "relayout_wall_ms": 2.8341214813904223,
+          "relayout_cpu_ms": 0.925925925925926,
+          "switch_wall_ms": 5.428938888912334,
+          "switch_cpu_ms": 1.9097222222222223,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\gpu-uncapped\\imgui-all-2\\result.json"
+        },
+        {
+          "run": 3,
+          "ready_ms": 521.95959999517,
+          "shown_ms": 375.37370000064,
+          "load_ms": 59.753699999419,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 15.625,
+          "idle_core_percent": 0.778381469690419,
+          "idle_private_mb": 106.58203125,
+          "idle_working_mb": 99.0625,
+          "ready_cpu_ms": 109.375,
+          "repaint_wall_ms": 1.052464166665836,
+          "repaint_cpu_ms": 0.3472222222222222,
+          "relayout_wall_ms": 1.6889496296277704,
+          "relayout_cpu_ms": 0.6944444444444445,
+          "switch_wall_ms": 5.149544444429889,
+          "switch_cpu_ms": 2.0833333333333335,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\gpu-uncapped\\imgui-all-3\\result.json"
+        }
+      ],
+      "metrics": {
+        "ready_ms": {
+          "median": 521.95959999517,
+          "min": 481.05999999825,
+          "max": 538.65360000054
+        },
+        "shown_ms": {
+          "median": 380.33300000097,
+          "min": 375.37370000064,
+          "max": 402.72730000288
+        },
+        "load_ms": {
+          "median": 59.636899997713,
+          "min": 58.373099993332,
+          "max": 59.753699999419
+        },
+        "load_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "idle_cpu_ms": {
+          "median": 15.625,
+          "min": 0,
+          "max": 15.625
+        },
+        "idle_core_percent": {
+          "median": 0.7779583028286822,
+          "min": 0.0,
+          "max": 0.778381469690419
+        },
+        "idle_private_mb": {
+          "median": 106.56640625,
+          "min": 106.51171875,
+          "max": 106.58203125
+        },
+        "idle_working_mb": {
+          "median": 98.703125,
+          "min": 98.5546875,
+          "max": 99.0625
+        },
+        "ready_cpu_ms": {
+          "median": 140.625,
+          "min": 109.375,
+          "max": 187.5
+        },
+        "repaint_wall_ms": {
+          "median": 1.4367266666441583,
+          "min": 1.052464166665836,
+          "max": 1.8368636111012668
+        },
+        "repaint_cpu_ms": {
+          "median": 0.4774305555555556,
+          "min": 0.3472222222222222,
+          "max": 0.6510416666666666
+        },
+        "relayout_wall_ms": {
+          "median": 2.3559414815045483,
+          "min": 1.6889496296277704,
+          "max": 2.8341214813904223
+        },
+        "relayout_cpu_ms": {
+          "median": 0.925925925925926,
+          "min": 0.6944444444444445,
+          "max": 0.925925925925926
+        },
+        "switch_wall_ms": {
+          "median": 5.249362222174445,
+          "min": 5.149544444429889,
+          "max": 5.428938888912334
+        },
+        "switch_cpu_ms": {
+          "median": 1.9097222222222223,
+          "min": 0.3472222222222222,
+          "max": 2.0833333333333335
+        }
+      }
+    },
+    "imgui-none": {
+      "runs": [
+        {
+          "run": 1,
+          "ready_ms": 279.56719999929,
+          "shown_ms": 199.4737999994,
+          "load_ms": 0.020999999833293,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 85.00390625,
+          "idle_working_mb": 78.58984375,
+          "ready_cpu_ms": 62.5,
+          "repaint_wall_ms": 1.073202500083425,
+          "repaint_cpu_ms": 0.390625,
+          "relayout_wall_ms": 0.5991733337092866,
+          "relayout_cpu_ms": 0.0,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\gpu-uncapped\\imgui-none-1\\result.json"
+        },
+        {
+          "run": 2,
+          "ready_ms": 292.4228999982,
+          "shown_ms": 206.52580000024,
+          "load_ms": 0.041500003135297,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 85.4140625,
+          "idle_working_mb": 78.3125,
+          "ready_cpu_ms": 78.125,
+          "repaint_wall_ms": 1.336492500013275,
+          "repaint_cpu_ms": 0.390625,
+          "relayout_wall_ms": 0.8966600003380666,
+          "relayout_cpu_ms": 0.0,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\gpu-uncapped\\imgui-none-2\\result.json"
+        },
+        {
+          "run": 3,
+          "ready_ms": 261.17900000099,
+          "shown_ms": 202.54939999722,
+          "load_ms": 0.018799997633323,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 84.0234375,
+          "idle_working_mb": 77.1796875,
+          "ready_cpu_ms": 78.125,
+          "repaint_wall_ms": 0.892675000068275,
+          "repaint_cpu_ms": 0.390625,
+          "relayout_wall_ms": 0.6292066667810999,
+          "relayout_cpu_ms": 1.0416666666666667,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\gpu-uncapped\\imgui-none-3\\result.json"
+        }
+      ],
+      "metrics": {
+        "ready_ms": {
+          "median": 279.56719999929,
+          "min": 261.17900000099,
+          "max": 292.4228999982
+        },
+        "shown_ms": {
+          "median": 202.54939999722,
+          "min": 199.4737999994,
+          "max": 206.52580000024
+        },
+        "load_ms": {
+          "median": 0.020999999833293,
+          "min": 0.018799997633323,
+          "max": 0.041500003135297
+        },
+        "load_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "idle_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "idle_core_percent": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "idle_private_mb": {
+          "median": 85.00390625,
+          "min": 84.0234375,
+          "max": 85.4140625
+        },
+        "idle_working_mb": {
+          "median": 78.3125,
+          "min": 77.1796875,
+          "max": 78.58984375
+        },
+        "ready_cpu_ms": {
+          "median": 78.125,
+          "min": 62.5,
+          "max": 78.125
+        },
+        "repaint_wall_ms": {
+          "median": 1.073202500083425,
+          "min": 0.892675000068275,
+          "max": 1.336492500013275
+        },
+        "repaint_cpu_ms": {
+          "median": 0.390625,
+          "min": 0.390625,
+          "max": 0.390625
+        },
+        "relayout_wall_ms": {
+          "median": 0.6292066667810999,
+          "min": 0.5991733337092866,
+          "max": 0.8966600003380666
+        },
+        "relayout_cpu_ms": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 1.0416666666666667
+        },
+        "switch_wall_ms": null,
+        "switch_cpu_ms": null
+      }
+    },
+    "iup-all": {
+      "runs": [
+        {
+          "run": 1,
+          "ready_ms": 822.52499999595,
+          "shown_ms": 580.03859999735,
+          "load_ms": 49.934299997403,
+          "load_cpu_ms": 15.625,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 43.83984375,
+          "idle_working_mb": 64.1640625,
+          "ready_cpu_ms": 93.75,
+          "repaint_wall_ms": 5.909971388872639,
+          "repaint_cpu_ms": 0.4774305555555556,
+          "relayout_wall_ms": 7.5604644445034594,
+          "relayout_cpu_ms": 0.8101851851851852,
+          "switch_wall_ms": 22.254650000023332,
+          "switch_cpu_ms": 2.4305555555555554,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\gpu-uncapped\\iup-all-1\\result.json"
+        },
+        {
+          "run": 2,
+          "ready_ms": 804.01249999704,
+          "shown_ms": 564.89460000012,
+          "load_ms": 47.0606999952,
+          "load_cpu_ms": 46.875,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 44.76953125,
+          "idle_working_mb": 65.13671875,
+          "ready_cpu_ms": 156.25,
+          "repaint_wall_ms": 5.311990277732556,
+          "repaint_cpu_ms": 1.2152777777777777,
+          "relayout_wall_ms": 7.362574074014155,
+          "relayout_cpu_ms": 1.3888888888888888,
+          "switch_wall_ms": 22.457090000050002,
+          "switch_cpu_ms": 5.034722222222222,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\gpu-uncapped\\iup-all-2\\result.json"
+        },
+        {
+          "run": 3,
+          "ready_ms": 789.24270000425,
+          "shown_ms": 554.53490000218,
+          "load_ms": 46.796299997368,
+          "load_cpu_ms": 31.25,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 44.23046875,
+          "idle_working_mb": 64.6015625,
+          "ready_cpu_ms": 109.375,
+          "repaint_wall_ms": 5.141511388905556,
+          "repaint_cpu_ms": 0.9982638888888888,
+          "relayout_wall_ms": 6.636757777811971,
+          "relayout_cpu_ms": 0.8101851851851852,
+          "switch_wall_ms": 22.076224444431112,
+          "switch_cpu_ms": 1.0416666666666667,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\gpu-uncapped\\iup-all-3\\result.json"
+        }
+      ],
+      "metrics": {
+        "ready_ms": {
+          "median": 804.01249999704,
+          "min": 789.24270000425,
+          "max": 822.52499999595
+        },
+        "shown_ms": {
+          "median": 564.89460000012,
+          "min": 554.53490000218,
+          "max": 580.03859999735
+        },
+        "load_ms": {
+          "median": 47.0606999952,
+          "min": 46.796299997368,
+          "max": 49.934299997403
+        },
+        "load_cpu_ms": {
+          "median": 31.25,
+          "min": 15.625,
+          "max": 46.875
+        },
+        "idle_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "idle_core_percent": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "idle_private_mb": {
+          "median": 44.23046875,
+          "min": 43.83984375,
+          "max": 44.76953125
+        },
+        "idle_working_mb": {
+          "median": 64.6015625,
+          "min": 64.1640625,
+          "max": 65.13671875
+        },
+        "ready_cpu_ms": {
+          "median": 109.375,
+          "min": 93.75,
+          "max": 156.25
+        },
+        "repaint_wall_ms": {
+          "median": 5.311990277732556,
+          "min": 5.141511388905556,
+          "max": 5.909971388872639
+        },
+        "repaint_cpu_ms": {
+          "median": 0.9982638888888888,
+          "min": 0.4774305555555556,
+          "max": 1.2152777777777777
+        },
+        "relayout_wall_ms": {
+          "median": 7.362574074014155,
+          "min": 6.636757777811971,
+          "max": 7.5604644445034594
+        },
+        "relayout_cpu_ms": {
+          "median": 0.8101851851851852,
+          "min": 0.8101851851851852,
+          "max": 1.3888888888888888
+        },
+        "switch_wall_ms": {
+          "median": 22.254650000023332,
+          "min": 22.076224444431112,
+          "max": 22.457090000050002
+        },
+        "switch_cpu_ms": {
+          "median": 2.4305555555555554,
+          "min": 1.0416666666666667,
+          "max": 5.034722222222222
+        }
+      }
+    },
+    "iup-none": {
+      "runs": [
+        {
+          "run": 1,
+          "ready_ms": 268.69810000062,
+          "shown_ms": 165.37740000058,
+          "load_ms": 0.012999997125007,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 30.6875,
+          "idle_working_mb": 49.421875,
+          "ready_cpu_ms": 46.875,
+          "repaint_wall_ms": 7.153962499978751,
+          "repaint_cpu_ms": 0.390625,
+          "relayout_wall_ms": 6.734966666651333,
+          "relayout_cpu_ms": 0.0,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\gpu-uncapped\\iup-none-1\\result.json"
+        },
+        {
+          "run": 2,
+          "ready_ms": 256.99000000168,
+          "shown_ms": 152.17909999774,
+          "load_ms": 0.014899997040629,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 31.19140625,
+          "idle_working_mb": 49.8671875,
+          "ready_cpu_ms": 140.625,
+          "repaint_wall_ms": 7.558600000084001,
+          "repaint_cpu_ms": 0.390625,
+          "relayout_wall_ms": 6.7712800000060005,
+          "relayout_cpu_ms": 1.0416666666666667,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\gpu-uncapped\\iup-none-2\\result.json"
+        },
+        {
+          "run": 3,
+          "ready_ms": 277.69099999568,
+          "shown_ms": 157.33209999598,
+          "load_ms": 0.01479999627918,
+          "load_cpu_ms": 0,
+          "idle_cpu_ms": 0,
+          "idle_core_percent": 0.0,
+          "idle_private_mb": 30.9296875,
+          "idle_working_mb": 49.52734375,
+          "ready_cpu_ms": 62.5,
+          "repaint_wall_ms": 6.894752500011251,
+          "repaint_cpu_ms": 0.390625,
+          "relayout_wall_ms": 7.053493332932666,
+          "relayout_cpu_ms": 2.0833333333333335,
+          "switch_wall_ms": null,
+          "switch_cpu_ms": null,
+          "path": "C:\\Users\\Hayden MSI\\.t3\\worktrees\\Lunar-Extension-Host\\t3-e1ac5704-ee0a8910720ecb4f\\docs\\benchmarks\\2026-11-13-performance\\gpu-uncapped\\iup-none-3\\result.json"
+        }
+      ],
+      "metrics": {
+        "ready_ms": {
+          "median": 268.69810000062,
+          "min": 256.99000000168,
+          "max": 277.69099999568
+        },
+        "shown_ms": {
+          "median": 157.33209999598,
+          "min": 152.17909999774,
+          "max": 165.37740000058
+        },
+        "load_ms": {
+          "median": 0.01479999627918,
+          "min": 0.012999997125007,
+          "max": 0.014899997040629
+        },
+        "load_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "idle_cpu_ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "idle_core_percent": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "idle_private_mb": {
+          "median": 30.9296875,
+          "min": 30.6875,
+          "max": 31.19140625
+        },
+        "idle_working_mb": {
+          "median": 49.52734375,
+          "min": 49.421875,
+          "max": 49.8671875
+        },
+        "ready_cpu_ms": {
+          "median": 62.5,
+          "min": 46.875,
+          "max": 140.625
+        },
+        "repaint_wall_ms": {
+          "median": 7.153962499978751,
+          "min": 6.894752500011251,
+          "max": 7.558600000084001
+        },
+        "repaint_cpu_ms": {
+          "median": 0.390625,
+          "min": 0.390625,
+          "max": 0.390625
+        },
+        "relayout_wall_ms": {
+          "median": 6.7712800000060005,
+          "min": 6.734966666651333,
+          "max": 7.053493332932666
+        },
+        "relayout_cpu_ms": {
+          "median": 1.0416666666666667,
+          "min": 0.0,
+          "max": 2.0833333333333335
+        },
+        "switch_wall_ms": null,
+        "switch_cpu_ms": null
+      }
+    }
+  },
+  "settled_idle": {
+    "imgui-all": {
+      "memory": {
+        "lua_mb": 30.8002576828,
+        "private_mb": 111.9453125,
+        "peak_working_mb": 104.10546875,
+        "working_mb": 104.10546875
+      },
+      "cpu_ms": 0,
+      "frames": 21,
+      "duration_s": 10.011854099997
+    },
+    "imgui-none": {
+      "memory": {
+        "lua_mb": 13.737452507019,
+        "private_mb": 84.4921875,
+        "peak_working_mb": 78.8671875,
+        "working_mb": 78.26171875
+      },
+      "cpu_ms": 15.625,
+      "frames": 1,
+      "duration_s": 10.003842099999
+    },
+    "iup-all": {
+      "memory": {
+        "working_mb": 64.9375,
+        "lua_mb": 12.044344902039,
+        "private_mb": 44.49609375,
+        "peak_working_mb": 64.9375
+      },
+      "cpu_ms": 0,
+      "duration_s": 9.9974399999992
+    },
+    "iup-none": {
+      "memory": {
+        "working_mb": 49.96875,
+        "lua_mb": 8.8497133255005,
+        "private_mb": 31.24609375,
+        "peak_working_mb": 49.96875
+      },
+      "duration_s": 9.9946440999993,
+      "cpu_ms": 0
+    }
+  }
+}

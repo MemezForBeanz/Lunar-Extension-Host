@@ -33,6 +33,7 @@
 int luaopen_subprocess(lua_State *L);
 #endif
 int luaopen_process(lua_State *L);
+int luaopen_native_resolver(lua_State *L);
 int luaopen_file_stream(lua_State *L);
 int luaopen_logscan(lua_State *L);
 int luaopen_compositor(lua_State *L);
@@ -250,6 +251,7 @@ int main(int argc, char **argv)
     preload(L, "subprocess",   luaopen_subprocess);
 #endif
     preload(L, "process",      luaopen_process);
+    preload(L, "native_resolver", luaopen_native_resolver);
     preload(L, "file_stream", luaopen_file_stream);
     preload(L, "logscan",      luaopen_logscan);
     preload(L, "compositor",   luaopen_compositor);

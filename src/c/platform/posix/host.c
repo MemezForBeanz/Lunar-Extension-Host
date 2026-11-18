@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 int luaopen_process(lua_State *L);
+int luaopen_native_resolver(lua_State *L);
 
 /* /proc/self/exe is independent of the current working directory. */
 static int exe_path(char *path, size_t size)
@@ -103,5 +104,6 @@ void host_pre_iup_open(void)
 
 void host_preload_modules(lua_State *L, host_preload_fn preload)
 {
+    preload(L, "native_resolver", luaopen_native_resolver);
     preload(L, "process", luaopen_process);
 }

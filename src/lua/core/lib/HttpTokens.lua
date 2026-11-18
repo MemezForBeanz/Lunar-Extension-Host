@@ -1,6 +1,11 @@
 --- Read an administrator-provisioned token file; never include tokens in errors.
 -- @module core.lib.HttpTokens
-local ffi = require("ffi")
+-- The FFI is optional: without it (a platform with no C bindings) Windows still reads
+-- the file, and elsewhere loading refuses, since the O_NOFOLLOW open and the owner check
+-- need it and the file holds credentials.
+local ok_ffi, ffi = pcall(require, "ffi")
+if not ok_ffi then ffi = nil end
+local windows = package.config:sub(1, 1) == "\\"
 local M = {}
 
 function M.validateAttributes(attr, uid)
@@ -29,7 +34,10 @@ end
 function M.load(path)
 	if type(path) ~= "string" or path == "" or path:find("\0", 1, true) then return nil, "tokens file path required" end
 	local text
-	if ffi.os == "Windows" then
+	if not windows and not ffi then
+		return nil, "tokens file checks are unavailable on this platform (no FFI)"
+	end
+	if windows then
 		local f, err = io.open(path, "rb")
 		if not f then return nil, err end
 		text = f:read(65537) or ""

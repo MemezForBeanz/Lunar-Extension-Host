@@ -49,7 +49,7 @@ describe("ctx:addLanguageServer", function()
 	after_each(function() if restore then restore() end end)
 
 	it("needs an owner whose manifest declares language_server", function()
-		local host
+		local host, _
 		host, _, restore = make_host()
 		local entry, err = host:addLanguageServer(SPEC, {})
 		assert.is_nil(entry)
@@ -70,7 +70,7 @@ describe("ctx:addLanguageServer", function()
 	end)
 
 	it("passes a refusal from the registry back to the extension", function()
-		local host
+		local host, _
 		host, _, restore = make_host()
 		local owner = owner_with(host, "toy-ext")
 		assert(host:addLanguageServer(SPEC, owner))
@@ -99,7 +99,7 @@ describe("ctx:addLanguageServer", function()
 	end)
 
 	it("finds a server through the user's setting first", function()
-		local host
+		local host, _
 		host, _, restore = make_host({ ["lsp.toy.path"] = "C:\\definitely\\missing\\toy-server.exe" })
 		local exe, why = host:findLanguageServer({ id = "toy", label = "toy-server", names = { "toy-server" } })
 		assert.is_nil(exe)

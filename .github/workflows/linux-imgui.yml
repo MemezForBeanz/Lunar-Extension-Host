@@ -1,0 +1,58 @@
+name: Linux ImGui
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux-imgui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build and graphics dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build python3 pkg-config git curl \
+            luarocks libssl-dev libfontconfig-dev libglib2.0-dev libgdk-pixbuf-2.0-dev \
+            libgl1-mesa-dev libgl1-mesa-dri xvfb xauth xdotool libx11-dev libxext-dev \
+            libxcursor-dev libxrandr-dev libxfixes-dev libxi-dev libxss-dev \
+            libwayland-dev libxkbcommon-dev wayland-protocols
+      - name: Build LuaJIT and Lua dependencies
+        run: |
+          git clone https://github.com/LuaJIT/LuaJIT /tmp/LuaJIT
+          git -C /tmp/LuaJIT checkout 2a8e017
+          make -C /tmp/LuaJIT -j2
+          sudo make -C /tmp/LuaJIT install PREFIX=/usr/local
+          scripts/dev.sh bootstrap
+      - name: Build SDL/OpenGL host
+        run: |
+          cmake --preset linux-imgui-dev
+          cmake --build --preset linux-imgui-dev
+      - name: Native backend conformance
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          SDL_VIDEO_DRIVER: x11
+        run: |
+          xvfb-run -a build/linux-imgui-dev/bin/lunar scripts/backend_conformance.lua /tmp/conformance.json
+          cat /tmp/conformance.json
+          xvfb-run -a build/linux-imgui-dev/bin/lunar scripts/imgui_linux_input.lua
+      - name: Full shell startup
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          SDL_VIDEO_DRIVER: x11
+        run: |
+          set +e
+          xvfb-run -a timeout 15s build/linux-imgui-dev/bin/lunar > /tmp/lunar.log 2>&1
+          status=$?
+          cat /tmp/lunar.log
+          test "$status" = 124
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-imgui-diagnostics
+          path: |
+            /tmp/conformance.json
+            /tmp/lunar.log

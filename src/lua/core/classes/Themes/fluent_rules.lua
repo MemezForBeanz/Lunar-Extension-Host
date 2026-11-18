@@ -255,7 +255,8 @@ function M.build(p)
         },
         settingslabel       = { fg = p.text,      font = p.font },
         settingslabel_muted = { fg = p.textMuted, font = p.font },
-        settingspanel = { bg = p.surface },
+        -- the frame takes the theme's line colour, not IUP's default grey (FRAMECOLOR)
+        settingspanel = { bg = p.surface, border = p.border },
         -- Collapsible section header in the Settings tab: a borderless full-width
         -- button that reads as a heading until hovered.
         settingsheader = {
@@ -375,6 +376,10 @@ function M.build(p)
     M.addPlainRoles(rules, p.surface or p.bg)
     rules.flattabs_sub = rules.flattabs
     local floor = p.layer02 or p.surface2 or p.surface or p.bg
+    -- A disclosure ("Technical details") is a quiet button whose text starts at the
+    -- content edge it opens under.
+    rules.disclosure_btn = {}
+    for key, value in pairs(rules.actionbutton) do rules.disclosure_btn[key] = value end
     return require("core.classes.Themes.shell_rules")(rules, p, {
         well = p.layer01 or p.surface or p.bg,
         hover = p.layerHover01 or p.surface2 or floor,

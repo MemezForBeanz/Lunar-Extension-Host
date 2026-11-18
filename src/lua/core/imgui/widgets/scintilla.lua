@@ -1,0 +1,606 @@
+-- A small, deterministic Scintilla-compatible code editor.
+-- @module core.imgui.widgets.scintilla
+local Classes = require("core.imgui.Classes")
+local Element = require("core.imgui.Element")
+local Fonts = require("core.imgui.Fonts")
+local iup = require("core.imgui.iup")
+
+local View = require("core.imgui.scintilla.view")
+local Wrap = require("core.imgui.scintilla.wrap")
+local M = {}
+local yes = Element.isTrue -- iupStrBoolean
+local function attr(e, n) return Element.getAttribute(e, n) end
+local function line_start(s, line)
+	local p = 1
+	for _ = 1, line do p = s:find("\n", p, true); if not p then return #s end; p = p + 1 end
+	return p - 1
+end
+local function line_from(s, pos) return select(2, s:sub(1, pos):gsub("\n", "\n")) end
+local function line_end(s, line)
+	local p = line_start(s, line); local n = s:find("\n", p + 1, true)
+	return n and n - 1 or #s
+end
+local function utf8_next(s, p)
+	local b = s:byte(p + 1)
+	if not b then return #s end
+	if b < 128 then return p + 1 end
+	local n = b < 224 and 2 or b < 240 and 3 or 4
+	return math.min(#s, p + n)
+end
+local function utf8_prev(s, p)
+	p = math.max(0, p - 1)
+	while p > 0 and (s:byte(p + 1) or 0) >= 128 and (s:byte(p + 1) or 0) < 192 do p = p - 1 end
+	return p
+end
+local function visual_column(s, p, tab)
+	local line = line_from(s, p); local i, col = line_start(s, line), 0
+	tab = tonumber(tab) or 4
+	while i < p do
+		local b = s:byte(i + 1)
+		col = col + (b == 9 and tab - col % tab or 1)
+		i = utf8_next(s, i)
+	end
+	return col
+end
+local function position_for_column(s, line, wanted, tab)
+	local p, col, finish = line_start(s, line), 0, line_end(s, line)
+	while p < finish and col < wanted do
+		local b = s:byte(p + 1)
+		local width = b == 9 and tab - col % tab or 1
+		if col + width > wanted then break end
+		col, p = col + width, utf8_next(s, p)
+	end
+	return p
+end
+local function word_char(s, p)
+	local c = s:sub(p + 1, p + 1)
+	return c ~= "" and c:match("[%w_]") ~= nil
+end
+-- Document::NextWordStart, used by Editor's SCI_WORDLEFT/SCI_WORDRIGHT commands.
+local function next_word_start(s, p, delta)
+	if delta < 0 then
+		while p > 0 and not word_char(s, utf8_prev(s, p)) do p = utf8_prev(s, p) end
+		if p > 0 then
+			local kind = word_char(s, utf8_prev(s, p))
+			while p > 0 and word_char(s, utf8_prev(s, p)) == kind do p = utf8_prev(s, p) end
+		end
+	else
+		local kind = word_char(s, p)
+		while p < #s and word_char(s, p) == kind do p = utf8_next(s, p) end
+		while p < #s and not word_char(s, p) do p = utf8_next(s, p) end
+	end
+	return p
+end
+local function line_count(s) return select(2, s:gsub("\n", "\n")) + 1 end
+local function bgr_to_rgb(v)
+	v = tonumber(v) or 0
+	return string.format("%d %d %d", v % 256, math.floor(v / 256) % 256, math.floor(v / 65536) % 256)
+end
+local function tokenize(st)
+	if st.data.doc then st.data.doc.end_styled = 0; st.data.doc.style_clock = st.data.doc.style_clock + 1 end
+end
+local function style_at(st, p)
+	st.data.doc:ensure_styled_to(p + 1)
+	return st.data.doc:style_at(p)
+end
+local function notify_change() end
+local function set_value(e, st, v)
+	if st.data.doc then View.edit(st, 0, #st.data.text, tostring(v or ""))
+	else st.data.text = tostring(v or "") end
+	return false
+end
+local function replace(st, a, b, value) return View.edit(st, a, b, value) end
+local function emit_action(e, st, insert, a, b)
+	if st.data.readonly or yes(attr(e, "READONLY")) then return false end
+	local r = Element.call(e, "ACTION", insert ~= "" and insert:byte() or 0, 0, #insert, insert)
+	if r == iup.IGNORE then return false end
+	return View.edit(st, a, b, insert)
+end
+local function natural(e, st, L)
+	local f = L.font(e); local cw, ch = f:charsize()
+	local cols = tonumber(attr(e, "VISIBLECOLUMNS")) or 20
+	local lines = tonumber(attr(e, "VISIBLELINES")) or 4
+	return cols * cw + (tonumber(attr(e, "MARGINWIDTH0")) or 0) + 8, lines * ch + 4
+end
+-- The font of a style: its own face/size/bold, else STYLE_DEFAULT's (32), else FONT.
+local function style_font(e, st, style)
+	local d = st.data
+	local base = Fonts.forElement(e)
+	if d.base_font ~= base then d.fonts, d.base_font = nil, base end
+	d.fonts = d.fonts or {}
+	local f = d.fonts[style]
+	if f then return f end
+	local function pick(t) return t and (t[style] ~= nil and t[style] or t[32]) end
+	local face = pick(d.style_face) or base.face
+	local size = math.max(1, (pick(d.style_size) or base.pt) + (d.zoom or 0))
+	local bold = pick(d.style_bold)
+	if bold == nil then bold = base.bold end
+	f = Fonts.get(face .. ", " .. (bold and "Bold " or "") .. tostring(size))
+	d.fonts[style] = f
+	return f
+end
+M._style_font = style_font
+local function draw_marker(dc, d, marker, x, y, ch)
+	local color = d.marker_fore[marker] or "220 70 70"
+	if d.marker_symbol and d.marker_symbol[marker] == 3 then dc:fill(x - 4, y + ch / 2 - 2, 8, 4, color)
+	else dc:circle(x, y + ch / 2, 4, color, { filled = true }) end
+end
+
+local function layout(e, st)
+	local d, f = st.data, style_font(e, st, 32)
+	local margin = (d.margin_left or 0) + (d.margin_right or 0)
+	for i = 0, 4 do margin = margin + (d.margin_width[i] or 0) end
+	local width = math.max(1, st.w - margin - 8)
+	local key = table.concat({ tostring(f), width, d.wrap or 0, d.doc.revision or 0,
+		d.doc.style_clock, d.tab_width, d.wrap_indent or 0, d.wrap_indent_mode or 0,
+		d.extra_ascent or 0, d.extra_descent or 0, d.wrap_flags or 0 }, ":")
+	if d.wrap_key ~= key or not d.wrap_cache then
+		d.wrap_key = key
+		d.wrap_cache = Wrap.new(d.doc, width, f, d.wrap or 0, d.wrap_indent, d.wrap_indent_mode,
+			function(pos, c) return style_font(e, st, style_at(st, pos)):measure(c) end)
+		d.wrap_cache.ch = d.wrap_cache.ch + (d.extra_ascent or 0) + (d.extra_descent or 0)
+		d.wrap_cache.start_flag = math.floor((d.wrap_flags or 0) / 2) % 2 == 1
+	end
+	return d.wrap_cache, margin + 4
+end
+M._layout = layout
+local function draw_wrapped(e, st, dc, rt)
+	local d = st.data
+	local wrap, margin = layout(e, st)
+	local ch, first = wrap.ch, d.first_line or 0
+	d.x_offset = 0
+	dc:fill(st.x, st.y, st.w, st.h, attr(e, "BGCOLOR"))
+	dc:clip_push(st.x, st.y, st.w, st.h)
+	local total = d.doc:lines_total()
+	for display = first, first + math.ceil(st.h / ch) do
+		if wrap.through == total and display >= wrap.prefix[total] then break end
+		local row, line, sub = wrap:row(display)
+		local y = st.y + (display - first) * ch
+		if d.caret_line_visible and line == d.doc:line_from_position(d.caret) then dc:fill(st.x, y, st.w, ch, d.caret_line_back or "240 240 240") end
+		if sub == 1 and (d.margin_width[0] or 0) > 0 then dc:text(tostring(line + 1), st.x + 4, y, d.margin_width[0] - 8, ch, attr(e, "MARGINFGCOLOR") or "120 120 120", wrap.font, { align = "right", clip = true }) end
+		if sub == 1 and (d.margin_width[1] or 0) > 0 then
+			for _, mark in ipairs(d.doc.marks[line] or {}) do draw_marker(dc, d, mark.number, st.x + (d.margin_width[0] or 0) + 7, y, ch) end
+		end
+		local function x(pos) return st.x + margin + row.indent + (row.xs[pos] or 0) end
+		local a, b = math.max(row.start, math.min(d.anchor, d.caret)), math.min(row.finish, math.max(d.anchor, d.caret))
+		if b > a then dc:fill(x(a), y, x(b) - x(a), ch, d.sel_back or "100 140 220") end
+		local pos = row.start
+		while pos < row.finish do
+			local q = utf8_next(d.text, pos)
+			local style = style_at(st, pos)
+			local sf = style_font(e, st, style)
+			if d.style_back[style] and not (pos >= a and pos < b) then dc:fill(x(pos), y, x(q) - x(pos), ch, d.style_back[style]) end
+			if d.text:byte(pos + 1) ~= 9 then dc:text(d.text:sub(pos + 1, q), x(pos), y, math.max(wrap.cw, x(q) - x(pos)), ch, d.style[style] or attr(e, "FGCOLOR"), sf, { clip = true }) end
+			pos = q
+		end
+		for indic, ranges in pairs(d.indicators) do
+			for _, r in ipairs(ranges) do
+				local from, to = math.max(row.start, r[1]), math.min(row.finish, r[2])
+				if to > from then for xx = x(from), x(to) - 1, 4 do dc:line(xx, y + ch - 2, math.min(xx + 2, x(to)), y + ch - 1, d.indic_fore[indic] or "220 70 70", 1) end end
+			end
+		end
+	end
+	if rt and rt.focused and rt.focused() == e then
+		local display, x = wrap:position(d.caret)
+		dc:line(st.x + margin + x, st.y + (display - first) * ch, st.x + margin + x, st.y + (display - first + 1) * ch, d.caret_fore or attr(e, "FGCOLOR"), d.caret_width)
+	end
+	dc:clip_pop()
+end
+local function draw(e, st, dc, rt)
+	if (st.data.wrap or 0) ~= 0 then return draw_wrapped(e, st, dc, rt) end
+	local f = style_font(e, st, 32); local cw, ch = f:charsize()
+	ch = ch + (st.data.extra_ascent or 0) + (st.data.extra_descent or 0)
+	local bg, fg = attr(e, "BGCOLOR") or "255 255 255", attr(e, "FGCOLOR") or "0 0 0"
+	dc:fill(st.x, st.y, st.w, st.h, bg)
+	dc:clip_push(st.x, st.y, st.w, st.h)
+	local first = st.data.first_line or 0
+	local margin = (tonumber(st.data.margin_width[0] or 0) or 0) + (tonumber(st.data.margin_width[1] or 0) or 0)
+	local text = st.data.text
+	local lines = {}
+	for line in (text .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = line end
+	local caret_line = line_from(text, st.data.caret)
+	for i = first + 1, math.min(#lines, first + math.ceil(st.h / ch) + 1) do
+		local y = st.y + (i - first - 1) * ch
+		if attr(e, "FULLLINESONLY") == "YES" and y + ch > st.y + st.h then break end
+		-- SCI_SETCARETLINEBACK (CodeView themes it), then the IUP attribute, then Scintilla's default
+		if st.data.caret_line_visible and i - 1 == caret_line then dc:fill(st.x, y, st.w, ch, st.data.caret_line_back or attr(e, "CARETLINEBACKCOLOR") or "240 240 240") end
+		if (st.data.margin_width[0] or 0) > 0 then
+			dc:text(tostring(i), st.x + 4, y, st.data.margin_width[0] - 8, ch, attr(e, "MARGINFGCOLOR") or "120 120 120", f, { align = "right", clip = true })
+		end
+		for _, mark in ipairs(st.data.doc.marks[i - 1] or {}) do
+			local marker = mark.number
+			if true and (st.data.margin_width[1] or 0) > 0 then
+				draw_marker(dc, st.data, marker, st.x + (st.data.margin_width[0] or 0) + 7, y, ch)
+			end
+		end
+		local p = line_start(text, i - 1)
+		local x = st.x + margin + 4 - (st.data.x_offset or 0)
+		local line = lines[i]
+		local sa, sb = math.min(st.data.anchor, st.data.caret), math.max(st.data.anchor, st.data.caret)
+		local ls, le = p, p + #line
+		if sa < le and sb > ls then
+			local from, to = math.max(sa, ls) - ls, math.min(sb, le) - ls
+			dc:fill(st.x + margin + 4 + from * cw - (st.data.x_offset or 0), y,
+				math.max(cw, (to - from) * cw), ch, st.data.sel_back or attr(e, "SELBACK") or "100 140 220")
+		end
+		local at = 1
+		while at <= #line do
+			-- the first character of the run (one byte, or a whole UTF-8 sequence)
+			local q = at + 1
+			local n = line:byte(at)
+			if n and n >= 192 then while line:byte(q) and line:byte(q) >= 128 and line:byte(q) < 192 do q = q + 1 end end
+			local c = line:sub(at, q - 1)
+			local style = style_at(st, p + at - 1)
+			local run = c
+			local nextat = q
+			while nextat <= #line and style_at(st, p + nextat - 1) == style do
+				local byte = line:byte(nextat)
+				local size = byte and byte < 128 and 1 or byte and byte < 224 and 2 or byte and byte < 240 and 3 or 4
+				local nq = math.min(#line + 1, nextat + size)
+				run = run .. line:sub(nextat, nq - 1); nextat = nq
+			end
+			local sc = st.data.style[style] or fg
+			local sf = style_font(e, st, style)
+			dc:text(run, x, y, math.max(cw, st.w - (x - st.x)), ch, sc, sf, { clip = true })
+			x = x + sf:measure(run); at = nextat
+		end
+		if st.data.scroll_width_tracking and st.data.scroll_width_tracking ~= 0 then
+			st.data.scroll_width = math.max(st.data.scroll_width or 0, x - st.x - margin - 4 + (st.data.x_offset or 0))
+		end
+	end
+	for indic, ranges in pairs(st.data.indicators or {}) do
+		local c = st.data.indic_fore[indic] or "220 70 70"
+		for _, range in ipairs(ranges) do
+			local line = line_from(text, range[1])
+			if line >= first then
+				local x = st.x + margin + 4 + (range[1] - line_start(text, line)) * cw - (st.data.x_offset or 0)
+				local width = math.max(cw, (range[2] - range[1]) * cw)
+				for xx = x, x + width - 1, 4 do dc:line(xx, st.y + (line - first + 1) * ch - 2, math.min(xx + 2, x + width), st.y + (line - first + 1) * ch - 1, c, 1) end
+			end
+		end
+	end
+	if rt and rt.focused and rt.focused() == e then
+		local ln, col = line_from(text, st.data.caret), st.data.caret - line_start(text, line_from(text, st.data.caret))
+		dc:line(st.x + margin + 4 + col * cw - (st.data.x_offset or 0), st.y + (ln - first) * ch,
+			st.x + margin + 4 + col * cw - (st.data.x_offset or 0), st.y + (ln - first + 1) * ch, attr(e, "CARETCOLOR") or fg, 1)
+	end
+	dc:clip_pop()
+end
+-- Scintilla's dwell (SCN_DWELLSTART / SCN_DWELLEND, IUP's DWELL_CB(state, pos, x, y)): the
+-- pointer resting for SETMOUSEDWELLTIME ms starts a dwell; moving, a key or a click ends it.
+local SC_TIME_FOREVER = 10000000
+local function dwell_end(e, st)
+	local d = st.data
+	if d.dwelling then
+		d.dwelling = false
+		Element.call(e, "DWELL_CB", 0, d.dwell_pos or -1, d.dwell_x or 0, d.dwell_y or 0)
+	end
+end
+local function dwell_arm(e, st, x, y)
+	local d = st.data
+	local ms = d.dwell_time or SC_TIME_FOREVER
+	if ms >= SC_TIME_FOREVER then return end
+	d.dwell_x, d.dwell_y = x, y
+	if not d.dwell_timer then
+		d.dwell_timer = iup.timer{ time = tostring(ms) }
+		d.dwell_timer.action_cb = function(t)
+			t.run = "NO"
+			if not d.dwell_inside then return iup.DEFAULT end
+			local sci = require("core.imgui.native.sci")
+			local pos = sci.send(e, 2023, d.dwell_x, d.dwell_y) -- POSITIONFROMPOINTCLOSE
+			d.dwelling, d.dwell_pos = true, pos
+			Element.call(e, "DWELL_CB", 1, pos or -1, d.dwell_x, d.dwell_y)
+			return iup.DEFAULT
+		end
+	end
+	d.dwell_timer.run = "NO"
+	d.dwell_timer.time = tostring(ms)
+	d.dwell_timer.run = "YES"
+end
+
+-- Editor::EnsureCaretVisible: minimal scrolling that keeps the caret in the viewport.
+local function ensure_caret_visible(e, st)
+	local d = st.data; local f = style_font(e, st, 32); local _, ch = f:charsize()
+	local visible = math.max(1, tonumber(attr(e, "VISIBLELINES")) or math.floor(st.h / ch))
+	local line = line_from(d.text, d.caret)
+	if (d.wrap or 0) ~= 0 then
+		local wrap = layout(e, st)
+		line = wrap:position(d.caret)
+		visible = math.max(1, math.floor(st.h / wrap.ch))
+	end
+	if line < (d.first_line or 0) then d.first_line = line; Element.call(e, "UPDATEVSCROLL_CB")
+	elseif line >= (d.first_line or 0) + visible then
+		d.first_line = math.max(0, line - visible + 1); Element.call(e, "UPDATEVSCROLL_CB")
+	end
+	if (d.wrap or 0) ~= 0 then d.x_offset = 0; return end
+	local col = visual_column(d.text, d.caret, d.tab_width)
+	local cols = math.max(1, tonumber(attr(e, "VISIBLECOLUMNS")) or math.floor(st.w / f:charsize()))
+	if col < (d.x_offset or 0) then d.x_offset = col; Element.call(e, "UPDATEHSCROLL_CB")
+	elseif col >= (d.x_offset or 0) + cols then
+		d.x_offset = math.max(0, col - cols + 1); Element.call(e, "UPDATEHSCROLL_CB")
+	end
+end
+M._ensure_caret_visible = ensure_caret_visible
+
+local function caret_changed(e, st, old)
+	local d = st.data
+	if old == d.caret then return end
+	ensure_caret_visible(e, st)
+	local line = line_from(d.text, d.caret)
+	Element.call(e, "CARET_CB", line, d.caret - line_start(d.text, line), d.caret)
+end
+
+local function readonly(e, st)
+	return st.data.readonly or yes(attr(e, "READONLY"))
+end
+
+-- Editor::CursorUpOrDown: preserve lastXChosen while moving vertically.
+local function move_vertical(e, st, direction, extend)
+	if (st.data.wrap or 0) ~= 0 then
+		local d, wrap = st.data, layout(e, st)
+		local display, x = wrap:position(d.caret)
+		d.last_x = d.last_x or x
+		d.caret = wrap:hit(math.max(0, display + direction), d.last_x)
+		if not extend then d.anchor = d.caret end
+		return
+	end
+	local d = st.data; local line = line_from(d.text, d.caret)
+	d.last_x = d.last_x or visual_column(d.text, d.caret, d.tab_width)
+	local target = math.max(0, math.min(line_count(d.text) - 1, line + direction))
+	d.caret = position_for_column(d.text, target, d.last_x, d.tab_width)
+	if not extend then d.anchor = d.caret end
+end
+
+local function delete_range(e, st, a, b)
+	if a == b or readonly(e, st) then return false end
+	return emit_action(e, st, "", a, b)
+end
+
+local function clipboard_get()
+	return require("core.imgui.Runtime").clipboard_get()
+end
+local function clipboard_set(s)
+	require("core.imgui.Runtime").clipboard_set(s)
+end
+local function history_message(e, message)
+	require("core.imgui.native.sci").send(e, message)
+end
+
+local function event(e, st, ev, rt)
+	-- iupScintilla: BUTTON_CB and MOTION_CB see the mouse before the editor does, and
+	-- IGNORE keeps it from the editor (CodeView's Ctrl+click and hover use them)
+	if ev.type == "press" or ev.type == "release" then
+		local r = Element.call(e, "BUTTON_CB", ev.iupbutton or (48 + (ev.button or 1)),
+			ev.type == "press" and 1 or 0, ev.lx or 0, ev.ly or 0, ev.status or "")
+		if r == iup.IGNORE then return true end
+	elseif ev.type == "move" then
+		local r = Element.call(e, "MOTION_CB", ev.lx or 0, ev.ly or 0, ev.status or "")
+		if r == iup.IGNORE then return true end
+	end
+	if ev.type == "move" or ev.type == "enter" then
+		st.data.dwell_inside = true
+		if ev.lx ~= st.data.dwell_x or ev.ly ~= st.data.dwell_y then
+			dwell_end(e, st)
+			dwell_arm(e, st, ev.lx, ev.ly)
+		end
+		if ev.type == "move" and not st.data.dragging then return true end
+	elseif ev.type == "leave" then
+		st.data.dwell_inside = false
+		if st.data.dwell_timer then st.data.dwell_timer.run = "NO" end
+		dwell_end(e, st)
+		return true
+	end
+	if ev.type == "press" or ev.type == "key" or ev.type == "char" then dwell_end(e, st) end
+	if ev.type == "focus" or ev.type == "blur" then return true end
+	if ev.type == "wheel" then
+		local d = st.data
+		if ev.mods and ev.mods.shift or (ev.dx or 0) ~= 0 then
+			if (d.wrap or 0) ~= 0 then d.x_offset = 0; return true end
+			d.x_offset = math.max(0, (d.x_offset or 0) + math.floor((ev.dx or ev.dy or 0) * 3))
+			Element.call(e, "UPDATEHSCROLL_CB")
+		else
+			local delta = ev.dy or 0
+			local lines = math.max(1, math.floor(math.abs(delta) * 3))
+			d.first_line = math.max(0, math.min(((d.wrap or 0) ~= 0 and layout(e, st):visible(d.doc:lines_total()) or line_count(d.text)) - 1, (d.first_line or 0) + (delta < 0 and lines or -lines)))
+			Element.call(e, "UPDATEVSCROLL_CB")
+		end
+		return true
+	elseif ev.type == "press" then
+		local f = Fonts.forElement(e); local cw, ch = f:charsize()
+		if (st.data.wrap or 0) ~= 0 then ch = layout(e, st).ch end
+		local line = math.max(0, (st.data.first_line or 0) + math.floor((ev.ly or 0) / ch))
+		local col = math.max(0, math.floor(((ev.lx or 0) - (st.data.margin_width[0] or 0) - (st.data.margin_width[1] or 0) + (st.data.x_offset or 0)) / cw))
+		local p, visual = line_start(st.data.text, line), 0
+		while p < line_end(st.data.text, line) and visual < col do
+			local byte = st.data.text:byte(p + 1)
+			visual = visual + (byte == 9 and (st.data.tab_width - visual % st.data.tab_width) or 1)
+			p = utf8_next(st.data.text, p)
+		end
+		if (st.data.wrap or 0) ~= 0 then local wrap, margin = layout(e, st); p = wrap:hit((st.data.first_line or 0) + math.floor((ev.ly or 0) / ch), (ev.lx or 0) - margin); line = st.data.doc:line_from_position(p) end
+		local old = st.data.caret
+		local extend = ev.mods and ev.mods.shift
+		local now = require("core.imgui.Runtime").now()
+		if ev.double then
+			local left, right = p, p
+			while left > 0 and word_char(st.data.text, utf8_prev(st.data.text, left)) do left = utf8_prev(st.data.text, left) end
+			while right < #st.data.text and word_char(st.data.text, right) do right = utf8_next(st.data.text, right) end
+			st.data.anchor, st.data.caret = left, right
+		-- Editor::ButtonDown: a click right after a double click on the same line is the triple
+		elseif st.data.last_double and st.data.last_click_line == line and st.data.last_click + 0.45 >= now then
+			st.data.anchor, st.data.caret = line_start(st.data.text, line), line_end(st.data.text, line)
+		else
+			st.data.caret = math.min(line_end(st.data.text, line), p)
+			if not extend then st.data.anchor = st.data.caret end
+		end
+		st.data.last_click = now
+		st.data.last_double = ev.double and true or false
+		st.data.last_click_line = line
+		st.data.last_x = visual
+		st.data.dragging = true
+		caret_changed(e, st, old)
+		if rt and rt.capture then rt.capture(e) end
+		return true
+	elseif ev.type == "move" and st.data.dragging then
+		local f = Fonts.forElement(e); local _, ch = f:charsize()
+		if (st.data.wrap or 0) ~= 0 then ch = layout(e, st).ch end
+		local line = math.max(0, (st.data.first_line or 0) + math.floor((ev.ly or 0) / ch))
+		if ev.ly and ev.ly < 0 then st.data.first_line = math.max(0, st.data.first_line - 1)
+		elseif ev.ly and ev.ly > st.h then st.data.first_line = math.min(line_count(st.data.text) - 1, st.data.first_line + 1) end
+		local col = math.max(0, math.floor(((ev.lx or 0) - (st.data.margin_width[0] or 0) - (st.data.margin_width[1] or 0) + (st.data.x_offset or 0)) / f:charsize()))
+		local p, visual = line_start(st.data.text, line), 0
+		while p < line_end(st.data.text, line) and visual < col do
+			local b = st.data.text:byte(p + 1); visual = visual + (b == 9 and st.data.tab_width - visual % st.data.tab_width or 1); p = utf8_next(st.data.text, p)
+		end
+		if (st.data.wrap or 0) ~= 0 then local wrap, margin = layout(e, st); p = wrap:hit((st.data.first_line or 0) + math.floor((ev.ly or 0) / ch), (ev.lx or 0) - margin); line = st.data.doc:line_from_position(p) end
+		local old = st.data.caret; st.data.caret = math.min(line_end(st.data.text, line), p); caret_changed(e, st, old)
+		return true
+	elseif ev.type == "release" then
+		st.data.dragging = false
+		return true
+	elseif ev.type == "char" and not st.data.readonly and not yes(attr(e, "READONLY")) then
+		local a, b = math.min(st.data.anchor, st.data.caret), math.max(st.data.anchor, st.data.caret)
+		local old = st.data.caret
+		st.data.last_x = nil
+		if st.data.overtype and a == b and st.data.caret < #st.data.text then b = utf8_next(st.data.text, st.data.caret) end
+		emit_action(e, st, ev.char, a, b); caret_changed(e, st, old); return true
+	elseif ev.type == "key" then
+		local k = iup.XkeyBase(ev.key); local ctrl = ev.mods and ev.mods.ctrl or iup.isCtrlXkey(ev.key)
+		local a, b = math.min(st.data.anchor, st.data.caret), math.max(st.data.anchor, st.data.caret)
+		local shift = ev.mods and ev.mods.shift
+		local old = st.data.caret
+		-- lastXChosen survives only vertical moves (Editor::SetLastXChosen on everything else)
+		if not (k == iup.K_UP or k == iup.K_DOWN or k == iup.K_PGUP or k == iup.K_PGDN) then st.data.last_x = nil end
+		if k == iup.K_LEFT then st.data.caret = ctrl and next_word_start(st.data.text, st.data.caret, -1) or utf8_prev(st.data.text, st.data.caret)
+		elseif k == iup.K_RIGHT then st.data.caret = ctrl and next_word_start(st.data.text, st.data.caret, 1) or utf8_next(st.data.text, st.data.caret)
+		elseif k == iup.K_UP then move_vertical(e, st, -1, shift)
+		elseif k == iup.K_DOWN then move_vertical(e, st, 1, shift)
+		elseif k == iup.K_HOME then
+			st.data.caret = ctrl and 0 or (ev.mods and ev.mods.alt and select(3, layout(e, st):position(st.data.caret)).start or st.data.doc:vc_home_position(st.data.caret))
+		elseif k == iup.K_END then
+			st.data.caret = ctrl and #st.data.text or (ev.mods and ev.mods.alt and select(3, layout(e, st):position(st.data.caret)).finish or st.data.doc:line_end(st.data.doc:line_from_position(st.data.caret)))
+		elseif k == iup.K_PGUP or k == iup.K_PGDN then
+			local page = (st.data.wrap or 0) ~= 0 and math.floor(st.h / layout(e, st).ch) or (tonumber(attr(e, "VISIBLELINES")) or 4)
+			move_vertical(e, st, (k == iup.K_PGUP and -1 or 1) * math.max(1, page - 1), shift)
+		elseif k == iup.K_A and ctrl then st.data.anchor, st.data.caret = 0, #st.data.text
+		elseif (k == iup.K_C or k == iup.K_X) and ctrl then
+			if a ~= b then clipboard_set(st.data.text:sub(a + 1, b)) end
+			if k == iup.K_X then delete_range(e, st, a, b) end
+		elseif (k == iup.K_V and ctrl) or (k == iup.K_INS and shift) then
+			if not readonly(e, st) then emit_action(e, st, clipboard_get(), a, b) end
+		elseif (k == iup.K_DEL and shift) or (k == iup.K_X and ctrl) then
+			if a ~= b then clipboard_set(st.data.text:sub(a + 1, b)); delete_range(e, st, a, b) end
+		elseif k == iup.K_INS and ctrl then
+			if a ~= b then clipboard_set(st.data.text:sub(a + 1, b)) end
+		elseif k == iup.K_Z and ctrl and shift then history_message(e, 2011)
+		elseif k == iup.K_Z and ctrl then history_message(e, 2176)
+		elseif k == iup.K_Y and ctrl then history_message(e, 2011)
+		elseif k == iup.K_BS and a ~= b then delete_range(e, st, a, b)
+		elseif k == iup.K_BS and st.data.caret > 0 then
+			local p = ctrl and next_word_start(st.data.text, st.data.caret, -1) or utf8_prev(st.data.text, st.data.caret); delete_range(e, st, p, st.data.caret)
+		elseif k == iup.K_DEL then
+			local p = ctrl and next_word_start(st.data.text, st.data.caret, 1) or utf8_next(st.data.text, st.data.caret); delete_range(e, st, a, b == a and p or b)
+		elseif k == iup.K_TAB then
+			if a ~= b and shift then
+				local start = line_start(st.data.text, line_from(st.data.text, a))
+				local stop = line_end(st.data.text, line_from(st.data.text, b))
+				local block = st.data.text:sub(start + 1, stop)
+				block = block:gsub("\n\t", "\n"):gsub("^\t", "")
+				emit_action(e, st, block, start, stop)
+			elseif a ~= b then
+				local start = line_start(st.data.text, line_from(st.data.text, a))
+				local stop = line_end(st.data.text, line_from(st.data.text, b))
+				local block = "\t" .. st.data.text:sub(start + 1, stop):gsub("\n", "\n\t")
+				emit_action(e, st, block, start, stop)
+			elseif not readonly(e, st) then emit_action(e, st, "\t", a, b) end
+		elseif k == iup.K_INS then st.data.overtype = not st.data.overtype
+		elseif k == iup.K_ESC then st.data.autoc.visible, st.data.calltip = false, nil
+		elseif k == iup.K_CR then emit_action(e, st, ({ [0] = "\r\n", [1] = "\r", [2] = "\n" })[st.data.doc.eol_mode], a, b)
+		else return false end
+		if (not shift) and k ~= iup.K_A and not (k == iup.K_C or k == iup.K_X or k == iup.K_V or k == iup.K_INS) then st.data.anchor = st.data.caret end
+		caret_changed(e, st, old)
+		return true
+	end
+	return false
+end
+local defaults = { BORDER = "YES", CANFOCUS = "YES", BGCOLOR = "255 255 255", FGCOLOR = "0 0 0", VISIBLECOLUMNS = "20", VISIBLELINES = "4", CURSOR = "IBEAM", TABWIDTH = "4", CARETWIDTH = "1" }
+Classes.define{
+	name = "scintilla", children = 0, focusable = true, defaults = defaults, natural = natural, draw = draw, event = event,
+	set = { VALUE = set_value },
+	get = {
+		VALUE = function(e, st) return st.data.text end,
+		COUNT = function(e, st) return #st.data.text end,
+		CARETPOS = function(e, st) return st.data.caret end,
+		CARET = function(e, st) return st.data.caret end,
+		SELECTIONSTART = function(e, st) return math.min(st.data.anchor, st.data.caret) end,
+		SELECTIONEND = function(e, st) return math.max(st.data.anchor, st.data.caret) end,
+	},
+	callbacks = { SAVEPOINT_CB = true, MODIFIED_CB = true, READONLY_CB = true, ACTION = true, VALUECHANGED_CB = true, CARET_CB = true, DWELL_CB = true, UPDATECONTENT_CB = true, UPDATEVSCROLL_CB = true, UPDATEHSCROLL_CB = true,
+		AUTOCSELECTION_CB = true, HOTSPOTCLICK_CB = true, MARGINCLICK_CB = true, BUTTON_CB = true, MOTION_CB = true },
+	create = function(e, st)
+		st.data.text = st.data.text or tostring(Element.own(e, "VALUE") or "")
+		st.data.caret, st.data.anchor = #st.data.text, #st.data.text
+		st.data.lexer, st.data.keywords, st.data.styles, st.data.style = "null", {}, {}, {}
+		st.data.margin_width = { [0] = 0, [1] = 0, [2] = 0, [3] = 0, [4] = 0 }
+		st.data.margin_type, st.data.margin_mask = {}, {}
+		st.data.marker_fore, st.data.marker_back, st.data.markers = {}, {}, {}
+		st.data.indicators, st.data.indic_fore, st.data.indic_style, st.data.indic_under = {}, {}, {}, {}
+		st.data.style_ranges, st.data.style_fore, st.data.style_back = {}, {}, {}
+		st.data.style_bold, st.data.style_italic, st.data.style_size, st.data.style_face = {}, {}, {}, {}
+		st.data.properties, st.data.tab_width, st.data.caret_width = {}, 4, 1
+		st.data.annotations, st.data.annotation_style, st.data.annotation_visible = {}, {}, 0
+		st.data.autoc = { visible = false, items = {}, current = 1, separator = " " }
+		st.data.first_line, st.data.x_offset, st.data.modified = 0, 0, false
+		st.data.undo, st.data.redo, st.data.last_x = {}, {}, nil
+		View.create(e, st)
+	end,
+	destroy = function(_, st) View.detach(st) end,
+}
+
+-- IUP exposes the frequently used Scintilla state as attributes as well as messages.
+local scintilla_class = Classes.get("scintilla")
+scintilla_class.set.WORDWRAP = function(_, st, value)
+	local modes = { NONE = 0, WORD = 1, CHAR = 2, WHITESPACE = 3, YES = 1, NO = 0 }
+	st.data.wrap = modes[tostring(value):upper()] or tonumber(value) or 0
+	if st.data.wrap ~= 0 then st.data.x_offset = 0 end
+	return false
+end
+scintilla_class.get.WORDWRAP = function(_, st) return ({ [0] = "NONE", "WORD", "CHAR", "WHITESPACE" })[st.data.wrap or 0] end
+scintilla_class.set.READONLY = function(_, st, value) st.data.readonly = yes(value); return false end
+scintilla_class.get.READONLY = function(_, st) return st.data.readonly and "YES" or "NO" end
+scintilla_class.set.INSERT = function(e, st, value)
+	local p = math.min(st.data.caret, st.data.anchor); replace(st, p, math.max(st.data.caret, st.data.anchor), tostring(value or ""))
+	notify_change(e, st); return false
+end
+scintilla_class.set.CARETPOS = function(_, st, value) st.data.caret, st.data.anchor = math.max(0, tonumber(value) or 0), math.max(0, tonumber(value) or 0); return false end
+scintilla_class.set.SELECTIONPOS = function(_, st, value) st.data.anchor = math.max(0, tonumber(value) or 0); return false end
+for i = 0, 4 do
+	scintilla_class.set["MARGINWIDTH" .. i] = function(_, st, value) st.data.margin_width[i] = math.max(0, tonumber(value) or 0); return false end
+	scintilla_class.set["MARGINTYPE" .. i] = function(_, st, value) st.data.margin_type[i] = tonumber(value) or 0; return false end
+	scintilla_class.set["MARGINMASK" .. i] = function(_, st, value) st.data.margin_mask[i] = tonumber(value) or 0; return false end
+end
+scintilla_class.get.INSERT = function(_, st)
+	local a, b = math.min(st.data.anchor, st.data.caret), math.max(st.data.anchor, st.data.caret)
+	return st.data.text:sub(a + 1, b)
+end
+scintilla_class.get.SELECTIONPOS = function(_, st) return st.data.anchor end
+scintilla_class.get.LEXERLANGUAGE = function(_, st) return st.data.lexer end
+for i = 0, 4 do
+	scintilla_class.get["MARGINWIDTH" .. i] = function(_, st) return st.data.margin_width[i] end
+	scintilla_class.get["MARGINTYPE" .. i] = function(_, st) return st.data.margin_type[i] end
+	scintilla_class.get["MARGINMASK" .. i] = function(_, st) return st.data.margin_mask[i] end
+end
+
+M._tokenize = tokenize
+M._bgr_to_rgb = bgr_to_rgb
+M._style_at = style_at
+M._style_clear = function(st)
+	st.data.style_ranges = {}
+	-- SCI_STYLECLEARALL resets styles to STYLE_DEFAULT; it must not erase
+	-- that default (including the editor's Mono face) along with the lexer.
+	for _, key in ipairs({ "style_fore", "style_back", "style_bold", "style_italic", "style_size", "style_face" }) do
+		local default = st.data[key] and st.data[key][32]
+		st.data[key] = { [32] = default }
+	end
+	st.data.fonts = nil
+end
+return M

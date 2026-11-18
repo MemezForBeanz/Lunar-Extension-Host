@@ -328,4 +328,30 @@ describe("TabOrder top and left views", function()
 		order:_applyDrop({ widget = children[1], drop = { strip = root, toolbar = "left", index = 2 } })
 		assert.same({ children[1], "left", 2 }, received)
 	end)
+	it("accepts a sidebar drop in the empty caption beyond the top strip", function()
+		order._stand_ins[1].drop_rect = function() return 100, 96, 900, 32 end
+		local drop = order:fromView(left, function()
+			return order:_resolveDrop(root, 700, -12, children[2])
+		end)
+		assert.equal(top, drop.zone)
+		assert.equal("top", drop.toolbar)
+		assert.is_nil(drop.index)
+		assert.equal(249, drop.caret_x)
+		assert.is_true(drop.append)
+		local miss = order:fromView(left, function()
+			return order:_resolveDrop(root, 950, -12, children[2])
+		end)
+		assert.is_nil(miss) -- outside the toolbar, over window controls
+	end)
+	it("moves an empty-space toolbar drop to the end instead of retaining its old root position", function()
+		local get = order._iup.GetAttribute
+		order._iup.GetAttribute = function(w, k)
+			if w == root and k == "COUNT" then return "3" end
+			return get(w, k)
+		end
+		local received
+		order._groups.setToolbar = function(_, _, toolbar, index) received = { toolbar, index } end
+		order:_applyDrop({ widget = children[1], drop = { strip = root, toolbar = "top", append = true } })
+		assert.same({ "top", 4 }, received)
+	end)
 end)

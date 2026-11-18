@@ -1,0 +1,70 @@
+ 8%  ui_benchmark.lua:frame_end < [string]:frame
+  -- 100%  ui_benchmark.lua:198
+ 5%  [string]:attr < [string]:natural
+  -- 50%  [string]:339
+  -- 50%  [string]:23
+ 5%  [string]:place < [string]:placeChildren
+  -- 50%  [string]:179
+  -- 50%  [string]:207
+ 5%  [string]:textSize < [string]:icon
+  -- 100%  [string]:259
+ 5%  [string]:attr < [string]:pad
+  -- 50%  [string]:327
+  -- 50%  [string]:330
+ 5%  [string]:rules < [string]:12
+  -- 50%  [string]:314
+  -- 50%  [string]:318
+ 3%  [string]:attr < [string]:extraSize
+  -- 100%  [string]:319
+ 3%  [string]:64 < xpcall
+  -- 100%  [string]:138
+ 3%  [string]:attr < [string]:drawcolor
+  -- 100%  [string]:312
+ 3%  [string]:fn < [string]:_emit
+  -- 100%  [string]:221
+ 3%  [string]:DrawBegin < [string]:12
+  -- 100%  [string]:585
+ 3%  [string]:parse_pair < [string]:placeFloating
+  -- 100%  [string]:47
+ 3%  [string]:floating < [string]:compute
+  -- 100%  [string]:64
+ 3%  [string]:own < [string]:82
+  -- 100%  [string]:359
+ 3%  [string]:paint < [string]:paint
+  -- 100%  [string]:1530
+ 3%  ui_benchmark.lua:cpu < ui_benchmark.lua:sample
+  -- 100%  ui_benchmark.lua:32
+ 3%  [string]:begin < ui_benchmark.lua:frame_begin
+  -- 100%  [string]:114
+ 3%  [string]:walk < [string]:walk
+  -- 100%  [string]:76
+ 3%  [string]:attr < [string]:sync
+  -- 100%  [string]:165
+ 3%  [string]:scroll < [string]:rules
+  -- 100%  [string]:107
+ 3%  [string]:parse < [string]:color_of
+  -- 100%  [string]:78
+ 3%  [string]:attr < [string]:82
+  -- 100%  [string]:23
+ 3%  [string]:typeOf < [string]:horizontal
+  -- 100%  [string]:25
+ 3%  [string]:boxAttrib < [string]:61
+  -- 100%  [string]:213
+ 3%  [string]:scale < [string]:paint
+  -- 100%  [string]:30
+ 3%  [string]:text < [string]:icon
+  -- 100%  [string]:302
+ 3%  [string]:nativeParentBg < [string]:parentBackground
+  -- 100%  [string]:449
+ 3%  [string]:fill < [string]:266
+  -- 100%  [string]:84
+ 3%  [string]:apply_minmax < [string]:currentSize
+  -- 100%  [string]:118
+ 3%  [string]:size_pair < [string]:user_size
+  -- 100%  [string]:50
+ 3%  [string]:icon_position < [string]:icon
+  -- 100%  [string]:371
+ 3%  [string]:attr < [string]:textFlags
+  -- 100%  [string]:320
+ 3%  [string]:registration < [string]:inherits
+  -- 100%  [string]:282
