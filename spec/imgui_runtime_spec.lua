@@ -378,6 +378,20 @@ describe("imgui runtime", function()
 		assert.equal(0, R.loopLevel())
 	end)
 
+	it("keeps a quit from a startup popup for the main loop after it", function()
+		local dlg = dialog_with(iup.vbox({}), { close_cb = function() return iup.IGNORE end })
+		iup.Show(dlg)
+		local popup_turns = 0
+		R.runUntil(function()
+			popup_turns = popup_turns + 1
+			if popup_turns == 1 then B.queue({ quit_requested = true }) end
+			return popup_turns > 50
+		end)
+		assert.is_true(popup_turns < 50)
+		-- Without the sticky quit this main loop would run forever.
+		assert.equal(0, iup.MainLoop())
+	end)
+
 	it("shows a tooltip after the delay", function()
 		local btn = iup.flatbutton({ RASTERSIZE = "40x20", TIP = "Run the build" })
 		iup.Show(dialog_with(iup.vbox({ btn })))
