@@ -46,11 +46,14 @@ jobs:
         run: |
           set +e
           # 124: still running at 15 s, then ended on SIGTERM. 137: it ignored SIGTERM and
-          # had to be killed, which a quit request must never need.
-          xvfb-run -a timeout -k 10s 15s build/linux-imgui-dev/bin/lunar > /tmp/lunar.log 2>&1
-          status=$?
+          # had to be killed, which a quit request must never need. The status is written
+          # inside the X session: xvfb-run's own exit can fail on cleanup after Lunar is done.
+          rm -f /tmp/lunar.status
+          xvfb-run -a sh -c 'timeout -k 10s 15s build/linux-imgui-dev/bin/lunar > /tmp/lunar.log 2>&1; echo $? > /tmp/lunar.status'
+          xvfb_status=$?
+          status=$(cat /tmp/lunar.status 2>/dev/null || echo missing)
           cat /tmp/lunar.log
-          echo "exit status: $status"
+          echo "exit status: $status (xvfb-run: $xvfb_status)"
           test "$status" = 124
       - uses: actions/upload-artifact@v4
         if: always()
