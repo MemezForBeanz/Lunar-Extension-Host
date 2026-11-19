@@ -165,6 +165,7 @@ function M.notificationFill(palette)
 end
 
 --- An inline notification: status glyph and sentence, one recovery action, Dismiss.
+-- @tparam table iup the iup binding the widgets are built with
 -- @tparam table opts `kind`, `title`, `action` (`{ title, action }`)
 function M.notification(iup, opts)
 	local title = M.statusLine(iup, opts.kind or "info", opts.title or "")

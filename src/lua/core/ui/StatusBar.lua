@@ -307,6 +307,7 @@ end
 -- background up to its resting colour, both read from the live widget so it
 -- follows the theme.
 -- @tparam string msg
+-- @tparam[opt] string state the status icon's state (default "queued")
 function StatusBar:setStatus(msg, state)
 	self._status_icon:set(state or "queued")
 	local iup, label = self._iup, self._label

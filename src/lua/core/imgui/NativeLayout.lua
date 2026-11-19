@@ -1,4 +1,4 @@
---- Typed, batched FFI arithmetic for boxes. Lua keeps tree ownership and callbacks.
+-- Typed, batched FFI arithmetic for boxes. Lua keeps tree ownership and callbacks.
 local Element = require('core.imgui.Element')
 local band = require('bit').band
 local M = { available = false, enabled = os.getenv('LUNAR_LAYOUT') ~= 'lua' }

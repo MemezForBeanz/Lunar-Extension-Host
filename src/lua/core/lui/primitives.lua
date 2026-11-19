@@ -72,23 +72,28 @@ define{ name = "VBox", class = "vbox", groups = { P.common, P.box, P.vbox } }
 define{ name = "HBox", class = "hbox", groups = { P.common, P.box, P.hbox } }
 
 --- Children stacked on one another; `selected` (1-based) is the one shown.
+-- @table ZBox
 define{ name = "ZBox", class = "zbox", groups = { P.common, P.box, P.vbox, {
 	selected = P.a("VALUEPOS", one_based, T.NUM),
 } }, late = { VALUEPOS = true } }
 
 --- Takes the free space along its box (or a fixed `size`).
+-- @table Spacer
 define{ name = "Spacer", class = "fill", leaf = true }
 
 --- A frame with a themed border. `title` is its caption.
+-- @table Frame
 define{ name = "Frame", class = "flatframe", groups = { P.common, P.box, {
 	title = P.a("TITLE", P.str, T.STR),
 } } }
 
 --- A scroll box around one child.
+-- @table Scroll
 define{ name = "Scroll", class = "flatscrollbox", groups = { P.common, P.box } }
 
 --- Tabs: each child is a page, titled by its own `tabTitle`. `selected` is the 1-based
 -- page shown; `onChange{ value = index, previous = index }`.
+-- @table Tabs
 define{ name = "Tabs", class = "flattabs", groups = { P.common, P.box, {
 	selected = P.a("VALUEPOS", one_based, T.NUM),
 } }, live = { VALUEPOS = true }, late = { VALUEPOS = true },
@@ -114,6 +119,7 @@ define{ name = "Split", class = "split", groups = { P.common, {
 local TEXT = { wrap = P.a("TEXTWRAP", P.bool, T.BOOL), ellipsis = P.a("TEXTELLIPSIS", P.bool, T.BOOL) }
 
 --- Text drawn by IUP itself (`flatlabel`): the string children are the text.
+-- @table Text
 define{ name = "Text", class = "flatlabel", content = "TITLE", leaf = true, controlAlign = true,
 	groups = { P.common, P.control, TEXT } }
 
@@ -122,6 +128,7 @@ local function left_release(self, b, pressed)
 end
 
 --- A native label: text, or an `image`.
+-- @table Label
 define{ name = "Label", class = "label", content = "TITLE", leaf = true, controlAlign = true,
 	groups = { P.common, P.control, {
 		wrap = P.a("WORDWRAP", P.bool, T.BOOL),
@@ -130,6 +137,7 @@ define{ name = "Label", class = "label", content = "TITLE", leaf = true, control
 	events = { onClick = { "button_cb", left_release } } }
 
 --- An image: `image` is a handle name.
+-- @table Image
 define{ name = "Image", class = "label", leaf = true, controlAlign = true, groups = { P.common, P.control },
 	events = { onClick = { "button_cb", left_release } } }
 
@@ -146,6 +154,7 @@ define{ name = "Button", class = "flatbutton", content = "TITLE", leaf = true, c
 
 --- A check box or switch (`flattoggle`). `checked` makes it controlled;
 -- `onChange{ value = checked }`.
+-- @table Toggle
 define{ name = "Toggle", class = "flattoggle", content = "TITLE", leaf = true, controlAlign = true,
 	groups = { P.common, P.control, {
 		checked = P.a("VALUE", P.onoff, T.BOOL),
@@ -157,6 +166,7 @@ define{ name = "Toggle", class = "flattoggle", content = "TITLE", leaf = true, c
 
 --- A text entry (`text`). `value` makes it controlled: VALUE is written only when it
 -- differs from what the widget holds, so typing keeps the caret where it is.
+-- @table Input
 define{ name = "Input", class = "text", leaf = true,
 	groups = { P.common, {
 		value = P.a("VALUE", P.str, T.STR),
@@ -183,6 +193,7 @@ define{ name = "Separator", class = "flatseparator", leaf = true, groups = { P.c
 --- A list IUP draws (`flatlist`). `items` is a list of strings, `selected` the 1-based
 -- selected item; `onChange{ value = index, text }`, `onActivate{ value = index, text }`
 -- (double-click).
+-- @table List
 define{ name = "List", class = "flatlist", leaf = true, groups = { P.common, {
 	selected = P.a("VALUE", P.int, T.NUM),
 	lines = P.a("VISIBLELINES", P.int, T.NUM),
@@ -204,6 +215,7 @@ define{ name = "List", class = "flatlist", leaf = true, groups = { P.common, {
 
 --- A drawing surface (`canvas`). `onDraw{}` paints (call iup.Draw* on `e.target`);
 -- `onMouse{ button = 1|2|3, pressed, x, y }`, `onMotion{ x, y }`, `onResize{ width, height }`.
+-- @table Canvas
 define{ name = "Canvas", class = "canvas", leaf = true, groups = { P.common },
 	events = {
 		onDraw = { "action", ev("draw") },
@@ -216,6 +228,7 @@ define{ name = "Canvas", class = "canvas", leaf = true, groups = { P.common },
 
 --- A dialog around one child. Mount it with `ui.mount` and show the root's widget.
 -- `onKey{ key }`, `onClose{}`, `onShow{ value = state }`.
+-- @table Dialog
 define{ name = "Dialog", class = "dialog", groups = { P.common, {
 	title = P.a("TITLE", P.str, T.STR),
 } },
@@ -230,6 +243,7 @@ define{ name = "Dialog", class = "dialog", groups = { P.common, {
 --- A themed dropdown (`core.ui.FlatDropdown`). `items`, `selected` (1-based),
 -- `placeholder`, `width`, `grow` (boolean), `font`, `role`, `columns`, `lines`;
 -- `onChange{ value = index, text = label }` when the user picks.
+-- @table Dropdown
 define{ name = "Dropdown", class = "dropbutton", leaf = true,
 	groups = { { tooltip = P.common.tooltip, enabled = P.common.enabled, name = P.common.name } },
 	extra = { items = list_check, selected = T.NUM, placeholder = T.STR, width = T.NUM, grow = T.BOOL,

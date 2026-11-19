@@ -16,9 +16,10 @@ local Color = require("core.imgui.Color")
 
 local M = {}
 
---- Windows' light system colours, as drawn on the IUP build.
+--- Windows' light system colours, as drawn on the IUP build. The scroll bar entries are
+-- the Windows 11 bar at rest (widgets/winscrollbar.lua).
+-- @table LIGHT
 M.LIGHT = {
-	-- the Windows 11 scroll bar at rest (widgets/winscrollbar.lua)
 	scroll_track = "240 240 240", scroll_edge = "255 255 255",
 	scroll_thumb = "133 133 133", scroll_thumb_end = "152 152 152", scroll_disabled = "164 164 164",
 	-- 3D control parts (COLOR_BTNFACE, BTNSHADOW, 3DDKSHADOW, 3DLIGHT, BTNHIGHLIGHT)
@@ -35,6 +36,7 @@ M.LIGHT = {
 local function copy(t) local o = {} for k, v in pairs(t) do o[k] = v end return o end
 
 --- The colours in use now. Read at draw time (the table is replaced on a theme switch).
+-- @table current
 M.current = copy(M.LIGHT)
 
 local function mix(a, b, t) return Color.tostring(Color.mix(Color.parse(a), Color.parse(b), t)) end

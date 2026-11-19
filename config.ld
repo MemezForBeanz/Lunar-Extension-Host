@@ -54,6 +54,14 @@ file = {
 		"src/lua/core/classes/Themes/carbon_rules.lua",
 		"src/lua/core/classes/Themes/fluent_rules.lua",
 		"src/lua/core/classes/Themes/lunar_rules.lua",
+		-- ImGui host internals with no API of their own: embedded images, PNG loading and
+		-- the Scintilla view and wrap passes behind core.imgui.scintilla.
+		"src/lua/core/imgui/native/appimages.lua",
+		"src/lua/core/imgui/native/pngimage.lua",
+		"src/lua/core/imgui/scintilla/view.lua",
+		"src/lua/core/imgui/scintilla/wrap.lua",
+		"src/lua/core/imgui/widgets/list.lua",
+		"src/lua/core/imgui/widgets/scrollbox.lua",
 		-- Third-party implementation shim with no Lua-visible API.
 		"src/c/libs/nanosvg_impl.c",
 	},

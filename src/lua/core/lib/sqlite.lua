@@ -1,6 +1,7 @@
 --- Small synchronous SQLite binding. All failures return nil, string.
 -- Calls perform disk I/O on the calling thread; keep transactions short.
 -- @module core.lib.sqlite
+
 -- The FFI is optional: without it the module loads and reports SQLite unavailable.
 local ok_ffi, ffi = pcall(require, "ffi")
 if not ok_ffi then

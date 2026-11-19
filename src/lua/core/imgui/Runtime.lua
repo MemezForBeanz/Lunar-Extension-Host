@@ -51,6 +51,9 @@ local frame_input = nil
 local in_layout = false
 local in_paint = false
 local closed = false
+-- The app was asked to end (SIGTERM, SIGINT, the session). Sticky: a quit during a startup
+-- popup must also end the main loop that starts after it.
+local quitting = false
 local log = nil
 
 M.globals = Element.globals
@@ -84,6 +87,11 @@ local function warn(msg)
 	if log and log.warn then pcall(log.warn, "imgui", msg) else io.stderr:write("[imgui] ", tostring(msg), "\n") end
 end
 M.warn = warn
+local function info(msg)
+	local ok, l = pcall(require, "core.lib.log")
+	local logger = ok and type(l) == "table" and l.get and l.get("imgui")
+	if logger then pcall(logger.info, logger, msg) end
+end
 
 Element.hooks.error = function(el, name, err)
 	warn(string.format("%s %s failed: %s", tostring(el), name, tostring(err)))
@@ -952,7 +960,7 @@ function M.runUntil(done)
 	loop_level = loop_level + 1
 	local level = loop_level
 	exit_levels[level] = false
-	while not exit_levels[level] and not done() and not closed do
+	while not exit_levels[level] and not quitting and not done() and not closed do
 		M.step(true)
 	end
 	exit_levels[level] = nil
@@ -1017,7 +1025,7 @@ end
 
 -- Loops -----------------------------------------------------------------------------------
 function M.mainLoop()
-	if #dialogs == 0 and not next(timers) then return 0 end
+	if quitting or (#dialogs == 0 and not next(timers)) then return 0 end
 	M.runUntil(function() return false end)
 	return 0
 end
@@ -1362,9 +1370,13 @@ end
 
 local DRAG = nil -- dragging a secondary dialog by its caption
 
---- Hooks: preRoute(input) -> true consumes the mouse this frame; postPaint(dc, input)
--- paints over the main dialog (the window frame's caption buttons use both).
-M.preRoute, M.postPaint = {}, {}
+--- Hooks run before input routing: preRoute(input) -> true consumes the mouse this frame.
+-- The window frame's caption buttons use it, with postPaint.
+-- @table preRoute
+M.preRoute = {}
+--- Hooks run after painting: postPaint(dc, input) paints over the main dialog.
+-- @table postPaint
+M.postPaint = {}
 
 local function route(input)
 	for _, fn in ipairs(M.preRoute) do
@@ -1818,6 +1830,13 @@ function M.frame()
 	animating = false
 	cursor_override = nil
 
+	-- Asked to end (SIGTERM, SIGINT, the session): leave every loop, now and later, as Quit
+	-- Lunar does. A window close goes to CLOSE_CB instead, which may keep the app in the tray.
+	if input.quit_requested and not quitting then
+		info("quit requested; leaving every loop")
+		quitting = true
+		need_frame = true
+	end
 	if input.close_requested and main_dialog then
 		local r = Element.call(main_dialog, "CLOSE_CB")
 		if r ~= IGNORE then
@@ -1982,7 +2001,7 @@ function M.init(backend)
 	dialog_windows = B.surface ~= nil and B.dialog_windows == true and os.getenv("LUNAR_DIALOG_WINDOWS") ~= "0"
 	pending_closes = {}
 	loop_level, exit_levels = 0, {}
-	need_frame, animating, closed = true, false, false
+	need_frame, animating, closed, quitting = true, false, false, false
 	wake_at = nil
 	last_mouse = { -1, -1 }
 	DRAG = nil

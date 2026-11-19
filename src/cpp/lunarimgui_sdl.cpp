@@ -50,6 +50,7 @@ struct State {
     LunarUiFrame frame = {};
     float mx = -1, my = -1;
     bool down[3] = {}, inside = false, open = false, frame_open = false, wayland = false;
+    bool quit = false;   // SDL_EVENT_QUIT: SIGTERM/SIGINT or the session ending, not a window close
     int next_window = 1, next_texture = 1, layer = 0, surface = 0, pointer_window = 0;
     int caption = 0;
     std::vector<SDL_Rect> nodrag;
@@ -140,7 +141,7 @@ void process(const SDL_Event &e) {
     Window *w = nullptr;
     // The shared windowID is at the same offset in SDL's window/input events.
     if (e.type >= SDL_EVENT_WINDOW_FIRST && e.type <= SDL_EVENT_WINDOW_LAST) w = from_sdl(e.window.windowID);
-    if (e.type == SDL_EVENT_QUIT) { g.main.close = true; return; }
+    if (e.type == SDL_EVENT_QUIT) { g.quit = true; return; }
     if (e.type == SDL_EVENT_WINDOW_FOCUS_LOST && w && !w->overlay) emit(w, 11);
     if (e.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && w) { w->close = true; return; }
     if (e.type == SDL_EVENT_WINDOW_MOUSE_LEAVE) {
@@ -244,6 +245,8 @@ int l_close(lua_State *) {
     g.frame_open=false; g.main.close=false; SDL_Quit(); return 0;
 }
 int l_alive(lua_State *L) { lua_pushboolean(L,g.open); return 1; }
+// The app is asked to end (a signal or the session), as opposed to its window closing.
+int l_quit_requested(lua_State *L) { lua_pushboolean(L,g.quit); g.quit=false; return 1; }
 int l_now(lua_State *L) { lua_pushnumber(L,SDL_GetTicksNS()/1e9); return 1; }
 int l_wait(lua_State *L) {
     SDL_Event e; bool got = SDL_WaitEventTimeout(&e,(Sint32)std::min(60000.0,std::max(0.0,luaL_optnumber(L,1,0.016)*1000)));
@@ -546,7 +549,7 @@ LUNAR_FFI int lunar_ui_sizeof(int which){switch(which){case 0:return sizeof(Luna
 extern "C" int luaopen_lunarimgui(lua_State *L){
     ensure_gui();
     const luaL_Reg api[]={
-        {"open",l_open},{"close",l_close},{"alive",l_alive},{"now",l_now},{"wait",l_wait},
+        {"open",l_open},{"close",l_close},{"alive",l_alive},{"quit_requested",l_quit_requested},{"now",l_now},{"wait",l_wait},
         {"frame_begin",l_frame_begin},{"frame_end",l_frame_end},{"window",l_window},
         {"font_find",l_font_find},{"font_load",l_font_load},{"font_metrics",l_font_metrics},{"font_names",l_font_names},{"font_private",l_font_private},
         {"texture",l_texture},{"texture_free",l_texture_free},{"texture_retain",l_texture_retain},

@@ -347,6 +347,8 @@ function M.validate(def, props)
 end
 
 --- The attribute map `props` asks for on primitive `def`.
+-- @tparam table def the primitive (from `core.lui.primitives`)
+-- @tparam table props the element's props
 -- @tparam[opt] string text the element's text children, for a primitive with `content`
 -- @tparam[opt] boolean typed_only leave out the `iup` namespace (for validation)
 -- @treturn table `{ ATTR = value }`
