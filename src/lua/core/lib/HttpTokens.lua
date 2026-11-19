@@ -1,5 +1,6 @@
 --- Read an administrator-provisioned token file; never include tokens in errors.
 -- @module core.lib.HttpTokens
+
 -- The FFI is optional: without it (a platform with no C bindings) Windows still reads
 -- the file, and elsewhere loading refuses, since the O_NOFOLLOW open and the owner check
 -- need it and the file holds credentials.

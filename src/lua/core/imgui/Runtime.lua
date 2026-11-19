@@ -1362,9 +1362,13 @@ end
 
 local DRAG = nil -- dragging a secondary dialog by its caption
 
---- Hooks: preRoute(input) -> true consumes the mouse this frame; postPaint(dc, input)
--- paints over the main dialog (the window frame's caption buttons use both).
-M.preRoute, M.postPaint = {}, {}
+--- Hooks run before input routing: preRoute(input) -> true consumes the mouse this frame.
+-- The window frame's caption buttons use it, with postPaint.
+-- @table preRoute
+M.preRoute = {}
+--- Hooks run after painting: postPaint(dc, input) paints over the main dialog.
+-- @table postPaint
+M.postPaint = {}
 
 local function route(input)
 	for _, fn in ipairs(M.preRoute) do

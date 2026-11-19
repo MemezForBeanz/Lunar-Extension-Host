@@ -1,4 +1,4 @@
---- Lunar: graphite, pearl and silver glass. Hue is reserved for state.
+-- Lunar: graphite, pearl and silver glass. Hue is reserved for state.
 local Theme = require("core.classes.Themes.Theme")
 local lunar = require("core.classes.Themes.lunar_rules")
 local rgb   = lunar.rgb

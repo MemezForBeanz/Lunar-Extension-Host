@@ -14,9 +14,9 @@
 -- @module core.imgui.backend.contract
 local M = {}
 
---- Calls every backend provides.
+--- Calls every backend provides: the window and the loop, drawing, text and resources, system.
+-- @table REQUIRED
 M.REQUIRED = {
-	-- the window and the loop
 	"open",          -- open({ title, w, h, x?, y?, maximized?, borderless?, hidden? }) -> ok, err
 	"close",         -- close()
 	"alive",         -- alive() -> bool
@@ -45,6 +45,7 @@ M.REQUIRED = {
 }
 
 --- Optional capabilities, by group: the host uses a group only when all of it is there.
+-- @table OPTIONAL
 M.OPTIONAL = {
 	live_resize = { "set_paint_callback" },          -- paint while the user sizes the window
 	gdi_text = { "gdi_font", "gdi_metrics", "gdi_text_size" }, -- measure as IUP's Windows driver
@@ -63,16 +64,19 @@ M.OPTIONAL = {
 -- through `surface`, placed with window("monitor")). A backend without it (an embedding
 -- host, where Lunar draws into someone else's ImGui context) draws them on the owner's
 -- surface, clipped to it.
+-- @table FLAGS
 M.FLAGS = {
 	overlay_windows = { "surface" },
 }
 
 --- window(op) calls every backend answers.
+-- @table WINDOW_REQUIRED
 M.WINDOW_REQUIRED = {
 	"title", "size", "pos", "client_origin", "show", "hide", "focus", "dpi", "screen", "full",
 	"maximize", "minimize", "restore", "is_maximized", "is_minimized",
 }
 --- window(op) calls the host uses when the backend answers them.
+-- @table WINDOW_OPTIONAL
 M.WINDOW_OPTIONAL = {
 	"fullscreen", "caption", "custom_frame", "icon", "hwnd", "window_size",
 	"tray", "traytip", "tray_image", "tray_balloon", "tray_balloon_title",
@@ -87,6 +91,7 @@ M.WINDOW_OPTIONAL = {
 }
 
 --- The table frame_begin returns: field -> Lua type.
+-- @table INPUT
 M.INPUT = {
 	w = "number", h = "number", scale = "number", mx = "number", my = "number",
 	inside = "boolean", focused = "boolean", resized = "boolean", minimized = "boolean",
@@ -97,6 +102,7 @@ M.INPUT = {
 --- An event in input.events (when the backend reports ordered events): field -> type.
 -- `dismiss`: the application lost activation, or the user pressed on a window frame (open
 -- menus and dropdowns close, as the system's do).
+-- @table EVENT_TYPES
 M.EVENT_TYPES = { move = true, press = true, release = true, wheel = true, keydown = true,
 	keyup = true, char = true, leave = true, file = true, tray = true, dismiss = true }
 

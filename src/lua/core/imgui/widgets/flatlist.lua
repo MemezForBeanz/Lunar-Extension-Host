@@ -76,7 +76,7 @@ local function alignment(e) return FlatDraw.alignment(attr(e, "ALIGNMENT"), "ACE
 --- WS_BORDER: the canvas's native 1 px frame (BORDER, default YES).
 local function native_border(e) return yes(attr(e, "BORDER")) and 1 or 0 end
 
---- iupFlatScrollBarGet: FLATSCROLLBAR says which flat bars exist.
+-- iupFlatScrollBarGet: FLATSCROLLBAR says which flat bars exist.
 local SB_NONE, SB_HORIZ, SB_VERT = 0, 1, 2
 local function flat_sb(e)
 	local v = tostring(attr(e, "FLATSCROLLBAR") or ""):upper()

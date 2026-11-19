@@ -47,7 +47,7 @@ end
 M.collect = collect
 
 --- Build an element.
--- @param type a primitive (from `core.lui.primitives`), a function component,
+-- @param type_ a primitive (from `core.lui.primitives`), a function component,
 --   `Fragment`, or a special type (`Native`, a context Provider, `ErrorBoundary`)
 -- @tparam[opt] table props props; its array part is taken as children
 -- @param ... more children, after the array part

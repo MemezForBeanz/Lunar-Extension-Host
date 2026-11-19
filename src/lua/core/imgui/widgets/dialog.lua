@@ -64,7 +64,7 @@ end
 
 local yes = Element.isTrue -- iupStrBoolean
 
---- iupdrvDialogGetDecoration + iupDialogGetDecorSize: what a window's frame takes from its
+-- iupdrvDialogGetDecoration + iupDialogGetDecorSize: what a window's frame takes from its
 -- RASTERSIZE/SIZE (a dialog's user size is the window, its child gets the client). The
 -- numbers are the ones IUP's Windows driver measures on a mapped window at 96 DPI (the
 -- tour's dialogs sit at -8,-31 when resizable and -3,-26 when not): SM_CYCAPTION 23, a

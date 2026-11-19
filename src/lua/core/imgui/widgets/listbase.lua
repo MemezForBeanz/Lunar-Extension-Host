@@ -1,4 +1,4 @@
---- The item model and drawing iup.list (widgets/list.lua) is built on: items stored as
+-- The item model and drawing iup.list (widgets/list.lua) is built on: items stored as
 -- the element's "1", "2"... attributes. It was the flatlist's before iup_flatlist.c was
 -- ported line by line (widgets/flatlist.lua); the native list keeps it.
 local Classes = require("core.imgui.Classes")
