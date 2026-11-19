@@ -94,7 +94,7 @@ $bash = "C:\msys64\usr\bin\bash.exe"
 # The first update may restart the core; run it twice, as MSYS2 recommends.
 & $bash -lc "pacman -Syu --noconfirm" | Out-Host
 & $bash -lc "pacman -Syu --noconfirm" | Out-Host
-& $bash -lc "pacman -S --noconfirm --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-python perl make tar" | Out-Host
+& $bash -lc "pacman -S --noconfirm --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-make mingw-w64-x86_64-cmake mingw-w64-x86_64-python perl make tar" | Out-Host
 
 Step "Git for Windows (the IUP fork build applies its patches with git)"
 if (-not (Test-Path "C:\Program Files\Git\cmd\git.exe")) {

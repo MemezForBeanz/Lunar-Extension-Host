@@ -40,7 +40,7 @@ jobs:
       # The runner image ships MSYS2 at C:\msys64, where the scripts expect it.
       - name: MSYS2 packages
         run: |
-          C:\msys64\usr\bin\bash.exe -lc "pacman -S --noconfirm --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-python perl make"
+          C:\msys64\usr\bin\bash.exe -lc "pacman -S --noconfirm --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-make mingw-w64-x86_64-cmake mingw-w64-x86_64-python perl make"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # Everything bootstrap.ps1 restores. The key covers every pin and build
