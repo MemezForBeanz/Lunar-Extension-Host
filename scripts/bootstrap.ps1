@@ -36,7 +36,7 @@ $vendor = Join-Path $repo "vendor"
 $cache = Join-Path $vendor ".downloads"
 $mingwBin = if ($env:LUNAR_MINGW_BIN) { $env:LUNAR_MINGW_BIN } else { "C:\msys64\mingw64\bin" }
 if (-not (Test-Path (Join-Path $mingwBin "mingw32-make.exe"))) {
-	throw "MSYS2 MinGW-w64 not found at $mingwBin. Install MSYS2 and 'pacman -S mingw-w64-x86_64-toolchain', or set LUNAR_MINGW_BIN."
+	throw "MSYS2 MinGW-w64 not found at $mingwBin. Install MSYS2 and 'pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-make' (mingw32-make.exe is no longer in the toolchain group), or set LUNAR_MINGW_BIN."
 }
 $env:PATH = "$mingwBin;$env:PATH"
 

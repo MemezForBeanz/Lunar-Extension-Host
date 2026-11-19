@@ -157,7 +157,7 @@ tab groups, logging, native services and API stability.
 
 - Windows 10/11, PowerShell 5.1+
 - [MSYS2](https://www.msys2.org/) MinGW-w64 at `C:\msys64\mingw64`:
-  `pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-python perl`
+  `pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-make mingw-w64-x86_64-cmake mingw-w64-x86_64-python perl`
   (gcc, `mingw32-make`, CMake 3.21+, Python 3 for the embedding steps, Perl for OpenSSL)
 - [Git for Windows](https://git-scm.com/download/win) on PATH: the IUP fork build applies
   its patch series with `git apply` (use Git for Windows, not MSYS2's git: putting
