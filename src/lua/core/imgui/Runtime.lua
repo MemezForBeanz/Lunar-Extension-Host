@@ -1818,6 +1818,12 @@ function M.frame()
 	animating = false
 	cursor_override = nil
 
+	-- Asked to end (SIGTERM, SIGINT, the session): leave every loop, as Quit Lunar does. A
+	-- window close goes to CLOSE_CB instead, which may keep the app running in the tray.
+	if input.quit_requested then
+		for l = 1, loop_level do exit_levels[l] = true end
+		need_frame = true
+	end
 	if input.close_requested and main_dialog then
 		local r = Element.call(main_dialog, "CLOSE_CB")
 		if r ~= IGNORE then

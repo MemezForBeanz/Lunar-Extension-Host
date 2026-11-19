@@ -355,6 +355,29 @@ describe("imgui runtime", function()
 		assert.equal("YES", iup.GetAttribute(dlg, "VISIBLE"))
 	end)
 
+	it("leaves every loop on a quit request, without asking CLOSE_CB", function()
+		-- SIGTERM on the SDL backend: a window kept running in the tray must still end.
+		local asked = 0
+		local dlg = dialog_with(iup.vbox({}), { close_cb = function() asked = asked + 1; return iup.IGNORE end })
+		iup.Show(dlg)
+		local inner_turns, outer_turns = 0, 0
+		R.runUntil(function()
+			outer_turns = outer_turns + 1
+			if outer_turns == 1 then
+				R.runUntil(function()
+					inner_turns = inner_turns + 1
+					if inner_turns == 1 then B.queue({ quit_requested = true }) end
+					return inner_turns > 50
+				end)
+			end
+			return outer_turns > 50
+		end)
+		assert.is_true(inner_turns < 50)
+		assert.is_true(outer_turns < 50)
+		assert.equal(0, asked)
+		assert.equal(0, R.loopLevel())
+	end)
+
 	it("shows a tooltip after the delay", function()
 		local btn = iup.flatbutton({ RASTERSIZE = "40x20", TIP = "Run the build" })
 		iup.Show(dialog_with(iup.vbox({ btn })))

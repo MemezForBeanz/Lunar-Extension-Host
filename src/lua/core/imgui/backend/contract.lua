@@ -90,7 +90,7 @@ M.WINDOW_OPTIONAL = {
 M.INPUT = {
 	w = "number", h = "number", scale = "number", mx = "number", my = "number",
 	inside = "boolean", focused = "boolean", resized = "boolean", minimized = "boolean",
-	close_requested = "boolean", wheel_x = "number", wheel_y = "number",
+	close_requested = "boolean", quit_requested = "boolean", wheel_x = "number", wheel_y = "number",
 	down = "table", pressed = "table", released = "table", double = "table",
 	keys = "table", chars = "table", files = "table", mods = "table",
 }

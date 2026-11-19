@@ -96,6 +96,7 @@ local input = {
 	wheel_x = 0, wheel_y = 0, keys = {}, chars = {}, files = {}, events = {},
 	mods = { shift = false, ctrl = false, alt = false, sys = false },
 	focused = false, resized = false, minimized = false, close_requested = false,
+	quit_requested = false,
 }
 local events = {}       -- pooled event tables
 local MODS = {}         -- mods bits -> a shared mods table
@@ -112,6 +113,8 @@ end
 local TYPES = { "move", "press", "release", "wheel", "keydown", "keyup", "char", "leave", "file", "tray", "dismiss" }
 
 local raw_frame_begin = C_API.frame_begin
+-- Only the SDL backend reports a quit apart from a window close; Win32 has no such signal.
+local raw_quit_requested = C_API.quit_requested
 local raw_frame_end = C_API.frame_end
 function B.frame_end()
 	raw_frame_end()
@@ -128,6 +131,7 @@ function B.frame_begin()
 	input.mx, input.my, input.inside = f.mx, f.my, f.inside ~= 0
 	input.focused, input.resized = f.focused ~= 0, f.resized ~= 0
 	input.minimized, input.close_requested = f.minimized ~= 0, f.close_requested ~= 0
+	input.quit_requested = raw_quit_requested ~= nil and raw_quit_requested() or false
 	local pressed, released, double, down = input.pressed, input.released, input.double, input.down
 	for b = 1, 3 do pressed[b], released[b], double[b] = 0, 0, 0 end
 	local wx, wy = 0, 0
