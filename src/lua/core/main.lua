@@ -178,6 +178,8 @@ end
 -- profile folder); the neutral build shows none.
 local ICON_DIR = platform.path:join(APP_DIR, "assets", "Icons")
 Kit.setIconDir(ICON_DIR)
+-- The Lunar glass backdrops, baked offline (scripts/gen_glass_assets.py).
+require("core.ui.Glass").setAssetDir(platform.path:join(APP_DIR, "assets", "glass"))
 
 -- Window/taskbar icon: the name of the Win32 ICON RESOURCE in the executable, not
 -- an IupImage handle. assets/Lunar.rc declares `IUP ICON "lunar.ico"`,
@@ -517,7 +519,8 @@ local tool_rail = ToolRail.new({
 	is_settings = function(page) return require("core.lib.handle").same(iup, page, settings_view:widget()) end,
 })
 -- Bands an extension keeps on screen across every tab, such as a player.
-local dock_slot = iup.vbox({ MARGIN = "0x0", GAP = "0", EXPAND = "HORIZONTAL" })
+local dock_slot = require("core.ui.WorkspaceFrame").dock(iup,
+	iup.vbox({ MARGIN = "0x0", GAP = "0", EXPAND = "HORIZONTAL" }))
 host._dock_slot = dock_slot
 local terminal = require("core.ui.Terminal").new({ iup = iup, host = host, settings = settings_mgr,
 	extensions = ext_mgr, themes = theme_mgr, version = APP_VERSION })
@@ -600,7 +603,7 @@ local function recalc_shell_budget(client_h)
 	local status = status_bar:revealedHeight() or measured_height(status_bar:widget()) or 0
 	local bands = {
 		title = TitleBar.HEIGHT,
-		corners = 24,
+		corners = require("core.ui.WorkspaceFrame").verticalChrome(iup),
 		status = status,
 		dock = measured_height(dock_slot) or 0,
 	}

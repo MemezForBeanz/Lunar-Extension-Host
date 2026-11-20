@@ -1,6 +1,23 @@
 -- Headless WCAG audit. Run with LuaJIT from the repository root.
 local lunar = require("core.classes.Themes.lunar_rules")
 local M = {}
+local function channels(c) local t={} for v in tostring(c):gmatch("%d+") do t[#t+1]=tonumber(v) end return t end
+--- The composited background under glass labels: the palette's worst backdrop sample
+-- (`glassSampleWorst`, measured from assets/glass by gen_glass_assets.py) under the tint.
+function M.composite(p,floating)
+    local tint=channels(floating and (p.glassFloatingTint or p.layer03) or (p.glassChromeTint or p.layer01))
+    local a=floating and (p.glassFloatingAlpha or .76) or (p.glassChromeAlpha or .58)
+    local s=channels(p.glassSampleWorst or p.bg)
+    local c={}
+    for i=1,3 do c[i]=math.floor(s[i]*(1-a)+tint[i]*a+0.5) end
+    return table.concat(c," ")
+end
+--- The spec's bound on that background: relative luminance <= 0.0622 (dark) / >= 0.62 (light).
+function M.inBound(p,colour)
+    local L=(lunar.contrast(colour,"0 0 0")*0.05)-0.05
+    if p.glassDark then return L<=0.0622 end
+    return L>=0.62
+end
 function M.audit(theme, output)
     local p, rules = theme:palette(), theme:rules()
     local failures, count = {}, 0
@@ -22,14 +39,16 @@ function M.audit(theme, output)
         check(role,"secondary",r.secondary,bg,4.5)
         check(role,"inactive",r.inactivefg,r.inactivebg or bg,4.5)
         check(role,"tabs",r.tabsfg,r.tabsbg or bg,4.5)
-        if r.glass and r.glass~="card" and r.fg then
-            -- Worst neutral glow (+18 sRGB) under the specified tint.
-            local tint=r.glass=="floating" and (p.glassDark and p.layer03 or "255 255 255") or p.layer01
-            local a=r.glass=="floating" and (p.glassDark and .88 or .9) or (p.glassDark and .78 or .82)
-            local c,t={},{}; for v in p.bg:gmatch("%d+") do c[#c+1]=tonumber(v)+18 end
-            for v in tint:gmatch("%d+") do t[#t+1]=tonumber(v) end
-            for i=1,3 do c[i]=math.floor(math.min(255,c[i])*(1-a)+t[i]*a) end
-            check(role,"glass",r.fg,table.concat(c," "),4.5)
+        if r.glass and r.glass~="card" and r.glass~="none" and p.glass then
+            -- Final pixels: the worst sample of the baked backdrop (brightest in the dark
+            -- mode, darkest in the light) under the surface's tint, and every state on it.
+            local floating=r.glass=="floating" or r.glass=="content"
+            local under=M.composite(p,floating)
+            check(role,"glass",r.fg,under,4.5)
+            if r.tabsfg then check(role,"glass tabs",r.tabsfg,under,4.5) end
+            if not M.inBound(p,under) then
+                count=count+1; failures[#failures+1]=role..".glass bound "..under
+            end
         end
         end
     end

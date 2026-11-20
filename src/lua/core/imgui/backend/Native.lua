@@ -264,6 +264,25 @@ int lunar_ui_image_rounded(ImDrawList *dl, int tex, float x1, float y1, float x2
 		C.lunar_ui_image_rounded(dl, tex, x1, y1, x2, y2, col or 0xFFFFFFFF, rounding or 0)
 	end
 end
+-- Glass (core.ui.Glass): a rounded image with UV bounds, a nine-slice and the rim, one call each.
+if pcall(ffi.cdef, [[
+int lunar_ui_image_rounded_uv(ImDrawList *dl, int tex, float x1, float y1, float x2, float y2,
+	float u1, float v1, float u2, float v2, uint32_t col, float rounding, int flags);
+int lunar_ui_image_nine(ImDrawList *dl, int tex, float x1, float y1, float x2, float y2,
+	float bx, float by, float ub, float vb, uint32_t col);
+void lunar_ui_rim(ImDrawList *dl, float x1, float y1, float x2, float y2, float rounding,
+	uint32_t hi, uint32_t lo, uint32_t inner, int flags);
+]]) and pcall(function() return C.lunar_ui_image_rounded_uv, C.lunar_ui_image_nine, C.lunar_ui_rim end) then
+	function B.image_rounded_uv(tex, x1, y1, x2, y2, u1, v1, u2, v2, col, rounding, flags)
+		C.lunar_ui_image_rounded_uv(dl, tex, x1, y1, x2, y2, u1, v1, u2, v2, col or 0xFFFFFFFF, rounding or 0, flags or 0)
+	end
+	function B.image_nine(tex, x1, y1, x2, y2, bx, by, ub, vb, col)
+		C.lunar_ui_image_nine(dl, tex, x1, y1, x2, y2, bx, by, ub, vb, col or 0xFFFFFFFF)
+	end
+	function B.rim(x1, y1, x2, y2, rounding, hi, lo, inner, flags)
+		C.lunar_ui_rim(dl, x1, y1, x2, y2, rounding or 0, hi or 0, lo or 0, inner or 0, flags or 0)
+	end
+end
 function B.clip_push(x1, y1, x2, y2) C.lunar_ui_clip_push(dl, x1, y1, x2, y2) end
 function B.clip_pop() C.lunar_ui_clip_pop(dl) end
 

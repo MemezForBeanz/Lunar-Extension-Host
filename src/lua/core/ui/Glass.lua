@@ -1,211 +1,242 @@
---- Static, opt-in Lunar glass. Only two textures survive a size/theme change.
+--- Lunar's Liquid Glass: a static backdrop and the glass surfaces that sample it.
+--
+-- The backdrop (an oversized crescent along the upper-left perimeter and, in the dark mode,
+-- a baked starfield) is a pre-baked image per mode under assets/glass, made offline by
+-- scripts/gen_glass_assets.py. It is loaded and uploaded once per mode and kept: resizing
+-- the window or switching light/dark never generates or uploads pixels again
+-- (`stats().generations` counts the loads). The GPU stretches it to the window with
+-- "cover" scaling anchored at the top-left corner, so the crescent stays put.
+--
+-- Every surface is a fixed number of draw calls whatever its size or radius:
+--   floor     the sharp backdrop, one image
+--   chrome    title strip, rail, status bar, inset transport: the softened backdrop in one
+--             rounded image, a tint, one rim
+--   floating  menus, palette, toasts, tooltips, dialogs: a nine-slice shadow, the softened
+--             backdrop, a tint, one rim
+--   card      the matte work sheet: an opaque rounded fill and a faint rim
+--   content / chrome_content / none   children of the above: nothing (the parent's glass
+--             shows; the runtime skips their own fill of the material colour)
+--
+-- Without the backend's glass calls (an older exe) the sample falls back to clipped strips;
+-- with glass off, or no image, surfaces get their solid fills and the same layout.
+-- @module core.ui.Glass
 local Color = require("core.imgui.Color")
 local Reactor = require("core.ui.ThemeReactor")
 local M = {}
 local enabled, cache, theme, rules, floating_dialog = true
-local floor, ceil, exp = math.floor, math.ceil, math.exp
-local shapes = setmetatable({}, {__index=function(t,r) local v={radius=r}; rawset(t,r,v); return v end})
-local shadows={}
-for i=1,12 do shadows[i]={radius=12+i,thickness=1} end
-local function linear(c)
-    c=c/255
-    return c<=0.04045 and c/12.92 or ((c+0.055)/1.055)^2.4
-end
-local function srgb(c)
-    c=math.min(1,c)
-    return floor(255*(c<=0.0031308 and c*12.92 or 1.055*c^(1/2.4)-0.055)+0.5)
-end
-local function sample(dc,c,tex,left,top,right,bottom)
-    dc:_emit("image",tex,left+dc.ox,top+dc.oy,right+dc.ox,bottom+dc.oy,
-        (left+dc.ox)/c.w,(top+dc.oy)/c.h,(right+dc.ox)/c.w,(bottom+dc.oy)/c.h,dc:_color(0xFFFFFFFF))
-end
+local asset_dir
+local floor, ceil, min, max = math.floor, math.ceil, math.min, math.max
+
+-- Floating shadow: offset (0, 6), 18 px falloff, from a 96 px nine-slice whose corners
+-- hold 24 px of falloff around a 16 px radius (see gen_glass_assets.py).
+local SHADOW_PAD, SHADOW_OFFSET, SHADOW_BORDER, SHADOW_TEX = 24, 6, 40, 96
+-- How far the sample is pulled in at the rim: the backdrop bends through the curved edge.
+local REFRACT = 2
+
+local shapes = setmetatable({}, { __index = function(t, r) local v = { radius = r }; rawset(t, r, v); return v end })
+
 local function release()
-    if cache and cache.B and cache.B.texture_free then
-        for _,c in pairs(cache.by_palette) do
-            if c.sharp then cache.B.texture_free(c.sharp) end
-            if c.blur then cache.B.texture_free(c.blur) end
-        end
-    end
-    cache = nil
+	if cache and cache.B and cache.B.texture_free then
+		for _, c in pairs(cache.by_key) do
+			if c.sharp then cache.B.texture_free(c.sharp) end
+			if c.blur then cache.B.texture_free(c.blur) end
+		end
+		if cache.shadow then cache.B.texture_free(cache.shadow) end
+	end
+	cache = nil
 end
+
 function M.setEnabled(value) enabled = value == true; if not enabled then release() end end
 function M.enabled() return enabled end
 function M.clear() release(); theme, rules, floating_dialog = nil, nil, nil end
+--- Where the baked images live (assets/glass next to the exe).
+function M.setAssetDir(dir) if dir ~= asset_dir then release(); asset_dir = dir end end
+function M.assetDir() return asset_dir end
 function M.stats()
-    local bytes = 0
-    if cache then for _,c in pairs(cache.by_palette) do bytes = bytes + (c.bytes or 0) end end
-    return { bytes = bytes, generations = M.generations or 0 }
+	local bytes = 0
+	if cache then
+		for _, c in pairs(cache.by_key) do bytes = bytes + (c.bytes or 0) end
+		bytes = bytes + (cache.shadow_bytes or 0)
+	end
+	return { bytes = bytes, generations = M.generations or 0 }
 end
 
--- Deterministic pixels at half resolution; blur is quarter resolution and separable
--- Gaussian (24 window pixels). No noise, randomness, or texture work during idle.
-function M.pixels(p, w, h)
-    local ffi = require("ffi") -- optional: paint falls back to opaque without it
-    local sw, sh = ceil(w / 2), ceil(h / 2)
-    local r,g,b = Color.unpack(Color.parse(p.bg))
-    r,g,b=linear(r),linear(g),linear(b)
-    local bw,bh = ceil(sw/2),ceil(sh/2)
-    local sharp, data = {}, ffi.new("float[?]",bw*bh*3)
-    for y=0,sh-1 do
-        local row = {}
-        for x=0,sw-1 do
-            -- The spec's +7% is luminance, not 7% of an sRGB byte. A broad
-            -- crescent bloom reaches the rail's foot and fades out by 60% width.
-            -- Generate in linear light so tinting does not erase its shoulder.
-            local u=math.min(1,x/sw/(p.glassBloomWidth or 0.60))
-            local glow=(p.glassBloom or (p.glassDark and 0.07 or 0.18))*(1-u^4)^2*exp(-0.5*(y/sh/(p.glassBloomHeight or 1.4))^2)
-            local rr,gg,bb=srgb(r+glow),srgb(g+glow),srgb(b+glow)
-            row[#row+1] = string.char(rr,gg,bb,255)
-            if x%2==0 and y%2==0 then
-                local i=(floor(y/2)*bw+floor(x/2))*3
-                data[i],data[i+1],data[i+2]=rr,gg,bb
-            end
-        end
-        sharp[#sharp+1] = table.concat(row)
-    end
-    local kernel,total = {},0
-    for i=-18,18 do local v=exp(-i*i/72); kernel[i]=v; total=total+v end
-    local temp = ffi.new("float[?]",bw*bh*3)
-    for y=0,bh-1 do for x=0,bw-1 do
-        local rr,gg,bb=0,0,0
-        for k=-18,18 do
-            local i=(y*bw+math.max(0,math.min(bw-1,x+k)))*3
-            local weight=kernel[k]/total
-            rr,gg,bb=rr+data[i]*weight,gg+data[i+1]*weight,bb+data[i+2]*weight
-        end
-        local i=(y*bw+x)*3
-        temp[i],temp[i+1],temp[i+2]=rr,gg,bb
-    end end
-    local blur = {}
-    for y=0,bh-1 do
-        local row={}
-        for x=0,bw-1 do
-            local rr,gg,bb=0,0,0
-            for k=-18,18 do
-                local i=(math.max(0,math.min(bh-1,y+k))*bw+x)*3
-                local weight=kernel[k]/total
-                rr,gg,bb=rr+temp[i]*weight,gg+temp[i+1]*weight,bb+temp[i+2]*weight
-            end
-            row[#row+1]=string.char(floor(rr),floor(gg),floor(bb),255)
-        end
-        blur[#blur+1]=table.concat(row)
-    end
-    return table.concat(sharp),sw,sh,table.concat(blur),bw,bh
+local function load_png(name)
+	if not asset_dir then return nil end
+	local ok, codec = pcall(require, "imagecodec")
+	if not ok or not codec.png_rgba then return nil end
+	local sep = asset_dir:find("\\", 1, true) and "\\" or "/"
+	local pixels, w, h = codec.png_rgba(asset_dir .. sep .. name)
+	if not pixels then return nil end
+	return pixels, w, h
 end
--- The backdrop is a smooth glow, so it is generated once per palette at a fixed
--- size (BASE_W x BASE_H) and stretched by the GPU to any window size. Resizing never
--- regenerates it, and each palette keeps its own pair, so switching light/dark back
--- and forth after the first time costs nothing.
-local BASE_W, BASE_H = 1024, 576
-local function textures(dc,p)
-    local w,h = ceil((dc.window_w or 1920)/128)*128,ceil((dc.window_h or 1080)/128)*128
-    if not cache or cache.B~=dc.B then release(); cache={B=dc.B,by_palette={}} end
-    local c=cache.by_palette[p]
-    if not c then
-        c={}
-        cache.by_palette[p]=c
-        if dc.B.texture then
-            local ok,a,sw,sh,b,bw,bh=pcall(M.pixels,p,BASE_W,BASE_H)
-            if ok then
-                local uploaded, sharp, blur = pcall(function() return dc.B.texture(a,sw,sh),dc.B.texture(b,bw,bh) end)
-                if uploaded then c.sharp,c.blur=sharp,blur end
-                c.bytes=(sw*sh+bw*bh)*4
-                M.generations=(M.generations or 0)+1
-            end
-        end
-    end
-    -- UVs map window coordinates onto the stretched texture.
-    c.w,c.h=w,h
-    -- Subpixel stars stay at window resolution, independent of the glow texture.
-    -- Cached geometry avoids six-pixel stars after texture upsampling; it is cheap
-    -- (one entry per 12000 px), so it follows the window size.
-    if p.glassDark and (c.stars_w~=w or c.stars_h~=h) then
-        c.stars,c.stars_w,c.stars_h={},w,h
-        local seed=731
-        local function random() seed=(seed*48271)%2147483647; return seed/2147483647 end
-        for i=1,floor(w*h/12000) do
-            c.stars[i]={floor(random()*w)+.5,floor(random()*h)+.5,
-                Color.pack(255,255,255,31+floor(random()*58)),random()>.55}
-        end
-    end
-    return c
+M._load_png = load_png -- specs replace it
+
+--- Solid-colour stand-in for a palette without a baked image: its floor colour, 2x2.
+local function flat_pixels(p)
+	local r, g, b = Color.unpack(Color.parse(p.bg))
+	local px = string.char(r, g, b, 255)
+	return px:rep(4), 2, 2
 end
 
---- Paint in window coordinates; native popups use their own static backdrop.
-function M.paint(dc,x,y,w,h,kind,p,radius)
-    p=p or Reactor.palette()
-    if kind=="card" then
-        dc:fill(x,y,w,h,p.layer02,shapes[12])
-        dc:rect(x,y,w,h,p.glassDark and "255 255 255 15" or "0 0 0 15",shapes[12])
-        return
-    end
-    local floating=kind=="floating" or kind=="content"
-    local bg=kind=="floor" and p.bg or (floating and (p.layer03 or p.layer02) or p.layer01)
-    if not bg then return end
-    local c=enabled and p.glass and textures(dc,p)
-    local tex=c and (kind=="floor" and c.sharp or c.blur)
-    local options=shapes[kind=="content" and 0 or radius or (floating and 12 or 0)]
-    if kind=="floating" and p.glass then
-        for i=12,1,-1 do
-            dc:rect(x-i,y+4-i,w+2*i,h+2*i,Color.pack(0,0,0,p.glassDark and 7 or 3),shadows[i])
-        end
-    end
-    dc:fill(x,y,w,h,bg,options)
-    if tex then
-        dc:clip_push(x,y,w,h)
-        -- Clip the sampled image to the same rounded contour as the tint. The
-        -- backend's rounded image primitive cannot yet sample UV subrectangles.
-        local rad=math.min(options.radius,w/2,h/2)
-        if rad>0 then
-            for row=0,ceil(rad)-1 do
-                local inset=rad-math.sqrt(math.max(0,rad*rad-(rad-row-.5)^2))
-                sample(dc,c,tex,x+inset,y+row,x+w-inset,y+row+1)
-                sample(dc,c,tex,x+inset,y+h-row-1,x+w-inset,y+h-row)
-            end
-            sample(dc,c,tex,x,y+ceil(rad),x+w,y+h-ceil(rad))
-        else sample(dc,c,tex,x,y,x+w,y+h) end
-        dc:clip_pop()
-        if kind~="floor" then
-            local tint=floating and (p.glassDark and p.layer03 or "255 255 255") or p.layer01
-            local alpha=floating and (p.glassFloatingAlpha or (p.glassDark and 0.88 or 0.90))
-                or (p.glassChromeAlpha or (p.glassDark and 0.78 or 0.82))
-            dc:fill(x,y,w,h,Color.alpha(Color.parse(tint),alpha),options)
-        end
-    end
-    -- Stars belong to the chrome sample too: painting only the floor let the
-    -- opaque chrome undercoat erase them before the glass was composited.
-    if tex and c.stars and not floating then
-        dc:clip_push(x,y,w,h)
-        for _,star in ipairs(c.stars) do
-            if star[1]>=x and star[1]<x+w and star[2]>=y and star[2]<y+h then
-                local extent=star[4] and 1 or 0
-                dc:line(star[1]-extent,star[2],star[1]+extent,star[2],star[3],1)
-                if star[4] then dc:line(star[1],star[2]-1,star[1],star[2]+1,star[3],1) end
-            end
-        end
-        dc:clip_pop()
-    end
-    if tex and kind~="floor" and kind~="content" and kind~="chrome_content" then
-        dc:rect(x,y,w,h,p.glassRim or (p.glassDark and "255 255 255 15" or "0 0 0 20"),options)
-        dc:line(x+options.radius,y+0.5,x+w-options.radius,y+0.5,p.glassTopRim or (p.glassDark and "255 255 255 36" or "255 255 255 204"))
-    end
+-- Colours resolved once per palette, not per surface per frame.
+local function looks(p)
+	local dark = p.glassDark
+	local function col(v, fallback) return Color.parse(v or fallback) end
+	return {
+		chrome = Color.alpha(col(p.glassChromeTint, p.layer01), p.glassChromeAlpha or (dark and 0.58 or 0.56)),
+		floating = Color.alpha(col(p.glassFloatingTint, p.layer03), p.glassFloatingAlpha or (dark and 0.76 or 0.78)),
+		rim_hi = col(p.glassRimHi, dark and "255 255 255 122" or "255 255 255 230"),
+		rim_lo = col(p.glassRimLo, dark and "255 255 255 26" or "255 255 255 77"),
+		rim_inner = col(p.glassRimInner, dark and "0 0 0 64" or "0 0 0 41"),
+		shadow = Color.pack(0, 0, 0, floor(255 * (p.glassShadowAlpha or (dark and 0.32 or 0.17)) + 0.5)),
+		card_rim = col(p.glassCardRim, dark and "255 255 255 15" or "0 0 0 15"),
+	}
+end
+
+local function textures(dc, p)
+	local B = dc.B
+	if not cache or cache.B ~= B then release(); cache = { B = B, by_key = {} } end
+	local key = p.glassBackdrop or ("flat:" .. tostring(p.bg))
+	local c = cache.by_key[key]
+	if not c then
+		c = { looks = looks(p) }
+		cache.by_key[key] = c
+		if B.texture then
+			local sharp, sw, sh, blur, bw, bh
+			if p.glassBackdrop then
+				sharp, sw, sh = M._load_png(p.glassBackdrop .. ".png")
+				blur, bw, bh = M._load_png(p.glassBackdrop .. "-blur.png")
+			end
+			if not (sharp and blur) then sharp, sw, sh = flat_pixels(p); blur, bw, bh = sharp, sw, sh end
+			local ok, a, b = pcall(function() return B.texture(sharp, sw, sh), B.texture(blur, bw, bh) end)
+			if ok and a and b then
+				c.sharp, c.blur, c.sw, c.sh, c.bw, c.bh = a, b, sw, sh, bw, bh
+				c.bytes = (sw * sh + bw * bh) * 4
+			end
+			M.generations = (M.generations or 0) + 1
+		end
+	end
+	if cache.shadow == nil then
+		cache.shadow = false
+		local px, w, h = M._load_png("shadow.png")
+		if px and B.texture then
+			local ok, id = pcall(B.texture, px, w, h)
+			if ok and id then cache.shadow, cache.shadow_bytes = id, w * h * 4 end
+		end
+	end
+	return c
+end
+
+-- "Cover" mapping, anchored top-left: window pixel (x, y) -> texture UV.
+local function uv(dc, c, x1, y1, x2, y2, wide, tall)
+	local W, H = dc.window_w or 1920, dc.window_h or 1080
+	local s = max(W / wide, H / tall)
+	local kx, ky = 1 / (wide * s), 1 / (tall * s)
+	return x1 * kx, y1 * ky, x2 * kx, y2 * ky
+end
+
+-- The softened backdrop under a surface, in one rounded image when the backend can.
+local function sample(dc, c, tex, x, y, w, h, radius, refract)
+	local ax, ay = x + dc.ox, y + dc.oy
+	local tw, th = c.sw, c.sh
+	if tex == c.blur then tw, th = c.bw, c.bh end
+	local i = refract and min(REFRACT, w / 8, h / 8) or 0
+	local u1, v1, u2, v2 = uv(dc, c, ax + i, ay + i, ax + w - i, ay + h - i, tw, th)
+	local tint = dc:_color(0xFFFFFFFF)
+	if dc.B.image_rounded_uv then
+		dc:_emit("image_rounded_uv", tex, ax, ay, ax + w, ay + h, u1, v1, u2, v2, tint, radius, 0)
+		return
+	end
+	-- Older backends: square image strips that follow the rounded contour.
+	local rad = min(radius, w / 2, h / 2)
+	local du, dv = (u2 - u1) / w, (v2 - v1) / h
+	local function strip(l, t, r, b)
+		dc:_emit("image", tex, ax + l, ay + t, ax + r, ay + b, u1 + l * du, v1 + t * dv, u1 + r * du, v1 + b * dv, tint)
+	end
+	if rad > 0 then
+		for row = 0, ceil(rad) - 1 do
+			local inset = rad - math.sqrt(max(0, rad * rad - (rad - row - .5) ^ 2))
+			strip(inset, row, w - inset, row + 1)
+			strip(inset, h - row - 1, w - inset, h - row)
+		end
+		strip(0, ceil(rad), w, h - ceil(rad))
+	else
+		strip(0, 0, w, h)
+	end
+end
+
+local function rim(dc, look, x, y, w, h, radius)
+	local hi, lo, inner = dc:_color(look.rim_hi), dc:_color(look.rim_lo), dc:_color(look.rim_inner)
+	if dc.B.rim then
+		local ax, ay = x + dc.ox, y + dc.oy
+		dc:_emit("rim", ax, ay, ax + w, ay + h, radius, hi, lo, inner, 0)
+		return
+	end
+	dc:rect(x, y, w, h, lo, shapes[radius])
+	dc:line(x + radius, y + 0.5, x + w - radius, y + 0.5, hi)
+end
+
+local function shadow(dc, look, x, y, w, h)
+	local tex = cache and cache.shadow
+	if not (tex and dc.B.image_nine) then return end
+	local ax, ay = x + dc.ox - SHADOW_PAD, y + dc.oy - SHADOW_PAD + SHADOW_OFFSET
+	local b = SHADOW_BORDER / SHADOW_TEX
+	dc:_emit("image_nine", tex, ax, ay, ax + w + 2 * SHADOW_PAD, ay + h + 2 * SHADOW_PAD,
+		SHADOW_BORDER, SHADOW_BORDER, b, b, dc:_color(look.shadow))
+end
+
+--- Paint `kind` at (x, y, w, h) in the dc's local coordinates. Native popups (menus,
+-- tooltips in their own windows) sample their own window's mapping of the backdrop.
+function M.paint(dc, x, y, w, h, kind, p, radius)
+	p = p or Reactor.palette()
+	if kind == "content" or kind == "chrome_content" or kind == "none" then return end
+	if kind == "card" then
+		local r = radius or p.radiusSheet or 14
+		dc:fill(x, y, w, h, p.layer02, shapes[r])
+		local c = enabled and p.glass and textures(dc, p)
+		dc:rect(x, y, w, h, c and c.looks.card_rim or (p.glassDark and "255 255 255 15" or "0 0 0 15"), shapes[r])
+		return
+	end
+	local floating = kind == "floating"
+	local solid = kind == "floor" and p.bg or (floating and (p.layer03 or p.layer02) or p.layer01)
+	if not solid then return end
+	local c = enabled and p.glass and textures(dc, p)
+	local r = radius or (floating and (p.radiusFloating or 16) or 0)
+	r = min(r, w / 2, h / 2)
+	local tex = c and (kind == "floor" and c.sharp or c.blur)
+	if not tex then
+		-- Glass off (or no image): the same layout with solid fills.
+		dc:fill(x, y, w, h, solid, shapes[r])
+		if kind ~= "floor" then
+			dc:rect(x, y, w, h, p.glassDark and "255 255 255 20" or "0 0 0 25", shapes[r])
+		end
+		return
+	end
+	if kind == "floor" then sample(dc, c, tex, x, y, w, h, 0, false); return end
+	local look = c.looks
+	if floating then shadow(dc, look, x, y, w, h) end
+	sample(dc, c, tex, x, y, w, h, r, true)
+	dc:fill(x, y, w, h, floating and look.floating or look.chrome, shapes[r])
+	rim(dc, look, x, y, w, h, r)
 end
 
 -- Resolve flags once per theme, rather than allocating rules per widget/frame.
-function M.material(el,st)
-    local manager=Reactor.themeManager()
-    local active=manager and manager:activeTheme()
-    if active~=theme then
-        -- Textures are cached per palette, so a theme switch keeps them for the way back.
-        theme=active; rules=active and active:rules() or {}
-        floating_dialog={bg=rules.dialog and rules.dialog.bg,glass="floating",radius=12}
-    end
-    if not rules then return end
-    local p=active and active:palette()
-    if not p or not p.glass then return end
-    local role=st.attrs.THEMEROLE or st.classname
-    local r=rules[role]
-    if r and r.glass=="floor" and st.attrs.PARENTDIALOG then r=floating_dialog end
-    if r and r.glass then return r,p end
+function M.material(el, st)
+	local manager = Reactor.themeManager()
+	local active = manager and manager:activeTheme()
+	if active ~= theme then
+		-- Textures are cached per mode, so a theme switch keeps them for the way back.
+		theme = active; rules = active and active:rules() or {}
+		local p = active and active:palette() or {}
+		floating_dialog = { bg = rules.dialog and rules.dialog.bg, glass = "floating", radius = p.radiusFloating or 16 }
+	end
+	if not rules then return end
+	local p = active and active:palette()
+	if not p or not p.glass then return end
+	local role = st.attrs.THEMEROLE or st.classname
+	local r = rules[role]
+	if r and r.glass == "floor" and st.attrs.PARENTDIALOG then r = floating_dialog end
+	if r and r.glass then return r, p end
 end
 return M

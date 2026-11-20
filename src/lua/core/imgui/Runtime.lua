@@ -1625,6 +1625,14 @@ local function paint(el, d)
 	end
 	local kids = children_shown(el, st)
 	if #kids > 0 or class.paintChildren then
+		-- Descendants of a translucent glass surface must not repaint its colour opaquely.
+		local saved_under = d.glass_under
+		local g = material and material.glass
+		if g == "chrome" or g == "floating" or g == "floor" then
+			d.glass_under = Color.parse(material.bg)
+		elseif g == "card" then
+			d.glass_under = nil -- an opaque sheet: its children paint as usual
+		end
 		if class.clipRect then d:clip_push(class.clipRect(el, st))
 		elseif class.clip then d:clip_push(st.x, st.y, st.w, st.h) end
 		-- A class may paint its children itself (a tab strip moving two pages during a
@@ -1636,6 +1644,7 @@ local function paint(el, d)
 			for i = 1, #kids do paint(kids[i], d) end
 		end
 		if class.clip or class.clipRect then d:clip_pop() end
+		d.glass_under = saved_under
 	end
 	if not culled and class.drawAfter then
 		local ok, err = xpcall(class.drawAfter, debug.traceback, el, st, d, M)

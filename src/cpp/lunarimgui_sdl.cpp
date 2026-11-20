@@ -8,6 +8,7 @@
 #include "backends/imgui_impl_sdl3.h"
 #include "backends/imgui_impl_opengl3.h"
 #include "lunarimgui_abi.h"
+#include "lunar_glass_draw.h"
 extern "C" {
 #include <lua.h>
 #include <lauxlib.h>
@@ -540,6 +541,9 @@ LUNAR_FFI int lunar_ui_texture_bits(const unsigned char *p,int w,int h,int strid
 }
 LUNAR_FFI void lunar_ui_texture_free(int id){free_texture(id);}
 LUNAR_FFI int lunar_ui_image_rounded(ImDrawList *d,int id,float x1,float y1,float x2,float y2,uint32_t color,float radius){auto t=g.textures.find(id);if(t==g.textures.end())return 0;d->AddImageRounded((ImTextureID)t->second.gl,{x1,y1},{x2,y2},{0,0},{1,1},color,radius);return 1;}
+LUNAR_FFI int lunar_ui_image_rounded_uv(ImDrawList *d,int id,float x1,float y1,float x2,float y2,float u1,float v1,float u2,float v2,uint32_t color,float radius,int flags){auto t=g.textures.find(id);if(t==g.textures.end())return 0;lunar_glass::image_rounded_uv(d,(ImTextureID)t->second.gl,x1,y1,x2,y2,u1,v1,u2,v2,color,radius,flags);return 1;}
+LUNAR_FFI int lunar_ui_image_nine(ImDrawList *d,int id,float x1,float y1,float x2,float y2,float bx,float by,float ub,float vb,uint32_t color){auto t=g.textures.find(id);if(t==g.textures.end())return 0;lunar_glass::image_nine(d,(ImTextureID)t->second.gl,x1,y1,x2,y2,bx,by,ub,vb,color);return 1;}
+LUNAR_FFI void lunar_ui_rim(ImDrawList *d,float x1,float y1,float x2,float y2,float r,uint32_t hi,uint32_t lo,uint32_t inner,int flags){lunar_glass::rim(d,x1,y1,x2,y2,r,hi,lo,inner,flags);}
 LUNAR_FFI void lunar_ui_clip_push(ImDrawList *d,float x1,float y1,float x2,float y2){d->PushClipRect({x1,y1},{x2,y2},true);}
 LUNAR_FFI void lunar_ui_clip_pop(ImDrawList *d){if(d->_ClipRectStack.Size>1)d->PopClipRect();}
 LUNAR_FFI ImFont *lunar_ui_face_font(int id){return font(id);}

@@ -402,6 +402,9 @@ function M.build(p)
         well = well, hover = hover, selected = selected, border = border, radius = R,
         font = p.font, small_font = sized(p.font, 9),
     })
+    -- The bottom dock's player card; glass palettes turn it into the inset transport capsule.
+    rules.transport_capsule = {}
+    for key, value in pairs(rules.settingscard) do rules.transport_capsule[key] = value end
     -- Fix shared switch semantics: the off track must differ from the primary fill.
     for _, role in ipairs({ "flattoggle", "flattoggle_noborder" }) do
         rules[role].switchoff = p.fieldBorder or switch_off
@@ -412,7 +415,13 @@ function M.build(p)
             rules[role].bg = surface
         end
         rules.settings_nav_group.fg = p.textMuted
-        rules.page_surface.radius = 12
+        -- The work sheet (core.ui.WorkspaceFrame): matte, 14 px corners, inset from the
+        -- chrome by the reveal so the backdrop shows around it on every page. Its corner
+        -- bands draw nothing, so the backdrop shows continuously round the rounded corners.
+        local sheet_radius = p.radiusSheet or 14
+        rules.workspace_sheet = { bg = surface, glass = "card", radius = sheet_radius }
+        rules.workspace_band = { bg = surface, glass = "none" }
+        rules.page_surface.radius = sheet_radius
         rules.page_surface.glass = "card"
         rules.page_surface.border = border
         rules.page_surface.borderwidth = 1
@@ -439,10 +448,24 @@ function M.build(p)
         -- The close button too: a solid fill on the frosted toast read as a grey square.
         rules.toast_title.glass, rules.toast_body.glass, rules.toast_close.glass = "content", "content", "content"
         rules.palette_prompt.glass, rules.palette_hint.glass = "content", "content"
-        rules.contextmenu = { radius = 12 }
+        local floating_radius = p.radiusFloating or 16
+        rules.contextmenu = { radius = floating_radius }
         rules.dropdown_list.padding, rules.dropdown_list.itemradius = ROW_PAD, R
         for _, role in ipairs({ "dropdown_list", "palette_frame", "toast_bg_info", "toast_bg_success", "toast_bg_warning", "toast_bg_error" }) do
-            rules[role].glass, rules[role].radius = "floating", 12
+            rules[role].glass, rules[role].radius = "floating", floating_radius
+        end
+        -- The inset transport: chrome glass, a capsule (half-height corners).
+        rules.transport_capsule = { bg = p.layer01, border = p.layer01, borderwidth = 0, radius = 999,
+            glass = "chrome" }
+        -- The search field is a capsule too.
+        rules.commandbar.radius, rules.commandbar_text.radius = 14, 14
+        -- Primary action: an opaque gradient, the one inverted-luminance element in its region.
+        if p.primaryTop then
+            local b = rules.primary_btn
+            b.bg, b.gradcolor, b.graddir = p.primaryTop, p.primaryBottom, "VERTICAL"
+            b.fg, b.hovertext, b.pressedtext = p.primaryText, p.primaryText, p.primaryText
+            b.hover, b.pressed = p.primaryHover, p.primaryPressed
+            b.border, b.borderwidth, b.showborder = p.primaryBottom, 0, false
         end
         rules.statusbar_button.bg = p.layer01
         rules.statusbar_text.fg = p.textMuted

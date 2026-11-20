@@ -63,6 +63,7 @@ extern "C" {
 #include "backends/imgui_impl_dx11.h"
 #include "lunarimgui_gdifont.h"
 #include "lunar_texture_backup.h"
+#include "lunar_glass_draw.h"
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
 #ifndef WM_DPICHANGED
@@ -2791,6 +2792,30 @@ LUNAR_FFI int lunar_ui_image_rounded(ImDrawList *dl, int tex, float x1, float y1
     dl->AddImageRounded(ImTextureRef((ImTextureID)(intptr_t)it->second.srv), ImVec2(x1, y1), ImVec2(x2, y2),
         ImVec2(0, 0), ImVec2(1, 1), col, rounding);
     return 1;
+}
+/* Glass (core.ui.Glass): one call per primitive whatever the surface's size or radius. */
+static ImTextureRef glass_tex(int tex) {
+    auto it = g.textures.find(tex);
+    if (it == g.textures.end() || !it->second.srv) return ImTextureRef();
+    return ImTextureRef((ImTextureID)(intptr_t)it->second.srv);
+}
+LUNAR_FFI int lunar_ui_image_rounded_uv(ImDrawList *dl, int tex, float x1, float y1, float x2, float y2,
+                                        float u1, float v1, float u2, float v2, uint32_t col, float rounding, int flags) {
+    ImTextureRef t = glass_tex(tex);
+    if (t.GetTexID() == ImTextureID_Invalid) return 0;
+    lunar_glass::image_rounded_uv(dl, t, x1, y1, x2, y2, u1, v1, u2, v2, col, rounding, flags);
+    return 1;
+}
+LUNAR_FFI int lunar_ui_image_nine(ImDrawList *dl, int tex, float x1, float y1, float x2, float y2,
+                                  float bx, float by, float ub, float vb, uint32_t col) {
+    ImTextureRef t = glass_tex(tex);
+    if (t.GetTexID() == ImTextureID_Invalid) return 0;
+    lunar_glass::image_nine(dl, t, x1, y1, x2, y2, bx, by, ub, vb, col);
+    return 1;
+}
+LUNAR_FFI void lunar_ui_rim(ImDrawList *dl, float x1, float y1, float x2, float y2, float rounding,
+                            uint32_t hi, uint32_t lo, uint32_t inner, int flags) {
+    lunar_glass::rim(dl, x1, y1, x2, y2, rounding, hi, lo, inner, flags);
 }
 LUNAR_FFI void lunar_ui_clip_push(ImDrawList *dl, float x1, float y1, float x2, float y2) {
     dl->PushClipRect(ImVec2(x1, y1), ImVec2(x2, y2), true);
