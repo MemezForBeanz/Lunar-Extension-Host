@@ -67,9 +67,33 @@ local function activate(item, state)
 	local result = Element.call(item, "ACTION")
 	if result == iup.CLOSE then state.result = result end
 end
+-- Floating glass opens with a 150 ms fade and a 4 px lift; instant without motion.
+local ENTER, LIFT = 0.15, 4
+local function entrance(state)
+	local R = package.loaded["core.imgui.Runtime"]
+	if not R then return 1 end
+	local now = R.now()
+	state.opened = state.opened or now
+	local manager = require("core.ui.ThemeReactor").themeManager()
+	local director = manager and manager._motion
+	if not (director and director:enabled()) then return 1 end
+	local t = (now - state.opened) / (ENTER * (director._scale or 1))
+	if t >= 1 then return 1 end
+	R.animate()
+	return 1 - (1 - math.max(0, t)) ^ 3
+end
+M._entrance = entrance
+local menu_body
 local function menu_draw(menu, state, dc)
-	local w, h = state.w, state.h
 	local c = colors(menu)
+	local k = c.palette.glass and entrance(state) or 1
+	if k >= 1 then return menu_body(menu, state, dc, c) end
+	dc:alpha_push(k); dc:offset_push(0, LIFT * (1 - k))
+	menu_body(menu, state, dc, c)
+	dc:offset_pop(); dc:alpha_pop()
+end
+function menu_body(menu, state, dc, c)
+	local w, h = state.w, state.h
 	local bg, fg = c.bg, c.fg
 	local radius = c.radius
 	if c.palette.glass then require("core.ui.Glass").paint(dc,state.x,state.y,w,h,"floating",c.palette,radius)

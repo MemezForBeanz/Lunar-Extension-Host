@@ -175,7 +175,12 @@ def main():
     for mode in ("dark", "light"):
         img = backdrop(mode == "dark")
         img.save(os.path.join(OUT, "lunar-%s.png" % mode), optimize=True)
-        blurred(img).save(os.path.join(OUT, "lunar-%s-blur.png" % mode), optimize=True)
+        soft = blurred(img)
+        soft.save(os.path.join(OUT, "lunar-%s-blur.png" % mode), optimize=True)
+        # The palette's glassSampleWorst: the brightest (dark) / darkest (light) sample.
+        px = np.asarray(soft.convert("RGB")).reshape(-1, 3).astype(int)
+        pick = px[px.sum(1).argmax()] if mode == "dark" else px[px.sum(1).argmin()]
+        print("lunar-%s glassSampleWorst = \"%d %d %d\"" % ((mode,) + tuple(pick)))
     shadow().save(os.path.join(OUT, "shadow.png"), optimize=True)
     print("wrote", os.path.abspath(OUT))
 

@@ -484,6 +484,7 @@ function M.build(p)
     -- content edge it opens under.
     rules.disclosure_btn = {}
     for key, value in pairs(rules.actionbutton) do rules.disclosure_btn[key] = value end
+    fluent.addWorkspaceRoles(rules)
     return rules
 end
 
