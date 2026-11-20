@@ -36,12 +36,13 @@ function LunarLightTheme:initialize()
         -- Liquid Glass (core.ui.Glass): the same crescent as a pearl highlight.
         glassBackdrop = "lunar-light",
         glassChromeTint = rgb("#F4F7FB"), glassChromeAlpha = 0.36,
-        glassFloatingTint = rgb("#F4F7FB"), glassFloatingAlpha = 0.50, glassLip = 8,
+        glassFloatingTint = rgb("#F4F7FB"), glassFloatingAlpha = 0.22, glassLip = 8,
         glassTextWell = rgb("#EEF1F5"),
-        -- The 2 px bevel: an upper-left highlight fading 100% -> 25%, a lower inner shade 18%.
-        glassRimHi = "255 255 255 255", glassRimLo = "255 255 255 64", glassRimInner = "0 0 0 46",
+        glassWellHover = rgb("#E2E8EF"), glassWellSelected = rgb("#D1D9E3"),
+        -- The 2 px bevel: an upper-left highlight fading 60% -> 10%, a lower inner shade 9%.
+        glassRimHi = "255 255 255 153", glassRimLo = "255 255 255 26", glassRimInner = "0 0 0 23",
         -- The worst pixel of the softened backdrop (see gen_glass_assets.py), for the audit.
-        glassSampleWorst = "186 197 209",
+        glassSampleWorst = "201 211 224",
         glassShadowAlpha = 0.17, glassSheetWide = { left = 104, top = 14, side = 12 }, glassSheetNarrow = { left = 80, top = 10, side = 8 },
         glassTransport = { wide = 18, narrow = 12, below = 8 },
         -- Primary action: an opaque graphite gradient.

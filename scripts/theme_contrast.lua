@@ -12,6 +12,12 @@ function M.composite(p,floating)
     for i=1,3 do c[i]=math.floor(s[i]*(1-a)+tint[i]*a+0.5) end
     return table.concat(c," ")
 end
+-- Roles whose labels sit on chrome glass (title strip, rail caps, status strip, the
+-- transport) and roles whose text sits on the floating surfaces' opaque wells.
+M.ON_CHROME={"titlebar_button","titlebar_tabs","titlebar_title","statusbar_text","statusbar_button","icon_btn",
+    "tool_rail","reading","reading_muted","keycap"}
+M.ON_WELL={"palette_text","palette_prompt","palette_hint","palette_list","palette_rows","dropdown_list",
+    "toast_title","toast_body","toast_close"}
 --- The spec's bound on that background: relative luminance <= 0.0622 (dark) / >= 0.62 (light).
 function M.inBound(p,colour)
     local L=(lunar.contrast(colour,"0 0 0")*0.05)-0.05
@@ -58,6 +64,38 @@ function M.audit(theme, output)
             end
         end
         end
+    end
+    if p.glass then
+        -- Every state on its final background: chrome roles over the composited glass (at
+        -- its worst sample), well roles over the opaque well. A translucent state fill is
+        -- blended over that background first.
+        local chrome_bg=M.composite(p,false)
+        local well=p.glassTextWell or p.layer03
+        local function final(fill,under)
+            if not fill then return under end
+            local f=channels(fill)
+            if not f[4] or f[4]>=255 then return fill end
+            local u=channels(under); local a=f[4]/255; local out={}
+            for i=1,3 do out[i]=math.floor(f[i]*a+u[i]*(1-a)+0.5) end
+            return table.concat(out," ")
+        end
+        local function states(role,r,under)
+            local fg=r.fg
+            check(role,"final rest",fg,under,4.5)
+            if r.hover then check(role,"final hover",r.hovertext or fg,final(r.hover,under),4.5) end
+            if r.selbg then check(role,"final selected",r.seltext or fg,final(r.selbg,under),4.5) end
+            if r.pressed then check(role,"final pressed",r.pressedtext or r.hovertext or fg,final(r.pressed,under),4.5) end
+            if r.secondary then check(role,"final secondary",r.secondary,under,4.5) end
+        end
+        for _,role in ipairs(M.ON_CHROME) do
+            local r=rules[role]
+            if r then states(role,r,chrome_bg) end
+        end
+        for _,role in ipairs(M.ON_WELL) do
+            local r=rules[role]
+            if r then states(role,r,well) end
+        end
+        if not M.inBound(p,chrome_bg) then count=count+1; failures[#failures+1]="chrome bound "..chrome_bg end
     end
     if p.glass and p.glassTextWell then
         -- Muted text on the wells (palette results, Activity rows, toasts).

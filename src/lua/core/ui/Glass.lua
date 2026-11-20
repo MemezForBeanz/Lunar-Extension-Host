@@ -85,11 +85,13 @@ local function looks(p)
 	local function col(v, fallback) return Color.parse(v or fallback) end
 	return {
 		chrome = Color.alpha(col(p.glassChromeTint, p.layer01), p.glassChromeAlpha or (dark and 0.32 or 0.36)),
-		floating = Color.alpha(col(p.glassFloatingTint, p.layer03), p.glassFloatingAlpha or (dark and 0.44 or 0.50)),
+		floating = Color.alpha(col(p.glassFloatingTint, p.layer03), p.glassFloatingAlpha or (dark and 0.24 or 0.22)),
 		well = col(p.glassTextWell, p.layer03),
-		rim_hi = col(p.glassRimHi, dark and "255 255 255 179" or "255 255 255 255"),
-		rim_lo = col(p.glassRimLo, dark and "255 255 255 31" or "255 255 255 64"),
-		rim_inner = col(p.glassRimInner, dark and "0 0 0 66" or "0 0 0 46"),
+		-- the well's last two pixels blend into the lip instead of ending in an edge
+		well_feather = { Color.alpha(col(p.glassTextWell, p.layer03), 0.35), Color.alpha(col(p.glassTextWell, p.layer03), 0.5) },
+		rim_hi = col(p.glassRimHi, dark and "255 255 255 115" or "255 255 255 153"),
+		rim_lo = col(p.glassRimLo, dark and "255 255 255 20" or "255 255 255 26"),
+		rim_inner = col(p.glassRimInner, dark and "0 0 0 36" or "0 0 0 23"),
 		shadow = Color.pack(0, 0, 0, floor(255 * (p.glassShadowAlpha or (dark and 0.32 or 0.17)) + 0.5)),
 		card_rim = col(p.glassCardRim, dark and "255 255 255 15" or "0 0 0 15"),
 	}
@@ -169,8 +171,15 @@ end
 
 -- The bevel: one upper-left highlight fading to the far corner, one lower inner shade.
 local BEVEL = 2
-local function rim(dc, look, x, y, w, h, radius)
-	local hi, lo, inner = dc:_color(look.rim_hi), dc:_color(look.rim_lo), dc:_color(look.rim_inner)
+-- Hover lifts the highlight by up to 10 percentage points at its peak.
+local HOVER_LIFT = 0.10
+local function rim(dc, look, x, y, w, h, radius, lift)
+	local base = look.rim_hi
+	if lift and lift > 0 then
+		local r, g, b, a = Color.unpack(base)
+		base = Color.pack(r, g, b, min(255, a + 255 * HOVER_LIFT * lift))
+	end
+	local hi, lo, inner = dc:_color(base), dc:_color(look.rim_lo), dc:_color(look.rim_inner)
 	if dc.B.rim then
 		local ax, ay = x + dc.ox, y + dc.oy
 		dc:_emit("rim", ax, ay, ax + w, ay + h, radius, hi, lo, inner, 0, BEVEL)
@@ -189,8 +198,37 @@ local function shadow(dc, look, x, y, w, h)
 		SHADOW_BORDER, SHADOW_BORDER, b, b, dc:_color(look.shadow))
 end
 
--- The floating entrance: seconds to fade in, and pixels of lift.
-M.ENTER, M.LIFT = 0.15, 4
+-- The floating entrance: seconds to fade in, and pixels of lift. A borderless glass
+-- dialog's window reaches CLEARANCE px past it for the shadow (6 px drop, 18 px falloff).
+M.ENTER, M.LIFT, M.CLEARANCE = 0.15, 4, 24
+-- The rim's hover easing.
+M.RIM_EASE = 0.11
+
+local function motion_on()
+	local manager = Reactor.themeManager()
+	local director = manager and manager._motion
+	return director and director:enabled(), director
+end
+
+--- Ease `state`'s rim toward hovered (`on`) over 110 ms; returns 0..1. Instant without
+-- motion; asks for frames only while it moves.
+function M.ease(state, on)
+	local R = package.loaded["core.imgui.Runtime"]
+	local target = on and 1 or 0
+	local moving, director = motion_on()
+	if not (R and moving) then state.rim_k = target; return target end
+	local now = R.now()
+	if state.rim_on == nil then
+		state.rim_on, state.rim_from, state.rim_at = on, target, now
+	elseif state.rim_on ~= on then
+		state.rim_on, state.rim_from, state.rim_at = on, state.rim_k or (1 - target), now
+	end
+	local t = min(1, (now - state.rim_at) / (M.RIM_EASE * (director._scale or 1)))
+	local k = state.rim_from + (target - state.rim_from) * t
+	if t < 1 then R.animate() end
+	state.rim_k = k
+	return k
+end
 
 --- Floating glass opens with a 150 ms fade and a 4 px lift; instant without motion.
 -- `state.opened` is set on the first call; returns the eased progress 0..1.
@@ -224,14 +262,38 @@ local function caps(dc, el, x, y, w, h)
 end
 M._caps = caps
 
---- Paint `kind` at (x, y, w, h) in the dc's local coordinates. Native popups (menus,
--- tooltips in their own windows) sample their own window's mapping of the backdrop.
-function M.paint(dc, x, y, w, h, kind, p, radius, el)
+-- What lies under a floating surface, from the frame copy (the main window's background
+-- layer this frame): pulled 2 px inward across the bevel so it bends there, and softened
+-- by four half-pixel taps (about 1.5 px) across the rest. Off when the backend has no copy.
+local SOFT = 0.75
+local function underneath(dc, x, y, w, h, r)
+	local B = dc.B
+	if dc.rec or not (B.window and B.image_rounded_uv) then return end
+	local id, fw, fh = B.window("frame_copy")
+	if type(id) ~= "number" or not fw or fw <= 0 or fh <= 0 then return end
+	local ax, ay = x + dc.ox, y + dc.oy
+	local white = dc:_color(0xFFFFFFFF)
+	local i = REFRACT
+	dc:_emit("image_rounded_uv", id, ax, ay, ax + w, ay + h,
+		(ax + i) / fw, (ay + i) / fh, (ax + w - i) / fw, (ay + h - i) / fh, white, r, 0)
+	local b = BEVEL
+	for k = 1, 4 do
+		local dx, dy = (k % 2 == 1) and -SOFT or SOFT, k <= 2 and -SOFT or SOFT
+		dc:_emit("image_rounded_uv", id, ax + b, ay + b, ax + w - b, ay + h - b,
+			(ax + b + dx) / fw, (ay + b + dy) / fh, (ax + w - b + dx) / fw, (ay + h - b + dy) / fh,
+			Color.alpha(white, 1 / k), max(0, r - b), 0)
+	end
+end
+
+--- Paint `kind` at (x, y, w, h) in the dc's local coordinates. `lip` sets a floating
+-- surface's see-through edge (default the palette's `glassLip`), `lift` (0..1) the eased
+-- hover on the rim's highlight. Native popups map the backdrop by their own window.
+function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift)
 	p = p or Reactor.palette()
 	if kind == "content" or kind == "chrome_content" or kind == "none" then return end
 	if kind == "caps" then
 		for _, r in ipairs(caps(dc, el, x, y, w, h)) do
-			M.paint(dc, r[1], r[2], r[3], r[4], "chrome", p, min(radius or 14, r[3] / 2))
+			M.paint(dc, r[1], r[2], r[3], r[4], "chrome", p, min(radius or 14, r[3] / 2), nil, nil, lift)
 		end
 		return
 	end
@@ -260,17 +322,25 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el)
 	if kind == "floor" then sample(dc, c, tex, x, y, w, h, 0, false); return end
 	local look = c.looks
 	if floating then
-		-- A text-free lip of tint over whatever is already drawn underneath (the workspace,
-		-- or under a dialog window the main window's own lists), round an opaque text well.
+		-- A text-free lip that shows what is underneath (bent at the bevel, softened
+		-- inside it) under a light tint, round an opaque text well whose last two pixels
+		-- blend into the lip.
 		shadow(dc, look, x, y, w, h)
+		underneath(dc, x, y, w, h, r)
 		dc:fill(x, y, w, h, look.floating, shapes[r])
-		local lip = min(p.glassLip or 8, floor(w / 4), floor(h / 4))
-		dc:fill(x + lip, y + lip, w - 2 * lip, h - 2 * lip, look.well, shapes[max(0, r - lip)])
+		local l = min(lip or p.glassLip or 8, floor(w / 4), floor(h / 4))
+		if l >= 3 then
+			for k = 2, 1, -1 do
+				local e = l - k
+				dc:fill(x + e, y + e, w - 2 * e, h - 2 * e, look.well_feather[3 - k], shapes[max(0, r - e)])
+			end
+		end
+		dc:fill(x + l, y + l, w - 2 * l, h - 2 * l, look.well, shapes[max(0, r - l)])
 	else
 		sample(dc, c, tex, x, y, w, h, r, true)
 		dc:fill(x, y, w, h, look.chrome, shapes[r])
 	end
-	rim(dc, look, x, y, w, h, r)
+	rim(dc, look, x, y, w, h, r, lift)
 end
 
 -- Resolve flags once per theme, rather than allocating rules per widget/frame.

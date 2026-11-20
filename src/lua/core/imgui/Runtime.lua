@@ -1275,6 +1275,9 @@ local function sync_windows()
 		local st = STATE[d]
 		if st and d ~= main_dialog and st.data.win and st.data.win_shown then
 			local x, y, w, h, close, minimized, active = B.window("popup_state", st.data.win)
+			-- the window includes a glass dialog's shadow clearance; the dialog is inside it
+			local c = st.data.clear or 0
+			if x and c > 0 then x, y, w, h = x + c, y + c, w - 2 * c, h - 2 * c end
 			if active then M.activateDialog(d) end
 			if x and not minimized then
 				if x ~= st.data.ox or y ~= st.data.oy then
@@ -1604,6 +1607,17 @@ function route_keys(input)
 end
 
 -- Painting --------------------------------------------------------------------------------
+-- Is `target` el or inside it?
+local function contains(el, target)
+	local t = target
+	while t do
+		if t == el then return true end
+		local ts = STATE[t]
+		t = ts and ts.parent
+	end
+	return false
+end
+
 local function paint(el, d)
 	local st = STATE[el]
 	if not st or not own_visible(st) then return end
@@ -1616,7 +1630,12 @@ local function paint(el, d)
 	-- Activity panel, a toast) is that surface already, so it adds no second lip or rim.
 	local nested = material and material.glass == "floating" and d.in_floating
 	if not culled and material and not nested then
-		require("core.ui.Glass").paint(d, st.x, st.y, st.w, st.h, material.glass, material_palette, material.radius, el)
+		local Glass = require("core.ui.Glass")
+		local g = material.glass
+		-- the rim's highlight lifts while the pointer is over the surface (eased)
+		local lift = (g == "chrome" or g == "caps" or g == "floating")
+			and Glass.ease(st.data, hovered ~= nil and contains(el, hovered)) or nil
+		Glass.paint(d, st.x, st.y, st.w, st.h, g, material_palette, material.radius, el, material.lip, lift)
 	end
 	if not culled and class.draw then
 		if st.classname == "videohost" then
@@ -1742,7 +1761,7 @@ local function tooltip(d)
 	end
 	if id then d:surface(id, sx, sy, sw, sh) end
 	d:layer("overlay")
-	if tip_palette.glass then require("core.ui.Glass").paint(d,x,y,pw,ph,"floating",tip_palette,12)
+	if tip_palette.glass then require("core.ui.Glass").paint(d,x,y,pw,ph,"floating",tip_palette,12,nil,4)
 	else
 		d:fill(x, y, pw, ph, bg, { radius = 4 })
 		d:rect(x, y, pw, ph, border, { radius = 4 })
@@ -1897,17 +1916,20 @@ function M.frame()
 					-- its own window: Windows draws the frame and the caption
 					st.data.chrome = nil
 					local ox, oy = st.data.ox or 0, st.data.oy or 0
-					B.window("popup_place", st.data.win, ox, oy, st.w, st.h, true, st.data.modal and true or false,
-						Element.getAttribute(d, "TITLE") or "")
-					st.data.win_shown = true
-					dc:surface(st.data.win, ox, oy, st.w, st.h)
-					dc:offset_push(ox, oy)
-					dc:clip_push(0, 0, st.w, st.h)
 					-- A glass dialog floats: the main window's lists render under it (the
 					-- backend's underlay), so its lip shows the workspace, and it fades in.
+					-- A borderless one gets a margin of window round it for its shadow.
 					local Glass = require("core.ui.Glass")
 					local m = Glass.material(d, st)
 					local glass = m and m.glass == "floating"
+					local c = (glass and Element.getAttribute(d, "BORDER") == "NO") and Glass.CLEARANCE or 0
+					st.data.clear = c
+					B.window("popup_place", st.data.win, ox - c, oy - c, st.w + 2 * c, st.h + 2 * c, true,
+						st.data.modal and true or false, Element.getAttribute(d, "TITLE") or "")
+					st.data.win_shown = true
+					dc:surface(st.data.win, ox - c, oy - c, st.w + 2 * c, st.h + 2 * c)
+					dc:offset_push(ox, oy)
+					dc:clip_push(-c, -c, st.w + 2 * c, st.h + 2 * c)
 					if glass ~= (st.data.underlay or false) then
 						st.data.underlay = glass
 						B.window("popup_underlay", st.data.win, glass)

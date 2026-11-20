@@ -468,7 +468,20 @@ function M.build(p)
                 if rules[role].border == elevated then rules[role].border = well_bg end
             end
             rules.dropdown_list.scrollbg = well_bg
+            -- Interactive fills on the wells stay within the contrast the wells allow.
+            local wh, ws = p.glassWellHover or hover, p.glassWellSelected or selected
+            for _, role in ipairs({ "palette_list", "palette_rows", "dropdown_list" }) do
+                local r = rules[role]
+                r.selbg = ws
+                if r.hover then r.hover = wh end
+                if r.pressed then r.pressed = ws end
+            end
         end
+        -- The see-through lip: wider on the big panels, narrow on a tooltip.
+        rules.palette_frame.lip = 10
+        rules.dropdown_list.lip = 8
+        for _, kind in ipairs({ "info", "success", "warning", "error" }) do rules["toast_bg_" .. kind].lip = 8 end
+        rules.contextmenu.lip = 8
         -- The inset transport: chrome glass, a capsule (half-height corners).
         rules.transport_capsule = { bg = p.layer01, border = p.layer01, borderwidth = 0, radius = 999,
             glass = "chrome" }

@@ -147,7 +147,22 @@ struct State {
     std::vector<std::string> frame_chars, frame_files;
     std::vector<const char*> frame_char_ptrs, frame_file_ptrs;
     LunarUiFrame frame = {};
+    /* The frame copy (core.ui.Glass): the main window's background layer, copied before the
+     * foreground (overlay) layer is drawn, so floating glass can bend and soften what lies
+     * under it. Made and copied only in frames that ask for it (window("frame_copy")). */
+    ID3D11Texture2D *frame_tex = nullptr; ID3D11ShaderResourceView *frame_srv = nullptr;
+    int frame_w = 0, frame_h = 0; bool frame_want = false;
 } g;
+/* The texture id window("frame_copy") hands out; never a real id (those count up from 1). */
+const int FRAME_TEXTURE = -7;
+void release_frame_copy() {
+    if (g.frame_srv) {
+        if (g.frame_open) g.retired_textures.push_back(g.frame_srv); else g.frame_srv->Release();
+        g.frame_srv = nullptr;
+    }
+    if (g.frame_tex) { g.frame_tex->Release(); g.frame_tex = nullptr; }
+    g.frame_w = g.frame_h = 0;
+}
 
 void release_retired_textures() {
     for (auto *srv : g.retired_textures) srv->Release();
@@ -1002,6 +1017,7 @@ void release_overlay_target() {
 }
 
 void release_renderer_gpu() {
+    release_frame_copy();
     release_retired_textures();
     if (g.ctx) { g.ctx->ClearState(); g.ctx->Flush(); }
     release_overlay_target();
@@ -1598,6 +1614,7 @@ int l_close(lua_State *L) {
     if (g.paint_ref != LUA_NOREF) { luaL_unref(L, LUA_REGISTRYINDEX, g.paint_ref); g.paint_ref = LUA_NOREF; }
     for (auto &t : g.textures) if (t.second.srv) t.second.srv->Release();
     g.textures.clear();
+    release_frame_copy();
     release_retired_textures();
     clear_gdi_lines();
     clear_gdi_sizes();
@@ -2050,7 +2067,31 @@ int l_frame_end(lua_State *) {
     const float black[4] = {0, 0, 0, 1};
     g.ctx->OMSetRenderTargets(1, &g.rtv, nullptr);
     g.ctx->ClearRenderTargetView(g.rtv, black);
-    ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+    ImDrawData *all = ImGui::GetDrawData();
+    ID3D11Texture2D *back = nullptr;
+    if (g.frame_want && g.frame_tex && g.frame_w == g.sc_w && g.frame_h == g.sc_h
+        && SUCCEEDED(g.swap->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&back)) && back) {
+        /* the background layer, the copy, then the foreground (the floating glass) */
+        ImDrawData lower = *all, upper = *all;
+        lower.CmdLists.clear(); upper.CmdLists.clear();
+        lower.TotalVtxCount = lower.TotalIdxCount = upper.TotalVtxCount = upper.TotalIdxCount = 0;
+        upper.Textures = nullptr;
+        /* frame_begin kept the layers' lists (asking ImGui after Render() has no window) */
+        ImDrawList *bg = g.lists.empty() ? nullptr : g.lists[0];
+        for (ImDrawList *dl : all->CmdLists) {
+            ImDrawData &to = dl == bg ? lower : upper;
+            to.CmdLists.push_back(dl); to.TotalVtxCount += dl->VtxBuffer.Size; to.TotalIdxCount += dl->IdxBuffer.Size;
+        }
+        ImGui_ImplDX11_RenderDrawData(&lower);
+        g.ctx->OMSetRenderTargets(0, nullptr, nullptr);
+        g.ctx->CopyResource(g.frame_tex, back);
+        g.ctx->OMSetRenderTargets(1, &g.rtv, nullptr);
+        if (upper.CmdLists.Size > 0) ImGui_ImplDX11_RenderDrawData(&upper);
+    } else {
+        ImGui_ImplDX11_RenderDrawData(all);
+    }
+    if (back) back->Release();
+    g.frame_want = false;
     /* overlay windows before the shots (a capture of a window includes them) and before
        the presents (one that just left a surface is up before that surface drops it) */
     std::vector<Popup*> overlays;
@@ -2437,6 +2478,26 @@ int l_window(lua_State *L) {
         if (!p) return 0;
         lua_pushinteger(L, p->id); return 1;
     }
+    if (is("frame_copy")) {
+        /* This frame copies its background layer; the texture is (re)made now, at the
+           target's size, so the lists drawn this frame refer to the one that is filled. */
+        if (!g.device || !g.frame_open || g.sc_w <= 0 || g.sc_h <= 0) return 0;
+        if (!g.frame_tex || g.frame_w != g.sc_w || g.frame_h != g.sc_h) {
+            release_frame_copy();
+            D3D11_TEXTURE2D_DESC d = {};
+            d.Width = (UINT)g.sc_w; d.Height = (UINT)g.sc_h; d.MipLevels = 1; d.ArraySize = 1;
+            d.Format = DXGI_FORMAT_R8G8B8A8_UNORM; d.SampleDesc.Count = 1;
+            d.Usage = D3D11_USAGE_DEFAULT; d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            if (FAILED(g.device->CreateTexture2D(&d, nullptr, &g.frame_tex)) || !g.frame_tex) { g.frame_tex = nullptr; return 0; }
+            if (FAILED(g.device->CreateShaderResourceView(g.frame_tex, nullptr, &g.frame_srv)) || !g.frame_srv) {
+                release_frame_copy(); return 0;
+            }
+            g.frame_w = g.sc_w; g.frame_h = g.sc_h;
+        }
+        g.frame_want = true;
+        lua_pushinteger(L, FRAME_TEXTURE); lua_pushinteger(L, g.frame_w); lua_pushinteger(L, g.frame_h);
+        return 3;
+    }
     if (is("popup_underlay")) {
         Popup *p = popup_by_id((int)luaL_checkinteger(L, 2));
         if (p && !p->overlay) p->underlay = lua_toboolean(L, 3) != 0;
@@ -2756,6 +2817,11 @@ LUNAR_FFI void lunar_ui_text_size(int face, float px, const char *s, size_t len,
 }
 LUNAR_FFI int lunar_ui_image(ImDrawList *dl, int tex, float x1, float y1, float x2, float y2,
                              float u1, float v1, float u2, float v2, uint32_t col) {
+    if (tex == FRAME_TEXTURE) {
+        if (!g.frame_srv) return 0;
+        dl->AddImage(ImTextureRef((ImTextureID)(intptr_t)g.frame_srv), ImVec2(x1, y1), ImVec2(x2, y2), ImVec2(u1, v1), ImVec2(u2, v2), col);
+        return 1;
+    }
     auto it = g.textures.find(tex);
     if (it == g.textures.end()) return 0;
     if (!it->second.srv) return 0;
@@ -2815,6 +2881,7 @@ LUNAR_FFI int lunar_ui_image_rounded(ImDrawList *dl, int tex, float x1, float y1
 }
 /* Glass (core.ui.Glass): one call per primitive whatever the surface's size or radius. */
 static ImTextureRef glass_tex(int tex) {
+    if (tex == FRAME_TEXTURE) return g.frame_srv ? ImTextureRef((ImTextureID)(intptr_t)g.frame_srv) : ImTextureRef();
     auto it = g.textures.find(tex);
     if (it == g.textures.end() || !it->second.srv) return ImTextureRef();
     return ImTextureRef((ImTextureID)(intptr_t)it->second.srv);

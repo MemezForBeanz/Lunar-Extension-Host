@@ -17,7 +17,7 @@ local function colors(menu)
 	local rules = theme and theme.rules and theme:rules() or {}
 	local r = rules.contextmenu or rules.dropdown_list or {}
 	return {
-		palette = p,
+		palette = p, lip = r.lip,
 		bg = Element.own(menu, "BGCOLOR") or r.bg or p.layer02 or p.layer01 or p.surface or attr(menu, "BGCOLOR"),
 		fg = Element.own(menu, "FGCOLOR") or r.fg or p.text or attr(menu, "FGCOLOR"),
 		hover = Element.own(menu, "HLCOLOR") or r.selbg or r.hover or p.layerHover01 or p.surface2 or attr(menu, "HLCOLOR"),
@@ -45,7 +45,7 @@ local function item_height(e, c)
 end
 -- How far items keep from the edge: glass menus keep their 8 px lip free of text.
 local function inset(c)
-	return c.palette.glass and (c.palette.glassLip or 8) or 4
+	return c.palette.glass and (c.lip or c.palette.glassLip or 8) or 4
 end
 local function menu_size(menu)
 	local c = colors(menu)
@@ -88,7 +88,7 @@ function menu_body(menu, state, dc, c)
 	local w, h = state.w, state.h
 	local bg, fg = c.bg, c.fg
 	local radius = c.radius
-	if c.palette.glass then require("core.ui.Glass").paint(dc,state.x,state.y,w,h,"floating",c.palette,radius)
+	if c.palette.glass then require("core.ui.Glass").paint(dc,state.x,state.y,w,h,"floating",c.palette,radius,nil,inset(c))
 	else
 		dc:fill(state.x + 2, state.y + 3, w, h, "0 0 0 50", { radius = radius })
 		dc:fill(state.x, state.y, w, h, bg, { radius = radius })

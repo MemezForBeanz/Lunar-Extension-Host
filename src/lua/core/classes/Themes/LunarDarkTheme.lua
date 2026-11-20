@@ -37,12 +37,14 @@ function LunarDarkTheme:initialize()
         -- floating tints over its softened copy, and the curved rim.
         glassBackdrop = "lunar-dark",
         glassChromeTint = rgb("#151B24"), glassChromeAlpha = 0.32,
-        glassFloatingTint = rgb("#1E2630"), glassFloatingAlpha = 0.44, glassLip = 8,
+        glassFloatingTint = rgb("#1E2630"), glassFloatingAlpha = 0.24, glassLip = 8,
         glassTextWell = rgb("#242C36"),
-        -- The 2 px bevel: an upper-left highlight fading 70% -> 12%, a lower inner shade 26%.
-        glassRimHi = "255 255 255 179", glassRimLo = "255 255 255 31", glassRimInner = "0 0 0 66",
+        -- Interactive fills on the wells: hover, and selected / pressed (the brightest).
+        glassWellHover = rgb("#2C3440"), glassWellSelected = rgb("#353D49"),
+        -- The 2 px bevel: an upper-left highlight fading 45% -> 8%, a lower inner shade 14%.
+        glassRimHi = "255 255 255 115", glassRimLo = "255 255 255 20", glassRimInner = "0 0 0 36",
         -- The worst pixel of the softened backdrop (see gen_glass_assets.py), for the audit.
-        glassSampleWorst = "29 32 37",
+        glassSampleWorst = "59 72 84",
         glassShadowAlpha = 0.32, -- The sheet's inset (core.ui.WorkspaceFrame): left edge, top, right and bottom, wide
         -- and narrow; the left strip shows the bare backdrop and its crescent.
         glassSheetWide = { left = 104, top = 14, side = 12 }, glassSheetNarrow = { left = 80, top = 10, side = 8 },

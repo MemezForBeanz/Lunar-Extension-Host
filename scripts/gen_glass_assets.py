@@ -31,17 +31,21 @@ OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "
 # shoulder's row, the inner disc passing through both horns and the shoulder's inner edge.
 OUTER = (80.5, 177.5, 72.5)
 INNER = (106.5, 177.5, 76.5)
-# Two four-point stars on the open side (tip to tip, peak opacity dark / light).
-SPARKLES = [(58.0, 158.0, 10.0, 0.86, 0.95), (71.0, 210.0, 6.0, 0.64, 0.76)]
+# The lower half turns 12 degrees clockwise about the shoulder; the result is fitted back
+# into the same 74 x 145 box.
+TILT, BOX = 12.0, (8.0, 105.0, 74.0, 145.0)
+# Two four-point stars on the open side (tip to tip, peak opacity dark / light): the
+# principal one clearly larger, both with sharp tips.
+SPARKLES = [(58.0, 158.0, 16.0, 0.86, 0.95), (71.0, 210.0, 9.0, 0.64, 0.76)]
 # Fourteen point stars, 1-2 px: eight near the crescent, six in exposed perimeter space
 # (the left strip below the crescent, the top reveal, the right reveal). Clear of labels.
 NEAR = [(22, 84), (44, 96), (95, 128), (88, 170), (54, 252), (94, 236), (58, 270), (16, 284)]
-PERIMETER = [(30, 340), (62, 430), (20, 540), (900, 40), (1594, 380), (1594, 640)]
+PERIMETER = [(30, 340), (62, 430), (20, 540), (1594, 150), (1594, 380), (1594, 640)]
 COLORS = {
     "dark": dict(space="#080A0F", body="#B9C7D8", crest="#F2F6FC", inner="#334257",
-                 star="#F2F6FC", far_star="#F2F6FC", alpha=(0.28, 0.52)),
+                 star="#F2F6FC", far_star="#F2F6FC", alpha=(0.28, 0.52), tone=("#101721", "#374451")),
     "light": dict(sky="#9EACC0", body="#EDF3FB", crest="#FFFFFF", inner="#657284",
-                  star="#FFFFFF", far_star="#4A5463", alpha=(0.44, 0.70)),
+                  star="#FFFFFF", far_star="#4A5463", alpha=(0.44, 0.70), tone=("#E9EEF4", "#C9D3E0")),
 }
 
 
@@ -73,17 +77,45 @@ def over(img, alpha, colour):
     return img + alpha[..., None] * (colour - img)
 
 
-def crescent(img, c):
-    y, x = np.mgrid[0:H, 0:W].astype(np.float64) + 0.5
+def fields(x, y):
+    """Signed distances into the outer disc and out of the inner one, for the tilted shape:
+    a point in the lower half is turned back (anticlockwise) about the shoulder before
+    sampling, so the drawn lower horn leans clockwise."""
     ox, oy, orad = OUTER
     ix, iy, irad = INNER
-    outer = orad - np.hypot(x - ox, y - oy)       # > 0 inside the outer disc
-    inner = np.hypot(x - ix, y - iy) - irad       # > 0 outside the inner disc
+    px, py = OUTER[0] - OUTER[2] + 11.0, OUTER[1]          # the shoulder's middle
+    w = smoothstep(0.0, 1.0, (y - py) / 72.5)
+    a = -np.radians(TILT) * w
+    dx, dy = x - px, y - py
+    sx = px + dx * np.cos(a) - dy * np.sin(a)
+    sy = py + dx * np.sin(a) + dy * np.cos(a)
+    return orad - np.hypot(sx - ox, sy - oy), np.hypot(sx - ix, sy - iy) - irad
+
+
+def fit():
+    """The affine map from the box to the tilted shape's own bounds."""
+    y, x = np.mgrid[60:300, -40:160].astype(np.float64) + 0.5
+    outer, inner = fields(x, y)
+    m = (outer > 0) & (inner > 0)
+    ys, xs = np.nonzero(m)
+    x0, x1 = x[0, xs.min()] - 0.5, x[0, xs.max()] + 0.5
+    y0, y1 = y[ys.min(), 0] - 0.5, y[ys.max(), 0] + 0.5
+    bx, by, bw, bh = BOX
+    kx, ky = (x1 - x0) / bw, (y1 - y0) / bh
+    return lambda X, Y: (x0 + (X - bx) * kx, y0 + (Y - by) * ky), min(kx, ky)
+
+
+def crescent(img, c):
+    y, x = np.mgrid[0:H, 0:W].astype(np.float64) + 0.5
+    to_shape, k = fit()
+    outer, inner = fields(*to_shape(x, y))
+    outer, inner = outer / k, inner / k                   # back to output pixels
     cover = np.clip(outer + 0.5, 0, 1) * np.clip(inner + 0.5, 0, 1)
     width = np.maximum(outer + inner, 1e-3)
-    s = np.clip(1 - np.clip(outer, 0, None) / width, 0, 1)   # 0 lit outer edge .. 1 inner edge
+    # 0 on the convex shoulder (the lit crest) .. 1 at the concave cut (the shade).
+    s = np.clip(np.clip(outer, 0, None) / width, 0, 1)
     body, crest, edge = lin(c["body"]), lin(c["crest"]), lin(c["inner"])
-    # A thin bright crest on the outer edge, the broad silver body, the dark inner edge.
+    # A bright crest on the convex shoulder, the broad silver body, the dark concave cut.
     shade = np.broadcast_to(body, (H, W, 3)).copy()
     shade = over(shade, np.exp(-(s / 0.10) ** 2), crest)
     shade = over(shade, np.exp(-((s - 0.42) / 0.16) ** 2) * 0.35, crest)     # broad reflection
@@ -101,9 +133,10 @@ def sparkle(a, cx, cy, size, peak):
     xx += cx - np.floor(cx) - 0.5
     def ray(along, across):
         taper = np.clip(1 - np.abs(along) / arm, 0, 1)
-        return taper ** 1.5 * np.exp(-(across / (0.35 + 0.55 * taper)) ** 2)
+        # Thin, tapering to a sharp point.
+        return taper ** 2.2 * np.exp(-(across / (0.28 + 0.42 * taper)) ** 2)
     star = np.maximum(ray(xx, yy), ray(yy, xx))
-    star = np.maximum(star, np.exp(-(xx ** 2 + yy ** 2) / 1.4))
+    star = np.maximum(star, np.exp(-(xx ** 2 + yy ** 2) / 1.1))
     star = np.clip(star, 0, 1) * peak
     x0, y0 = int(np.floor(cx)) - r, int(np.floor(cy)) - r
     a[y0:y0 + 2 * r + 1, x0:x0 + 2 * r + 1] = np.maximum(a[y0:y0 + 2 * r + 1, x0:x0 + 2 * r + 1], star)
@@ -117,6 +150,16 @@ def point(a, x, y, alpha, two):
         a[y + 1, x + 1] = max(a[y + 1, x + 1], alpha * 0.45)
 
 
+def tone(img, x, y, c):
+    """Broad tonal variation behind the title strip and the transport, so the chrome glass
+    over them has light to bend: two slow waves between the mode's pair of tones."""
+    a, b = lin(c["tone"][0]), lin(c["tone"][1])
+    v = 0.5 + 0.5 * np.sin(2 * np.pi * x / W * 1.35 + 0.9) * np.cos(2 * np.pi * x / W * 0.55 - 0.4)
+    field = a + (b - a) * smoothstep(0.0, 1.0, v)[..., None]
+    band = np.maximum(1 - smoothstep(34.0, 76.0, y), smoothstep(745.0, 805.0, y))
+    return img + band[..., None] * (field - img)
+
+
 def backdrop(mode):
     c = COLORS[mode]
     rng = np.random.default_rng(731)
@@ -124,15 +167,17 @@ def backdrop(mode):
     near = np.hypot((x - 60) / 1.0, (y - 180) / 1.25)    # distance from the crescent's middle
     if mode == "dark":
         img = np.broadcast_to(lin(c["space"]), (H, W, 3)).copy()
+        img = tone(img, x, y, c)
         # A faint silver halo, so the crescent sits in its own light.
         img = over(img, np.exp(-near / 70.0) * 0.07, lin(c["body"]))
     else:
         pearl, grey = lin("#E9EEF4"), lin("#BAC5D1")
         t = np.clip((x / W) * 0.55 + (y / H) * 0.45, 0, 1)[..., None]
         img = pearl + (grey - pearl) * smoothstep(0.0, 1.0, t)
-        # A local sky around the crescent, so the white crescent and stars read on it.
-        sky = np.hypot(x - 60, y - 180)
-        img = over(img, 1 - smoothstep(70.0, 140.0, sky), lin(c["sky"]))
+        img = tone(img, x, y, c)
+        # A local sky round the crescent's centre, feathered from 45 to 95 px.
+        sky = np.hypot(x - (BOX[0] + BOX[2] / 2), y - (BOX[1] + BOX[3] / 2))
+        img = over(img, 1 - smoothstep(45.0, 95.0, sky), lin(c["sky"]))
     img, outer, inner = crescent(img, c)
     band = (outer > -1) & (inner > -1)
     stars = np.zeros((H, W))

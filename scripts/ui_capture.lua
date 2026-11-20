@@ -524,11 +524,29 @@ iup.MainLoop = function()
 			iup.Refresh(dlg)
 		elseif scene == 16 and not os.getenv("LUNAR_CAPTURE_CODE") then
 			local R,E=require("core.imgui.Runtime"),require("core.imgui.Element")
+			-- A dropdown really on screen: laid out at a usable size, not in a folded column.
 			local function find(h)
-				if class(h)=="dropbutton" and R.isVisible(h) then return h end
+				local st=E.state(h)
+				if class(h)=="dropbutton" and R.isVisible(h) and st and st.w>40 and st.h>10 then return h end
 				for _,c in ipairs(E.children(h)) do local result=find(c); if result then return result end end
 			end
 			shell._capture_dropdown=find(dlg)
+			if not shell._capture_dropdown then
+				-- A narrow window folds a page's configuration behind More; open it the way
+				-- More > Configure does, so a dropdown is on screen to show.
+				local function configure(h)
+					local st=E.state(h)
+					local parent=st and st.parent
+					if class(h)=="flatbutton" and iup.GetAttribute(h,"TITLE")=="Configure" and parent and R.isVisible(parent) then return h end
+					for _,c in ipairs(E.children(h)) do local result=configure(c); if result then return result end end
+				end
+				local button=configure(dlg)
+				if button then
+					E.call(button,"FLAT_ACTION")
+					iup.Refresh(dlg); R.frame(); R.frame()
+					shell._capture_dropdown=find(dlg)
+				end
+			end
 			if shell._capture_dropdown then
 				local list=iup.GetHandle(iup.GetAttribute(shell._capture_dropdown,"DROPCHILD"))
 				if list then

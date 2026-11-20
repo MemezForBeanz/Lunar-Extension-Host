@@ -98,7 +98,7 @@ describe("Lunar glass",function()
         Glass.paint(dc,200,200,400,300,"floating",p,16)
         B.frame_end()
         local n=ops(B)
-        assert.equal(1,n.image_nine); assert.equal(1,n.rim); assert.equal(2,n.rect_filled)
+        assert.equal(1,n.image_nine); assert.equal(1,n.rim); assert.equal(4,n.rect_filled)
         assert.is_nil(n.image_rounded_uv); assert.is_nil(n.rect)
         local fills={}
         for _,call in ipairs(B.lastFrame()) do
@@ -109,9 +109,63 @@ describe("Lunar glass",function()
         local C=require("core.imgui.Color")
         local _,_,_,a=C.unpack(fills[1][6])
         assert.equal(math.floor(255*p.glassFloatingAlpha+0.5),a)
-        -- the well: opaque, 8 px in from every edge
-        assert.equal(208,fills[2][2]); assert.equal(208,fills[2][3]); assert.equal(592,fills[2][4]); assert.equal(492,fills[2][5])
-        local _,_,_,wa=C.unpack(fills[2][6]); assert.equal(255,wa)
+        -- the well: opaque, 8 px in from every edge, its last two pixels blending into the lip
+        assert.equal(206,fills[2][2]); local _,_,_,f1=C.unpack(fills[2][6]); assert.equal(math.floor(255*0.35),f1)
+        assert.equal(207,fills[3][2]); local _,_,_,f2=C.unpack(fills[3][6]); assert.is_true(f2>f1 and f2<255)
+        assert.equal(208,fills[4][2]); assert.equal(208,fills[4][3]); assert.equal(592,fills[4][4]); assert.equal(492,fills[4][5])
+        local _,_,_,wa=C.unpack(fills[4][6]); assert.equal(255,wa)
+    end)
+
+    it("bends what lies under a floating surface at the bevel and softens it in the lip",function()
+        local B=Null.new(); local dc=Draw.new(B)
+        local window=B.window
+        B.window=function(op,...) if op=="frame_copy" then return -7,1920,1080 end return window(op,...) end
+        B.frame_begin(); dc:begin(1920,1080)
+        Glass.paint(dc,200,200,400,300,"floating",palette("LunarDarkTheme"),16,nil,10)
+        B.frame_end()
+        local taps={}
+        for _,call in ipairs(B.lastFrame()) do if call[1]=="image_rounded_uv" and call[2]==-7 then taps[#taps+1]=call end end
+        assert.equal(5,#taps)
+        -- the whole surface, sampled 2 px in from each edge: the view bends at the rim
+        assert.equal(200,taps[1][3]); assert.near(202/1920,taps[1][7],1e-9); assert.near(598/1920,taps[1][9],1e-9)
+        -- inside the bevel: four half-pixel taps averaging to about 1.5 px of softening
+        for k=2,5 do assert.equal(202,taps[k][3]); assert.equal(14,taps[k][12]) end
+        assert.near((202-0.75)/1920,taps[2][7],1e-9); assert.near((202+0.75)/1920,taps[5][7],1e-9)
+        -- the lip is 10 px here: the well starts 10 px in
+        local wells=0
+        for _,call in ipairs(B.lastFrame()) do if call[1]=="rect_filled" and call[2]==210 then wells=wells+1 end end
+        assert.equal(1,wells)
+    end)
+
+    it("eases the rim's hover lift over 110 ms and only while it moves",function()
+        local R={t=0,animated=0}
+        package.loaded["core.imgui.Runtime"],R.real=setmetatable({now=function() return R.t end,animate=function() R.animated=R.animated+1 end},{}),package.loaded["core.imgui.Runtime"]
+        local Reactor=require("core.ui.ThemeReactor")
+        local tm=Reactor.themeManager
+        Reactor.themeManager=function() return {_motion={enabled=function() return true end,_scale=1}} end
+        local st={}
+        assert.equal(0,Glass.ease(st,false))
+        assert.near(0,Glass.ease(st,true),1e-9)
+        R.t=0.055; local half=Glass.ease(st,true); assert.is_true(half>0.4 and half<0.6)
+        R.t=0.2; local n=R.animated; assert.equal(1,Glass.ease(st,true)); assert.equal(n,R.animated)
+        Reactor.themeManager=function() return {_motion={enabled=function() return false end}} end
+        assert.equal(0,Glass.ease(st,false))
+        Reactor.themeManager=tm
+        package.loaded["core.imgui.Runtime"]=R.real
+    end)
+
+    it("lifts the rim's highlight by ten points at full hover",function()
+        local B=Null.new(); local dc=Draw.new(B)
+        local p=palette("LunarDarkTheme")
+        B.frame_begin(); dc:begin(800,600)
+        Glass.paint(dc,0,0,200,40,"chrome",p,8,nil,nil,0)
+        Glass.paint(dc,0,0,200,40,"chrome",p,8,nil,nil,1)
+        B.frame_end()
+        local rims={}
+        for _,call in ipairs(B.lastFrame()) do if call[1]=="rim" then rims[#rims+1]=call end end
+        local C=require("core.imgui.Color")
+        local _,_,_,a0=C.unpack(rims[1][7]); local _,_,_,a1=C.unpack(rims[2][7])
+        assert.near(25.5,a1-a0,1)
     end)
 
     it("splits the rail into a cap round its entries and one round its foot",function()

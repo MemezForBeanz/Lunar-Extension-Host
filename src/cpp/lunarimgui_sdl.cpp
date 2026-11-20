@@ -442,6 +442,8 @@ int l_window(lua_State *L) {
     if((op=="screen"||op=="full"||op=="dpi"||op=="capabilities")&&!SDL_WasInit(SDL_INIT_VIDEO)){
         if(SDL_Init(SDL_INIT_VIDEO)){const char *driver=SDL_GetCurrentVideoDriver();g.wayland=driver&&std::strcmp(driver,"wayland")==0;}
     }
+    /* the frame copy (core.ui.Glass) is a D3D11 host feature: glass falls back to its tint */
+    if(op=="frame_copy")return 0;
     if(op=="popup_underlay"){auto p=window((int)luaL_checkinteger(L,2));if(p&&p->id!=0&&!p->overlay)p->underlay=lua_toboolean(L,3)!=0;return 0;}
     if(op=="popup_open"){
         SDL_GL_MakeCurrent(g.main.native,g.main.context);SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT,1);
