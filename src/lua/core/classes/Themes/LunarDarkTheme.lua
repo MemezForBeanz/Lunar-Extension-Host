@@ -36,13 +36,17 @@ function LunarDarkTheme:initialize()
         -- Liquid Glass (core.ui.Glass): the baked crescent-and-stars backdrop, chrome and
         -- floating tints over its softened copy, and the curved rim.
         glassBackdrop = "lunar-dark",
-        glassChromeTint = rgb("#151B24"), glassChromeAlpha = 0.58,
-        glassFloatingTint = rgb("#1E2630"), glassFloatingAlpha = 0.76,
+        glassChromeTint = rgb("#151B24"), glassChromeAlpha = 0.32,
+        glassFloatingTint = rgb("#1E2630"), glassFloatingAlpha = 0.44, glassLip = 8,
         glassTextWell = rgb("#242C36"),
-        glassRimHi = "255 255 255 122", glassRimLo = "255 255 255 26", glassRimInner = "0 0 0 64",
+        -- The 2 px bevel: an upper-left highlight fading 70% -> 12%, a lower inner shade 26%.
+        glassRimHi = "255 255 255 179", glassRimLo = "255 255 255 31", glassRimInner = "0 0 0 66",
         -- The worst pixel of the softened backdrop (see gen_glass_assets.py), for the audit.
-        glassSampleWorst = "85 93 104",
-        glassShadowAlpha = 0.32, glassReveal = 8,
+        glassSampleWorst = "29 32 37",
+        glassShadowAlpha = 0.32, -- The sheet's inset (core.ui.WorkspaceFrame): left edge, top, right and bottom, wide
+        -- and narrow; the left strip shows the bare backdrop and its crescent.
+        glassSheetWide = { left = 104, top = 14, side = 12 }, glassSheetNarrow = { left = 80, top = 10, side = 8 },
+        glassTransport = { wide = 18, narrow = 12, below = 8 },
         -- Primary action: an opaque pearl gradient.
         primaryTop = rgb("#FCFDFF"), primaryBottom = rgb("#C1CBD7"), primaryText = rgb("#151A20"),
         primaryHover = rgb("#FFFFFF"), primaryPressed = rgb("#AAB8C8"),

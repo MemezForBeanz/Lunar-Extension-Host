@@ -216,7 +216,12 @@ local function show_drop(e, st, rt, show)
 		owner = e, x = x, y = y, w = w, h = h,
 		draw = function(dc)
 			Layout.layout(child, x, y, w, h)
+			-- Glass lists open with the floating fade and lift (core.ui.Glass.entrance).
+			local Glass = require("core.ui.Glass")
+			local k = Glass.material(child, cs) and Glass.entrance(d) or 1
+			if k < 1 then dc:alpha_push(k); dc:offset_push(0, Glass.LIFT * (1 - k)) end
 			R.paint(child, dc)
+			if k < 1 then dc:offset_pop(); dc:alpha_pop() end
 		end,
 		event = function(ev)
 			local target = R.hitTest(child, ev.x, ev.y) or child
@@ -227,6 +232,7 @@ local function show_drop(e, st, rt, show)
 		end,
 		closed = function()
 			d.overlay = nil
+			d.opened = nil
 			d.dropped = false
 			Element.call(e, "DROPSHOW_CB", 0)
 			R.redraw(e)

@@ -875,6 +875,7 @@ function M.hide(d)
 	if st.data.win and st.data.win_shown then
 		B.window("popup_place", st.data.win, 0, 0, 1, 1, false)
 		st.data.win_shown = false
+		st.data.opened = nil -- the next show fades in again
 	end
 	for i = #dialogs, 1, -1 do if dialogs[i] == d then table.remove(dialogs, i) end end
 	if focused and dialog_of(focused) == d then
@@ -1611,8 +1612,11 @@ local function paint(el, d)
 	local culled = not d:visible(st.x, st.y, st.w, st.h)
 	if culled and class.clip then return end
 	local material, material_palette = require("core.ui.Glass").material(el, st)
-	if not culled and material then
-		require("core.ui.Glass").paint(d, st.x, st.y, st.w, st.h, material.glass, material_palette, material.radius)
+	-- One floating surface per window: a frame filling a floating dialog (the palette, the
+	-- Activity panel, a toast) is that surface already, so it adds no second lip or rim.
+	local nested = material and material.glass == "floating" and d.in_floating
+	if not culled and material and not nested then
+		require("core.ui.Glass").paint(d, st.x, st.y, st.w, st.h, material.glass, material_palette, material.radius, el)
 	end
 	if not culled and class.draw then
 		if st.classname == "videohost" then
@@ -1626,9 +1630,10 @@ local function paint(el, d)
 	local kids = children_shown(el, st)
 	if #kids > 0 or class.paintChildren then
 		-- Descendants of a translucent glass surface must not repaint its colour opaquely.
-		local saved_under = d.glass_under
+		local saved_under, saved_floating = d.glass_under, d.in_floating
 		local g = material and material.glass
-		if g == "chrome" or g == "floating" or g == "floor" then
+		if g == "floating" then d.in_floating = true end
+		if g == "chrome" or g == "floating" or g == "floor" or g == "caps" then
 			d.glass_under = Color.parse(material.bg)
 		elseif g == "card" then
 			d.glass_under = nil -- an opaque sheet: its children paint as usual
@@ -1644,7 +1649,7 @@ local function paint(el, d)
 			for i = 1, #kids do paint(kids[i], d) end
 		end
 		if class.clip or class.clipRect then d:clip_pop() end
-		d.glass_under = saved_under
+		d.glass_under, d.in_floating = saved_under, saved_floating
 	end
 	if not culled and class.drawAfter then
 		local ok, err = xpcall(class.drawAfter, debug.traceback, el, st, d, M)
@@ -1898,9 +1903,21 @@ function M.frame()
 					dc:surface(st.data.win, ox, oy, st.w, st.h)
 					dc:offset_push(ox, oy)
 					dc:clip_push(0, 0, st.w, st.h)
+					-- A glass dialog floats: the main window's lists render under it (the
+					-- backend's underlay), so its lip shows the workspace, and it fades in.
+					local Glass = require("core.ui.Glass")
+					local m = Glass.material(d, st)
+					local glass = m and m.glass == "floating"
+					if glass ~= (st.data.underlay or false) then
+						st.data.underlay = glass
+						B.window("popup_underlay", st.data.win, glass)
+					end
+					local k = glass and Glass.entrance(st.data) or 1
+					if k < 1 then dc:alpha_push(k); dc:offset_push(0, Glass.LIFT * (1 - k)) end
 					local bg = Element.getAttribute(d, "BGCOLOR")
-					if bg then dc:fill(0, 0, st.w, st.h, bg) end
+					if bg and not glass then dc:fill(0, 0, st.w, st.h, bg) end
 					paint(d, dc)
+					if k < 1 then dc:offset_pop(); dc:alpha_pop() end
 					dc:clip_pop()
 					dc:offset_pop()
 					dc:surface_end()

@@ -84,11 +84,12 @@ local function looks(p)
 	local dark = p.glassDark
 	local function col(v, fallback) return Color.parse(v or fallback) end
 	return {
-		chrome = Color.alpha(col(p.glassChromeTint, p.layer01), p.glassChromeAlpha or (dark and 0.58 or 0.56)),
-		floating = Color.alpha(col(p.glassFloatingTint, p.layer03), p.glassFloatingAlpha or (dark and 0.76 or 0.78)),
-		rim_hi = col(p.glassRimHi, dark and "255 255 255 122" or "255 255 255 230"),
-		rim_lo = col(p.glassRimLo, dark and "255 255 255 26" or "255 255 255 77"),
-		rim_inner = col(p.glassRimInner, dark and "0 0 0 64" or "0 0 0 41"),
+		chrome = Color.alpha(col(p.glassChromeTint, p.layer01), p.glassChromeAlpha or (dark and 0.32 or 0.36)),
+		floating = Color.alpha(col(p.glassFloatingTint, p.layer03), p.glassFloatingAlpha or (dark and 0.44 or 0.50)),
+		well = col(p.glassTextWell, p.layer03),
+		rim_hi = col(p.glassRimHi, dark and "255 255 255 179" or "255 255 255 255"),
+		rim_lo = col(p.glassRimLo, dark and "255 255 255 31" or "255 255 255 64"),
+		rim_inner = col(p.glassRimInner, dark and "0 0 0 66" or "0 0 0 46"),
 		shadow = Color.pack(0, 0, 0, floor(255 * (p.glassShadowAlpha or (dark and 0.32 or 0.17)) + 0.5)),
 		card_rim = col(p.glassCardRim, dark and "255 255 255 15" or "0 0 0 15"),
 	}
@@ -166,11 +167,13 @@ local function sample(dc, c, tex, x, y, w, h, radius, refract)
 	end
 end
 
+-- The bevel: one upper-left highlight fading to the far corner, one lower inner shade.
+local BEVEL = 2
 local function rim(dc, look, x, y, w, h, radius)
 	local hi, lo, inner = dc:_color(look.rim_hi), dc:_color(look.rim_lo), dc:_color(look.rim_inner)
 	if dc.B.rim then
 		local ax, ay = x + dc.ox, y + dc.oy
-		dc:_emit("rim", ax, ay, ax + w, ay + h, radius, hi, lo, inner, 0)
+		dc:_emit("rim", ax, ay, ax + w, ay + h, radius, hi, lo, inner, 0, BEVEL)
 		return
 	end
 	dc:rect(x, y, w, h, lo, shapes[radius])
@@ -186,11 +189,52 @@ local function shadow(dc, look, x, y, w, h)
 		SHADOW_BORDER, SHADOW_BORDER, b, b, dc:_color(look.shadow))
 end
 
+-- The floating entrance: seconds to fade in, and pixels of lift.
+M.ENTER, M.LIFT = 0.15, 4
+
+--- Floating glass opens with a 150 ms fade and a 4 px lift; instant without motion.
+-- `state.opened` is set on the first call; returns the eased progress 0..1.
+function M.entrance(state)
+	local R = package.loaded["core.imgui.Runtime"]
+	if not R then return 1 end
+	local now = R.now()
+	state.opened = state.opened or now
+	local manager = Reactor.themeManager()
+	local director = manager and manager._motion
+	if not (director and director:enabled()) then return 1 end
+	local t = (now - state.opened) / (M.ENTER * (director._scale or 1))
+	if t >= 1 then return 1 end
+	R.animate()
+	return 1 - (1 - max(0, t)) ^ 3
+end
+
+-- The rail's two caps: one round the tabs and the "+" that follows them, one round the
+-- chevron at its foot; the bare backdrop shows between them.
+local CAP_PAD = 4
+local function caps(dc, el, x, y, w, h)
+	local ok, tabs = pcall(require, "core.imgui.widgets.flattabs")
+	local rects = ok and el and tabs.extraRects and tabs.extraRects(el) or {}
+	local add, foot = rects[1], rects[2]
+	if not (add and foot) then return { { x, y, w, h } } end
+	local top_end = add[2] + add[4] + CAP_PAD
+	local foot_start = foot[2] - CAP_PAD
+	if foot_start - top_end < 24 then return { { x, y, w, h } } end
+	return { { x + CAP_PAD, y + CAP_PAD, w - 2 * CAP_PAD, top_end - y - CAP_PAD },
+		{ x + CAP_PAD, foot_start, w - 2 * CAP_PAD, y + h - CAP_PAD - foot_start } }
+end
+M._caps = caps
+
 --- Paint `kind` at (x, y, w, h) in the dc's local coordinates. Native popups (menus,
 -- tooltips in their own windows) sample their own window's mapping of the backdrop.
-function M.paint(dc, x, y, w, h, kind, p, radius)
+function M.paint(dc, x, y, w, h, kind, p, radius, el)
 	p = p or Reactor.palette()
 	if kind == "content" or kind == "chrome_content" or kind == "none" then return end
+	if kind == "caps" then
+		for _, r in ipairs(caps(dc, el, x, y, w, h)) do
+			M.paint(dc, r[1], r[2], r[3], r[4], "chrome", p, min(radius or 14, r[3] / 2))
+		end
+		return
+	end
 	if kind == "card" then
 		local r = radius or p.radiusSheet or 14
 		dc:fill(x, y, w, h, p.layer02, shapes[r])
@@ -199,7 +243,7 @@ function M.paint(dc, x, y, w, h, kind, p, radius)
 		return
 	end
 	local floating = kind == "floating"
-	local solid = kind == "floor" and p.bg or (floating and (p.layer03 or p.layer02) or p.layer01)
+	local solid = kind == "floor" and p.bg or (floating and (p.glassTextWell or p.layer03 or p.layer02) or p.layer01)
 	if not solid then return end
 	local c = enabled and p.glass and textures(dc, p)
 	local r = radius or (floating and (p.radiusFloating or 16) or 0)
@@ -215,9 +259,17 @@ function M.paint(dc, x, y, w, h, kind, p, radius)
 	end
 	if kind == "floor" then sample(dc, c, tex, x, y, w, h, 0, false); return end
 	local look = c.looks
-	if floating then shadow(dc, look, x, y, w, h) end
-	sample(dc, c, tex, x, y, w, h, r, true)
-	dc:fill(x, y, w, h, floating and look.floating or look.chrome, shapes[r])
+	if floating then
+		-- A text-free lip of tint over whatever is already drawn underneath (the workspace,
+		-- or under a dialog window the main window's own lists), round an opaque text well.
+		shadow(dc, look, x, y, w, h)
+		dc:fill(x, y, w, h, look.floating, shapes[r])
+		local lip = min(p.glassLip or 8, floor(w / 4), floor(h / 4))
+		dc:fill(x + lip, y + lip, w - 2 * lip, h - 2 * lip, look.well, shapes[max(0, r - lip)])
+	else
+		sample(dc, c, tex, x, y, w, h, r, true)
+		dc:fill(x, y, w, h, look.chrome, shapes[r])
+	end
 	rim(dc, look, x, y, w, h, r)
 end
 

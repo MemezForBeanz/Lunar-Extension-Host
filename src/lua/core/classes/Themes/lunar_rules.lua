@@ -444,6 +444,9 @@ function M.build(p)
             rules[role].bg, rules[role].glass = p.layer01, "chrome"
             rules[role].gradcolor = nil
         end
+        -- The rail is two glass caps (round its entries and "+", round the chevron) with the
+        -- bare backdrop and its crescent between them.
+        rules.tool_rail.glass, rules.tool_rail.radius = "caps", 14
         rules.dialog.glass = "floor"
         -- The close button too: a solid fill on the frosted toast read as a grey square.
         rules.toast_title.glass, rules.toast_body.glass, rules.toast_close.glass = "content", "content", "content"
@@ -453,6 +456,18 @@ function M.build(p)
         rules.dropdown_list.padding, rules.dropdown_list.itemradius = ROW_PAD, R
         for _, role in ipairs({ "dropdown_list", "palette_frame", "toast_bg_info", "toast_bg_success", "toast_bg_warning", "toast_bg_error" }) do
             rules[role].glass, rules[role].radius = "floating", floating_radius
+            -- Dense text sits on the opaque well inside the lip; one rim, no frame line.
+            if p.glassTextWell then rules[role].bg = p.glassTextWell end
+        end
+        if p.glassTextWell then
+            local well_bg = p.glassTextWell
+            for _, role in ipairs({ "palette_text", "palette_prompt", "palette_hint", "palette_list", "palette_rows",
+                                    "toast_title", "toast_body", "toast_close" }) do
+                rules[role].bg = well_bg
+                if rules[role].scrollbg then rules[role].scrollbg = well_bg end
+                if rules[role].border == elevated then rules[role].border = well_bg end
+            end
+            rules.dropdown_list.scrollbg = well_bg
         end
         -- The inset transport: chrome glass, a capsule (half-height corners).
         rules.transport_capsule = { bg = p.layer01, border = p.layer01, borderwidth = 0, radius = 999,

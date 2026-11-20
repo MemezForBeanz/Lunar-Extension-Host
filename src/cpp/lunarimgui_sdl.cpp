@@ -34,6 +34,7 @@ struct Window {
     SDL_Surface *capture = nullptr;
     bool visible = false, close = false, drawn = false, positioned = false;
     bool overlay = false;
+    bool underlay = false; /* a glass dialog: the main window's lists render under its own */
     int owner = 0;
     uint64_t order = 0;
 };
@@ -313,6 +314,9 @@ void render(Window *w) {
     dd.DisplaySize=ImVec2((float)w->w,(float)w->h);dd.FramebufferScale=ImVec2(1,1);
     dd.Textures=&ImGui::GetPlatformIO().Textures;
     auto append=[&](ImDrawList *dl){if(!dl)return;dl->_PopUnusedDrawCmd();for(auto &cmd:dl->CmdBuffer){cmd.ClipRect.x=std::max(cmd.ClipRect.x,(float)w->x);cmd.ClipRect.y=std::max(cmd.ClipRect.y,(float)w->y);cmd.ClipRect.z=std::min(cmd.ClipRect.z,(float)(w->x+w->w));cmd.ClipRect.w=std::min(cmd.ClipRect.w,(float)(w->y+w->h));}if(dl->CmdBuffer.Size){dd.CmdLists.push_back(dl);dd.TotalVtxCount+=dl->VtxBuffer.Size;dd.TotalIdxCount+=dl->IdxBuffer.Size;}};
+    /* under a glass dialog: the main lists as they are (the viewport clips them), unclamped,
+       since the main window has already been rendered from the same lists */
+    if(w->id!=0&&w->underlay)for(auto dl:ImGui::GetDrawData()->CmdLists)if(dl->CmdBuffer.Size){dd.CmdLists.push_back(dl);dd.TotalVtxCount+=dl->VtxBuffer.Size;dd.TotalIdxCount+=dl->IdxBuffer.Size;}
     append(w->lists[0]);
     if(w->id==0)for(auto dl:ImGui::GetDrawData()->CmdLists)append(dl);
     append(w->lists[1]);
@@ -438,6 +442,7 @@ int l_window(lua_State *L) {
     if((op=="screen"||op=="full"||op=="dpi"||op=="capabilities")&&!SDL_WasInit(SDL_INIT_VIDEO)){
         if(SDL_Init(SDL_INIT_VIDEO)){const char *driver=SDL_GetCurrentVideoDriver();g.wayland=driver&&std::strcmp(driver,"wayland")==0;}
     }
+    if(op=="popup_underlay"){auto p=window((int)luaL_checkinteger(L,2));if(p&&p->id!=0&&!p->overlay)p->underlay=lua_toboolean(L,3)!=0;return 0;}
     if(op=="popup_open"){
         SDL_GL_MakeCurrent(g.main.native,g.main.context);SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT,1);
         auto p=std::make_unique<Window>();p->id=g.next_window++;
@@ -543,7 +548,7 @@ LUNAR_FFI void lunar_ui_texture_free(int id){free_texture(id);}
 LUNAR_FFI int lunar_ui_image_rounded(ImDrawList *d,int id,float x1,float y1,float x2,float y2,uint32_t color,float radius){auto t=g.textures.find(id);if(t==g.textures.end())return 0;d->AddImageRounded((ImTextureID)t->second.gl,{x1,y1},{x2,y2},{0,0},{1,1},color,radius);return 1;}
 LUNAR_FFI int lunar_ui_image_rounded_uv(ImDrawList *d,int id,float x1,float y1,float x2,float y2,float u1,float v1,float u2,float v2,uint32_t color,float radius,int flags){auto t=g.textures.find(id);if(t==g.textures.end())return 0;lunar_glass::image_rounded_uv(d,(ImTextureID)t->second.gl,x1,y1,x2,y2,u1,v1,u2,v2,color,radius,flags);return 1;}
 LUNAR_FFI int lunar_ui_image_nine(ImDrawList *d,int id,float x1,float y1,float x2,float y2,float bx,float by,float ub,float vb,uint32_t color){auto t=g.textures.find(id);if(t==g.textures.end())return 0;lunar_glass::image_nine(d,(ImTextureID)t->second.gl,x1,y1,x2,y2,bx,by,ub,vb,color);return 1;}
-LUNAR_FFI void lunar_ui_rim(ImDrawList *d,float x1,float y1,float x2,float y2,float r,uint32_t hi,uint32_t lo,uint32_t inner,int flags){lunar_glass::rim(d,x1,y1,x2,y2,r,hi,lo,inner,flags);}
+LUNAR_FFI void lunar_ui_rim(ImDrawList *d,float x1,float y1,float x2,float y2,float r,uint32_t hi,uint32_t lo,uint32_t inner,int flags,float thick){lunar_glass::rim(d,x1,y1,x2,y2,r,hi,lo,inner,flags,thick);}
 LUNAR_FFI void lunar_ui_clip_push(ImDrawList *d,float x1,float y1,float x2,float y2){d->PushClipRect({x1,y1},{x2,y2},true);}
 LUNAR_FFI void lunar_ui_clip_pop(ImDrawList *d){if(d->_ClipRectStack.Size>1)d->PopClipRect();}
 LUNAR_FFI ImFont *lunar_ui_face_font(int id){return font(id);}

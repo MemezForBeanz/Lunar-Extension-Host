@@ -59,18 +59,20 @@ inline void image_nine(ImDrawList *dl, ImTextureRef tex, float x1, float y1, flo
     if (push) dl->PopTexture();
 }
 
-/* The curved edge: a 1 px rim on the outer contour, `hi` at the upper-left shoulder easing
-   to `lo` at the far corner, and a 1 px inner lower edge in `inner` that fades out up the
-   sides. Either colour pair may be fully transparent to skip that part. */
+/* The curved edge (a bevel `thick` px wide): a rim on the outer contour, `hi` at the
+   upper-left shoulder easing to `lo` at the far corner, and an inner lower edge in `inner`
+   that fades out up the sides. Either part may be fully transparent to skip it. */
 inline void rim(ImDrawList *dl, float x1, float y1, float x2, float y2, float rounding,
-                ImU32 hi, ImU32 lo, ImU32 inner, int flags) {
+                ImU32 hi, ImU32 lo, ImU32 inner, int flags, float thick = 1.0f) {
+    thick = std::max(1.0f, thick);
+    const float half = thick * 0.5f;
     float w = x2 - x1, h = y2 - y1;
     if (w <= 2 || h <= 2) return;
     rounding = std::min(rounding, std::min(w, h) * 0.5f);
     if ((hi | lo) & IM_COL32_A_MASK) {
         int v0 = dl->VtxBuffer.Size;
-        dl->AddRect(ImVec2(x1 + 0.5f, y1 + 0.5f), ImVec2(x2 - 0.5f, y2 - 0.5f), IM_COL32_WHITE,
-                    std::max(0.0f, rounding - 0.5f), 1.0f, (ImDrawFlags)flags);
+        dl->AddRect(ImVec2(x1 + half, y1 + half), ImVec2(x2 - half, y2 - half), IM_COL32_WHITE,
+                    std::max(0.0f, rounding - half), thick, (ImDrawFlags)flags);
         /* Project onto the diagonal: wide strips run left to right, tall rails top to bottom. */
         ImVec2 d(w, h);
         float dd = d.x * d.x + d.y * d.y;
@@ -81,12 +83,13 @@ inline void rim(ImDrawList *dl, float x1, float y1, float x2, float y2, float ro
         });
     }
     if (inner & IM_COL32_A_MASK) {
-        float r = std::max(1.0f, rounding - 1.0f);
-        float top = y2 - 1.5f - r;
+        float in = thick + half;
+        float r = std::max(1.0f, rounding - thick);
+        float top = y2 - in - r;
         int v0 = dl->VtxBuffer.Size;
-        dl->PathArcTo(ImVec2(x2 - 1.5f - r, top), r, 0.0f, IM_PI * 0.5f);
-        dl->PathArcTo(ImVec2(x1 + 1.5f + r, top), r, IM_PI * 0.5f, IM_PI);
-        dl->PathStroke(IM_COL32_WHITE, 1.0f, 0);
+        dl->PathArcTo(ImVec2(x2 - in - r, top), r, 0.0f, IM_PI * 0.5f);
+        dl->PathArcTo(ImVec2(x1 + in + r, top), r, IM_PI * 0.5f, IM_PI);
+        dl->PathStroke(IM_COL32_WHITE, thick, 0);
         shade(dl, v0, dl->VtxBuffer.Size, [&](ImVec2 p) {
             float t = (p.y - top) / r;
             t = t < 0 ? 0 : (t > 1 ? 1 : t);

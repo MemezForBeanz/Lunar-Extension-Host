@@ -186,6 +186,9 @@ struct Popup {
      * else a dialog window), `inset` the transparent margin around what it shows, and
      * `bits` the last pixels it was given (premultiplied BGRA, top-down), kept for captures. */
     bool overlay = false, passthrough = false; int owner = 0, inset = 0;
+    /* A glass dialog window (core.ui.Glass): the main window's lists are rendered under its
+     * own, so its translucent edge shows the workspace it floats over. */
+    bool underlay = false;
     /* the window it is stacked directly under (a modal dialog over a scrimmed video), 0 none */
     int under = 0;
     uint64_t order = 0;
@@ -1757,6 +1760,18 @@ void popup_render(Popup *p) {
         dd.CmdLists.push_back(dl);
         dd.TotalVtxCount += dl->VtxBuffer.Size; dd.TotalIdxCount += dl->IdxBuffer.Size;
     }
+    if (p->underlay) {
+        /* both are in main-client coordinates: the main lists go first, clipped by the
+           viewport to what lies under this window */
+        ImDrawData *main = ImGui::GetDrawData();
+        ImVector<ImDrawList*> own = dd.CmdLists;
+        dd.CmdLists.clear();
+        if (main) for (ImDrawList *dl : main->CmdLists) {
+            dd.CmdLists.push_back(dl);
+            dd.TotalVtxCount += dl->VtxBuffer.Size; dd.TotalIdxCount += dl->IdxBuffer.Size;
+        }
+        for (ImDrawList *dl : own) dd.CmdLists.push_back(dl);
+    }
     dd.DisplayPos = ImVec2((float)p->at.x, (float)p->at.y);
     dd.DisplaySize = ImVec2((float)p->sc_w, (float)p->sc_h);
     dd.FramebufferScale = ImVec2(1, 1);
@@ -2422,6 +2437,11 @@ int l_window(lua_State *L) {
         if (!p) return 0;
         lua_pushinteger(L, p->id); return 1;
     }
+    if (is("popup_underlay")) {
+        Popup *p = popup_by_id((int)luaL_checkinteger(L, 2));
+        if (p && !p->overlay) p->underlay = lua_toboolean(L, 3) != 0;
+        return 0;
+    }
     if (is("popup_ready")) {
         Popup *p = popup_by_id((int)luaL_checkinteger(L, 2));
         lua_pushboolean(L, p && p->swap && IsWindow(p->hwnd)); return 1;
@@ -2814,8 +2834,8 @@ LUNAR_FFI int lunar_ui_image_nine(ImDrawList *dl, int tex, float x1, float y1, f
     return 1;
 }
 LUNAR_FFI void lunar_ui_rim(ImDrawList *dl, float x1, float y1, float x2, float y2, float rounding,
-                            uint32_t hi, uint32_t lo, uint32_t inner, int flags) {
-    lunar_glass::rim(dl, x1, y1, x2, y2, rounding, hi, lo, inner, flags);
+                            uint32_t hi, uint32_t lo, uint32_t inner, int flags, float thick) {
+    lunar_glass::rim(dl, x1, y1, x2, y2, rounding, hi, lo, inner, flags, thick);
 }
 LUNAR_FFI void lunar_ui_clip_push(ImDrawList *dl, float x1, float y1, float x2, float y2) {
     dl->PushClipRect(ImVec2(x1, y1), ImVec2(x2, y2), true);

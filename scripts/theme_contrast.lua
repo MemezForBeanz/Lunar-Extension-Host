@@ -40,17 +40,29 @@ function M.audit(theme, output)
         check(role,"inactive",r.inactivefg,r.inactivebg or bg,4.5)
         check(role,"tabs",r.tabsfg,r.tabsbg or bg,4.5)
         if r.glass and r.glass~="card" and r.glass~="none" and p.glass then
-            -- Final pixels: the worst sample of the baked backdrop (brightest in the dark
-            -- mode, darkest in the light) under the surface's tint, and every state on it.
             local floating=r.glass=="floating" or r.glass=="content"
-            local under=M.composite(p,floating)
-            check(role,"glass",r.fg,under,4.5)
-            if r.tabsfg then check(role,"glass tabs",r.tabsfg,under,4.5) end
-            if not M.inBound(p,under) then
-                count=count+1; failures[#failures+1]=role..".glass bound "..under
+            if floating then
+                -- Floating text sits on the opaque well inside the text-free lip.
+                local well=p.glassTextWell or p.layer03
+                check(role,"well",r.fg,well,4.5)
+                check(role,"well secondary",r.secondary,well,4.5)
+            else
+                -- Chrome labels: the worst sample of the baked backdrop where labels sit
+                -- (brightest dark, darkest light) under the tint, on final pixels.
+                local under=M.composite(p,false)
+                check(role,"glass",r.fg,under,4.5)
+                if r.tabsfg then check(role,"glass tabs",r.tabsfg,under,4.5) end
+                if not M.inBound(p,under) then
+                    count=count+1; failures[#failures+1]=role..".glass bound "..under
+                end
             end
         end
         end
+    end
+    if p.glass and p.glassTextWell then
+        -- Muted text on the wells (palette results, Activity rows, toasts).
+        check("glassTextWell","text",p.text,p.glassTextWell,4.5)
+        check("glassTextWell","muted",p.textMuted,p.glassTextWell,4.5)
     end
     for _,role in ipairs({"text","dropbutton","text_focus"}) do
         local r=rules[role]; check(role,"boundary",r.border,r.bg,3)

@@ -98,7 +98,8 @@ function M.new(ctx, opts)
 		TITLE = "", THEMEROLE = "transport_capsule", MARGIN = "0x0", EXPAND = "HORIZONTAL",
 	})
 	-- The window's frame leaves no room on the right, so the card keeps its own.
-	api.widget = iup.hbox({ card, iup.fill({ RASTERSIZE = "8x" }), MARGIN = "0x4", EXPAND = "HORIZONTAL" })
+	-- Space above and below comes from the host's dock (core.ui.WorkspaceFrame.dock).
+	api.widget = iup.hbox({ card, iup.fill({ RASTERSIZE = "8x" }), MARGIN = "0x0", EXPAND = "HORIZONTAL" })
 
 	local handle = ctx:addDock(api.widget, opts.owner)
 

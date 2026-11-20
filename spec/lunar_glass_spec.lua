@@ -91,14 +91,43 @@ describe("Lunar glass",function()
         assert.is_nil(n.image); assert.is_nil(n.image_nine); assert.is_nil(n.line)
     end)
 
-    it("draws a floating surface with one nine-slice shadow and no contour stack",function()
+    it("draws a floating surface as shadow, see-through lip, opaque well and one bevel",function()
         local B=Null.new(); local dc=Draw.new(B)
+        local p=palette("LunarLightTheme")
         B.frame_begin(); dc:begin(1920,1080)
-        Glass.paint(dc,200,200,400,300,"floating",palette("LunarLightTheme"),16)
+        Glass.paint(dc,200,200,400,300,"floating",p,16)
         B.frame_end()
         local n=ops(B)
-        assert.equal(1,n.image_nine); assert.equal(1,n.image_rounded_uv); assert.equal(1,n.rim)
-        assert.is_nil(n.rect)
+        assert.equal(1,n.image_nine); assert.equal(1,n.rim); assert.equal(2,n.rect_filled)
+        assert.is_nil(n.image_rounded_uv); assert.is_nil(n.rect)
+        local fills={}
+        for _,call in ipairs(B.lastFrame()) do
+            if call[1]=="rect_filled" then fills[#fills+1]=call end
+            if call[1]=="rim" then assert.equal(2,call[11]) end
+        end
+        -- the lip: the whole surface in a translucent tint, so what is underneath carries through
+        local C=require("core.imgui.Color")
+        local _,_,_,a=C.unpack(fills[1][6])
+        assert.equal(math.floor(255*p.glassFloatingAlpha+0.5),a)
+        -- the well: opaque, 8 px in from every edge
+        assert.equal(208,fills[2][2]); assert.equal(208,fills[2][3]); assert.equal(592,fills[2][4]); assert.equal(492,fills[2][5])
+        local _,_,_,wa=C.unpack(fills[2][6]); assert.equal(255,wa)
+    end)
+
+    it("splits the rail into a cap round its entries and one round its foot",function()
+        local tabs=require("core.imgui.widgets.flattabs")
+        local real=tabs.extraRects
+        tabs.extraRects=function() return {{0,56,48,32},{0,1000,48,32}} end
+        local B=Null.new(); local dc=Draw.new(B)
+        B.frame_begin(); dc:begin(1920,1080)
+        Glass.paint(dc,0,40,48,1000,"caps",palette("LunarDarkTheme"),14,{})
+        B.frame_end()
+        tabs.extraRects=real
+        local samples={}
+        for _,call in ipairs(B.lastFrame()) do if call[1]=="image_rounded_uv" then samples[#samples+1]=call end end
+        assert.equal(2,#samples)
+        assert.equal(44,samples[1][4]); assert.equal(92,samples[1][6])      -- top cap ends under "+"
+        assert.equal(996,samples[2][4]); assert.equal(1036,samples[2][6])   -- foot cap round the chevron
     end)
 
     it("maps the backdrop by cover scaling from the top-left and bends it through the rim",function()
@@ -157,7 +186,7 @@ describe("Lunar glass",function()
         local B=Null.new(); B.image_rounded_uv=nil; B.rim=nil; B.image_nine=nil
         local dc=Draw.new(B)
         B.frame_begin(); dc:begin(800,600)
-        Glass.paint(dc,10,10,200,100,"floating",palette("LunarDarkTheme"),16)
+        Glass.paint(dc,10,10,200,100,"chrome",palette("LunarDarkTheme"),16)
         B.frame_end()
         local n=ops(B)
         assert.is_true(n.image>16)
@@ -226,5 +255,27 @@ describe("Lunar glass",function()
         -- themes without glass keep a plain card for the player
         local carbonless=require("core.classes.Themes.OneDarkProTheme"):new():rules()
         assert.is_nil(carbonless.transport_capsule.glass)
+    end)
+
+    it("insets the sheet wide and narrow and keeps its left edge as the rail changes",function()
+        local Frame=require("core.ui.WorkspaceFrame")
+        local Reactor=require("core.ui.ThemeReactor")
+        local real=Reactor.palette
+        Reactor.palette=function() return palette("LunarDarkTheme") end
+        local iup={_IMGUI=true}
+        local width=48
+        Frame.setRail(function() return width end)
+        Frame.setWidth(1920)
+        local m=Frame.metrics(iup)
+        assert.same({band=9,left=56,top=14,right=12,bottom=12},m)
+        Frame.setWidth(1100)
+        m=Frame.metrics(iup)
+        assert.same({band=8,left=32,top=10,right=8,bottom=8},m)
+        width=176
+        assert.equal(8,Frame.metrics(iup).left)
+        Frame.setWidth(1920); width=48
+        Reactor.palette=function() return palette("CarbonWhiteTheme") end
+        assert.same({band=12,left=0,top=0,right=0,bottom=0},Frame.metrics(iup))
+        Reactor.palette=real
     end)
 end)

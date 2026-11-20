@@ -18,20 +18,49 @@ function Frame.sheetMode(iup)
 	return rawget(iup, "_IMGUI") ~= nil and p.glass == true, p
 end
 
---- The band height and the reveal around the sheet, for the active theme.
+-- The window class the insets follow (Frame.setWidth): wide from this client width on.
+local WIDE_FROM = 1440
+local wide = true
+-- The left rail's current width (main.lua tells), so the sheet's left edge stays put.
+local rail_width = function() return 48 end
+-- Frames to refit when the width class or the rail changes (widget -> refit).
+local fitters = setmetatable({}, { __mode = "k" })
+
+--- The band height and the sheet's insets ({ band, left, top, right, bottom }), for the
+-- active theme and window class. Outside glass sheets: the old bands and no insets.
 function Frame.metrics(iup)
 	local sheet, p = Frame.sheetMode(iup)
-	if not sheet then return RADIUS, 0 end
-	-- Five rows short of the radius: below that the corner's curve is within a pixel of
-	-- the edge, so the children can start there and the page keeps its room.
-	return math.max(0, (p.radiusSheet or 14) - 5), p.glassReveal or 8
+	if not sheet then return { band = RADIUS, left = 0, top = 0, right = 0, bottom = 0 } end
+	-- Five rows short of the radius (six in a narrow window, where every row counts): below
+	-- that the corner's curve is about a pixel from the edge, so the children can start
+	-- there and the page keeps its room.
+	local band = math.max(0, (p.radiusSheet or 14) - (wide and 5 or 6))
+	local m = (wide and p.glassSheetWide or p.glassSheetNarrow) or {}
+	local side = m.side or p.glassReveal or 8
+	-- The sheet starts at `left` from the window edge: the strip beside the rail stays bare.
+	local left = math.max(side, (m.left or 0) - (rail_width() or 0))
+	return { band = band, left = left, top = m.top or side, right = side, bottom = side }
 end
 
---- Vertical pixels the frame adds around the workspace (both bands and the reveal).
+--- Vertical pixels the frame adds around the workspace (both bands and the insets).
 function Frame.verticalChrome(iup)
-	local band, reveal = Frame.metrics(iup)
-	return 2 * band + 2 * reveal
+	local m = Frame.metrics(iup)
+	return 2 * m.band + m.top + m.bottom
 end
+
+local function refit_all()
+	for _, fit in pairs(fitters) do fit() end
+end
+
+--- The client width decides wide or narrow insets (called on resize).
+function Frame.setWidth(w)
+	local now = (w or 0) >= WIDE_FROM
+	if now ~= wide then wide = now; refit_all() end
+end
+
+--- How wide the rail is now; refits when called with a new reader or on `Frame.refit()`.
+function Frame.setRail(reader) rail_width = reader or rail_width; refit_all() end
+function Frame.refit() refit_all() end
 
 function Frame.wrap(iup, child)
 	local bands = {}
@@ -75,18 +104,26 @@ function Frame.wrap(iup, child)
 	end
 	local sheet = iup.vbox({ band(false), child, band(true), MARGIN = "0x0", GAP = "0", EXPAND = "YES",
 		THEMEROLE = "workspace_sheet" })
-	local widget = iup.vbox({ sheet, MARGIN = "0x0", GAP = "0", EXPAND = "YES" })
+	-- Fixed spacers give the sheet its four insets (a box's MARGIN is symmetric).
+	local left, right = iup.fill({ RASTERSIZE = "0x" }), iup.fill({ RASTERSIZE = "0x" })
+	local top, bottom = iup.fill({ RASTERSIZE = "x0" }), iup.fill({ RASTERSIZE = "x0" })
+	local widget = iup.hbox({ left, iup.vbox({ top, sheet, bottom, MARGIN = "0x0", GAP = "0", EXPAND = "YES" }), right,
+		MARGIN = "0x0", GAP = "0", EXPAND = "YES" })
 	local applied
 	local function fit()
-		local band_h, reveal = Frame.metrics(iup)
-		local key = band_h .. ":" .. reveal
+		local m = Frame.metrics(iup)
+		local key = table.concat({ m.band, m.left, m.top, m.right, m.bottom }, ":")
 		if key == applied then return false end
 		applied = key
-		for _, canvas in ipairs(bands) do iup.SetAttribute(canvas, "RASTERSIZE", "x" .. band_h) end
-		iup.SetAttribute(widget, "MARGIN", reveal .. "x" .. reveal)
+		for _, canvas in ipairs(bands) do iup.SetAttribute(canvas, "RASTERSIZE", "x" .. m.band) end
+		iup.SetAttribute(left, "RASTERSIZE", m.left .. "x")
+		iup.SetAttribute(right, "RASTERSIZE", m.right .. "x")
+		iup.SetAttribute(top, "RASTERSIZE", "x" .. m.top)
+		iup.SetAttribute(bottom, "RASTERSIZE", "x" .. m.bottom)
 		return true
 	end
 	fit()
+	fitters[widget] = function() if fit() then iup.Refresh(widget) end end
 	-- Keep the registered controller alive for exactly as long as its widget.
 	local controller = { _onThemeApply = function()
 		if fit() then iup.Refresh(widget) end
@@ -97,24 +134,48 @@ function Frame.wrap(iup, child)
 	return widget
 end
 
---- The dock under the sheet (the media player): inset from the sides like the sheet, so
--- its card floats as a capsule over the backdrop in glass themes.
+--- The dock under the sheet (the media player): in glass themes its card floats as a
+-- capsule inset from the sheet's sides (`glassTransport`) and above the status strip.
+-- Returns the box to lay out; `slot` stays the box docks are added to.
 function Frame.dock(iup, slot)
+	local left, right = iup.fill({ RASTERSIZE = "0x" }), iup.fill({ RASTERSIZE = "0x" })
+	local above, below = iup.fill({ RASTERSIZE = "x4" }), iup.fill({ RASTERSIZE = "x4" })
+	local box = iup.vbox({ above, iup.hbox({ left, slot, right, MARGIN = "0x0", GAP = "0" }), below,
+		MARGIN = "0x0", GAP = "0", EXPAND = "HORIZONTAL" })
 	local applied
-	local controller = { _onThemeApply = function()
-		local _, reveal = Frame.metrics(iup)
-		-- Sides only: the player card keeps its own space above and below.
-		local margin = reveal .. "x0"
-		if margin ~= applied then
-			applied = margin
-			iup.SetAttribute(slot, "MARGIN", margin)
-			iup.Refresh(slot)
+	local function fit()
+		local sheet, p = Frame.sheetMode(iup)
+		local m = Frame.metrics(iup)
+		local t = sheet and p.glassTransport or {}
+		local inset = (wide and t.wide or t.narrow) or 0
+		-- A dock keeps 4 px above and below; a glass capsule sits on the sheet's own inset
+		-- and keeps `below` px over the status strip.
+		local top_gap, gap = sheet and 0 or 4, sheet and (t.below or 8) or 4
+		-- No space at all while no dock shows.
+		local shown = false
+		local child = iup.GetNextChild(slot, nil)
+		while child do
+			if iup.GetAttribute(child, "VISIBLE") ~= "NO" and iup.GetAttribute(child, "FLOATING") ~= "YES" then shown = true end
+			child = iup.GetNextChild(slot, child)
 		end
-	end }
+		if not shown then top_gap, gap = 0, 0 end
+		local key = table.concat({ m.left + inset, m.right + inset, top_gap, gap }, ":")
+		if key == applied then return false end
+		applied = key
+		iup.SetAttribute(left, "RASTERSIZE", (sheet and m.left + inset or 0) .. "x")
+		iup.SetAttribute(right, "RASTERSIZE", (sheet and m.right + inset or 0) .. "x")
+		iup.SetAttribute(above, "RASTERSIZE", "x" .. top_gap)
+		iup.SetAttribute(below, "RASTERSIZE", "x" .. gap)
+		return true
+	end
+	fit()
+	local refit = function() if fit() then iup.Refresh(box) end end
+	fitters[box] = refit
+	local controller = { _onThemeApply = refit }
 	Reactor.register(controller)
-	-- The registry is weak: the callback keeps the controller alive with the slot.
-	function slot:destroy_cb() controller._onThemeApply = nil end
-	return slot
+	-- The registry is weak: the callback keeps the controller alive with the box.
+	function box:destroy_cb() controller._onThemeApply = nil end
+	return box
 end
 
 return Frame
