@@ -22,7 +22,9 @@ end
 function Frame.metrics(iup)
 	local sheet, p = Frame.sheetMode(iup)
 	if not sheet then return RADIUS, 0 end
-	return p.radiusSheet or 14, p.glassReveal or 10
+	-- Five rows short of the radius: below that the corner's curve is within a pixel of
+	-- the edge, so the children can start there and the page keeps its room.
+	return math.max(0, (p.radiusSheet or 14) - 5), p.glassReveal or 8
 end
 
 --- Vertical pixels the frame adds around the workspace (both bands and the reveal).
@@ -101,7 +103,8 @@ function Frame.dock(iup, slot)
 	local applied
 	local controller = { _onThemeApply = function()
 		local _, reveal = Frame.metrics(iup)
-		local margin = reveal .. "x" .. math.floor(reveal / 5)
+		-- Sides only: the player card keeps its own space above and below.
+		local margin = reveal .. "x0"
 		if margin ~= applied then
 			applied = margin
 			iup.SetAttribute(slot, "MARGIN", margin)

@@ -42,7 +42,7 @@ function LunarDarkTheme:initialize()
         glassRimHi = "255 255 255 122", glassRimLo = "255 255 255 26", glassRimInner = "0 0 0 64",
         -- The worst pixel of the softened backdrop (see gen_glass_assets.py), for the audit.
         glassSampleWorst = "85 93 104",
-        glassShadowAlpha = 0.32, glassReveal = 10,
+        glassShadowAlpha = 0.32, glassReveal = 8,
         -- Primary action: an opaque pearl gradient.
         primaryTop = rgb("#FCFDFF"), primaryBottom = rgb("#C1CBD7"), primaryText = rgb("#151A20"),
         primaryHover = rgb("#FFFFFF"), primaryPressed = rgb("#AAB8C8"),

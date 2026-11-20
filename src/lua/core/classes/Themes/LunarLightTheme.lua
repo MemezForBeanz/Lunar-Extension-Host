@@ -41,7 +41,7 @@ function LunarLightTheme:initialize()
         glassRimHi = "255 255 255 230", glassRimLo = "255 255 255 77", glassRimInner = "0 0 0 41",
         -- The worst pixel of the softened backdrop (see gen_glass_assets.py), for the audit.
         glassSampleWorst = "186 197 209",
-        glassShadowAlpha = 0.17, glassReveal = 10,
+        glassShadowAlpha = 0.17, glassReveal = 8,
         -- Primary action: an opaque graphite gradient.
         primaryTop = rgb("#404959"), primaryBottom = rgb("#1E2530"), primaryText = rgb("#F8FAFC"),
         primaryHover = rgb("#475263"), primaryPressed = rgb("#171D27"),
