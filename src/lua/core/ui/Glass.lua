@@ -20,16 +20,22 @@ local function sample(dc,c,tex,left,top,right,bottom)
         (left+dc.ox)/c.w,(top+dc.oy)/c.h,(right+dc.ox)/c.w,(bottom+dc.oy)/c.h,dc:_color(0xFFFFFFFF))
 end
 local function release()
-    if cache and cache.B.texture_free then
-        if cache.sharp then cache.B.texture_free(cache.sharp) end
-        if cache.blur then cache.B.texture_free(cache.blur) end
+    if cache and cache.B and cache.B.texture_free then
+        for _,c in pairs(cache.by_palette) do
+            if c.sharp then cache.B.texture_free(c.sharp) end
+            if c.blur then cache.B.texture_free(c.blur) end
+        end
     end
     cache = nil
 end
 function M.setEnabled(value) enabled = value == true; if not enabled then release() end end
 function M.enabled() return enabled end
 function M.clear() release(); theme, rules, floating_dialog = nil, nil, nil end
-function M.stats() return { bytes = cache and cache.bytes or 0, generations = M.generations or 0 } end
+function M.stats()
+    local bytes = 0
+    if cache then for _,c in pairs(cache.by_palette) do bytes = bytes + (c.bytes or 0) end end
+    return { bytes = bytes, generations = M.generations or 0 }
+end
 
 -- Deterministic pixels at half resolution; blur is quarter resolution and separable
 -- Gaussian (24 window pixels). No noise, randomness, or texture work during idle.
@@ -86,30 +92,41 @@ function M.pixels(p, w, h)
     end
     return table.concat(sharp),sw,sh,table.concat(blur),bw,bh
 end
+-- The backdrop is a smooth glow, so it is generated once per palette at a fixed
+-- size (BASE_W x BASE_H) and stretched by the GPU to any window size. Resizing never
+-- regenerates it, and each palette keeps its own pair, so switching light/dark back
+-- and forth after the first time costs nothing.
+local BASE_W, BASE_H = 1024, 576
 local function textures(dc,p)
     local w,h = ceil((dc.window_w or 1920)/128)*128,ceil((dc.window_h or 1080)/128)*128
-    if cache and cache.p==p and cache.w==w and cache.h==h and cache.B==dc.B then return cache end
-    release()
-    local c={p=p,w=w,h=h,B=dc.B}
-    -- Subpixel stars stay at window resolution, independent of the half-size glow.
-    -- Cached geometry avoids six-pixel stars after texture upsampling.
-    if p.glassDark then
-        c.stars={}
+    if not cache or cache.B~=dc.B then release(); cache={B=dc.B,by_palette={}} end
+    local c=cache.by_palette[p]
+    if not c then
+        c={}
+        cache.by_palette[p]=c
+        if dc.B.texture then
+            local ok,a,sw,sh,b,bw,bh=pcall(M.pixels,p,BASE_W,BASE_H)
+            if ok then
+                local uploaded, sharp, blur = pcall(function() return dc.B.texture(a,sw,sh),dc.B.texture(b,bw,bh) end)
+                if uploaded then c.sharp,c.blur=sharp,blur end
+                c.bytes=(sw*sh+bw*bh)*4
+                M.generations=(M.generations or 0)+1
+            end
+        end
+    end
+    -- UVs map window coordinates onto the stretched texture.
+    c.w,c.h=w,h
+    -- Subpixel stars stay at window resolution, independent of the glow texture.
+    -- Cached geometry avoids six-pixel stars after texture upsampling; it is cheap
+    -- (one entry per 12000 px), so it follows the window size.
+    if p.glassDark and (c.stars_w~=w or c.stars_h~=h) then
+        c.stars,c.stars_w,c.stars_h={},w,h
         local seed=731
         local function random() seed=(seed*48271)%2147483647; return seed/2147483647 end
         for i=1,floor(w*h/12000) do
             c.stars[i]={floor(random()*w)+.5,floor(random()*h)+.5,
                 Color.pack(255,255,255,31+floor(random()*58)),random()>.55}
         end
-    end
-    cache=c
-    if not dc.B.texture then return c end
-    local ok,a,sw,sh,b,bw,bh=pcall(M.pixels,p,w,h)
-    if ok then
-        local uploaded, sharp, blur = pcall(function() return dc.B.texture(a,sw,sh),dc.B.texture(b,bw,bh) end)
-        if uploaded then c.sharp,c.blur=sharp,blur end
-        c.bytes=(sw*sh+bw*bh)*4
-        M.generations=(M.generations or 0)+1
     end
     return c
 end
@@ -179,7 +196,8 @@ function M.material(el,st)
     local manager=Reactor.themeManager()
     local active=manager and manager:activeTheme()
     if active~=theme then
-        release(); theme=active; rules=active and active:rules() or {}
+        -- Textures are cached per palette, so a theme switch keeps them for the way back.
+        theme=active; rules=active and active:rules() or {}
         floating_dialog={bg=rules.dialog and rules.dialog.bg,glass="floating",radius=12}
     end
     if not rules then return end
