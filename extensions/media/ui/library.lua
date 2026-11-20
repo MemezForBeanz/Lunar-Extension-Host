@@ -20,8 +20,10 @@ local NameDialog = require("core.ui.NameDialog")
 local M = {}
 
 local CELL = 148           -- the size a cell aims for; columns then share the width exactly
-local WIDE_CELL = 270      -- Continue watching: landscape cards, which also say how long is left
-local WIDE_GUTTER = 12     -- ...set closer, so five fit across a 1920 px window
+local WIDE_CELL = 280      -- Continue watching: landscape cards, which also say how long is left
+-- ...or slightly smaller and closer, where that fits one card more (five across a 1920 px
+-- window whose page starts further in).
+local WIDE_TIGHT, WIDE_TIGHT_GUTTER = 270, 12
 local JUMP_SLOTS = 27      -- A to Z and #
 local PLAN_ROW = 48
 local JUMP_ROW = 22
@@ -331,7 +333,7 @@ function M.new(ctx, opts)
 		return opts.backdrop_of and opts.backdrop_of(item) or art_of(item)
 	end
 
-	local continue_shelf = grid_for(function() return continuing end, { shelf = true, cell = WIDE_CELL, gutter = WIDE_GUTTER,
+	local continue_shelf = grid_for(function() return continuing end, { shelf = true, cell = WIDE_CELL,
 		aspect = "16:9", art = wide_art, secondary = time_left,
 		empty = "Nothing in progress", hint = "Films you start appear here." })
 	local plan = {}
@@ -996,7 +998,13 @@ function M.new(ctx, opts)
 		last_width = width
 		sheet:setCellWidth(fitted_cell(width - 2 * RING - SCROLLBAR, ideal_cell))
 		local shelf_cell = fitted_cell(width - 3 * RING - SCROLLBAR, ideal_cell)
-		local wide_cell = fitted_cell(width - 3 * RING - SCROLLBAR, WIDE_CELL, WIDE_GUTTER)
+		local wide_room = width - 3 * RING - SCROLLBAR
+		local wide_gutter = GUTTER
+		local function columns(ideal, gutter) return math.floor((wide_room + gutter) / (ideal + gutter)) end
+		if columns(WIDE_TIGHT, WIDE_TIGHT_GUTTER) > columns(WIDE_CELL, GUTTER) then wide_gutter = WIDE_TIGHT_GUTTER end
+		local wide_cell = wide_gutter == GUTTER and fitted_cell(wide_room, WIDE_CELL)
+			or fitted_cell(wide_room, WIDE_TIGHT, WIDE_TIGHT_GUTTER)
+		iup.SetAttribute(continue_shelf.widget, "GUTTER", tostring(wide_gutter))
 		recent_shelf:setCellWidth(shelf_cell)
 		continue_shelf:setCellWidth(wide_cell)
 		size_shelves(shelf_cell, wide_cell)

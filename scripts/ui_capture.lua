@@ -544,9 +544,9 @@ iup.MainLoop = function()
 						local a=E.state(h) and E.state(h).parent
 						while a do
 							local found={}
-							local function all(h)
-								if is_configure(h) then found[#found+1]=h end
-								for _,c in ipairs(E.children(h)) do all(c) end
+							local function all(node)
+								if is_configure(node) then found[#found+1]=node end
+								for _,c in ipairs(E.children(node)) do all(c) end
 							end
 							all(a)
 							if #found>0 then
