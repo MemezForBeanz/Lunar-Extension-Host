@@ -479,14 +479,21 @@ function M.build(p)
         end
         -- The see-through lip: wider on the big panels, narrow on a tooltip.
         rules.palette_frame.lip = 10
+        -- The GPU glass splits colour a quarter px at the big panels' rims (the palette and
+        -- Activity); menus, dropdowns, toasts and tooltips, whose rims lie over text, none.
+        rules.palette_frame.chroma = 0.25
         rules.dropdown_list.lip = 8
         for _, kind in ipairs({ "info", "success", "warning", "error" }) do rules["toast_bg_" .. kind].lip = 8 end
         rules.contextmenu.lip = 8
         -- The inset transport: chrome glass, a capsule (half-height corners).
+        -- On the GPU it is live glass: the nearest artwork shows through it (core.ui.Glass).
         rules.transport_capsule = { bg = p.layer01, border = p.layer01, borderwidth = 0, radius = 999,
-            glass = "chrome" }
+            glass = "chrome", live = true }
         -- The search field is a capsule too.
         rules.commandbar.radius, rules.commandbar_text.radius = 14, 14
+        -- One 14 px rounded fill in every state at every width: the field paints no square
+        -- of the title strip's colour behind its pill (the strip's glass shows there).
+        rules.commandbar.glass = "content"
         -- The button fills the pill: painting its parent's colour as a square showed a dark
         -- rectangle round the capsule, so it leaves the fill to the pill.
         rules.commandbar_text.glass = "content"

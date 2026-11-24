@@ -19,11 +19,14 @@
 --
 -- On a hardware device (B.glass_ready(), asked once per frame) chrome and floating glass are
 -- a live shader instead (lunar_glass_d3d11.inc): each surface is one `glass` call that
--- refracts and blurs what is actually under it this frame, with the rim's specular and
--- inner shade, and the same tints; the floating shadow and the opaque text well stay as
--- below. On WARP, an SDL host, or with hardware acceleration off, the baked path below is
--- used unchanged. The floor (the backdrop the glass refracts) and the matte card are the
--- same on both paths.
+-- refracts and blurs what is actually under it this frame, with one specular lobe on its
+-- rim, an inner shade and the same tints; floating glass eases into its opaque text well
+-- over 3 px, a tooltip is frosted glass throughout, and the Media transport shows the
+-- nearest artwork extended under it. The lobe turns up to 20 degrees toward the pointer
+-- near a surface (fixed with reduced motion). The floating shadow stays as below. On WARP,
+-- an SDL host, or with hardware acceleration off, the baked path below is used unchanged.
+-- The floor (the backdrop the glass refracts) and the matte card are the same on both
+-- paths.
 --
 -- Without the backend's glass calls (an older exe) the sample falls back to clipped strips;
 -- with glass off, or no image, surfaces get their solid fills and the same layout.
@@ -56,9 +59,23 @@ end
 
 function M.setEnabled(value) enabled = value == true; if not enabled then release() end end
 
--- The shader's lens: the band (px in from the rim) it bends over, and how far it pulls the
--- view in at the rim. A floating surface bends across its lip, so the band follows it.
-M.LENS = { floating = 0.75, chrome = { band = 8, thickness = 4 } }
+-- The shader's optics. `band`: px in from the rim over which the lens falls off;
+-- `thickness`: how far it pulls the view in at the rim (px); `chroma`: the split per
+-- channel at the rim (px). Menus, dropdowns, toasts and tooltips split nothing (their
+-- edges are over text); the palette and Activity (`chroma` in their rule) split a quarter
+-- px. The transport's tint leaves the artwork a quarter of the result.
+M.LENS = {
+	floating = { band = 4, thickness = 3, chroma = 0 },
+	frost = { band = 4, thickness = 3, chroma = 0 },
+	chrome = { band = 8, thickness = 4, chroma = 0.6 },
+	live = { band = 6, thickness = 3, chroma = 0.25, tint = 0.75 },
+}
+-- How far the nearest artwork reaches under the transport (px).
+M.ART_REACH = 24
+-- The light turns toward a pointer over or within `range` px of a surface, by up to `turn`.
+M.LIGHT = { range = 48, turn = math.rad(20) }
+-- A tooltip: frosted glass throughout (no opaque well), lit like the rest.
+M.TIP_STATE, M.TIP_STYLE = {}, { frost = true }
 
 --- Which path this frame's glass takes on `dc`: "shader" (a live hardware device) or "baked".
 function M.path(dc)
@@ -118,6 +135,15 @@ local function looks(p)
 		rim_inner = col(p.glassRimInner, dark and "0 0 0 36" or "0 0 0 23"),
 		shadow = Color.pack(0, 0, 0, floor(255 * (p.glassShadowAlpha or (dark and 0.32 or 0.17)) + 0.5)),
 		card_rim = col(p.glassCardRim, dark and "255 255 255 15" or "0 0 0 15"),
+		-- the shader's rim: one lobe peaking toward the light over a floor, a faint shade
+		spec = Color.pack(255, 255, 255, floor(255 * (p.glassSpecPeak or (dark and 0.38 or 0.45)) + 0.5)),
+		spec_floor = p.glassSpecFloor or (dark and 0.06 or 0.08),
+		shade = Color.pack(0, 0, 0, floor(255 * (p.glassInnerShade or (dark and 0.10 or 0.06)) + 0.5)),
+		-- frosted and live glass carry text: the result's luminance stays at most this
+		-- (dark) or at least this (light), so its labels keep their contrast
+		lum = dark and (p.glassLumMax or 0.0622) or -(p.glassLumMin or 0.62),
+		frost = Color.alpha(col(p.glassFloatingTint, p.layer03), p.glassFrostAlpha or 0.55),
+		live = Color.alpha(col(p.glassChromeTint, p.layer01), M.LENS.live.tint),
 	}
 end
 
@@ -309,15 +335,102 @@ local function underneath(dc, x, y, w, h, r)
 	end
 end
 
+-- Glass surfaces drawn this frame (absolute rects, flat), for wantsPointer.
+local lit, lit_n, pointer_near = {}, 0, false
+local function lit_begin(dc)
+	if dc.glass_frame then return end
+	dc.glass_frame = true
+	lit_n = 0
+end
+
+local BASE_ANGLE = math.atan2(-1, -1)   -- the light, from the upper left
+local function wrap(a)
+	while a > math.pi do a = a - 2 * math.pi end
+	while a < -math.pi do a = a + 2 * math.pi end
+	return a
+end
+
+--- The light's turn (radians) for a surface at (ax, ay, w, h): toward the pointer while it
+-- is over or within LIGHT.range px of it, eased over RIM_EASE; 0 at rest, without a
+-- `state` and with reduced motion.
+function M.light(dc, state, ax, ay, w, h)
+	lit_begin(dc)
+	lit[lit_n + 1], lit[lit_n + 2], lit[lit_n + 3], lit[lit_n + 4] = ax, ay, ax + w, ay + h
+	lit_n = lit_n + 4
+	if not state then return 0 end
+	local R = package.loaded["core.imgui.Runtime"]
+	local moving, director = motion_on()
+	if not (R and R.pointer and moving) then state.light_k, state.light_to = nil, nil; return 0 end
+	local px, py, inside = R.pointer()
+	local target = 0
+	if inside and px then
+		local dx, dy = max(ax - px, 0, px - ax - w), max(ay - py, 0, py - ay - h)
+		local range = M.LIGHT.range
+		if dx * dx + dy * dy <= range * range then
+			local turn = M.LIGHT.turn
+			target = min(turn, max(-turn, wrap(math.atan2(py - ay - h / 2, px - ax - w / 2) - BASE_ANGLE)))
+		end
+	end
+	local now = R.now()
+	if state.light_to == nil then state.light_to, state.light_from, state.light_at = target, target, now end
+	if target ~= state.light_to then
+		state.light_from, state.light_to, state.light_at = state.light_k or 0, target, now
+	end
+	local t = min(1, (now - state.light_at) / (M.RIM_EASE * (director._scale or 1)))
+	local e = t * t * (3 - 2 * t)
+	if t < 1 then R.animate() end
+	state.light_k = state.light_from + (state.light_to - state.light_from) * e
+	return state.light_k
+end
+
+--- Should the pointer moving to (x, y) redraw? While it is (or just was) near glass, whose
+-- light follows it; never with reduced motion.
+function M.wantsPointer(x, y, inside)
+	if not motion_on() then return false end
+	local near, range = false, M.LIGHT.range
+	if inside then
+		for i = 1, lit_n, 4 do
+			if x >= lit[i] - range and x <= lit[i + 2] + range and y >= lit[i + 1] - range and y <= lit[i + 3] + range then
+				near = true; break
+			end
+		end
+	end
+	local was = pointer_near
+	pointer_near = near
+	return near or was
+end
+
+-- The transport's nearest artwork (recorded by the runtime from its children last frame),
+-- drawn under it reaching ART_REACH px past the artwork: its edge texels stretch to fill.
+local CORNERS_LEFT, CORNERS_RIGHT, CORNERS_NONE = 16 + 64, 32 + 128, 256
+local function extend_art(dc, art, ax, ay, w, h, r)
+	if not (art and art.tex and art.w > 0 and art.h > 0 and dc.B.image_rounded_uv) then return end
+	local reach = M.ART_REACH
+	local x1, y1 = max(ax, art.x - reach), max(ay, art.y - reach)
+	local x2, y2 = min(ax + w, art.x + art.w + reach), min(ay + h, art.y + art.h + reach)
+	if x2 <= x1 or y2 <= y1 then return end
+	local flags = 0
+	if x1 < ax + r then flags = flags + CORNERS_LEFT end
+	if x2 > ax + w - r then flags = flags + CORNERS_RIGHT end
+	if flags == 0 then flags = CORNERS_NONE end
+	dc:_emit("image_rounded_uv", art.tex, x1, y1, x2, y2,
+		(x1 - art.x) / art.w, (y1 - art.y) / art.h, (x2 - art.x) / art.w, (y2 - art.y) / art.h,
+		dc:_color(0xFFFFFFFF), r, flags)
+end
+
 --- Paint `kind` at (x, y, w, h) in the dc's local coordinates. `lip` sets a floating
 -- surface's see-through edge (default the palette's `glassLip`), `lift` (0..1) the eased
--- hover on the rim's highlight. Native popups map the backdrop by their own window.
-function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift)
+-- hover on the rim's highlight. `state` (a table kept with the surface) eases its light;
+-- `style` (its theme rule) may set `chroma`, `frost` (a tooltip) or `live` (the
+-- transport). Native popups map the backdrop by their own window.
+function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 	p = p or Reactor.palette()
 	if kind == "content" or kind == "chrome_content" or kind == "none" then return end
 	if kind == "caps" then
-		for _, r in ipairs(caps(dc, el, x, y, w, h)) do
-			M.paint(dc, r[1], r[2], r[3], r[4], "chrome", p, min(radius or 14, r[3] / 2), nil, nil, lift)
+		local subs = state and state.caps
+		if state and not subs then subs = { {}, {} }; state.caps = subs end
+		for i, r in ipairs(caps(dc, el, x, y, w, h)) do
+			M.paint(dc, r[1], r[2], r[3], r[4], "chrome", p, min(radius or 14, r[3] / 2), nil, nil, lift, subs and subs[i])
 		end
 		return
 	end
@@ -353,10 +466,24 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift)
 		shadow(dc, look, x, y, w, h)
 		local l = min(lip or p.glassLip or 8, floor(w / 4), floor(h / 4))
 		if live then
-			-- the shader: the live frame under it, bent across the lip, blurred, tinted, lit
+			-- the shader: the live frame under it, bent across the lip, blurred, tinted, lit,
+			-- easing into the opaque well over the lip's last 3 px (a tooltip: no well)
 			local ax, ay = x + dc.ox, y + dc.oy
-			dc:_emit("glass", ax, ay, ax + w, ay + h, r, 0, look.floating, look.rim_hi, look.rim_inner,
-				max(l, 3), max(l, 3) * M.LENS.floating, lift or 0, dc:_color(0xFFFFFFFF))
+			local frost = style and style.frost
+			local lens = frost and M.LENS.frost or M.LENS.floating
+			local angle = M.light(dc, state, ax, ay, w, h)
+			local chroma = style and style.chroma or lens.chroma
+			if frost then
+				dc:_emit("glass", ax, ay, ax + w, ay + h, r, 3, look.frost, look.spec, look.shade,
+					lens.band, lens.thickness, lift or 0, dc:_color(0xFFFFFFFF), 0, 0, 0, 0,
+					0, 0, chroma, angle, look.lum, look.spec_floor)
+				return
+			end
+			dc:_emit("glass", ax, ay, ax + w, ay + h, r, 0, look.floating, look.spec, look.shade,
+				min(lens.band, l), lens.thickness, lift or 0, dc:_color(0xFFFFFFFF), 0, 0, 0, 0,
+				look.well, l, chroma, angle, 0, look.spec_floor)
+			dc:fill(x + l, y + l, w - 2 * l, h - 2 * l, look.well, shapes[max(0, r - l)])
+			return
 		else
 			underneath(dc, x, y, w, h, r)
 			dc:fill(x, y, w, h, look.floating, shapes[r])
@@ -374,9 +501,21 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift)
 		local ax, ay = x + dc.ox, y + dc.oy
 		local lens = M.LENS.chrome
 		local band = min(lens.band, w / 2, h / 2)
+		local angle = M.light(dc, state, ax, ay, w, h)
+		if style and style.live then
+			-- the transport: the nearest artwork extended under it, copied with what lies
+			-- there, strongly blurred, mostly tinted and bounded for its labels
+			lens = M.LENS.live
+			extend_art(dc, state and state.glass_art, ax, ay, w, h, r)
+			dc:_emit("glass", ax, ay, ax + w, ay + h, r, 2, look.live, look.spec, look.shade,
+				min(lens.band, w / 2, h / 2), lens.thickness, lift or 0, dc:_color(0xFFFFFFFF), 0, 0, 0, 0,
+				0, 0, lens.chroma, angle, look.lum, look.spec_floor)
+			return
+		end
 		local _, _, ku, kv = uv(dc, c, 0, 0, 1, 1, c.sw, c.sh)
-		dc:_emit("glass", ax, ay, ax + w, ay + h, r, 1, look.chrome, look.rim_hi, look.rim_inner,
-			band, min(lens.thickness, band), lift or 0, dc:_color(0xFFFFFFFF), c.sharp, c.blur, ku, kv)
+		dc:_emit("glass", ax, ay, ax + w, ay + h, r, 1, look.chrome, look.spec, look.shade,
+			band, min(lens.thickness, band), lift or 0, dc:_color(0xFFFFFFFF), c.sharp, c.blur, ku, kv,
+			0, 0, lens.chroma, angle, 0, look.spec_floor)
 		return -- the shader drew the rim
 	else
 		sample(dc, c, tex, x, y, w, h, r, true)

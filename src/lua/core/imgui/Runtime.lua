@@ -49,6 +49,7 @@ local animating = false
 local cursor_override = nil
 local hover_since, tip_el, tip_shown = 0, nil, false
 local last_mouse = { -1, -1 }
+local last_inside = false
 local frame_input = nil
 local in_layout = false
 local in_paint = false
@@ -578,6 +579,8 @@ function M.release() captured = nil end
 function M.captured() return captured end
 function M.now() return B and B.now() or os.clock() end
 function M.animate() animating = true; need_frame = true end
+--- The pointer in main-client coordinates, and whether it is over one of the host's windows.
+function M.pointer() return last_mouse[1], last_mouse[2], last_inside end
 -- A frame is wanted at time `t` (M.now() seconds) and not before: a caret blink, a
 -- delayed hover. Cheaper than animate(), which draws every frame until it stops.
 local wake_at
@@ -1392,6 +1395,12 @@ local function route(input)
 	local mx, my = input.mx, input.my
 	local moved = mx ~= last_mouse[1] or my ~= last_mouse[2]
 	last_mouse[1], last_mouse[2] = mx, my
+	last_inside = input.inside == true
+	-- glass lit toward the pointer near it (core.ui.Glass) follows it
+	if moved then
+		local Glass = package.loaded["core.ui.Glass"]
+		if Glass and Glass.wantsPointer and Glass.wantsPointer(mx, my, last_inside) then need_frame = true end
+	end
 
 	if DRAG then
 		local st = STATE[DRAG.d]
@@ -1638,7 +1647,8 @@ local function paint(el, d)
 		-- the rim's highlight lifts while the pointer is over the surface (eased)
 		local lift = (g == "chrome" or g == "caps" or g == "floating")
 			and Glass.ease(st.data, (hovered ~= nil and contains(el, hovered)) or d.overlay_hovered == true) or nil
-		Glass.paint(d, st.x, st.y, st.w, st.h, g, material_palette, material.radius, el, material.lip, lift)
+		Glass.paint(d, st.x, st.y, st.w, st.h, g, material_palette, material.radius, el, material.lip, lift,
+			st.data, material)
 	end
 	if not culled and class.draw then
 		if st.classname == "videohost" then
@@ -1662,6 +1672,14 @@ local function paint(el, d)
 		end
 		if class.clipRect then d:clip_push(class.clipRect(el, st))
 		elseif class.clip then d:clip_push(st.x, st.y, st.w, st.h) end
+		-- live glass (the Media transport) shows the nearest artwork drawn on it, extended
+		-- under it: the first poster its children draw, kept for the next frame
+		local saved_art = d.glass_art
+		if g == "chrome" and material.live and not culled then
+			st.data.glass_art_rec = st.data.glass_art_rec or {}
+			d.glass_art = st.data.glass_art_rec
+			d.glass_art.tex = nil
+		end
 		-- A class may paint its children itself (a tab strip moving two pages during a
 		-- transition); it gets the shown children and the painters.
 		if class.paintChildren then
@@ -1669,6 +1687,18 @@ local function paint(el, d)
 			if not ok then warn(err); for i = 1, #kids do paint(kids[i], d) end end
 		else
 			for i = 1, #kids do paint(kids[i], d) end
+		end
+		if d.glass_art ~= saved_art then
+			local rec, used = d.glass_art, st.data.glass_art
+			if rec.tex then
+				if not used or used.tex ~= rec.tex or used.x ~= rec.x or used.y ~= rec.y or used.w ~= rec.w or used.h ~= rec.h then
+					st.data.glass_art = { tex = rec.tex, x = rec.x, y = rec.y, w = rec.w, h = rec.h }
+					need_frame = true
+				end
+			elseif used then
+				st.data.glass_art = nil; need_frame = true
+			end
+			d.glass_art = saved_art
 		end
 		if class.clip or class.clipRect then d:clip_pop() end
 		d.glass_under, d.in_floating = saved_under, saved_floating
@@ -1764,7 +1794,7 @@ local function tooltip(d)
 	end
 	if id then d:surface(id, sx, sy, sw, sh) end
 	d:layer("overlay")
-	if tip_palette.glass then require("core.ui.Glass").paint(d,x,y,pw,ph,"floating",tip_palette,12,nil,4)
+	if tip_palette.glass then local Glass = require("core.ui.Glass"); Glass.paint(d,x,y,pw,ph,"floating",tip_palette,12,nil,4,nil,Glass.TIP_STATE,Glass.TIP_STYLE)
 	else
 		d:fill(x, y, pw, ph, bg, { radius = 4 })
 		d:rect(x, y, pw, ph, border, { radius = 4 })
@@ -1950,7 +1980,13 @@ function M.frame()
 					dc:surface_end()
 				else
 					st.data.chrome = chrome_of(d, st)
-					paint_dialog_frame(d, st)
+					-- A borderless glass dialog (the palette, Activity) is one glass surface with
+					-- its own shadow and rim: the window frame's outline, fill and stepped shadow
+					-- would draw a second, differently rounded contour round it.
+					local m = require("core.ui.Glass").material(d, st)
+					if not (m and m.glass == "floating" and not st.data.chrome and Element.getAttribute(d, "BORDER") == "NO") then
+						paint_dialog_frame(d, st)
+					end
 					dc:offset_push(st.data.ox or 0, st.data.oy or 0)
 					dc:clip_push(0, 0, st.w, st.h)
 					paint(d, dc)

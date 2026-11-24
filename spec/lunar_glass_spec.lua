@@ -321,10 +321,10 @@ describe("Lunar glass",function()
         Frame.setRail(function() return width end)
         Frame.setWidth(1920)
         local m=Frame.metrics(iup)
-        assert.same({band=9,left=56,top=14,right=12,bottom=12},m)
+        assert.same({band=12,left=56,top=14,right=12,bottom=12},m)
         Frame.setWidth(1100)
         m=Frame.metrics(iup)
-        assert.same({band=8,left=32,top=10,right=8,bottom=8},m)
+        assert.same({band=12,left=32,top=10,right=8,bottom=8},m)
         width=176
         assert.equal(8,Frame.metrics(iup).left)
         Frame.setWidth(1920); width=48
@@ -371,8 +371,12 @@ describe("Lunar glass",function()
             assert.equal(0,copies)
             local g=calls(B,"glass")[1]
             assert.equal(0,g[7])                        -- floating
-            assert.equal(p.glassLip,g[11])              -- the lens bends across the lip
+            assert.equal(Glass.LENS.floating.band,g[11])        -- 3 px of lens, falling off over 4 px
+            assert.equal(3,g[12])
             assert.equal(0.5,g[13])                     -- hover lift
+            -- it eases into the well over the lip, splits no colour and is unbounded
+            assert.equal(p.glassLip,g[20]); assert.is_true(g[19]~=0)
+            assert.equal(0,g[21]); assert.equal(0,g[23]); assert.near(0.08,g[24],1e-9)
             -- the well is still opaque, 8 px in
             local well=calls(B,"rect_filled"); well=well[#well]
             local C=require("core.imgui.Color")
@@ -382,6 +386,75 @@ describe("Lunar glass",function()
             for _,c in ipairs(B.lastFrame()) do order[#order+1]=c[1] end
             local function at(op) for i,o in ipairs(order) do if o==op then return i end end end
             assert.is_true(at("image_nine")<at("glass") and at("glass")<at("rect_filled"))
+        end)
+
+        it("draws a tooltip as frosted glass with no well, its luminance bounded",function()
+            for _,name in ipairs({"LunarDarkTheme","LunarLightTheme"}) do
+                local B=hardware(); local dc=Draw.new(B); local p=palette(name)
+                frame(B,dc,1920,1080,function() Glass.paint(dc,300,300,180,28,"floating",p,12,nil,4,nil,Glass.TIP_STATE,Glass.TIP_STYLE) end)
+                local g=calls(B,"glass")[1]
+                assert.equal(3,g[7]); assert.equal(0,g[20])     -- frost, no hollow
+                assert.is_nil(ops(B).rect_filled)               -- no opaque well
+                assert.equal(p.glassDark and 0.0622 or -0.62,g[23])
+                assert.equal(0,g[21])
+            end
+        end)
+
+        it("splits a quarter px of colour at the palette and Activity only",function()
+            local rules=require("core.classes.Themes.LunarDarkTheme"):new():rules()
+            assert.equal(0.25,rules.palette_frame.chroma)
+            assert.is_nil(rules.dropdown_list.chroma); assert.is_nil(rules.contextmenu.chroma)
+            local B=hardware(); local dc=Draw.new(B); local p=palette("LunarDarkTheme")
+            frame(B,dc,1920,1080,function() Glass.paint(dc,200,200,600,300,"floating",p,16,nil,10,0,{},rules.palette_frame) end)
+            assert.equal(0.25,calls(B,"glass")[1][21])
+        end)
+
+        it("draws the transport as live glass over its artwork, extended 24 px under it",function()
+            local rules=require("core.classes.Themes.LunarDarkTheme"):new():rules()
+            assert.is_true(rules.transport_capsule.live)
+            local B=hardware(); local dc=Draw.new(B); local p=palette("LunarDarkTheme")
+            local state={glass_art={tex=42,x=130,y=1000,w=32,h=48}}
+            frame(B,dc,1920,1080,function() Glass.paint(dc,120,990,1600,64,"chrome",p,999,nil,nil,0,state,rules.transport_capsule) end)
+            local order=calls(B,"image_rounded_uv")
+            assert.equal(1,#order); assert.equal(42,order[1][2])
+            -- the artwork reaches 24 px right of itself, the capsule bounds the rest
+            assert.same({120,990,186,1054},{order[1][3],order[1][4],order[1][5],order[1][6]})
+            local g=calls(B,"glass")[1]
+            assert.equal(2,g[7]); assert.equal(6,g[11]); assert.equal(3,g[12]); assert.equal(0.25,g[21])
+            assert.equal(0.0622,g[23])
+            local C=require("core.imgui.Color"); local _,_,_,a=C.unpack(g[8]); assert.equal(191,a)   -- 25% artwork
+        end)
+
+        it("turns the light toward a nearby pointer, eased, and keeps it fixed with reduced motion",function()
+            local R=package.loaded["core.imgui.Runtime"]
+            local saved=R and {R.pointer,R.now,R.animate}
+            R=R or {}; package.loaded["core.imgui.Runtime"]=R
+            local now,px,py=0,700,150
+            R.pointer=function() return px,py,true end; R.now=function() return now end; R.animate=function() end
+            local Reactor=require("core.ui.ThemeReactor")
+            local real=Reactor.themeManager
+            local enabled=true
+            Reactor.themeManager=function() return {_motion={enabled=function() return enabled end,_scale=1}} end
+            local state={}
+            local dc={}
+            assert.equal(0,Glass.light(dc,state,100,100,400,100))         -- far: at rest
+            px,py=520,150; now=1
+            assert.equal(0,Glass.light(dc,state,100,100,400,100))         -- starts easing
+            now=1.2
+            assert.near(math.rad(20),Glass.light(dc,state,100,100,400,100),1e-9)   -- capped at 20 degrees
+            assert.is_true(Glass.wantsPointer(520,150,true)); assert.is_false(Glass.wantsPointer(900,900,true) and Glass.wantsPointer(900,900,true))
+            enabled=false
+            assert.equal(0,Glass.light(dc,{},100,100,400,100))
+            Reactor.themeManager=real
+            if saved then R.pointer,R.now,R.animate=saved[1],saved[2],saved[3] else package.loaded["core.imgui.Runtime"]=nil end
+        end)
+
+        it("keeps the search field one rounded pill: no square of the strip's colour behind it",function()
+            for _,name in ipairs({"LunarDarkTheme","LunarLightTheme"}) do
+                local rules=require("core.classes.Themes."..name):new():rules()
+                assert.equal("content",rules.commandbar.glass); assert.equal(14,rules.commandbar.radius)
+                assert.equal(14,rules.commandbar_text.radius)
+            end
         end)
 
         it("keeps the floor and the matte card the same on both paths",function()

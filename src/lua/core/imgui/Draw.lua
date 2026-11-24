@@ -63,6 +63,8 @@ function DC:begin(w, h)
 	self.layer_index = 0
 	self.surfaces, self.surface_id = nil, 0
 	self.glass_gpu = nil -- core.ui.Glass asks the backend once per frame
+	self.glass_frame = nil -- and starts its per-frame record of surfaces on the first one
+	self.glass_art = nil
 	if self.B.layer then self.B.layer(0) end
 end
 
@@ -106,7 +108,8 @@ end
 
 function DC:fill(x, y, w, h, color, opts)
 	local m = self.material
-	if m and not self.painting_material and w > 16 and h > 8 and self:_color(color) == self:_color(m.bg) then
+	-- (a spacer with no material of its own, `none`, never paints its colour at any size)
+	if m and not self.painting_material and (m.glass == "none" or (w > 16 and h > 8)) and self:_color(color) == self:_color(m.bg) then
 		return
 	end
 	-- Inside a glass surface, a fill of the surface's own colour (a label or a grid
@@ -473,6 +476,9 @@ function DC:bits(ptr, w, h, stride, x, y, opts)
 	local tint = 0xFFFFFFFF
 	if self.alpha < 1 then tint = Color.alpha(tint, self.alpha) end
 	x, y = x + self.ox, y + self.oy
+	-- live glass under this (core.ui.Glass) extends the first poster drawn on it
+	local art = self.glass_art
+	if art and not art.tex then art.tex, art.x, art.y, art.w, art.h = tex, x, y, w, h end
 	local radius = opts and opts.radius or 0
 	if radius > 0 and self.B.image_rounded then
 		self:_emit("image_rounded", tex, x, y, x + w, y + h, tint, radius)

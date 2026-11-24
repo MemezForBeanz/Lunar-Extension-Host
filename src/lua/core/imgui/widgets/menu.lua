@@ -89,7 +89,7 @@ function menu_body(menu, state, dc, c)
 	local bg, fg = c.bg, c.fg
 	local radius = c.radius
 	if c.palette.glass then require("core.ui.Glass").paint(dc,state.x,state.y,w,h,"floating",c.palette,radius,nil,inset(c),
-		require("core.ui.Glass").ease(state, dc.overlay_hovered == true))
+		require("core.ui.Glass").ease(state, dc.overlay_hovered == true), state)
 	else
 		dc:fill(state.x + 2, state.y + 3, w, h, "0 0 0 50", { radius = radius })
 		dc:fill(state.x, state.y, w, h, bg, { radius = radius })

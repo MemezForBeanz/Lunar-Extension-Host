@@ -18,6 +18,22 @@ M.ON_CHROME={"titlebar_button","titlebar_tabs","titlebar_title","statusbar_text"
     "tool_rail","reading","reading_muted","keycap"}
 M.ON_WELL={"palette_text","palette_prompt","palette_hint","palette_list","palette_rows","dropdown_list",
     "toast_title","toast_body","toast_close"}
+-- Floating surfaces named explicitly, with the roles whose text they carry: Activity
+-- (rows, header, hint on its opaque well) and the tooltip (frosted glass, no well).
+M.SURFACES={
+    {name="activity",roles={"palette_text","palette_list","palette_hint"},on="well"},
+    {name="tooltip",on="bound"},
+    {name="transport",roles={"reading","reading_muted","icon_btn"},on="bound"},
+}
+--- The darkest (dark) or lightest (light) final background the GPU glass may leave under
+-- text: frosted and live glass bound their luminance to 0.0622 / 0.62 (core.ui.Glass).
+function M.boundGrey(p)
+    local L=p.glassDark and (p.glassLumMax or 0.0622) or (p.glassLumMin or 0.62)
+    local c=L<=0.0031308 and L*12.92 or 1.055*L^(1/2.4)-0.055
+    -- round away from the bound, as the shader's result can sit exactly on it
+    local v=p.glassDark and math.ceil(c*255) or math.floor(c*255)
+    return v.." "..v.." "..v
+end
 --- The spec's bound on that background: relative luminance <= 0.0622 (dark) / >= 0.62 (light).
 function M.inBound(p,colour)
     local L=(lunar.contrast(colour,"0 0 0")*0.05)-0.05
@@ -102,6 +118,20 @@ function M.audit(theme, output)
             if r then states(role,r,well) end
         end
         if not M.inBound(p,chrome_bg) then count=count+1; failures[#failures+1]="chrome bound "..chrome_bg end
+        -- the explicit list: each surface's roles in every state on its final background
+        local bound=M.boundGrey(p)
+        for _,surface in ipairs(M.SURFACES) do
+            local under=surface.on=="well" and well or bound
+            if surface.name=="tooltip" then
+                local fg=p.textInverse or p.text
+                check("tooltip","final rest",fg,under,4.5)
+                check("tooltip","final muted rest",p.textMuted,under,4.5)
+            end
+            for _,role in ipairs(surface.roles or {}) do
+                local r=rules[role]
+                if r then states(surface.name..":"..role,r,under) end
+            end
+        end
     end
     if p.glass and p.glassTextWell then
         -- Muted text on the wells (palette results, Activity rows, toasts).

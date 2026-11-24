@@ -31,10 +31,10 @@ local fitters = setmetatable({}, { __mode = "k" })
 function Frame.metrics(iup)
 	local sheet, p = Frame.sheetMode(iup)
 	if not sheet then return { band = RADIUS, left = 0, top = 0, right = 0, bottom = 0 } end
-	-- Five rows short of the radius (six in a narrow window, where every row counts): below
-	-- that the corner's curve is about a pixel from the edge, so the children can start
-	-- there and the page keeps its room.
-	local band = math.max(0, (p.radiusSheet or 14) - (wide and 5 or 6))
+	-- Two rows short of the radius: there the corner's curve is 0.09 px from the edge, so
+	-- the children's square fills, which start below the band, never cut into the rounded
+	-- corner (five rows short they covered most of a pixel of it, a visible notch).
+	local band = math.max(0, (p.radiusSheet or 14) - 2)
 	local m = (wide and p.glassSheetWide or p.glassSheetNarrow) or {}
 	local side = m.side or p.glassReveal or 8
 	-- The sheet starts at `left` from the window edge: the strip beside the rail stays bare.

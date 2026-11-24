@@ -3,27 +3,45 @@
  * Included by lunarimgui.cpp inside its namespace, after State `g`. On WARP none of this
  * is made: core.ui.Glass asks lunar_ui_glass_ready() each frame and keeps its baked path.
  *
+ * Surfaces (lunar_ui_glass `kind`):
+ *   0 floating  menus, dropdowns, palette, toasts, Activity: a lip of glass round an opaque
+ *               text well (drawn by Lua), over a copy of what is under it, light blur
+ *               (1/4 resolution), easing into the well's colour over its last px.
+ *   1 chrome    title strip, rail caps, status bar: lies on the floor, the baked backdrop
+ *               whose sharp and softened images are already on the GPU, so it samples those
+ *               (no copy, no blur).
+ *   2 live      the Media transport: what is under it (the nearest artwork, extended under
+ *               it by Lua), strong blur (1/8 resolution and back), its luminance bounded
+ *               for its labels.
+ *   3 frost     a tooltip: no well; the whole body is strongly blurred glass, its luminance
+ *               bounded so its text keeps its contrast whatever lies under it.
+ *
  * Cost model (lg-shader-1.md, Efficiency):
- *   - No glass on screen: nothing at all (no copy, no blur, no query).
- *   - Chrome (title strip, rail caps, status bar, Media transport) lies on the floor, the
- *     baked backdrop whose sharp and softened images are already on the GPU: it samples
- *     those directly, so it needs no copy and no blur.
- *   - Floating glass (menus, dropdowns, tooltips, palette, toasts, Activity) samples the
- *     main window's background layer, copied once per frame after that layer, and only
- *     where it lies under floating glass: the glass rects widened by the refraction/blur
- *     margin, merged where that saves work, each copied with CopySubresourceRegion.
- *   - One blur for all of it, at quarter resolution: full -> 1/4 (16 texels in 4 bilinear
- *     taps), dual-Kawase 1/4 -> 1/8 and back up to 1/4. Three passes, each one draw that
- *     covers every region. The glass samples the full-res copy (rim) and the two 1/4
- *     results (light and strong blur).
- *   - Nothing under the glass changed (the background layer's draw data reaching the
- *     regions hashes as last frame, same regions, no texture made): copy and blur skipped.
- *   - Each surface: one callback (shader, constants, its three textures), one quad, one
- *     state reset; a single pixel-shader pass. Floating glass discards under its opaque
- *     text well before sampling.
- *   - Textures are made at the monitor's size (rounded to 256 px) and re-made only if the
- *     window outgrows them; shaders and state objects once per device; nothing uploaded;
- *     per-frame vectors keep their capacity.
+ *   - No glass on screen: nothing at all (no copy, no blur, no query, no textures made).
+ *     Chrome alone: one draw per surface, no copy, no textures made.
+ *   - What a surface copies is what was drawn before it. Glass in a later list than the
+ *     main window's background layer (its foreground layer, a dialog or overlay window's
+ *     own) shares one copy of the regions under it (the glass rects widened by the
+ *     refraction/blur margin, merged where that saves work) taken after that layer with
+ *     CopySubresourceRegion. Glass inside the background layer (the transport, a dialog
+ *     drawn in the window) copies its region at its own callback, before it draws: a copy
+ *     taken after it would hold the glass itself, and it would refract its own rim. All
+ *     copies land in the same textures at their own place.
+ *   - One blur chain for both: full -> 1/4 (16 texels in 4 bilinear taps) is the light
+ *     blur; dual-Kawase 1/4 -> 1/8 and back up to 1/4 the strong one, run only when a
+ *     surface samples it. Each pass is one draw covering every region.
+ *   - Copy and blur are skipped when nothing under the glass changed: the background
+ *     layer's commands reaching the regions (vertices, indices, textures, clips and the
+ *     callbacks' data) hash as last frame, with the same regions and no texture made or
+ *     updated since (g.texture_revision). The textures count as valid only after every step of
+ *     the copy and blur that filled them succeeded; where two copies overlap, neither is
+ *     kept for the next frame.
+ *   - Each surface: one callback (shader, constants, two textures), one quad (floating:
+ *     only the ring round its well), one state reset; a single pixel-shader pass.
+ *   - Textures are made at the monitor's size (rounded to 256 px) the first time floating
+ *     or live glass is on screen, and re-made only if the window outgrows them; shaders
+ *     and state objects once per device; nothing uploaded; per-frame vectors keep their
+ *     capacity.
  * LUNAR_GPU_TIMING=1 adds D3D11 timestamp queries round the glass work (read back up to
  * three frames later, never stalling) for renderer().glass_gpu_*. */
 
@@ -63,14 +81,20 @@ float4 ps_up(VO i) : SV_Target {
 cbuffer G : register(b0) {
     float4 rect;    /* x1 y1 x2 y2, main-client px */
     float4 frame;   /* origin x y; px -> uv scale x y */
-    float4 shape;   /* valid w h of the sample (px), corner radius, lens band px */
-    float4 optic;   /* lens thickness px, light->strong blur mix, hover lift, opacity */
-    float4 tint; float4 rim; float4 inner;
-    float4 extra;   /* chromatic split px, body blur, 0, hollow depth (0: none) */
+    float4 shape;   /* valid w h of the sample (px), corner radius, lens falloff (px in from the rim) */
+    float4 optic;   /* displacement at the rim px, hover lift, opacity, hollow depth (0: none) */
+    float4 tint;    /* rgb; a: the tint's share over what is under it */
+    float4 rim;     /* rgb; a: the specular lobe's peak alpha */
+    float4 inner;   /* rgb; a: the inner shade's alpha */
+    float4 well;    /* the opaque well's rgb; a: px over which the glass eases into it (0: none) */
+    float4 extra;   /* chromatic split px per channel, lobe floor alpha, blur share at the rim (<0: sharp rim), 0 */
+    float4 light;   /* toward the light xy; luminance at most z, at least w (1, 0: unbounded) */
 };
-Texture2D sharp : register(t1); Texture2D light_blur : register(t2); Texture2D strong_blur : register(t3);
+Texture2D sharp : register(t1); Texture2D blurred : register(t2);
 struct PI { float4 pos : SV_POSITION; float4 col : COLOR0; float2 uv : TEXCOORD0; };
 float3 at(Texture2D t, float2 p) { return t.SampleLevel(smp, clamp(p, 0.5, shape.xy - 0.5) * frame.zw, 0).rgb; }
+float3 to_lin(float3 c) { return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }
+float3 to_srgb(float3 c) { return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1 / 2.4) - 0.055; }
 float4 ps_glass(PI i) : SV_Target {
     float2 p = i.pos.xy + frame.xy;
     float2 c = (rect.xy + rect.zw) * 0.5, hs = (rect.zw - rect.xy) * 0.5;
@@ -78,35 +102,42 @@ float4 ps_glass(PI i) : SV_Target {
     float2 d = p - c;
     float2 q = abs(d) - (hs - r);
     float sd = length(max(q, 0)) + min(max(q.x, q.y), 0) - r;
-    float cov = saturate(0.5 - sd) * optic.w;   /* the quad's own colour is transparent */
+    float cov = saturate(0.5 - sd) * optic.z;   /* the quad's own colour is transparent */
     if (cov <= 0) discard;
     float depth = max(0, -sd);
-    if (extra.w > 0 && depth > extra.w) discard;            /* under the opaque well: nothing to show */
+    if (optic.w > 0 && depth > optic.w + 1) discard;        /* under the opaque well: nothing to show */
     float2 sg = float2(d.x < 0 ? -1 : 1, d.y < 0 ? -1 : 1);
     float2 m = max(q, 0);
     float2 gr = (m.x + m.y > 0) ? normalize(m) : (q.x > q.y ? float2(1, 0) : float2(0, 1));
     float2 n = sg * gr;                                     /* outward normal */
-    float u = 1 - saturate(depth / max(1, shape.w));        /* 1 at the rim, 0 past the band */
+    float u = 1 - saturate(depth / max(1, shape.w));        /* 1 at the rim, 0 past the falloff */
     float lens = optic.x * (1 - sqrt(saturate(1 - u * u))); /* ~0 inside, rising to the rim */
     float2 sp = p - n * lens;                               /* refracted inward */
-    float ca = extra.x * u;
     float3 s = at(sharp, sp);
-    [branch] if (ca > 0.05) { s.r = at(sharp, sp - n * ca).r; s.b = at(sharp, sp + n * ca).b; }
-    float3 b = lerp(at(light_blur, sp), at(strong_blur, sp), optic.y);
-    float3 col = lerp(s, b, extra.y * smoothstep(0, 1, 1 - u));   /* sharper toward the rim */
+    [branch] if (extra.x > 0) { float ca = extra.x * u; s.r = at(sharp, sp - n * ca).r; s.b = at(sharp, sp + n * ca).b; }
+    /* text-heavy edges: mostly blurred even at the rim, fully 3 px in (no legible glyph
+       fragments); chrome over the floor: sharper toward the rim */
+    float k = extra.z >= 0 ? lerp(extra.z, 1, saturate(depth / 3)) : smoothstep(0, 1, 1 - u);
+    float3 col = lerp(s, at(blurred, sp), k);
     col = lerp(col, tint.rgb, tint.a);
     float inside = (p.x >= 0 && p.y >= 0 && p.x < shape.x && p.y < shape.y) ? 1 : 0;
     col = lerp(tint.rgb, col, inside);                      /* past the window: the tint */
-    float f = dot(n, float2(-0.7071, -0.7071));             /* light from the upper left */
-    /* the rim: a thin ring all round (the glass's edge catching light), brightest at the
-       upper-left shoulder, a weaker back-light on the far side, and a soft sheen inside it */
-    float line_ = saturate(1.25 - depth / 1.8);
-    float sheen = exp(-depth / 3.5);
-    float hi = saturate(rim.a + 0.10 * optic.z);
-    float spec = hi * (line_ * (0.40 + 0.60 * pow(saturate(f), 1.2) + 0.35 * pow(saturate(-f), 2))
-        + 0.30 * sheen * pow(saturate(f), 2));
-    col = lerp(col, rim.rgb, saturate(spec));
+    [branch] if (light.z < 1 || light.w > 0) {              /* labels on it keep their contrast */
+        float3 lin = to_lin(saturate(col));
+        float y = dot(lin, float3(0.2126, 0.7152, 0.0722));
+        if (y > light.z) lin *= light.z / y;
+        else if (y < light.w) lin += (1 - lin) * ((light.w - y) / max(1e-4, 1 - y));
+        col = to_srgb(lin);
+    }
+    /* one specular lobe on a 1.2 px rim, brightest facing the light, the floor elsewhere,
+       and a faint shade inside the far side */
+    float f = dot(n, light.xy);
+    float line_ = saturate(1.7 - depth);
+    float a = lerp(extra.y, saturate(rim.a + 0.10 * optic.y), pow(saturate(f), 2));
+    col = lerp(col, rim.rgb, line_ * a);
     col = lerp(col, inner.rgb, saturate(inner.a * saturate(-f) * exp(-depth / 2.5)));
+    /* one continuous ease into the opaque well, which Lua draws from the hollow depth in */
+    [branch] if (well.a > 0) col = lerp(col, well.rgb, smoothstep(optic.w - well.a, optic.w, depth));
     return float4(col, cov);
 }
 )";
@@ -120,10 +151,11 @@ const int GLASS_REGIONS = 16;     /* regions per blur draw (more are folded into
 const int GLASS_TS = 96;          /* timestamps per frame at most */
 const int GLASS_TIMING_FRAMES = 4;
 const int GLASS_SAMPLES = 1024;
+enum { GLASS_FLOATING = 0, GLASS_CHROME = 1, GLASS_LIVE = 2, GLASS_FROST = 3 };
 struct GlassTiming {
     ID3D11Query *disjoint = nullptr; ID3D11Query *ts[GLASS_TS] = {};
     int n = 0; bool pending = false;
-    unsigned char opens[GLASS_TS] = {};   /* 0 closes a span; opens 1 a surface, 2 the copy, 3 the blur */
+    unsigned char opens[GLASS_TS] = {};   /* 0 closes a span; opens 1 a surface, 2 a copy, 3 a blur */
 };
 struct GlassGpu {
     bool tried = false, ready = false;
@@ -137,34 +169,49 @@ struct GlassGpu {
     int vw = 0, vh = 0;    /* the part of it the back buffer fills */
     bool used = false;     /* this frame drew glass */
     ImVec2 origin;         /* the display origin of what is being rendered now */
-    std::vector<GlassRect> fl, merged;   /* this frame's floating glass rects (main-client) */
-    bool skip = false;     /* nothing under the glass changed: reuse last frame's textures */
-    bool valid = false;    /* the textures hold last frame's result */
+    /* The shared copy after the background layer: this frame's glass rects (main-client)
+       in later lists, their copy regions, whether one samples the strong blur, may it be
+       skipped, and do the textures hold last frame's result there */
+    std::vector<GlassRect> fl, merged;
+    bool fl_strong = false, skip = false, valid = false;
+    /* Copies at a callback inside the background layer, one per surface there, in list
+       order; their last hashes and validity by index */
+    struct Point { GlassRect rect; bool strong; std::vector<GlassRect> merged; bool skip, done; };
+    std::vector<Point> pts; size_t npts = 0;   /* pts keeps its capacity: npts are this frame's */
+    std::vector<uint64_t> pt_hash; std::vector<char> pt_valid;
+    bool overlap = false;  /* two copies overlap: all copy, none is kept */
+    bool rendering_main = false;
     bool force = false;    /* window("glass_force_copy"): never skip (worst-case timing) */
     bool off = false;      /* window("glass_shader", false): the baked path, for comparison */
+    bool flush_probe = false;   /* window("glass_flush_probe"): Flush after the floating blur */
     uint64_t last_hash = 0;
-    long long surfaces = 0, copies = 0, skips = 0, passes = 0, creations = 0;
-    bool timing = false;
+    long long surfaces = 0, copies = 0, skips = 0, passes = 0, creations = 0, live_copies = 0, live_skips = 0;
+    bool timing = false, timing_open = false;
     GlassTiming tq[GLASS_TIMING_FRAMES]; int tcur = 0;
     double gpu_glass_us_sum = 0, gpu_glass_us_max = 0, gpu_frame_us_sum = 0, gpu_copy_us_sum = 0;
     double gpu_glass_us_last = 0, hash_us_sum = 0, gpu_blur_us_sum = 0; long long gpu_frames = 0;
-    /* per-frame samples for window("glass_timing_take"): glass, copy + blur, whole frame (us) */
-    float sample_glass[1024] = {}, sample_copy[1024] = {}, sample_frame[1024] = {}; int samples = 0;
+    /* per-frame samples for window("glass_timing_take"): glass, copy + blur, whole frame,
+       copy alone, blur alone (us), and the CPU's time in l_frame_end before Present (us) */
+    float sample_glass[GLASS_SAMPLES] = {}, sample_copy[GLASS_SAMPLES] = {}, sample_frame[GLASS_SAMPLES] = {};
+    float sample_copy_only[GLASS_SAMPLES] = {}, sample_blur[GLASS_SAMPLES] = {};
+    int samples = 0;
 } gg;
 
 struct GlassCmd {
-    float rect[4]; float radius, band, thickness, blur_mix, lift, alpha, chroma, body;
-    float tint[4], rim[4], inner[4];
-    float hollow;   /* depth past which an opaque well covers it (floating), 0 none */
+    float rect[4]; float radius, band, thickness, lift, alpha, hollow, chroma, rim_floor, rim_blur, lum_max, lum_min;
+    float light[2];
+    float tint[4], rim[4], inner[4], well[4];
     float ku, kv;   /* chrome: px -> uv of the floor images */
-    int floor_sharp, floor_blur;   /* chrome: the floor images' texture ids, 0 for floating */
+    int kind;
+    int floor_sharp, floor_blur;   /* chrome: the floor images' texture ids */
 };
 
 /* -- timing ----------------------------------------------------------------------------- */
-GlassTiming *glass_tq() { return gg.timing && gg.tq[gg.tcur].disjoint ? &gg.tq[gg.tcur] : nullptr; }
+/* The slot this frame opened, or none (timing off, or every slot still waiting). */
+GlassTiming *glass_tq() { return gg.timing && gg.timing_open ? &gg.tq[gg.tcur] : nullptr; }
 void glass_stamp(int kind) {
     GlassTiming *t = glass_tq();
-    if (!t || !t->pending || t->n >= GLASS_TS) return;
+    if (!t || t->n >= GLASS_TS) return;
     t->opens[t->n] = (unsigned char)kind;
     g.ctx->End(t->ts[t->n++]);
 }
@@ -172,16 +219,16 @@ void glass_cb_stamp(const ImDrawList *, const ImDrawCmd *) { glass_stamp(0); }
 void glass_timing_collect() {
     for (int k = 0; k < GLASS_TIMING_FRAMES; k++) {
         GlassTiming &t = gg.tq[k];
-        if (!t.pending || &t == &gg.tq[gg.tcur]) continue;
+        if (!t.pending) continue;
         D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
         if (g.ctx->GetData(t.disjoint, &dj, sizeof(dj), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) continue;
-        t.pending = false;
-        if (dj.Disjoint || dj.Frequency == 0 || t.n < 2) continue;
         UINT64 v[GLASS_TS];
         bool ok = true;
         for (int i = 0; i < t.n && ok; i++)
             ok = g.ctx->GetData(t.ts[i], &v[i], sizeof(UINT64), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
-        if (!ok) continue;
+        if (!ok) continue;   /* the disjoint query can land before its timestamps: next frame */
+        t.pending = false;
+        if (dj.Disjoint || dj.Frequency == 0 || t.n < 2) continue;
         double us = 1e6 / (double)dj.Frequency, glass = 0, copy = 0, blur = 0;
         for (int i = 0; i + 1 < t.n; i++) {
             double span = (double)(v[i + 1] - v[i]) * us;
@@ -189,42 +236,47 @@ void glass_timing_collect() {
             if (t.opens[i] == 2) copy += span;
             if (t.opens[i] == 3) blur += span;
         }
+        double frame = (double)(v[t.n - 1] - v[0]) * us;
         gg.gpu_copy_us_sum += copy; gg.gpu_blur_us_sum += blur;
         gg.gpu_glass_us_last = glass;
         if (gg.samples < GLASS_SAMPLES) {
             gg.sample_glass[gg.samples] = (float)glass; gg.sample_copy[gg.samples] = (float)(copy + blur);
-            gg.sample_frame[gg.samples] = (float)((double)(v[t.n - 1] - v[0]) * us); gg.samples++;
+            gg.sample_frame[gg.samples] = (float)frame;
+            gg.sample_copy_only[gg.samples] = (float)copy; gg.sample_blur[gg.samples] = (float)blur;
+            gg.samples++;
         }
         gg.gpu_glass_us_sum += glass; gg.gpu_glass_us_max = std::max(gg.gpu_glass_us_max, glass);
-        gg.gpu_frame_us_sum += (double)(v[t.n - 1] - v[0]) * us;
+        gg.gpu_frame_us_sum += frame;
         gg.gpu_frames++;
     }
 }
 void glass_timing_begin() {
+    gg.timing_open = false;
     if (!gg.timing) return;
     glass_timing_collect();
     GlassTiming &t = gg.tq[gg.tcur];
     if (t.pending || !t.disjoint) return;   /* not read back yet: this frame goes untimed */
-    t.n = 0; t.pending = true;
+    t.n = 0; t.pending = true; gg.timing_open = true;
     g.ctx->Begin(t.disjoint);
     glass_stamp(0);
 }
 void glass_timing_end() {
-    GlassTiming *t = glass_tq();
-    if (!t || !t->pending) return;
+    if (!glass_tq()) return;
     glass_stamp(0);
-    g.ctx->End(t->disjoint);
+    g.ctx->End(gg.tq[gg.tcur].disjoint);
+    gg.timing_open = false;
     gg.tcur = (gg.tcur + 1) % GLASS_TIMING_FRAMES;
 }
 
 /* -- objects ---------------------------------------------------------------------------- */
+void glass_invalidate() { gg.valid = false; std::fill(gg.pt_valid.begin(), gg.pt_valid.end(), 0); }
 void glass_release_levels() {
     for (GlassLevel &l : gg.lv) {
         if (l.rtv) { l.rtv->Release(); l.rtv = nullptr; }
         if (l.srv) { if (g.frame_open) g.retired_textures.push_back(l.srv); else l.srv->Release(); l.srv = nullptr; }
         if (l.tex) { l.tex->Release(); l.tex = nullptr; }
     }
-    gg.tw = gg.th = 0; gg.valid = false;
+    gg.tw = gg.th = 0; glass_invalidate();
 }
 
 void glass_release() {
@@ -232,8 +284,8 @@ void glass_release() {
     auto rel = [](auto *&p) { if (p) { p->Release(); p = nullptr; } };
     rel(gg.vs); rel(gg.down4); rel(gg.down); rel(gg.up); rel(gg.glass); rel(gg.cb); rel(gg.blur_cb); rel(gg.rs); rel(gg.smp);
     for (GlassTiming &t : gg.tq) { rel(t.disjoint); for (auto *&q : t.ts) rel(q); t.pending = false; t.n = 0; }
-    gg.tried = gg.ready = false; gg.used = gg.skip = false;
-    gg.fl.clear();
+    gg.tried = gg.ready = false; gg.used = gg.skip = false; gg.timing_open = false;
+    gg.fl.clear(); gg.npts = 0;
 }
 
 ID3DBlob *glass_compile(const char *entry, const char *target) {
@@ -266,7 +318,7 @@ bool glass_ensure() {
     if (ok) {
         D3D11_BUFFER_DESC b = {};
         b.Usage = D3D11_USAGE_DYNAMIC; b.BindFlags = D3D11_BIND_CONSTANT_BUFFER; b.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        b.ByteWidth = 8 * 16;
+        b.ByteWidth = 10 * 16;
         ok = SUCCEEDED(g.device->CreateBuffer(&b, nullptr, &gg.cb));
         b.ByteWidth = (2 + GLASS_REGIONS) * 16;
         ok = ok && SUCCEEDED(g.device->CreateBuffer(&b, nullptr, &gg.blur_cb));
@@ -299,7 +351,7 @@ bool glass_ensure() {
    (rounded up to 256 px), re-made only when the window outgrows them. */
 bool glass_levels(int w, int h) {
     if (w <= 0 || h <= 0) return false;
-    if (w != gg.vw || h != gg.vh) gg.valid = false;
+    if (w != gg.vw || h != gg.vh) glass_invalidate();
     gg.vw = w; gg.vh = h;
     if (gg.lv[0].tex && w <= gg.tw && h <= gg.th) return true;
     RECT work, full; monitor_rects(work, full);
@@ -328,8 +380,9 @@ bool glass_levels(int w, int h) {
 
 /* -- regions ---------------------------------------------------------------------------- */
 inline long long glass_area(const GlassRect &r) { return (long long)(r.x1 - r.x0) * (r.y1 - r.y0); }
-/* `in` widened by the margin, clipped to the back buffer (and aligned to 4 px, the 1/4
-   texel), merged where the box round two is no bigger than the two apart. */
+inline bool glass_meets(const GlassRect &a, const GlassRect &b) { return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1; }
+/* `in` widened by the margin, clipped to the back buffer (and aligned to 8 px, two 1/4
+   texels), merged where the box round two is no bigger than the two apart. */
 void glass_merge(const std::vector<GlassRect> &in, std::vector<GlassRect> &out) {
     out.clear();
     for (const GlassRect &r : in) {
@@ -352,12 +405,12 @@ void glass_merge(const std::vector<GlassRect> &in, std::vector<GlassRect> &out) 
 }
 
 /* One blur pass of `src` into `dst` over every region, in one draw. */
-void glass_pass(ID3D11PixelShader *ps, const GlassLevel &src, const GlassLevel &dst, const std::vector<GlassRect> &regions) {
+bool glass_pass(ID3D11PixelShader *ps, const GlassLevel &src, const GlassLevel &dst, const std::vector<GlassRect> &regions) {
     ID3D11DeviceContext *c = g.ctx;
     int sw = gg.tw >> src.shift, sh = gg.th >> src.shift, sv = (1 << src.shift) - 1;
     int dw = gg.tw >> dst.shift, dh = gg.th >> dst.shift;
     D3D11_MAPPED_SUBRESOURCE m;
-    if (FAILED(c->Map(gg.blur_cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) return;
+    if (FAILED(c->Map(gg.blur_cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) return false;
     float *v = (float*)m.pData;
     v[0] = 1.0f / sw; v[1] = 1.0f / sh;
     v[2] = ((gg.vw + sv) >> src.shift) - 0.5f; v[3] = ((gg.vh + sv) >> src.shift) - 0.5f;
@@ -377,6 +430,7 @@ void glass_pass(ID3D11PixelShader *ps, const GlassLevel &src, const GlassLevel &
     ID3D11ShaderResourceView *none = nullptr;
     c->PSSetShaderResources(0, 1, &none);
     gg.passes++;
+    return true;
 }
 
 /* FNV-1a over 64-bit words */
@@ -388,56 +442,108 @@ inline uint64_t glass_mix(uint64_t h, const void *p, size_t n) {
     return h;
 }
 
-/* Before the main window renders: the floating regions, and may their copy and blur be
-   skipped? They may when the background layer's draw commands that reach the regions
-   (vertices, textures, clips), the regions and the textures made are all as last frame. */
+void glass_cb_copy(const ImDrawList *, const ImDrawCmd *);
+
+/* What commands [0, end) of `bg` draw into `regions`: their clips, textures, vertices and
+   index order, and every callback's function and data (a callback changes what the draws
+   after it look like: chrome glass under floating glass, a state reset). */
+uint64_t glass_hash(uint64_t h, const ImDrawList *bg, int end, const std::vector<GlassRect> &regions) {
+    if (!bg) return h;
+    for (int ci = 0; ci < end; ci++) {
+        const ImDrawCmd &cmd = bg->CmdBuffer[ci];
+        if (cmd.UserCallback) {
+            const void *fn = (const void*)cmd.UserCallback; h = glass_mix(h, &fn, sizeof(fn));
+            const void *data = cmd.UserCallbackData;
+            if (!data && cmd.UserCallbackDataOffset >= 0 && cmd.UserCallbackDataSize > 0)
+                data = bg->_CallbacksDataBuf.Data + cmd.UserCallbackDataOffset;
+            if (data && cmd.UserCallbackDataSize > 0) h = glass_mix(h, data, (size_t)cmd.UserCallbackDataSize);
+            else h = glass_mix(h, &data, sizeof(data));
+            continue;
+        }
+        if (cmd.ElemCount == 0) continue;
+        bool hit = false;
+        for (const GlassRect &r : regions)
+            if (cmd.ClipRect.x < r.x1 && cmd.ClipRect.z > r.x0 && cmd.ClipRect.y < r.y1 && cmd.ClipRect.w > r.y0) { hit = true; break; }
+        if (!hit) continue;
+        h = glass_mix(h, &cmd.ClipRect, sizeof(cmd.ClipRect));
+        ImTextureID tid = cmd.GetTexID(); h = glass_mix(h, &tid, sizeof(tid));
+        /* the indices in order, and the vertices they reach: ImGui appends a command's
+           vertices in order, so they span its smallest to its largest index */
+        const ImDrawIdx *idx = bg->IdxBuffer.Data + cmd.IdxOffset;
+        h = glass_mix(h, idx, (size_t)cmd.ElemCount * sizeof(ImDrawIdx));
+        unsigned lo = UINT_MAX, hi = 0;
+        for (unsigned i = 0; i < cmd.ElemCount; i++) { lo = std::min(lo, (unsigned)idx[i]); hi = std::max(hi, (unsigned)idx[i]); }
+        unsigned first = cmd.VtxOffset + lo, last = cmd.VtxOffset + hi;
+        if (last < (unsigned)bg->VtxBuffer.Size)
+            h = glass_mix(h, bg->VtxBuffer.Data + first, (size_t)(last - first + 1) * sizeof(ImDrawVert));
+    }
+    return h;
+}
+
+/* Before the main window renders: the copy regions, and may each copy and its blur be
+   skipped? One may when everything drawn before it that reaches its regions hashes as
+   last frame, last frame's copy there succeeded and no other copy overlaps it. */
 void glass_plan(ImDrawList *bg) {
-    gg.skip = false;
-    if (gg.fl.empty()) return;
+    gg.skip = gg.overlap = false;
+    if (gg.fl.empty()) gg.valid = false;
+    size_t np = gg.npts;
+    gg.pt_valid.resize(np, 0); gg.pt_hash.resize(np, 0);
+    if (gg.fl.empty() && np == 0) return;
     auto t0 = std::chrono::steady_clock::now();
     glass_merge(gg.fl, gg.merged);
-    uint64_t h = 1469598103934665603ull;
-    h = glass_mix(h, gg.merged.data(), gg.merged.size() * sizeof(GlassRect));
-    h = glass_mix(h, &g.next_texture, sizeof(g.next_texture));
-    int size[2] = {gg.vw, gg.vh}; h = glass_mix(h, size, sizeof(size));
-    if (bg) {
-        for (const ImDrawCmd &cmd : bg->CmdBuffer) {
-            if (cmd.UserCallback || cmd.ElemCount == 0) continue;
-            bool hit = false;
-            for (const GlassRect &r : gg.merged)
-                if (cmd.ClipRect.x < r.x1 && cmd.ClipRect.z > r.x0 && cmd.ClipRect.y < r.y1 && cmd.ClipRect.w > r.y0) { hit = true; break; }
-            if (!hit) continue;
-            h = glass_mix(h, &cmd.ClipRect, sizeof(cmd.ClipRect));
-            ImTextureID tid = cmd.GetTexID(); h = glass_mix(h, &tid, sizeof(tid));
-            /* the vertices this command draws: ImGui appends them in order, so they span
-               its smallest to its largest index */
-            const ImDrawIdx *idx = bg->IdxBuffer.Data + cmd.IdxOffset;
-            unsigned lo = UINT_MAX, hi = 0;
-            for (unsigned i = 0; i < cmd.ElemCount; i++) { lo = std::min(lo, (unsigned)idx[i]); hi = std::max(hi, (unsigned)idx[i]); }
-            unsigned first = cmd.VtxOffset + lo, last = cmd.VtxOffset + hi;
-            if (last < (unsigned)bg->VtxBuffer.Size)
-                h = glass_mix(h, bg->VtxBuffer.Data + first, (size_t)(last - first + 1) * sizeof(ImDrawVert));
+    static std::vector<GlassRect> one(1);
+    for (size_t i = 0; i < np; i++) { one[0] = gg.pts[i].rect; glass_merge(one, gg.pts[i].merged); }
+    auto meets = [](const std::vector<GlassRect> &a, const std::vector<GlassRect> &b) {
+        for (const GlassRect &x : a) for (const GlassRect &y : b) if (glass_meets(x, y)) return true;
+        return false;
+    };
+    for (size_t i = 0; i < np && !gg.overlap; i++) {
+        if (meets(gg.pts[i].merged, gg.merged)) gg.overlap = true;
+        for (size_t j = i + 1; j < np && !gg.overlap; j++) if (meets(gg.pts[i].merged, gg.pts[j].merged)) gg.overlap = true;
+    }
+    uint64_t base = 1469598103934665603ull;
+    base = glass_mix(base, &g.texture_revision, sizeof(g.texture_revision));   /* freed or updated in place */
+    base = glass_mix(base, &g.next_texture, sizeof(g.next_texture));          /* made */
+    int size[2] = {gg.vw, gg.vh}; base = glass_mix(base, size, sizeof(size));
+    if (!gg.fl.empty()) {
+        uint64_t h = glass_mix(base, gg.merged.data(), gg.merged.size() * sizeof(GlassRect));
+        h = glass_mix(h, &gg.fl_strong, sizeof(gg.fl_strong));
+        h = glass_hash(h, bg, bg ? bg->CmdBuffer.Size : 0, gg.merged);
+        gg.skip = gg.valid && !gg.force && !gg.overlap && h == gg.last_hash;
+        gg.last_hash = h;
+        if (gg.skip) gg.skips++;
+    }
+    if (np && bg) {
+        /* each point hashes what is drawn before its callback */
+        for (int ci = 0; ci < bg->CmdBuffer.Size; ci++) {
+            const ImDrawCmd &cmd = bg->CmdBuffer[ci];
+            if (cmd.UserCallback != glass_cb_copy) continue;
+            size_t i = (size_t)(intptr_t)cmd.UserCallbackData;
+            if (i >= np) continue;
+            GlassGpu::Point &pt = gg.pts[i];
+            uint64_t h = glass_mix(base, pt.merged.data(), pt.merged.size() * sizeof(GlassRect));
+            h = glass_mix(h, &pt.strong, sizeof(pt.strong));
+            h = glass_hash(h, bg, ci, pt.merged);
+            pt.skip = gg.pt_valid[i] && !gg.force && !gg.overlap && h == gg.pt_hash[i];
+            gg.pt_hash[i] = h;
+            if (pt.skip) gg.live_skips++;
         }
     }
-    gg.skip = gg.valid && !gg.force && h == gg.last_hash;
-    gg.last_hash = h;
-    if (gg.skip) gg.skips++;
     gg.hash_us_sum += std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
 }
 
-/* After the main window's background layer: copy the floating regions of `back` and blur
-   them. Leaves no render target bound. */
-void glass_floating_copy(ID3D11Resource *back) {
-    if (!gg.ready || !gg.lv[0].tex || gg.fl.empty() || gg.skip || gg.merged.empty()) return;
+/* Copy `regions` of `back` into level 0 and blur them (the strong chain too if asked).
+   Leaves no render target bound. False if any step failed. */
+bool glass_copy_blur(ID3D11Resource *back, const std::vector<GlassRect> &regions, bool strong, long long &count) {
     ID3D11DeviceContext *c = g.ctx;
     glass_stamp(2);
     c->OMSetRenderTargets(0, nullptr, nullptr);
     ID3D11ShaderResourceView *none[4] = {};
     c->PSSetShaderResources(0, 4, none);
-    for (const GlassRect &r : gg.merged) {
+    for (const GlassRect &r : regions) {
         D3D11_BOX box = {(UINT)r.x0, (UINT)r.y0, 0, (UINT)r.x1, (UINT)r.y1, 1};
         c->CopySubresourceRegion(gg.lv[0].tex, 0, (UINT)r.x0, (UINT)r.y0, 0, back, 0, &box);
-        gg.copies++;
+        count++;
     }
     glass_stamp(3);
     c->IASetInputLayout(nullptr);
@@ -450,11 +556,37 @@ void glass_floating_copy(ID3D11Resource *back) {
     c->OMSetBlendState(nullptr, nullptr, 0xffffffff);
     c->OMSetDepthStencilState(nullptr, 0);
     c->RSSetState(gg.rs);
-    glass_pass(gg.down4, gg.lv[0], gg.lv[1], gg.merged);
-    glass_pass(gg.down, gg.lv[1], gg.lv[2], gg.merged);
-    glass_pass(gg.up, gg.lv[2], gg.lv[3], gg.merged);
+    bool ok = glass_pass(gg.down4, gg.lv[0], gg.lv[1], regions);
+    if (ok && strong) ok = glass_pass(gg.down, gg.lv[1], gg.lv[2], regions) && glass_pass(gg.up, gg.lv[2], gg.lv[3], regions);
     c->OMSetRenderTargets(0, nullptr, nullptr);
     glass_stamp(0);
+    return ok;
+}
+
+/* After the main window's background layer: the floating regions. */
+bool glass_floating_copy(ID3D11Resource *back) {
+    if (!gg.ready || !gg.lv[0].tex || gg.fl.empty() || gg.skip || gg.merged.empty()) return false;
+    bool ok = glass_copy_blur(back, gg.merged, gg.fl_strong, gg.copies);
+    if (gg.flush_probe) g.ctx->Flush();
+    return ok;
+}
+
+/* At a glass surface inside the main window's background layer, before it draws: what
+   was drawn under it so far. Rendering a dialog window that shows the main lists under its
+   own, it reuses the main render's copy. The state reset after it puts ImGui's state back. */
+void glass_cb_copy(const ImDrawList *, const ImDrawCmd *cmd) {
+    size_t i = (size_t)(intptr_t)cmd->UserCallbackData;
+    if (!gg.ready || !gg.rendering_main || i >= gg.npts || !gg.lv[0].tex) return;
+    GlassGpu::Point &pt = gg.pts[i];
+    if (pt.done) return;
+    pt.done = true;
+    if (pt.skip || pt.merged.empty()) return;
+    ID3D11Resource *back = nullptr;
+    g.rtv->GetResource(&back);
+    bool ok = back && glass_copy_blur(back, pt.merged, pt.strong, gg.live_copies);
+    if (back) back->Release();
+    if (i < gg.pt_valid.size()) gg.pt_valid[i] = ok;
+    g.ctx->OMSetRenderTargets(1, &g.rtv, nullptr);
 }
 
 /* -- the surface ------------------------------------------------------------------------ */
@@ -463,7 +595,7 @@ ID3D11ShaderResourceView *texture_srv(int id) {
     return it == g.textures.end() ? nullptr : it->second.srv;
 }
 
-/* The glass shader, this surface's constants and its three textures. */
+/* The glass shader, this surface's constants and its two textures. */
 void glass_cb_bind(const ImDrawList *dl, const ImDrawCmd *cmd) {
     /* ImGui resolves the data pointer in Render(); dialog and overlay windows' own lists
        do not go through it, so it is resolved here from the list's buffer */
@@ -471,33 +603,35 @@ void glass_cb_bind(const ImDrawList *dl, const ImDrawCmd *cmd) {
     if (!d && cmd->UserCallbackDataOffset >= 0 && cmd->UserCallbackDataSize >= (int)sizeof(GlassCmd))
         d = (const GlassCmd*)(dl->_CallbacksDataBuf.Data + cmd->UserCallbackDataOffset);
     if (!d || !gg.ready) return;
-    ID3D11ShaderResourceView *srv[3];
+    ID3D11ShaderResourceView *srv[2];
     float ku, kv, vw, vh;
-    if (d->floor_sharp) {   /* chrome: the floor images, mapped as core.ui.Glass maps them */
-        srv[0] = texture_srv(d->floor_sharp); srv[1] = srv[2] = texture_srv(d->floor_blur);
+    if (d->kind == GLASS_CHROME) {   /* the floor images, mapped as core.ui.Glass maps them */
+        srv[0] = texture_srv(d->floor_sharp); srv[1] = texture_srv(d->floor_blur);
         ku = d->ku; kv = d->kv; vw = vh = 1e7f;
-    } else {                /* floating: this frame's copy and its blurs */
-        srv[0] = gg.lv[0].srv; srv[1] = gg.lv[1].srv; srv[2] = gg.lv[3].srv;
+    } else {                         /* this frame's copy and the one blur it samples */
+        srv[0] = gg.lv[0].srv; srv[1] = d->kind == GLASS_FLOATING ? gg.lv[1].srv : gg.lv[3].srv;
         ku = 1.0f / gg.tw; kv = 1.0f / gg.th; vw = (float)gg.vw; vh = (float)gg.vh;
     }
     if (!srv[0] || !srv[1]) return;
     glass_stamp(1);
-    float cb[32] = {
+    float cb[40] = {
         d->rect[0], d->rect[1], d->rect[2], d->rect[3],
         gg.origin.x, gg.origin.y, ku, kv,
         vw, vh, d->radius, d->band,
-        d->thickness, d->blur_mix, d->lift, d->alpha,
+        d->thickness, d->lift, d->alpha, d->hollow,
         d->tint[0], d->tint[1], d->tint[2], d->tint[3],
         d->rim[0], d->rim[1], d->rim[2], d->rim[3],
         d->inner[0], d->inner[1], d->inner[2], d->inner[3],
-        d->chroma, d->body, 0, d->hollow,
+        d->well[0], d->well[1], d->well[2], d->well[3],
+        d->chroma, d->rim_floor, d->rim_blur, 0,
+        d->light[0], d->light[1], d->lum_max, d->lum_min,
     };
     D3D11_MAPPED_SUBRESOURCE m;
     if (FAILED(g.ctx->Map(gg.cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) return;
     memcpy(m.pData, cb, sizeof(cb)); g.ctx->Unmap(gg.cb, 0);
     g.ctx->PSSetShader(gg.glass, nullptr, 0);
     g.ctx->PSSetConstantBuffers(0, 1, &gg.cb);
-    g.ctx->PSSetShaderResources(1, 3, srv);
+    g.ctx->PSSetShaderResources(1, 2, srv);
     g.ctx->PSSetSamplers(1, 1, &gg.smp);
 }
 
