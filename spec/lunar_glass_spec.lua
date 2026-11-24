@@ -355,6 +355,9 @@ describe("Lunar glass",function()
             local g=calls(B,"glass")[1]
             assert.same({0,40,48,1040,14,1},{g[2],g[3],g[4],g[5],g[6],g[7]})
             assert.equal(Glass.LENS.chrome.band,g[11]); assert.equal(Glass.LENS.chrome.thickness,g[12])
+            -- it samples the floor's own images (no frame copy), mapped by cover scaling
+            assert.is_number(g[15]); assert.is_number(g[16]); assert.are_not.equal(g[15],g[16])
+            assert.near(1/1920,g[17],1e-9); assert.near(1/1080,g[18],1e-9)   -- a 16:9 image over 1920x1080
             assert.equal("shader",Glass.path(dc))
         end)
 

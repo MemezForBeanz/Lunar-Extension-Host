@@ -1709,6 +1709,8 @@ int l_renderer(lua_State *L) {
     lua_pushnumber(L, gg.gpu_glass_us_max); lua_setfield(L, -2, "glass_gpu_us_max");
     lua_pushnumber(L, gg.gpu_glass_us_last); lua_setfield(L, -2, "glass_gpu_us_last");
     lua_pushnumber(L, gg.gpu_frame_us_sum); lua_setfield(L, -2, "gpu_frame_us_sum");
+    lua_pushnumber(L, gg.gpu_copy_us_sum); lua_setfield(L, -2, "glass_gpu_copy_us_sum");
+    lua_pushnumber(L, gg.gpu_blur_us_sum); lua_setfield(L, -2, "glass_gpu_blur_us_sum");
     return 1;
 }
 
@@ -2137,8 +2139,9 @@ int l_frame_end(lua_State *) {
     /* GPU glass: its textures follow the target (made only when it outgrows them) */
     bool glass = gg.used && gg.ready && !g.warp && glass_levels(g.sc_w, g.sc_h);
     bool copy = g.frame_want && g.frame_tex && g.frame_w == g.sc_w && g.frame_h == g.sc_h;
-    gg.main_target = true; gg.origin = ImVec2(0, 0); gg.bg_done = false;
-    if (glass) { glass_plan(g.lists.empty() ? nullptr : g.lists[0]); glass_timing_begin(); }
+    gg.origin = ImVec2(0, 0);
+    if (glass) glass_plan(g.lists.empty() ? nullptr : g.lists[0]);
+    glass_timing_begin();   /* LUNAR_GPU_TIMING only: every frame, so glass on and off compare */
     if ((copy || (glass && !gg.fl.empty() && !gg.skip))
         && SUCCEEDED(g.swap->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&back)) && back) {
         /* the background layer, the copy, then the foreground (the floating glass) */
@@ -2163,7 +2166,6 @@ int l_frame_end(lua_State *) {
     }
     if (back) back->Release();
     g.frame_want = false;
-    gg.main_target = false;
     /* overlay windows before the shots (a capture of a window includes them) and before
        the presents (one that just left a surface is up before that surface drops it) */
     std::vector<Popup*> overlays;
@@ -2172,8 +2174,9 @@ int l_frame_end(lua_State *) {
     for (Popup *p : overlays) overlay_render(p);
     if (g.shot.pending && g.shot.popup == 0) write_shot();
     for (Popup *p : popups) popup_render(p);
-    if (glass) { gg.valid = true; glass_timing_end(); }
-    gg.used = false; gg.bg.clear(); gg.fl.clear();
+    if (glass) gg.valid = true;
+    glass_timing_end();
+    gg.used = false; gg.fl.clear();
     /* LUNAR_VSYNC=0 presents at once (frame timing in scripts/imgui_perf.lua) */
     static int vsync = -1;
     if (vsync < 0) { char v[8] = ""; GetEnvironmentVariableA("LUNAR_VSYNC", v, sizeof(v)); vsync = v[0] == '0' ? 0 : 1; }
@@ -2551,6 +2554,21 @@ int l_window(lua_State *L) {
         Popup *p = popup_create(L, 2);
         if (!p) return 0;
         lua_pushinteger(L, p->id); return 1;
+    }
+    /* timing probes (LUNAR_GPU_TIMING) */
+    if (is("glass_force_copy")) { gg.force = lua_toboolean(L, 2) != 0; return 0; }
+    if (is("glass_shader")) { gg.off = !lua_toboolean(L, 2); return 0; }
+    if (is("glass_timing_take")) {
+        lua_createtable(L, 0, 3);
+        const char *names[3] = {"glass", "copy", "frame"};
+        float *arrays[3] = {gg.sample_glass, gg.sample_copy, gg.sample_frame};
+        for (int k = 0; k < 3; k++) {
+            lua_createtable(L, gg.samples, 0);
+            for (int i = 0; i < gg.samples; i++) { lua_pushnumber(L, arrays[k][i]); lua_rawseti(L, -2, i + 1); }
+            lua_setfield(L, -2, names[k]);
+        }
+        gg.samples = 0;
+        return 1;
     }
     if (is("frame_copy")) {
         /* This frame copies its background layer; the texture is (re)made now, at the
@@ -2979,35 +2997,46 @@ LUNAR_FFI int lunar_ui_image_nine(ImDrawList *dl, int tex, float x1, float y1, f
 }
 /* GPU glass (core.ui.Glass): 1 while the live device can draw it (hardware, shader made). */
 LUNAR_FFI int lunar_ui_glass_ready() {
-    return g.device && !g.warp && glass_ensure() ? 1 : 0;
+    return g.device && !g.warp && glass_ensure() && !gg.off ? 1 : 0;
 }
-/* One glass surface: kind 0 floating (samples the background layer), 1 chrome (on the
-   background layer: refracts what was drawn under it). Colours are packed RGBA; `fade`'s
+/* One glass surface. kind 0, floating: samples this frame's copy of the background layer
+   under it. kind 1, chrome: samples the floor's images (texture ids sharp, blur) mapped by
+   (ku, kv) per px, as core.ui.Glass maps the backdrop. Colours are packed RGBA; `fade`'s
    alpha is the surface's opacity. 0 when the shader path is not available. */
 LUNAR_FFI int lunar_ui_glass(ImDrawList *dl, float x1, float y1, float x2, float y2, float radius, int kind,
                              uint32_t tint, uint32_t rim, uint32_t inner, float band, float thickness,
-                             float lift, uint32_t fade) {
+                             float lift, uint32_t fade, int sharp, int blur, float ku, float kv) {
     if (!dl || !g.frame_open || !gg.ready || g.warp || x2 <= x1 || y2 <= y1) return 0;
+    if (kind != 0 && !(texture_srv(sharp) && texture_srv(blur))) return 0;
     GlassCmd d = {};
     d.rect[0] = x1; d.rect[1] = y1; d.rect[2] = x2; d.rect[3] = y2;
     d.radius = radius; d.band = band; d.thickness = thickness; d.lift = lift;
     d.alpha = ((fade >> IM_COL32_A_SHIFT) & 0xFF) / 255.0f;
-    d.blur_mix = kind == 0 ? 1.0f : 0.35f; d.body = 1.0f; d.chroma = kind == 0 ? 0.9f : 0.6f;
+    d.blur_mix = kind == 0 ? 1.0f : 0.0f; d.body = 1.0f; d.chroma = kind == 0 ? 0.9f : 0.6f;
+    /* floating glass: its opaque text well starts one band in (core.ui.Glass), plus the
+       well's 2 px feather */
+    d.hollow = kind == 0 ? band + 2.0f : 0.0f;
+    if (kind != 0) { d.floor_sharp = sharp; d.floor_blur = blur; d.ku = ku; d.kv = kv; }
     glass_unpack(tint, d.tint); glass_unpack(rim, d.rim); glass_unpack(inner, d.inner);
-    bool bg = !g.lists.empty() && dl == g.lists[0];
-    d.snap = bg ? 1 : 0;
-    ImDrawCallback reset = ImGui::GetPlatformIO().DrawCallback_ResetRenderState;
-    GlassRect r = {(int)std::floor(x1), (int)std::floor(y1), (int)std::ceil(x2), (int)std::ceil(y2)};
-    /* the first background-layer surface takes the one snapshot of all of theirs */
-    if (bg && gg.bg.empty()) { dl->AddCallback(glass_cb_snap, nullptr); dl->AddCallback(reset, nullptr); }
-    (bg ? gg.bg : gg.fl).push_back(r);
+    if (kind == 0) gg.fl.push_back({(int)std::floor(x1), (int)std::floor(y1), (int)std::ceil(x2), (int)std::ceil(y2)});
     gg.used = true;
     dl->AddCallback(glass_cb_bind, &d, sizeof(d));
     /* transparent, so it is invisible if the shader is not bound (AddRectFilled would drop it) */
-    dl->PrimReserve(6, 4);
-    dl->PrimRect(ImVec2(x1 - 1, y1 - 1), ImVec2(x2 + 1, y2 + 1), IM_COL32(255, 255, 255, 0));
+    const ImU32 clear = IM_COL32(255, 255, 255, 0);
+    float e = std::max(d.hollow, radius) + 1;   /* floating: only the ring round the opaque well */
+    if (d.hollow > 0 && 2 * e < x2 - x1 && 2 * e < y2 - y1) {
+        dl->PrimReserve(24, 16);
+        dl->PrimRect(ImVec2(x1 - 1, y1 - 1), ImVec2(x2 + 1, y1 + e), clear);
+        dl->PrimRect(ImVec2(x1 - 1, y2 - e), ImVec2(x2 + 1, y2 + 1), clear);
+        float side = d.hollow + 1;
+        dl->PrimRect(ImVec2(x1 - 1, y1 + e), ImVec2(x1 + side, y2 - e), clear);
+        dl->PrimRect(ImVec2(x2 - side, y1 + e), ImVec2(x2 + 1, y2 - e), clear);
+    } else {
+        dl->PrimReserve(6, 4);
+        dl->PrimRect(ImVec2(x1 - 1, y1 - 1), ImVec2(x2 + 1, y2 + 1), clear);
+    }
     if (gg.timing) dl->AddCallback(glass_cb_stamp, nullptr);
-    dl->AddCallback(reset, nullptr);
+    dl->AddCallback(ImGui::GetPlatformIO().DrawCallback_ResetRenderState, nullptr);
     gg.surfaces++;
     return 1;
 }

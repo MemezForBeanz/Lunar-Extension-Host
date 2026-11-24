@@ -369,11 +369,14 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift)
 		end
 		dc:fill(x + l, y + l, w - 2 * l, h - 2 * l, look.well, shapes[max(0, r - l)])
 	elseif live then
+		-- chrome lies on the floor: the shader samples its images (no copy of the frame),
+		-- mapped px -> uv as sample() maps them
 		local ax, ay = x + dc.ox, y + dc.oy
 		local lens = M.LENS.chrome
 		local band = min(lens.band, w / 2, h / 2)
+		local _, _, ku, kv = uv(dc, c, 0, 0, 1, 1, c.sw, c.sh)
 		dc:_emit("glass", ax, ay, ax + w, ay + h, r, 1, look.chrome, look.rim_hi, look.rim_inner,
-			band, min(lens.thickness, band), lift or 0, dc:_color(0xFFFFFFFF))
+			band, min(lens.thickness, band), lift or 0, dc:_color(0xFFFFFFFF), c.sharp, c.blur, ku, kv)
 		return -- the shader drew the rim
 	else
 		sample(dc, c, tex, x, y, w, h, r, true)
