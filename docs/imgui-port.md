@@ -247,7 +247,9 @@ is loaded (the OpenGL driver alone was ~40 MB of private memory).
 
 The Lunar theme's Liquid Glass follows the device (`core.ui.Glass`,
 `src/cpp/lunar_glass_d3d11.inc`). On a hardware device chrome and floating glass are a
-live pixel shader that refracts, blurs and lights what lies under it each frame; on WARP,
+live pixel shader that refracts, blurs and lights what lies under it each frame (the
+Media transport shows the nearest artwork extended under it, a tooltip is frosted glass,
+and the rim's light turns toward a nearby pointer unless motion is reduced); on WARP,
 with hardware acceleration off, on SDL and with Carbon it is the baked backdrop path with
 no per-frame shader work. `renderer().glass` says which ("shader" or "baked"); a hardware
 device lost and re-made on WARP switches path at the next frame. Its cost, measured with

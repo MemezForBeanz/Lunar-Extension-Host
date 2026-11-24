@@ -134,26 +134,39 @@ not separately measured.
 
 On a hardware device the Lunar theme's glass is a live shader (`src/cpp/lunar_glass_d3d11.inc`).
 Its work per frame: nothing without glass on screen; chrome samples the floor's images
-already on the GPU (no copy); floating glass shares one copy of the regions under it and
-one quarter-resolution dual-Kawase blur (three passes, one draw each), skipped when
-nothing under the glass changed; one single-pass draw per surface. Textures are made once
+already on the GPU (no copy, no textures made); glass that shows what is under it copies
+that region and blurs it at quarter resolution, once per frame and only where it is. Glass
+in the window's foreground layer or its own window shares one copy taken after the
+background layer; glass inside the background layer (the Media transport, a dialog drawn
+in the window) copies its region at its own place in the draw list, before it draws. The
+light blur is one pass (16 texels in 4 bilinear taps); the strong one (the transport, a
+tooltip) adds a dual-Kawase step to 1/8 and back, run only when something samples it.
+Every copy is skipped while nothing that reaches its region changed (draw commands,
+indices, textures, callback data). One single-pass draw per surface. Textures are made once
 at the monitor's size; nothing is uploaded per frame.
 
 GPU time from D3D11 timestamp queries (`LUNAR_GPU_TIMING=1`, the council's
-`gpu-run.ps1` / `gpuprobe.lua`), Media at 1920x1080 with the command palette open, NVIDIA
-GeForce RTX 3070 Ti at the clocks the idle-paced app runs at, median of 240 frames per run,
-five runs (2026-11-24):
+`gpu-run.ps1` / `gpuprobe.lua`), Media at 1920x1080 (its transport is live glass), NVIDIA
+GeForce RTX 3070 Ti at the clocks the idle-paced app runs at, median of 240 frames per
+phase, runs 5-10 (2026-11-24):
 
 | Scene | Glass GPU per frame | of which copy + blur |
 | --- | --- | --- |
-| Palette + Media, nothing under the glass changing | 54-71 us | 0 (skipped) |
-| Palette + Media, copy and blur forced every frame | 180-212 us | 102-110 us |
-| Media, chrome only (palette closed) | 5 us | 0 |
+| Media + palette, nothing under the glass changing | 53-55 us | 0 (skipped) |
+| Media + palette, every copy and blur forced every frame | 249-256 us | 160-163 us |
+| Palette refreshing every frame (transport as plain chrome) | 131-133 us | 68-71 us |
+| Transport refreshing every frame (palette closed) | 150-164 us | 86-97 us |
+| Media, palette closed, transport cached | 5-8 us | 0 |
 
-The 90th percentile of the forced-copy case reaches about 2.5 ms in one frame in ten: the
-copy span then includes a wait on the swap chain (the whole frame's span is the same with
-the baked path, 4.2-4.3 ms, against 4.1-4.2 ms with the shader). A static screen draws no
-frames at all.
+The forced case refreshes both copies every frame, the worst case; content changing under
+only one of them refreshes only that one.
+
+With vsync on, the 90th and 99th percentiles of a glass span reach 2.4-2.7 ms in about one
+frame in ten, even in frames that copy nothing. That is the GPU waiting on the swap chain's
+vsync flip, counted in whichever span is open when the wait happens, not glass work: the
+whole frame's GPU span does not grow (4.1-4.2 ms with the shader, 4.2 ms baked); a Flush
+after the copy does not move it; with `LUNAR_VSYNC=0` it is gone (forced-copy glass p90
+235-238 us, and the frame span falls to 1.1-1.4 ms). A static screen draws no frames at all.
 
 ## Controls and reproduction
 
