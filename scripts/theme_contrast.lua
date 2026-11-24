@@ -86,6 +86,12 @@ function M.audit(theme, output)
             if r.selbg then check(role,"final selected",r.seltext or fg,final(r.selbg,under),4.5) end
             if r.pressed then check(role,"final pressed",r.pressedtext or r.hovertext or fg,final(r.pressed,under),4.5) end
             if r.secondary then check(role,"final secondary",r.secondary,under,4.5) end
+            -- muted body text can sit in any of those states too (Activity rows, menus)
+            local muted=p.textMuted
+            check(role,"final muted rest",muted,under,4.5)
+            if r.hover then check(role,"final muted hover",muted,final(r.hover,under),4.5) end
+            if r.selbg then check(role,"final muted selected",muted,final(r.selbg,under),4.5) end
+            if r.pressed then check(role,"final muted pressed",muted,final(r.pressed,under),4.5) end
         end
         for _,role in ipairs(M.ON_CHROME) do
             local r=rules[role]

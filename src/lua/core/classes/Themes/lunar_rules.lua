@@ -487,6 +487,9 @@ function M.build(p)
             glass = "chrome" }
         -- The search field is a capsule too.
         rules.commandbar.radius, rules.commandbar_text.radius = 14, 14
+        -- The button fills the pill: painting its parent's colour as a square showed a dark
+        -- rectangle round the capsule, so it leaves the fill to the pill.
+        rules.commandbar_text.glass = "content"
         -- Primary action: an opaque gradient, the one inverted-luminance element in its region.
         if p.primaryTop then
             local b = rules.primary_btn

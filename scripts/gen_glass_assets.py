@@ -36,7 +36,10 @@ INNER = (106.5, 177.5, 76.5)
 TILT, BOX = 12.0, (8.0, 105.0, 74.0, 145.0)
 # Two four-point stars on the open side (tip to tip, peak opacity dark / light): the
 # principal one clearly larger, both with sharp tips.
-SPARKLES = [(58.0, 158.0, 16.0, 0.86, 0.95), (71.0, 210.0, 9.0, 0.64, 0.76)]
+SPARKLES = [(58.0, 158.0, 22.0, 1.0, 1.0), (71.0, 210.0, 9.0, 0.64, 0.76)]
+# The lower shoulder: up to 6 px more band on the concave side through the lower third,
+# tapering to nothing at both tips.
+LOWER_SHOULDER = 6.0
 # Fourteen point stars, 1-2 px: eight near the crescent, six in exposed perimeter space
 # (the left strip below the crescent, the top reveal, the right reveal). Clear of labels.
 NEAR = [(22, 84), (44, 96), (95, 128), (88, 170), (54, 252), (94, 236), (58, 270), (16, 284)]
@@ -44,7 +47,7 @@ PERIMETER = [(30, 340), (62, 430), (20, 540), (1594, 150), (1594, 380), (1594, 6
 COLORS = {
     "dark": dict(space="#080A0F", body="#B9C7D8", crest="#F2F6FC", inner="#334257",
                  star="#F2F6FC", far_star="#F2F6FC", alpha=(0.28, 0.52), tone=("#101721", "#374451")),
-    "light": dict(sky="#9EACC0", body="#EDF3FB", crest="#FFFFFF", inner="#657284",
+    "light": dict(sky="#B4C2D4", sky_max=0.70, body="#EDF3FB", crest="#FFFFFF", inner="#657284",
                   star="#FFFFFF", far_star="#4A5463", alpha=(0.44, 0.70), tone=("#E9EEF4", "#C9D3E0")),
 }
 
@@ -89,7 +92,11 @@ def fields(x, y):
     dx, dy = x - px, y - py
     sx = px + dx * np.cos(a) - dy * np.sin(a)
     sy = py + dx * np.sin(a) + dy * np.cos(a)
-    return orad - np.hypot(sx - ox, sy - oy), np.hypot(sx - ix, sy - iy) - irad
+    # Fuller through the lower third: the inner (shadow) disc gives way there, most at about
+    # two thirds down, nothing at either tip.
+    t = np.clip((sy - (oy - orad)) / (2 * orad), 0, 1)
+    shoulder = LOWER_SHOULDER * np.sin(np.pi * t) * smoothstep(0.30, 0.72, t) * (1 - smoothstep(0.86, 1.0, t))
+    return orad - np.hypot(sx - ox, sy - oy), np.hypot(sx - ix, sy - iy) - irad + shoulder
 
 
 def fit():
@@ -177,7 +184,7 @@ def backdrop(mode):
         img = tone(img, x, y, c)
         # A local sky round the crescent's centre, feathered from 45 to 95 px.
         sky = np.hypot(x - (BOX[0] + BOX[2] / 2), y - (BOX[1] + BOX[3] / 2))
-        img = over(img, 1 - smoothstep(45.0, 95.0, sky), lin(c["sky"]))
+        img = over(img, c["sky_max"] * (1 - smoothstep(45.0, 95.0, sky)), lin(c["sky"]))
     img, outer, inner = crescent(img, c)
     band = (outer > -1) & (inner > -1)
     stars = np.zeros((H, W))

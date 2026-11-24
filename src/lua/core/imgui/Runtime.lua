@@ -40,6 +40,8 @@ local scrim_windows, scrim_used = {}, 0
 local scrim_over_video
 local video_rects = {}
 local hovered, captured, focused = nil, nil, nil
+-- The overlay (menu, dropdown list) under the pointer: its glass rim lifts.
+local hover_overlay = nil
 local loop_level = 0
 local exit_levels = {}
 local need_frame = true
@@ -1412,6 +1414,7 @@ local function route(input)
 
 	-- An overlay captures the mouse while a button is held on it.
 	local over = M._overlay_capture or overlay
+	if over ~= hover_overlay then hover_overlay = over; need_frame = true end
 
 	-- Hover
 	local new_hover = captured or (not over and target) or nil
@@ -1634,7 +1637,7 @@ local function paint(el, d)
 		local g = material.glass
 		-- the rim's highlight lifts while the pointer is over the surface (eased)
 		local lift = (g == "chrome" or g == "caps" or g == "floating")
-			and Glass.ease(st.data, hovered ~= nil and contains(el, hovered)) or nil
+			and Glass.ease(st.data, (hovered ~= nil and contains(el, hovered)) or d.overlay_hovered == true) or nil
 		Glass.paint(d, st.x, st.y, st.w, st.h, g, material_palette, material.radius, el, material.lip, lift)
 	end
 	if not culled and class.draw then
@@ -1930,9 +1933,11 @@ function M.frame()
 					dc:surface(st.data.win, ox - c, oy - c, st.w + 2 * c, st.h + 2 * c)
 					dc:offset_push(ox, oy)
 					dc:clip_push(-c, -c, st.w + 2 * c, st.h + 2 * c)
-					if glass ~= (st.data.underlay or false) then
-						st.data.underlay = glass
-						B.window("popup_underlay", st.data.win, glass)
+					-- the shadow margin lets clicks through to the page beneath
+					local underlay = glass and c or false
+					if underlay ~= (st.data.underlay or false) then
+						st.data.underlay = underlay
+						B.window("popup_underlay", st.data.win, glass, c)
 					end
 					local k = glass and Glass.entrance(st.data) or 1
 					if k < 1 then dc:alpha_push(k); dc:offset_push(0, Glass.LIFT * (1 - k)) end
@@ -1961,7 +1966,9 @@ function M.frame()
 			if id then dc:surface(id, x, y, w, h) end
 			dc:layer("overlay")
 			dc:offset_push((o.dx or 0) + (o.shift_x or 0), (o.dy or 0) + (o.shift_y or 0))
+			dc.overlay_hovered = o == hover_overlay
 			local okd, errd = xpcall(o.draw, debug.traceback, dc, o)
+			dc.overlay_hovered = false
 			if not okd then warn(errd) end
 			dc:offset_pop()
 			dc:layer("main")

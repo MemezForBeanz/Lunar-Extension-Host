@@ -671,7 +671,16 @@ LRESULT CALLBACK popup_wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_NCLBUTTONDOWN: case WM_NCRBUTTONDOWN: case WM_NCMBUTTONDOWN:
         event_src = p ? p->id : 0; push_event(11);   /* as the main window's frame does */
         return DefWindowProcW(h, m, w, l);
-    case WM_NCCALCSIZE: case WM_NCHITTEST: case WM_NCMOUSEMOVE: case WM_NCMOUSELEAVE:
+    case WM_NCHITTEST:
+        /* a glass dialog's shadow margin lets the mouse through to the page beneath */
+        if (p && p->underlay && p->inset > 0) {
+            POINT pt = {GET_X_LPARAM(l), GET_Y_LPARAM(l)}; ScreenToClient(h, &pt);
+            RECT c; GetClientRect(h, &c);
+            if (pt.x < p->inset || pt.y < p->inset || pt.x >= c.right - p->inset || pt.y >= c.bottom - p->inset)
+                return HTTRANSPARENT;
+        }
+        return DefWindowProcW(h, m, w, l);
+    case WM_NCCALCSIZE: case WM_NCMOUSEMOVE: case WM_NCMOUSELEAVE:
     case WM_NCLBUTTONUP: case WM_NCLBUTTONDBLCLK:
         return DefWindowProcW(h, m, w, l);
     }
@@ -1783,7 +1792,10 @@ void popup_render(Popup *p) {
         ImDrawData *main = ImGui::GetDrawData();
         ImVector<ImDrawList*> own = dd.CmdLists;
         dd.CmdLists.clear();
+        /* not the foreground layer: floating UI drawn there must not show under a dialog */
+        ImDrawList *front = g.lists.size() > 1 ? g.lists[1] : nullptr;
         if (main) for (ImDrawList *dl : main->CmdLists) {
+            if (dl == front) continue;
             dd.CmdLists.push_back(dl);
             dd.TotalVtxCount += dl->VtxBuffer.Size; dd.TotalIdxCount += dl->IdxBuffer.Size;
         }
@@ -2500,7 +2512,10 @@ int l_window(lua_State *L) {
     }
     if (is("popup_underlay")) {
         Popup *p = popup_by_id((int)luaL_checkinteger(L, 2));
-        if (p && !p->overlay) p->underlay = lua_toboolean(L, 3) != 0;
+        if (p && !p->overlay) {
+            p->underlay = lua_toboolean(L, 3) != 0;
+            p->inset = p->underlay ? (int)luaL_optinteger(L, 4, 0) : 0;   /* the click-through shadow margin */
+        }
         return 0;
     }
     if (is("popup_ready")) {

@@ -432,8 +432,17 @@ function ToastHost:show(spec)
 		-- Padding belongs to the content; the support rail runs flush along the edge.
 		local padded = iup.vbox({content, MARGIN=L.margin(4,3), EXPAND="YES"})
 		-- main row: status bar + text area
+		-- On Lunar's glass the rail sits inside the opaque well, clear of the see-through
+		-- lip and the rounded corners (flush against the edge it stood out past them).
+		local palette = require("core.ui.ThemeReactor").palette() or {}
+		local rail = status_bar
+		if rawget(iup, "_IMGUI") and palette.glass then
+			local lip, radius = palette.glassLip or 8, palette.radiusFloating or 16
+			iup.SetAttribute(status_bar, "RASTERSIZE", STATUS_BAR_W .. "x1")
+			rail = iup.vbox({ status_bar, MARGIN = lip .. "x" .. (radius - lip + 4), GAP = "0" })
+		end
 		local body_row = iup.hbox({
-			status_bar,
+			rail,
 			padded,
 			GAP    = "0",
 			MARGIN = "0x0",
