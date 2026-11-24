@@ -121,6 +121,7 @@ function M.new(opts)
 	function B.image_rounded_uv(...) record("image_rounded_uv", ...) end
 	function B.image_nine(...) record("image_nine", ...) end
 	function B.rim(...) record("rim", ...) end
+	function B.glass(...) record("glass", ...); return true end
 	function B.clip_push(...) record("clip_push", ...) end
 	function B.clip_pop(...) record("clip_pop", ...) end
 	function B.layer(...) record("layer", ...) end

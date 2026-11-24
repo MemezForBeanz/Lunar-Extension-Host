@@ -332,4 +332,129 @@ describe("Lunar glass",function()
         assert.same({band=12,left=0,top=0,right=0,bottom=0},Frame.metrics(iup))
         Reactor.palette=real
     end)
+
+    describe("on a hardware device",function()
+        -- A backend whose live device can run the glass shader (lunar_ui_glass_ready).
+        local function hardware(ready)
+            local B=Null.new(); local asked=0
+            B.glass_ready=function() asked=asked+1; return ready==nil and true or ready() end
+            return B,function() return asked end
+        end
+        local function frame(B,dc,w,h,fn) B.frame_begin(); dc:begin(w,h); fn(); B.frame_end() end
+        local function calls(B,op)
+            local out={}
+            for _,c in ipairs(B.lastFrame()) do if c[1]==op then out[#out+1]=c end end
+            return out
+        end
+
+        it("draws chrome as one shader surface: no baked sample, tint or rim",function()
+            local B=hardware(); local dc=Draw.new(B); local p=palette("LunarDarkTheme")
+            frame(B,dc,1920,1080,function() Glass.paint(dc,0,40,48,1000,"chrome",p,14) end)
+            local n=ops(B)
+            assert.equal(1,n.glass); assert.is_nil(n.image_rounded_uv); assert.is_nil(n.rim); assert.is_nil(n.rect_filled)
+            local g=calls(B,"glass")[1]
+            assert.same({0,40,48,1040,14,1},{g[2],g[3],g[4],g[5],g[6],g[7]})
+            assert.equal(Glass.LENS.chrome.band,g[11]); assert.equal(Glass.LENS.chrome.thickness,g[12])
+            assert.equal("shader",Glass.path(dc))
+        end)
+
+        it("draws floating glass as shadow, shader lip and opaque well, without the frame copy",function()
+            local B=hardware(); local dc=Draw.new(B); local p=palette("LunarLightTheme")
+            local copies=0
+            B.window=function(op) if op=="frame_copy" then copies=copies+1; return -7,1920,1080 end end
+            frame(B,dc,1920,1080,function() Glass.paint(dc,200,200,400,300,"floating",p,16,nil,nil,0.5) end)
+            local n=ops(B)
+            assert.equal(1,n.image_nine); assert.equal(1,n.glass); assert.is_nil(n.rim); assert.is_nil(n.image_rounded_uv)
+            assert.equal(0,copies)
+            local g=calls(B,"glass")[1]
+            assert.equal(0,g[7])                        -- floating
+            assert.equal(p.glassLip,g[11])              -- the lens bends across the lip
+            assert.equal(0.5,g[13])                     -- hover lift
+            -- the well is still opaque, 8 px in
+            local well=calls(B,"rect_filled"); well=well[#well]
+            local C=require("core.imgui.Color")
+            assert.equal(208,well[2]); local _,_,_,a=C.unpack(well[6]); assert.equal(255,a)
+            -- the shadow comes first, the well after the glass
+            local order={}
+            for _,c in ipairs(B.lastFrame()) do order[#order+1]=c[1] end
+            local function at(op) for i,o in ipairs(order) do if o==op then return i end end end
+            assert.is_true(at("image_nine")<at("glass") and at("glass")<at("rect_filled"))
+        end)
+
+        it("keeps the floor and the matte card the same on both paths",function()
+            local function draw(B)
+                local dc=Draw.new(B); local p=palette("LunarDarkTheme")
+                frame(B,dc,1920,1080,function()
+                    Glass.paint(dc,0,0,1920,1080,"floor",p); Glass.paint(dc,100,60,1700,900,"card",p)
+                end)
+                return ops(B)
+            end
+            assert.same(draw(Null.new()),draw((hardware())))
+        end)
+
+        it("asks the device once per frame, and follows a fallback to WARP at the next frame",function()
+            local live=true
+            local B,asked=hardware(function() return live end); local dc=Draw.new(B); local p=palette("LunarDarkTheme")
+            frame(B,dc,1920,1080,function()
+                for k=1,5 do Glass.paint(dc,0,k*40,1920,40,"chrome",p) end
+                Glass.paint(dc,100,100,300,200,"floating",p)
+            end)
+            assert.equal(1,asked()); assert.equal(6,ops(B).glass)
+            live=false   -- the hardware device was removed and re-made on WARP
+            frame(B,dc,1920,1080,function() Glass.paint(dc,0,40,1920,40,"chrome",p) end)
+            assert.equal(2,asked()); assert.is_nil(ops(B).glass); assert.equal(1,ops(B).image_rounded_uv)
+            assert.equal("baked",Glass.path(dc))
+        end)
+
+        it("uses the baked path on WARP, an SDL host and with hardware acceleration off",function()
+            for _,B in ipairs({hardware(function() return false end),Null.new()}) do
+                local dc=Draw.new(B); local p=palette("LunarDarkTheme")
+                frame(B,dc,1920,1080,function()
+                    Glass.paint(dc,0,0,1920,40,"chrome",p); Glass.paint(dc,100,100,300,200,"floating",p)
+                end)
+                assert.is_nil(ops(B).glass); assert.equal(2,ops(B).rim)
+                assert.equal("baked",Glass.path(dc))
+            end
+        end)
+
+        it("leaves Carbon and glass-off surfaces solid even on hardware",function()
+            local B=hardware(); local dc=Draw.new(B)
+            frame(B,dc,1920,1080,function()
+                Glass.paint(dc,0,0,1920,40,"chrome",palette("CarbonWhiteTheme"))
+                Glass.paint(dc,100,100,300,200,"floating",palette("CarbonWhiteTheme"))
+            end)
+            assert.is_nil(ops(B).glass)
+            Glass.setEnabled(false)
+            frame(B,dc,1920,1080,function() Glass.paint(dc,0,0,1920,40,"chrome",palette("LunarDarkTheme")) end)
+            assert.is_nil(ops(B).glass)
+        end)
+
+        it("generates and uploads nothing after warm-up across resizes and light/dark switches",function()
+            local B=hardware(); local dc=Draw.new(B)
+            local dark,light=palette("LunarDarkTheme"),palette("LunarLightTheme")
+            frame(B,dc,1920,1080,function() Glass.paint(dc,0,0,1920,40,"chrome",dark); Glass.paint(dc,0,0,1920,40,"chrome",light) end)
+            local warm,loaded=Glass.stats().generations,#loads
+            local uploads=0; local tex=B.texture; B.texture=function(...) uploads=uploads+1; return tex(...) end
+            local sizes={{1400,900},{1100,800},{1600,1000},{1000,700},{1920,1080}}
+            for k=1,30 do
+                local s=sizes[(k-1)%#sizes+1]; local p=k%2==0 and dark or light
+                frame(B,dc,s[1],s[2],function()
+                    Glass.paint(dc,0,0,s[1],s[2],"floor",p); Glass.paint(dc,0,0,s[1],40,"chrome",p)
+                    Glass.paint(dc,100,100,300,200,"floating",p)
+                end)
+            end
+            assert.equal(warm,Glass.stats().generations); assert.equal(loaded,#loads); assert.equal(0,uploads)
+        end)
+
+        it("shifts and fades a recorded shader surface when it is replayed",function()
+            local B=hardware(); local dc=Draw.new(B); local p=palette("LunarDarkTheme")
+            B.frame_begin(); dc:begin(1920,1080)
+            dc:record(false); Glass.paint(dc,10,10,100,40,"chrome",p); local rec=dc:stop()
+            dc:replay(rec,5,7,0.5)
+            B.frame_end()
+            local g=calls(B,"glass")[1]
+            assert.same({15,17,115,57},{g[2],g[3],g[4],g[5]})
+            local C=require("core.imgui.Color"); local _,_,_,a=C.unpack(g[14]); assert.near(128,a,1)
+        end)
+    end)
 end)

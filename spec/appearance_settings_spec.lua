@@ -29,8 +29,10 @@ local function setup(opts)
 		save = function() saved = saved + 1 end,
 		isLocked = function(_, k) return (opts.locked or {})[k] == true end,
 	}
+	local iup = fake_iup()
+	if opts.imgui then iup._IMGUI = true end
 	AppearanceSettings.register({
-		iup = fake_iup(),
+		iup = iup,
 		settings = settings,
 		host = { addSettings = function(_, name, s) section = { name = name, entries = s.entries } end },
 		theme_manager = opts.theme_manager or {
@@ -98,6 +100,47 @@ describe("AppearanceSettings", function()
   choose(children[1].widget,5);assert.equal(2,s.store.motion_scale)
   local _,values=AppearanceSettings.transition_choices()
   choose(children[2].widget,2);assert.equal(values[2],s.store.motion_tab_transition)
+ end)
+ describe("hardware acceleration",function()
+  local real, calls
+  before_each(function()
+   real=package.loaded.lunarimgui; calls={}
+   package.loaded.lunarimgui={renderer_preference=function(v,apply) calls[#calls+1]={v,apply} return v end}
+  end)
+  after_each(function() package.loaded.lunarimgui=real end)
+  local function toggle(s)
+   for _,c in ipairs(s.section.entries[5].children) do if c.label=="Hardware acceleration" then return c.widget end end
+  end
+  it("maps on (and unset) to hardware-first and off to WARP",function()
+   assert.equal("auto",AppearanceSettings.renderer_for(nil))
+   assert.equal("auto",AppearanceSettings.renderer_for(true))
+   assert.equal("warp",AppearanceSettings.renderer_for(false))
+  end)
+  it("is on by default and tells the host before the window opens, without a reset",function()
+   local s=setup({imgui=true})
+   local t=toggle(s)
+   assert.equal("ON",t.VALUE)
+   assert.same({{"auto",false}},calls)
+  end)
+  it("starts on WARP when turned off",function()
+   setup({imgui=true,values={hardware_acceleration=false}})
+   assert.same({{"warp",false}},calls)
+  end)
+  it("saves a change and applies it through the device reset",function()
+   local s=setup({imgui=true}); local t=toggle(s)
+   t.VALUE="OFF"; t:valuechanged_cb()
+   assert.is_false(s.store.hardware_acceleration); assert.equal(1,s.saved())
+   assert.same({"warp",true},calls[2])
+   t.VALUE="ON"; t:valuechanged_cb()
+   assert.same({"auto",true},calls[3])
+  end)
+  it("is greyed out when the org locks it, and absent outside the ImGui host",function()
+   local s=setup({imgui=true,locked={hardware_acceleration=true}})
+   assert.equal("NO",toggle(s).ACTIVE)
+   calls={}
+   assert.is_nil(toggle(setup()))
+   assert.same({},calls)
+  end)
  end)
  it("persists glass changes",function()
   local s=setup();local t=s.w["Glass effects"];t.VALUE="OFF";t:valuechanged_cb()

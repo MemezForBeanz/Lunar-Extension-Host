@@ -283,6 +283,19 @@ void lunar_ui_rim(ImDrawList *dl, float x1, float y1, float x2, float y2, float 
 		C.lunar_ui_rim(dl, x1, y1, x2, y2, rounding or 0, hi or 0, lo or 0, inner or 0, flags or 0, thick or 1)
 	end
 end
+-- GPU glass (core.ui.Glass): a live shader surface, on a hardware device only.
+if pcall(ffi.cdef, [[
+int lunar_ui_glass_ready(void);
+int lunar_ui_glass(ImDrawList *dl, float x1, float y1, float x2, float y2, float radius, int kind,
+	uint32_t tint, uint32_t rim, uint32_t inner, float band, float thickness, float lift, uint32_t fade);
+]]) and pcall(function() return C.lunar_ui_glass_ready, C.lunar_ui_glass end) then
+	--- true while the live device draws glass with the shader (hardware, not WARP)
+	function B.glass_ready() return C.lunar_ui_glass_ready() ~= 0 end
+	function B.glass(x1, y1, x2, y2, radius, kind, tint, rim, inner, band, thickness, lift, fade)
+		return C.lunar_ui_glass(dl, x1, y1, x2, y2, radius or 0, kind or 0, tint or 0, rim or 0, inner or 0,
+			band or 8, thickness or 6, lift or 0, fade or 0xFFFFFFFF) ~= 0
+	end
+end
 function B.clip_push(x1, y1, x2, y2) C.lunar_ui_clip_push(dl, x1, y1, x2, y2) end
 function B.clip_pop() C.lunar_ui_clip_pop(dl) end
 

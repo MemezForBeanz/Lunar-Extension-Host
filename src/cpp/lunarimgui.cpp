@@ -38,6 +38,7 @@
 #include <dwmapi.h>
 #include <d3d11.h>
 #include <dxgi.h>
+#include <d3dcompiler.h>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -110,6 +111,9 @@ struct State {
     ID3D11Texture2D *ov_tex = nullptr, *ov_copy = nullptr; ID3D11RenderTargetView *ov_rtv = nullptr;
     int ov_w = 0, ov_h = 0; bool ov_bgra = true;
     std::string renderer_requested = "auto", renderer = "uninitialized", renderer_status = "not_open";
+    /* Settings > Appearance > Hardware acceleration: "auto" (on) or "warp" (off);
+       LUNAR_RENDERER overrides it. `reselect`: apply a changed preference at the next frame. */
+    std::string renderer_preference = "auto"; bool reselect = false, reselecting = false;
     std::string renderer_error; HRESULT device_reason = S_OK;
     std::string adapter_description, fallback_reason;
     int renderer_resets = 0, renderer_fallbacks = 0;
@@ -1025,8 +1029,10 @@ void release_overlay_target() {
     g.ov_w = g.ov_h = 0;
 }
 
+void glass_release();
 void release_renderer_gpu() {
     release_frame_copy();
+    glass_release();
     release_retired_textures();
     if (g.ctx) { g.ctx->ClearState(); g.ctx->Flush(); }
     release_overlay_target();
@@ -1071,6 +1077,8 @@ bool restore_textures() {
     return true;
 }
 
+#include "lunar_glass_d3d11.inc"
+
 bool initialize_renderer_backends() {
     if (!ImGui::GetCurrentContext()) return false;
     if (!ImGui::GetIO().BackendPlatformUserData && !ImGui_ImplWin32_Init(g.hwnd)) {
@@ -1102,10 +1110,11 @@ bool restore_renderer(bool reset) {
     release_renderer_gpu();
     char want[32] = "";
     GetEnvironmentVariableA("LUNAR_RENDERER", want, sizeof(want));
-    /* Unset: WARP, with the GPU only if WARP cannot start. A GPU driver costs about
-       30 MiB of private memory more than WARP, which keeps the host's footprint near
-       IUP's (docs/imgui-port.md, Performance); "auto" is hardware-first. */
-    g.renderer_requested = want[0] ? want : "default";
+    /* Unset: the preference (Settings > Appearance > Hardware acceleration), "auto" by
+       default: hardware first, WARP if it cannot start. A GPU driver costs about 30 MiB
+       of private memory more than WARP (docs/imgui-port.md, Performance); off is "warp".
+       "default" (WARP, the GPU only if WARP cannot start) is still accepted. */
+    g.renderer_requested = want[0] ? want : g.renderer_preference;
     std::string requested = lower(g.renderer_requested);
     /* WARP rasterizes on the CPU's cores; on a low-power machine (two logical processors
        or fewer) that would starve the app, so the default takes the GPU there. */
@@ -1118,8 +1127,9 @@ bool restore_renderer(bool reset) {
     bool force_hardware = requested == "hardware" || requested == "gpu";
     /* A removed hardware adapter should not be retried forever: reset directly onto
        WARP, while an initial auto selection remains hardware-first. */
-    bool first_hardware = !force_warp && !default_warp && (!reset || force_hardware);
-    if (reset && was_hardware && !first_hardware) {
+    /* A changed preference (g.reselecting) chooses afresh, hardware first. */
+    bool first_hardware = !force_warp && !default_warp && (!reset || force_hardware || g.reselecting);
+    if (reset && was_hardware && !first_hardware && !g.reselecting) {
         ++g.renderer_fallbacks;
         g.fallback_reason = "hardware_device_recreated_on_warp";
     }
@@ -1624,6 +1634,7 @@ int l_close(lua_State *L) {
     for (auto &t : g.textures) if (t.second.srv) t.second.srv->Release();
     g.textures.clear();
     release_frame_copy();
+    glass_release();
     release_retired_textures();
     clear_gdi_lines();
     clear_gdi_sizes();
@@ -1683,6 +1694,40 @@ int l_renderer(lua_State *L) {
     lua_pushboolean(L, g.device && g.rtv && ImGui::GetCurrentContext() &&
         ImGui::GetIO().BackendRendererUserData && ImGui::GetIO().BackendPlatformUserData);
     lua_setfield(L, -2, "ready");
+    lua_pushstring(L, g.renderer_preference.c_str()); lua_setfield(L, -2, "preference");
+    lua_pushstring(L, g.device && !g.warp && gg.ready ? "shader" : "baked"); lua_setfield(L, -2, "glass");
+    lua_pushstring(L, gg.error.c_str()); lua_setfield(L, -2, "glass_error");
+    lua_pushinteger(L, (lua_Integer)gg.surfaces); lua_setfield(L, -2, "glass_surfaces");
+    lua_pushinteger(L, (lua_Integer)gg.copies); lua_setfield(L, -2, "glass_copies");
+    lua_pushinteger(L, (lua_Integer)gg.passes); lua_setfield(L, -2, "glass_blur_passes");
+    lua_pushinteger(L, (lua_Integer)gg.skips); lua_setfield(L, -2, "glass_skips");
+    lua_pushinteger(L, (lua_Integer)gg.creations); lua_setfield(L, -2, "glass_creations");
+    lua_pushnumber(L, gg.hash_us_sum); lua_setfield(L, -2, "glass_cpu_check_us_sum");
+    lua_pushboolean(L, gg.timing); lua_setfield(L, -2, "glass_gpu_timing");
+    lua_pushinteger(L, (lua_Integer)gg.gpu_frames); lua_setfield(L, -2, "glass_gpu_frames");
+    lua_pushnumber(L, gg.gpu_glass_us_sum); lua_setfield(L, -2, "glass_gpu_us_sum");
+    lua_pushnumber(L, gg.gpu_glass_us_max); lua_setfield(L, -2, "glass_gpu_us_max");
+    lua_pushnumber(L, gg.gpu_glass_us_last); lua_setfield(L, -2, "glass_gpu_us_last");
+    lua_pushnumber(L, gg.gpu_frame_us_sum); lua_setfield(L, -2, "gpu_frame_us_sum");
+    return 1;
+}
+
+/* Hardware acceleration: "auto" (on) or "warp" (off). With `apply`, a live device is
+   re-made at the next frame when the choice changes what it would pick. */
+int l_renderer_preference(lua_State *L) {
+    if (lua_isstring(L, 1)) {
+        std::string want = lower(lua_tostring(L, 1));
+        if (want != "auto" && want != "warp" && want != "hardware" && want != "default") return luaL_error(L, "bad renderer preference");
+        bool changed = want != g.renderer_preference;
+        g.renderer_preference = want;
+        char env[32] = "";
+        GetEnvironmentVariableA("LUNAR_RENDERER", env, sizeof(env));
+        if (changed && lua_toboolean(L, 2) && g.device && !env[0]) {
+            bool hw_now = !g.warp, hw_next = want != "warp" && want != "default";
+            if (hw_now != hw_next) { g.reselect = true; if (g.hwnd) PostMessageW(g.hwnd, WM_NULL, 0, 0); }
+        }
+    }
+    lua_pushstring(L, g.renderer_preference.c_str());
     return 1;
 }
 
@@ -1714,6 +1759,12 @@ int l_frame_begin(lua_State *L) {
     if (!g.in_callback) {
         MSG m;
         while (PeekMessageW(&m, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&m); DispatchMessageW(&m); }
+    }
+    if (g.reselect && !g.resetting) {
+        /* Hardware acceleration changed: the device reset path, between frames */
+        g.reselect = false; g.reselecting = true;
+        restore_renderer(true);
+        g.reselecting = false;
     }
     if (!renderer_ready()) return luaL_error(L, "renderer unavailable: %s", g.renderer_error.c_str());
     RECT r; GetClientRect(g.hwnd, &r);
@@ -1808,6 +1859,7 @@ void popup_render(Popup *p) {
     const float black[4] = {0, 0, 0, 1};
     g.ctx->OMSetRenderTargets(1, &p->rtv, nullptr);
     g.ctx->ClearRenderTargetView(p->rtv, black);
+    gg.origin = dd.DisplayPos;
     if (dd.CmdLists.Size > 0) ImGui_ImplDX11_RenderDrawData(&dd);
     if (g.shot.pending && g.shot.popup == p->id) write_shot(p->swap, p->hwnd);
     HRESULT hr = p->swap->Present(0, 0);
@@ -2027,6 +2079,7 @@ void overlay_render(Popup *p) {
     const float clear[4] = {0, 0, 0, 0};
     g.ctx->OMSetRenderTargets(1, &g.ov_rtv, nullptr);
     g.ctx->ClearRenderTargetView(g.ov_rtv, clear);
+    gg.origin = dd.DisplayPos;
     if (dd.CmdLists.Size > 0) ImGui_ImplDX11_RenderDrawData(&dd);
     D3D11_BOX box = {0, 0, 0, (UINT)w, (UINT)h, 1};
     g.ctx->CopySubresourceRegion(g.ov_copy, 0, 0, 0, 0, g.ov_tex, 0, &box);
@@ -2081,7 +2134,12 @@ int l_frame_end(lua_State *) {
     g.ctx->ClearRenderTargetView(g.rtv, black);
     ImDrawData *all = ImGui::GetDrawData();
     ID3D11Texture2D *back = nullptr;
-    if (g.frame_want && g.frame_tex && g.frame_w == g.sc_w && g.frame_h == g.sc_h
+    /* GPU glass: its textures follow the target (made only when it outgrows them) */
+    bool glass = gg.used && gg.ready && !g.warp && glass_levels(g.sc_w, g.sc_h);
+    bool copy = g.frame_want && g.frame_tex && g.frame_w == g.sc_w && g.frame_h == g.sc_h;
+    gg.main_target = true; gg.origin = ImVec2(0, 0); gg.bg_done = false;
+    if (glass) { glass_plan(g.lists.empty() ? nullptr : g.lists[0]); glass_timing_begin(); }
+    if ((copy || (glass && !gg.fl.empty() && !gg.skip))
         && SUCCEEDED(g.swap->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&back)) && back) {
         /* the background layer, the copy, then the foreground (the floating glass) */
         ImDrawData lower = *all, upper = *all;
@@ -2096,7 +2154,8 @@ int l_frame_end(lua_State *) {
         }
         ImGui_ImplDX11_RenderDrawData(&lower);
         g.ctx->OMSetRenderTargets(0, nullptr, nullptr);
-        g.ctx->CopyResource(g.frame_tex, back);
+        if (copy) g.ctx->CopyResource(g.frame_tex, back);
+        if (glass) glass_floating_copy(back);
         g.ctx->OMSetRenderTargets(1, &g.rtv, nullptr);
         if (upper.CmdLists.Size > 0) ImGui_ImplDX11_RenderDrawData(&upper);
     } else {
@@ -2104,6 +2163,7 @@ int l_frame_end(lua_State *) {
     }
     if (back) back->Release();
     g.frame_want = false;
+    gg.main_target = false;
     /* overlay windows before the shots (a capture of a window includes them) and before
        the presents (one that just left a surface is up before that surface drops it) */
     std::vector<Popup*> overlays;
@@ -2112,6 +2172,8 @@ int l_frame_end(lua_State *) {
     for (Popup *p : overlays) overlay_render(p);
     if (g.shot.pending && g.shot.popup == 0) write_shot();
     for (Popup *p : popups) popup_render(p);
+    if (glass) { gg.valid = true; glass_timing_end(); }
+    gg.used = false; gg.bg.clear(); gg.fl.clear();
     /* LUNAR_VSYNC=0 presents at once (frame timing in scripts/imgui_perf.lua) */
     static int vsync = -1;
     if (vsync < 0) { char v[8] = ""; GetEnvironmentVariableA("LUNAR_VSYNC", v, sizeof(v)); vsync = v[0] == '0' ? 0 : 1; }
@@ -2915,6 +2977,40 @@ LUNAR_FFI int lunar_ui_image_nine(ImDrawList *dl, int tex, float x1, float y1, f
     lunar_glass::image_nine(dl, t, x1, y1, x2, y2, bx, by, ub, vb, col);
     return 1;
 }
+/* GPU glass (core.ui.Glass): 1 while the live device can draw it (hardware, shader made). */
+LUNAR_FFI int lunar_ui_glass_ready() {
+    return g.device && !g.warp && glass_ensure() ? 1 : 0;
+}
+/* One glass surface: kind 0 floating (samples the background layer), 1 chrome (on the
+   background layer: refracts what was drawn under it). Colours are packed RGBA; `fade`'s
+   alpha is the surface's opacity. 0 when the shader path is not available. */
+LUNAR_FFI int lunar_ui_glass(ImDrawList *dl, float x1, float y1, float x2, float y2, float radius, int kind,
+                             uint32_t tint, uint32_t rim, uint32_t inner, float band, float thickness,
+                             float lift, uint32_t fade) {
+    if (!dl || !g.frame_open || !gg.ready || g.warp || x2 <= x1 || y2 <= y1) return 0;
+    GlassCmd d = {};
+    d.rect[0] = x1; d.rect[1] = y1; d.rect[2] = x2; d.rect[3] = y2;
+    d.radius = radius; d.band = band; d.thickness = thickness; d.lift = lift;
+    d.alpha = ((fade >> IM_COL32_A_SHIFT) & 0xFF) / 255.0f;
+    d.blur_mix = kind == 0 ? 1.0f : 0.35f; d.body = 1.0f; d.chroma = kind == 0 ? 0.9f : 0.6f;
+    glass_unpack(tint, d.tint); glass_unpack(rim, d.rim); glass_unpack(inner, d.inner);
+    bool bg = !g.lists.empty() && dl == g.lists[0];
+    d.snap = bg ? 1 : 0;
+    ImDrawCallback reset = ImGui::GetPlatformIO().DrawCallback_ResetRenderState;
+    GlassRect r = {(int)std::floor(x1), (int)std::floor(y1), (int)std::ceil(x2), (int)std::ceil(y2)};
+    /* the first background-layer surface takes the one snapshot of all of theirs */
+    if (bg && gg.bg.empty()) { dl->AddCallback(glass_cb_snap, nullptr); dl->AddCallback(reset, nullptr); }
+    (bg ? gg.bg : gg.fl).push_back(r);
+    gg.used = true;
+    dl->AddCallback(glass_cb_bind, &d, sizeof(d));
+    /* transparent, so it is invisible if the shader is not bound (AddRectFilled would drop it) */
+    dl->PrimReserve(6, 4);
+    dl->PrimRect(ImVec2(x1 - 1, y1 - 1), ImVec2(x2 + 1, y2 + 1), IM_COL32(255, 255, 255, 0));
+    if (gg.timing) dl->AddCallback(glass_cb_stamp, nullptr);
+    dl->AddCallback(reset, nullptr);
+    gg.surfaces++;
+    return 1;
+}
 LUNAR_FFI void lunar_ui_rim(ImDrawList *dl, float x1, float y1, float x2, float y2, float rounding,
                             uint32_t hi, uint32_t lo, uint32_t inner, int flags, float thick) {
     lunar_glass::rim(dl, x1, y1, x2, y2, rounding, hi, lo, inner, flags, thick);
@@ -3013,7 +3109,7 @@ int l_font_private(lua_State *L) {
 
 const luaL_Reg api[] = {
     {"open", l_open}, {"close", l_close}, {"alive", l_alive}, {"now", l_now}, {"wait", l_wait},
-    {"renderer", l_renderer}, {"renderer_reset", l_renderer_reset},
+    {"renderer", l_renderer}, {"renderer_reset", l_renderer_reset}, {"renderer_preference", l_renderer_preference},
     {"set_paint_callback", l_set_paint_callback},
     {"frame_begin", l_frame_begin}, {"frame_end", l_frame_end},
     {"rect", l_rect}, {"rect_filled", l_rect_filled}, {"rect_gradient", l_rect_gradient},

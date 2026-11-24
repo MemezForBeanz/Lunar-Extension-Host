@@ -122,7 +122,7 @@ function M.window_report(d)
 		local r=d.renderer
 		lines[#lines+1]=""
 		lines[#lines+1]="Renderer"
-		for _,key in ipairs({"requested","active","adapter","status","fallback_reason","resets"}) do
+		for _,key in ipairs({"requested","preference","active","adapter","status","fallback_reason","resets","glass"}) do
 			lines[#lines+1]=string.format("  %-22s: %s",key,tostring(r[key] or "-"))
 		end
 	end

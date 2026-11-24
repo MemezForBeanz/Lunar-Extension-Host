@@ -17,6 +17,14 @@
 --   content / chrome_content / none   children of the above: nothing (the parent's glass
 --             shows; the runtime skips their own fill of the material colour)
 --
+-- On a hardware device (B.glass_ready(), asked once per frame) chrome and floating glass are
+-- a live shader instead (lunar_glass_d3d11.inc): each surface is one `glass` call that
+-- refracts and blurs what is actually under it this frame, with the rim's specular and
+-- inner shade, and the same tints; the floating shadow and the opaque text well stay as
+-- below. On WARP, an SDL host, or with hardware acceleration off, the baked path below is
+-- used unchanged. The floor (the backdrop the glass refracts) and the matte card are the
+-- same on both paths.
+--
 -- Without the backend's glass calls (an older exe) the sample falls back to clipped strips;
 -- with glass off, or no image, surfaces get their solid fills and the same layout.
 -- @module core.ui.Glass
@@ -47,6 +55,22 @@ local function release()
 end
 
 function M.setEnabled(value) enabled = value == true; if not enabled then release() end end
+
+-- The shader's lens: the band (px in from the rim) it bends over, and how far it pulls the
+-- view in at the rim. A floating surface bends across its lip, so the band follows it.
+M.LENS = { floating = 0.75, chrome = { band = 8, thickness = 4 } }
+
+--- Which path this frame's glass takes on `dc`: "shader" (a live hardware device) or "baked".
+function M.path(dc)
+	local v = dc.glass_gpu
+	if v == nil then
+		local B = dc.B
+		v = (B.glass and B.glass_ready and B.glass_ready()) and true or false
+		dc.glass_gpu = v
+	end
+	return v and "shader" or "baked"
+end
+local function gpu(dc) return M.path(dc) == "shader" end
 function M.enabled() return enabled end
 function M.clear() release(); theme, rules, floating_dialog = nil, nil, nil end
 --- Where the baked images live (assets/glass next to the exe).
@@ -321,14 +345,22 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift)
 	end
 	if kind == "floor" then sample(dc, c, tex, x, y, w, h, 0, false); return end
 	local look = c.looks
+	local live = gpu(dc)
 	if floating then
 		-- A text-free lip that shows what is underneath (bent at the bevel, softened
 		-- inside it) under a light tint, round an opaque text well whose last two pixels
 		-- blend into the lip.
 		shadow(dc, look, x, y, w, h)
-		underneath(dc, x, y, w, h, r)
-		dc:fill(x, y, w, h, look.floating, shapes[r])
 		local l = min(lip or p.glassLip or 8, floor(w / 4), floor(h / 4))
+		if live then
+			-- the shader: the live frame under it, bent across the lip, blurred, tinted, lit
+			local ax, ay = x + dc.ox, y + dc.oy
+			dc:_emit("glass", ax, ay, ax + w, ay + h, r, 0, look.floating, look.rim_hi, look.rim_inner,
+				max(l, 3), max(l, 3) * M.LENS.floating, lift or 0, dc:_color(0xFFFFFFFF))
+		else
+			underneath(dc, x, y, w, h, r)
+			dc:fill(x, y, w, h, look.floating, shapes[r])
+		end
 		if l >= 3 then
 			for k = 2, 1, -1 do
 				local e = l - k
@@ -336,11 +368,18 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift)
 			end
 		end
 		dc:fill(x + l, y + l, w - 2 * l, h - 2 * l, look.well, shapes[max(0, r - l)])
+	elseif live then
+		local ax, ay = x + dc.ox, y + dc.oy
+		local lens = M.LENS.chrome
+		local band = min(lens.band, w / 2, h / 2)
+		dc:_emit("glass", ax, ay, ax + w, ay + h, r, 1, look.chrome, look.rim_hi, look.rim_inner,
+			band, min(lens.thickness, band), lift or 0, dc:_color(0xFFFFFFFF))
+		return -- the shader drew the rim
 	else
 		sample(dc, c, tex, x, y, w, h, r, true)
 		dc:fill(x, y, w, h, look.chrome, shapes[r])
 	end
-	rim(dc, look, x, y, w, h, r, lift)
+	if not live then rim(dc, look, x, y, w, h, r, lift) end
 end
 
 -- Resolve flags once per theme, rather than allocating rules per widget/frame.
