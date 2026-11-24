@@ -39,7 +39,8 @@ function Frame.metrics(iup)
 	local side = m.side or p.glassReveal or 8
 	-- The sheet starts at `left` from the window edge: the strip beside the rail stays bare.
 	local left = math.max(side, (m.left or 0) - (rail_width() or 0))
-	return { band = band, left = left, top = m.top or side, right = side, bottom = side }
+	-- (narrow, the reveal above and below is 2 px slimmer: the full-height bands took that room)
+	return { band = band, left = left, top = m.top or side, right = side, bottom = m.bottom or side }
 end
 
 --- Vertical pixels the frame adds around the workspace (both bands and the insets).

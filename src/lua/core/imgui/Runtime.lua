@@ -1640,7 +1640,9 @@ local function paint(el, d)
 	local material, material_palette = require("core.ui.Glass").material(el, st)
 	-- One floating surface per window: a frame filling a floating dialog (the palette, the
 	-- Activity panel, a toast) is that surface already, so it adds no second lip or rim.
-	local nested = material and material.glass == "floating" and d.in_floating
+	-- A card inside a card (the sheet's content box shares its role) would draw a second
+	-- rounded rim inside the first; it is the same sheet.
+	local nested = material and ((material.glass == "floating" and d.in_floating) or (material.glass == "card" and d.in_card))
 	if not culled and material and not nested then
 		local Glass = require("core.ui.Glass")
 		local g = material.glass
@@ -1662,9 +1664,10 @@ local function paint(el, d)
 	local kids = children_shown(el, st)
 	if #kids > 0 or class.paintChildren then
 		-- Descendants of a translucent glass surface must not repaint its colour opaquely.
-		local saved_under, saved_floating = d.glass_under, d.in_floating
+		local saved_under, saved_floating, saved_card = d.glass_under, d.in_floating, d.in_card
 		local g = material and material.glass
 		if g == "floating" then d.in_floating = true end
+		if g == "card" then d.in_card = true end
 		if g == "chrome" or g == "floating" or g == "floor" or g == "caps" then
 			d.glass_under = Color.parse(material.bg)
 		elseif g == "card" then
@@ -1701,7 +1704,7 @@ local function paint(el, d)
 			d.glass_art = saved_art
 		end
 		if class.clip or class.clipRect then d:clip_pop() end
-		d.glass_under, d.in_floating = saved_under, saved_floating
+		d.glass_under, d.in_floating, d.in_card = saved_under, saved_floating, saved_card
 	end
 	if not culled and class.drawAfter then
 		local ok, err = xpcall(class.drawAfter, debug.traceback, el, st, d, M)
