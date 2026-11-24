@@ -47,7 +47,7 @@ function LunarDarkTheme:initialize()
         glassSampleWorst = "59 72 84",
         glassShadowAlpha = 0.32, -- The sheet's inset (core.ui.WorkspaceFrame): left edge, top, right and bottom, wide
         -- and narrow; the left strip shows the bare backdrop and its crescent.
-        glassSheetWide = { left = 104, top = 14, side = 12 }, glassSheetNarrow = { left = 80, top = 8, bottom = 6, side = 8 },
+        glassSheetWide = { left = 104, top = 14, side = 12 }, glassSheetNarrow = { left = 80, top = 6, bottom = 4, side = 8 },
         glassTransport = { wide = 18, narrow = 12, below = 8 },
         -- Primary action: an opaque pearl gradient.
         primaryTop = rgb("#FCFDFF"), primaryBottom = rgb("#C1CBD7"), primaryText = rgb("#151A20"),

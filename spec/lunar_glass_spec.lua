@@ -324,7 +324,7 @@ describe("Lunar glass",function()
         assert.same({band=12,left=56,top=14,right=12,bottom=12},m)
         Frame.setWidth(1100)
         m=Frame.metrics(iup)
-        assert.same({band=12,left=32,top=8,right=8,bottom=6},m)
+        assert.same({band=12,left=32,top=6,right=8,bottom=4},m)
         width=176
         assert.equal(8,Frame.metrics(iup).left)
         Frame.setWidth(1920); width=48
