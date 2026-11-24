@@ -130,9 +130,37 @@ not separately measured.
   adapter is an NVIDIA GeForce RTX 3070 Ti. Fault injection is not a replacement
   for those session/device tests.
 
+## Liquid Glass on the GPU
+
+On a hardware device the Lunar theme's glass is a live shader (`src/cpp/lunar_glass_d3d11.inc`).
+Its work per frame: nothing without glass on screen; chrome samples the floor's images
+already on the GPU (no copy); floating glass shares one copy of the regions under it and
+one quarter-resolution dual-Kawase blur (three passes, one draw each), skipped when
+nothing under the glass changed; one single-pass draw per surface. Textures are made once
+at the monitor's size; nothing is uploaded per frame.
+
+GPU time from D3D11 timestamp queries (`LUNAR_GPU_TIMING=1`, the council's
+`gpu-run.ps1` / `gpuprobe.lua`), Media at 1920x1080 with the command palette open, NVIDIA
+GeForce RTX 3070 Ti at the clocks the idle-paced app runs at, median of 240 frames per run,
+five runs (2026-11-24):
+
+| Scene | Glass GPU per frame | of which copy + blur |
+| --- | --- | --- |
+| Palette + Media, nothing under the glass changing | 54-71 us | 0 (skipped) |
+| Palette + Media, copy and blur forced every frame | 180-212 us | 102-110 us |
+| Media, chrome only (palette closed) | 5 us | 0 |
+
+The 90th percentile of the forced-copy case reaches about 2.5 ms in one frame in ten: the
+copy span then includes a wait on the swap chain (the whole frame's span is the same with
+the baked path, 4.2-4.3 ms, against 4.1-4.2 ms with the shader). A static screen draws no
+frames at all.
+
 ## Controls and reproduction
 
-- `LUNAR_RENDERER=auto` (default): hardware first, WARP fallback.
+- Settings > Appearance > Advanced > Hardware acceleration (`hardware_acceleration`,
+  default on): `auto` when on, `warp` when off; `LUNAR_RENDERER` overrides it. The GPU
+  costs about 30 MiB of private memory more than WARP (the driver).
+- `LUNAR_RENDERER=auto`: hardware first, WARP fallback.
 - `LUNAR_RENDERER=warp`: explicit software renderer for diagnostics/session issues.
 - `LUNAR_RENDERER=hardware`: explicit hardware selection; diagnostics still report
   any failure rather than silently claiming hardware readiness.
