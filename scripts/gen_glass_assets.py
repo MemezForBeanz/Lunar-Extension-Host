@@ -40,6 +40,11 @@ SPARKLES = [(58.0, 158.0, 22.0, 1.0, 1.0), (71.0, 210.0, 9.0, 0.64, 0.76)]
 # The lower shoulder: up to 6 px more band on the concave side through the lower third,
 # tapering to nothing at both tips.
 LOWER_SHOULDER = 6.0
+# The lower horn sweeps right as the icon's does: its tip 4 px right of the plain shape,
+# easing in from the middle of the lower half.
+LOWER_SWEEP = 4.0
+# The principal star's core: a solid diamond 4 x 6 px at full opacity.
+CORE = (4.0, 6.0)
 # Fourteen point stars, 1-2 px: eight near the crescent, six in exposed perimeter space
 # (the left strip below the crescent, the top reveal, the right reveal). Clear of labels.
 NEAR = [(22, 84), (44, 96), (95, 128), (88, 170), (54, 252), (94, 236), (58, 270), (16, 284)]
@@ -47,7 +52,7 @@ PERIMETER = [(30, 340), (62, 430), (20, 540), (1594, 150), (1594, 380), (1594, 6
 COLORS = {
     "dark": dict(space="#080A0F", body="#B9C7D8", crest="#F2F6FC", inner="#334257",
                  star="#F2F6FC", far_star="#F2F6FC", alpha=(0.28, 0.52), tone=("#101721", "#374451")),
-    "light": dict(sky="#B4C2D4", sky_max=0.70, body="#EDF3FB", crest="#FFFFFF", inner="#657284",
+    "light": dict(sky="#B4C2D4", sky_max=0.64, body="#EDF3FB", crest="#FFFFFF", inner="#657284",
                   star="#FFFFFF", far_star="#4A5463", alpha=(0.44, 0.70), tone=("#E9EEF4", "#C9D3E0")),
 }
 
@@ -115,7 +120,10 @@ def fit():
 def crescent(img, c):
     y, x = np.mgrid[0:H, 0:W].astype(np.float64) + 0.5
     to_shape, k = fit()
-    outer, inner = fields(*to_shape(x, y))
+    # the sweep: sample from the left the further down the lower horn, so it leans right
+    bx, by, bw, bh = BOX
+    sweep = LOWER_SWEEP * smoothstep(by + bh * 0.70, by + bh, y)
+    outer, inner = fields(*to_shape(x - sweep, y))
     outer, inner = outer / k, inner / k                   # back to output pixels
     cover = np.clip(outer + 0.5, 0, 1) * np.clip(inner + 0.5, 0, 1)
     width = np.maximum(outer + inner, 1e-3)
@@ -131,8 +139,9 @@ def crescent(img, c):
     return img, outer, inner
 
 
-def sparkle(a, cx, cy, size, peak):
-    """A four-point star `size` px tip to tip: two thin tapering arms and a soft core."""
+def sparkle(a, cx, cy, size, peak, core=None):
+    """A four-point star `size` px tip to tip: two thin tapering arms and a soft core
+    (`core`: a solid diamond w x h px at the peak opacity instead)."""
     arm = size / 2.0
     r = int(np.ceil(arm)) + 2
     yy, xx = np.mgrid[-r:r + 1, -r:r + 1].astype(np.float64)
@@ -144,6 +153,9 @@ def sparkle(a, cx, cy, size, peak):
         return taper ** 2.2 * np.exp(-(across / (0.28 + 0.42 * taper)) ** 2)
     star = np.maximum(ray(xx, yy), ray(yy, xx))
     star = np.maximum(star, np.exp(-(xx ** 2 + yy ** 2) / 1.1))
+    if core:
+        d = np.abs(xx) / (core[0] / 2) + np.abs(yy) / (core[1] / 2)
+        star = np.maximum(star, np.clip((1 - d) * min(core) / 2 + 0.5, 0, 1))
     star = np.clip(star, 0, 1) * peak
     x0, y0 = int(np.floor(cx)) - r, int(np.floor(cy)) - r
     a[y0:y0 + 2 * r + 1, x0:x0 + 2 * r + 1] = np.maximum(a[y0:y0 + 2 * r + 1, x0:x0 + 2 * r + 1], star)
@@ -188,8 +200,8 @@ def backdrop(mode):
     img, outer, inner = crescent(img, c)
     band = (outer > -1) & (inner > -1)
     stars = np.zeros((H, W))
-    for sx, sy, size, dark_peak, light_peak in SPARKLES:
-        sparkle(stars, sx, sy, size, dark_peak if mode == "dark" else light_peak)
+    for i, (sx, sy, size, dark_peak, light_peak) in enumerate(SPARKLES):
+        sparkle(stars, sx, sy, size, dark_peak if mode == "dark" else light_peak, CORE if i == 0 else None)
     lo, hi = c["alpha"]
     far = np.zeros((H, W))
     for i, (px, py) in enumerate(NEAR + PERIMETER):
