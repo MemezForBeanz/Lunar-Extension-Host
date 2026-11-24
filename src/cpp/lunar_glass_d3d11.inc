@@ -113,12 +113,16 @@ float4 ps_glass(PI i) : SV_Target {
     float u = 1 - saturate(depth / max(1, shape.w));        /* 1 at the rim, 0 past the falloff */
     float lens = optic.x * (1 - sqrt(saturate(1 - u * u))); /* ~0 inside, rising to the rim */
     float2 sp = p - n * lens;                               /* refracted inward */
-    float3 s = at(sharp, sp);
-    [branch] if (extra.x > 0) { float ca = extra.x * u; s.r = at(sharp, sp - n * ca).r; s.b = at(sharp, sp + n * ca).b; }
     /* text-heavy edges: mostly blurred even at the rim, fully 3 px in (no legible glyph
-       fragments); chrome over the floor: sharper toward the rim */
+       fragments); chrome over the floor: sharper toward the rim. Where it is all blur
+       (the body), the sharp and split samples are skipped. */
     float k = extra.z >= 0 ? lerp(extra.z, 1, saturate(depth / 3)) : smoothstep(0, 1, 1 - u);
-    float3 col = lerp(s, at(blurred, sp), k);
+    float3 col = at(blurred, sp);
+    [branch] if (k < 0.999) {
+        float3 s = at(sharp, sp);
+        [branch] if (extra.x > 0) { float ca = extra.x * u; s.r = at(sharp, sp - n * ca).r; s.b = at(sharp, sp + n * ca).b; }
+        col = lerp(s, col, k);
+    }
     col = lerp(col, tint.rgb, tint.a);
     float inside = (p.x >= 0 && p.y >= 0 && p.x < shape.x && p.y < shape.y) ? 1 : 0;
     col = lerp(tint.rgb, col, inside);                      /* past the window: the tint */
