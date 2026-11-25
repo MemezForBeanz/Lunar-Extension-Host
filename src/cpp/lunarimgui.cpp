@@ -132,6 +132,7 @@ struct State {
     float wheel_x = 0, wheel_y = 0; int mx = -1, my = -1;
     struct Texture { ID3D11ShaderResourceView *srv = nullptr; int w = 0, h = 0, refs = 1; bool packed = false; std::vector<unsigned char> pixels; };
     std::unordered_map<int, Texture> textures; int next_texture = 1;
+    int last_vtx = 0, last_idx = 0;   /* the last frame's main-window vertices and indices (renderer()) */
     uint64_t texture_revision = 0;   /* bumped when a texture is freed or ImGui updates one (core.ui.Glass's cache) */
     std::vector<ID3D11ShaderResourceView*> retired_textures;
     std::vector<Face> faces;
@@ -929,6 +930,12 @@ void ensure_imgui() {
     if (ImGui::GetCurrentContext()) return;
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    /* Rounded edges: anti-aliased fills and lines (ImGui's defaults, said here so nothing
+       turns them off), and arcs at half ImGui's default error, so corners of 17 px radius
+       and more get up to twice the segments instead of visible steps */
+    { ImGuiStyle &st = ImGui::GetStyle();
+      st.AntiAliasedFill = st.AntiAliasedLines = st.AntiAliasedLinesUseTex = true;
+      st.CircleTessellationMaxError = 0.15f; }
     ImGuiIO &io = ImGui::GetIO();
     const char *glyphs = getenv("LUNAR_GLYPHS");
     if (!glyphs || strcmp(glyphs, "stb") != 0)
@@ -1715,6 +1722,8 @@ int l_renderer(lua_State *L) {
     lua_pushnumber(L, gg.gpu_frame_us_sum); lua_setfield(L, -2, "gpu_frame_us_sum");
     lua_pushnumber(L, gg.gpu_copy_us_sum); lua_setfield(L, -2, "glass_gpu_copy_us_sum");
     lua_pushnumber(L, gg.gpu_blur_us_sum); lua_setfield(L, -2, "glass_gpu_blur_us_sum");
+    lua_pushinteger(L, g.last_vtx); lua_setfield(L, -2, "frame_vertices");
+    lua_pushinteger(L, g.last_idx); lua_setfield(L, -2, "frame_indices");
     return 1;
 }
 
@@ -2139,6 +2148,7 @@ int l_frame_end(lua_State *) {
     g.ctx->OMSetRenderTargets(1, &g.rtv, nullptr);
     g.ctx->ClearRenderTargetView(g.rtv, black);
     ImDrawData *all = ImGui::GetDrawData();
+    g.last_vtx = all->TotalVtxCount; g.last_idx = all->TotalIdxCount;
     ID3D11Texture2D *back = nullptr;
     /* GPU glass: its textures follow the target (made only when it outgrows them), and
        only frames with floating or live glass need them (chrome samples the floor) */
@@ -2578,6 +2588,9 @@ int l_window(lua_State *L) {
     if (is("glass_force_copy")) { gg.force = lua_toboolean(L, 2) != 0; return 0; }
     if (is("glass_shader")) { gg.off = !lua_toboolean(L, 2); return 0; }
     if (is("glass_flush_probe")) { gg.flush_probe = lua_toboolean(L, 2) != 0; return 0; }
+    if (is("circle_error")) {   /* ImGui's arc tessellation error (px), for measuring its cost */
+        ImGui::GetStyle().CircleTessellationMaxError = std::max(0.05f, (float)luaL_checknumber(L, 2)); return 0;
+    }
     if (is("glass_probe_load")) { gg.probe_load = std::max(0, std::min(400, (int)luaL_optinteger(L, 2, 0))); return 0; }
     if (is("glass_timing_take")) {
         lua_createtable(L, 0, 6);

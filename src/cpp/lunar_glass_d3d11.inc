@@ -103,10 +103,14 @@ float4 ps_glass(PI i) : SV_Target {
     float2 d = p - c;
     float2 q = abs(d) - (hs - r);
     float sd = length(max(q, 0)) + min(max(q.x, q.y), 0) - r;
-    float cov = saturate(0.5 - sd) * optic.z;   /* the quad's own colour is transparent */
+    /* coverage over a 1.25 px band centred on the edge (a 1 px step read as stairs on
+       the larger radii); the quad reaches 1 px past the rect, so the band fits */
+    float cov = saturate(0.5 - sd * 0.8) * optic.z;         /* the quad's own colour is transparent */
     if (cov <= 0) discard;
     float depth = max(0, -sd);
-    if (optic.w > 0 && depth > optic.w + 1) discard;        /* under the opaque well: nothing to show */
+    /* under the opaque well nothing shows; the well's own anti-aliased edge (ImGui's 1 px
+       fringe, half of it outside) lies over glass that already has the well's colour */
+    if (optic.w > 0 && depth > optic.w + 1.5) discard;
     float2 sg = float2(d.x < 0 ? -1 : 1, d.y < 0 ? -1 : 1);
     float2 m = max(q, 0);
     float2 gr = (m.x + m.y > 0) ? normalize(m) : (q.x > q.y ? float2(1, 0) : float2(0, 1));

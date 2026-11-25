@@ -80,6 +80,12 @@ void size(Window *w) { SDL_GetWindowSizeInPixels(w->native, &w->w, &w->h); }
 void ensure_gui() {
     if (ImGui::GetCurrentContext()) return;
     IMGUI_CHECKVERSION(); ImGui::CreateContext();
+    /* Rounded edges: anti-aliased fills and lines (ImGui's defaults, said here so nothing
+       turns them off), and arcs at half ImGui's default error, so corners of 17 px radius
+       and more get up to twice the segments instead of visible steps */
+    { ImGuiStyle &st = ImGui::GetStyle();
+      st.AntiAliasedFill = st.AntiAliasedLines = st.AntiAliasedLinesUseTex = true;
+      st.CircleTessellationMaxError = 0.15f; }
     auto &io = ImGui::GetIO(); io.IniFilename = nullptr; io.LogFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
