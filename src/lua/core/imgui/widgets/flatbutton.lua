@@ -83,6 +83,33 @@ local function natural(e, st, L)
 	return w + 2 * bw, tonumber(attr(e, "CONTROLHEIGHT")) or (h + 2 * bw)
 end
 
+-- Glass palettes ease the hover fill in and out over 110 ms (instant without motion).
+local HOVER_EASE = 0.11
+local function hover_mix(d, on)
+	local R = package.loaded["core.imgui.Runtime"]
+	local Reactor = package.loaded["core.ui.ThemeReactor"]
+	local p = Reactor and Reactor.palette()
+	if not (R and p and p.glass) then return on and 1 or 0 end
+	local manager = Reactor.themeManager()
+	local director = manager and manager._motion
+	if not (director and director:enabled()) then d.hl_k = nil; return on and 1 or 0 end
+	local now = R.now()
+	if d.hl_on == nil then
+		-- First paint: start where the button is, with nothing to ease.
+		d.hl_on, d.hl_from, d.hl_at = on, on and 1 or 0, now - HOVER_EASE
+	elseif d.hl_on ~= on then
+		d.hl_on, d.hl_from, d.hl_at = on, d.hl_k or (on and 0 or 1), now
+	end
+	local t = math.min(1, (now - (d.hl_at or now)) / HOVER_EASE)
+	local target = on and 1 or 0
+	local k = d.hl_from + (target - d.hl_from) * t
+	if t < 1 then R.animate() end
+	d.hl_k = k
+	return k
+end
+
+M._hover_mix = hover_mix
+
 local function draw(e, st, dc)
 	local d = data(st)
 	local x0, y0, cw, ch = st.x, st.y, st.w, st.h
@@ -106,7 +133,16 @@ local function draw(e, st, dc)
 	end
 
 	local pressed_look = (d.pressed and d.highlighted) or (selected and not d.highlighted)
-	if pressed_look then
+	local ease = (not pressed_look) and hover_mix(d, d.highlighted == true) or nil
+	if ease and ease > 0 and ease < 1 and attr(e, "HLCOLOR") then
+		-- Part way between rest and hover: blend the fill, keep the rest look otherwise.
+		local Color = require("core.imgui.Color")
+		bgcolor = Color.mix(Color.parse(bgcolor), Color.parse(attr(e, "HLCOLOR")), ease)
+		if d.highlighted then
+			local c = attr(e, "TEXTHLCOLOR"); if c then fgcolor = c end
+			draw_border = true
+		end
+	elseif pressed_look then
 		local c = attr(e, "PSCOLOR")
 		if c then bgcolor = c end
 		c = attr(e, "TEXTPSCOLOR")

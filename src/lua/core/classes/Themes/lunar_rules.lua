@@ -402,6 +402,9 @@ function M.build(p)
         well = well, hover = hover, selected = selected, border = border, radius = R,
         font = p.font, small_font = sized(p.font, 9),
     })
+    -- The bottom dock's player card; glass palettes turn it into the inset transport capsule.
+    rules.transport_capsule = {}
+    for key, value in pairs(rules.settingscard) do rules.transport_capsule[key] = value end
     -- Fix shared switch semantics: the off track must differ from the primary fill.
     for _, role in ipairs({ "flattoggle", "flattoggle_noborder" }) do
         rules[role].switchoff = p.fieldBorder or switch_off
@@ -412,7 +415,13 @@ function M.build(p)
             rules[role].bg = surface
         end
         rules.settings_nav_group.fg = p.textMuted
-        rules.page_surface.radius = 12
+        -- The work sheet (core.ui.WorkspaceFrame): matte, 14 px corners, inset from the
+        -- chrome by the reveal so the backdrop shows around it on every page. Its corner
+        -- bands draw nothing, so the backdrop shows continuously round the rounded corners.
+        local sheet_radius = p.radiusSheet or 14
+        rules.workspace_sheet = { bg = surface, glass = "card", radius = sheet_radius }
+        rules.workspace_band = { bg = surface, glass = "none" }
+        rules.page_surface.radius = sheet_radius
         rules.page_surface.glass = "card"
         rules.page_surface.border = border
         rules.page_surface.borderwidth = 1
@@ -435,14 +444,66 @@ function M.build(p)
             rules[role].bg, rules[role].glass = p.layer01, "chrome"
             rules[role].gradcolor = nil
         end
+        -- The rail is two glass caps (round its entries and "+", round the chevron) with the
+        -- bare backdrop and its crescent between them.
+        rules.tool_rail.glass, rules.tool_rail.radius = "caps", 14
         rules.dialog.glass = "floor"
         -- The close button too: a solid fill on the frosted toast read as a grey square.
         rules.toast_title.glass, rules.toast_body.glass, rules.toast_close.glass = "content", "content", "content"
         rules.palette_prompt.glass, rules.palette_hint.glass = "content", "content"
-        rules.contextmenu = { radius = 12 }
+        local floating_radius = p.radiusFloating or 16
+        rules.contextmenu = { radius = floating_radius }
         rules.dropdown_list.padding, rules.dropdown_list.itemradius = ROW_PAD, R
         for _, role in ipairs({ "dropdown_list", "palette_frame", "toast_bg_info", "toast_bg_success", "toast_bg_warning", "toast_bg_error" }) do
-            rules[role].glass, rules[role].radius = "floating", 12
+            rules[role].glass, rules[role].radius = "floating", floating_radius
+            -- Dense text sits on the opaque well inside the lip; one rim, no frame line.
+            if p.glassTextWell then rules[role].bg = p.glassTextWell end
+        end
+        if p.glassTextWell then
+            local well_bg = p.glassTextWell
+            for _, role in ipairs({ "palette_text", "palette_prompt", "palette_hint", "palette_list", "palette_rows",
+                                    "toast_title", "toast_body", "toast_close" }) do
+                rules[role].bg = well_bg
+                if rules[role].scrollbg then rules[role].scrollbg = well_bg end
+                if rules[role].border == elevated then rules[role].border = well_bg end
+            end
+            rules.dropdown_list.scrollbg = well_bg
+            -- Interactive fills on the wells stay within the contrast the wells allow.
+            local wh, ws = p.glassWellHover or hover, p.glassWellSelected or selected
+            for _, role in ipairs({ "palette_list", "palette_rows", "dropdown_list" }) do
+                local r = rules[role]
+                r.selbg = ws
+                if r.hover then r.hover = wh end
+                if r.pressed then r.pressed = ws end
+            end
+        end
+        -- The see-through lip: wider on the big panels, narrow on a tooltip.
+        rules.palette_frame.lip = 10
+        -- The GPU glass splits colour a quarter px at the big panels' rims (the palette and
+        -- Activity); menus, dropdowns, toasts and tooltips, whose rims lie over text, none.
+        rules.palette_frame.chroma = 0.25
+        rules.dropdown_list.lip = 8
+        for _, kind in ipairs({ "info", "success", "warning", "error" }) do rules["toast_bg_" .. kind].lip = 8 end
+        rules.contextmenu.lip = 8
+        -- The inset transport: chrome glass, a capsule (half-height corners).
+        -- On the GPU it is live glass: the nearest artwork shows through it (core.ui.Glass).
+        rules.transport_capsule = { bg = p.layer01, border = p.layer01, borderwidth = 0, radius = 999,
+            glass = "chrome", live = true }
+        -- The search field is a capsule too.
+        rules.commandbar.radius, rules.commandbar_text.radius = 14, 14
+        -- One 14 px rounded fill in every state at every width: the field paints no square
+        -- of the title strip's colour behind its pill (the strip's glass shows there).
+        rules.commandbar.glass = "content"
+        -- The button fills the pill: painting its parent's colour as a square showed a dark
+        -- rectangle round the capsule, so it leaves the fill to the pill.
+        rules.commandbar_text.glass = "content"
+        -- Primary action: an opaque gradient, the one inverted-luminance element in its region.
+        if p.primaryTop then
+            local b = rules.primary_btn
+            b.bg, b.gradcolor, b.graddir = p.primaryTop, p.primaryBottom, "VERTICAL"
+            b.fg, b.hovertext, b.pressedtext = p.primaryText, p.primaryText, p.primaryText
+            b.hover, b.pressed = p.primaryHover, p.primaryPressed
+            b.border, b.borderwidth, b.showborder = p.primaryBottom, 0, false
         end
         rules.statusbar_button.bg = p.layer01
         rules.statusbar_text.fg = p.textMuted
@@ -461,6 +522,7 @@ function M.build(p)
     -- content edge it opens under.
     rules.disclosure_btn = {}
     for key, value in pairs(rules.actionbutton) do rules.disclosure_btn[key] = value end
+    fluent.addWorkspaceRoles(rules)
     return rules
 end
 

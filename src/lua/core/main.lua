@@ -178,6 +178,8 @@ end
 -- profile folder); the neutral build shows none.
 local ICON_DIR = platform.path:join(APP_DIR, "assets", "Icons")
 Kit.setIconDir(ICON_DIR)
+-- The Lunar glass backdrops, baked offline (scripts/gen_glass_assets.py).
+require("core.ui.Glass").setAssetDir(platform.path:join(APP_DIR, "assets", "glass"))
 
 -- Window/taskbar icon: the name of the Win32 ICON RESOURCE in the executable, not
 -- an IupImage handle. assets/Lunar.rc declares `IUP ICON "lunar.ico"`,
@@ -518,12 +520,24 @@ local tool_rail = ToolRail.new({
 })
 -- Bands an extension keeps on screen across every tab, such as a player.
 local dock_slot = iup.vbox({ MARGIN = "0x0", GAP = "0", EXPAND = "HORIZONTAL" })
+local WorkspaceFrame = require("core.ui.WorkspaceFrame")
+local dock_box = WorkspaceFrame.dock(iup, dock_slot)
+-- The glass sheet's left edge is fixed in the window, so its inset follows the rail.
+WorkspaceFrame.setRail(function()
+	local size = iup.GetAttribute(tool_rail:widget(), "RASTERSIZE")
+	return tonumber(tostring(size or ""):match("^(%d+)")) or ToolRail.NARROW
+end)
+do
+	local toggle, reveal = tool_rail.toggle, tool_rail.setReveal
+	function tool_rail:toggle(...) toggle(self, ...); WorkspaceFrame.refit() end
+	function tool_rail:setReveal(...) reveal(self, ...); WorkspaceFrame.refit() end
+end
 host._dock_slot = dock_slot
 local terminal = require("core.ui.Terminal").new({ iup = iup, host = host, settings = settings_mgr,
 	extensions = ext_mgr, themes = theme_mgr, version = APP_VERSION })
 local workspace_body = iup.vbox({ pane_grid:widget(), terminal:widget(), MARGIN = "0x0", GAP = "0", EXPAND = "YES" })
 local workspace = iup.hbox({ tool_rail:widget(),
-	iup.vbox({ require("core.ui.WorkspaceFrame").wrap(iup, workspace_body), dock_slot,
+	iup.vbox({ WorkspaceFrame.wrap(iup, workspace_body), dock_box,
 		MARGIN = "0x0", GAP = "0", EXPAND = "YES" }),
 	MARGIN = "0x0", GAP = "0", EXPAND = "YES" })
 status_bar:onFocus(function()
@@ -600,9 +614,9 @@ local function recalc_shell_budget(client_h)
 	local status = status_bar:revealedHeight() or measured_height(status_bar:widget()) or 0
 	local bands = {
 		title = TitleBar.HEIGHT,
-		corners = 24,
+		corners = WorkspaceFrame.verticalChrome(iup),
 		status = status,
-		dock = measured_height(dock_slot) or 0,
+		dock = measured_height(dock_box) or 0,
 	}
 	local cap = ShellBudget.cap(client_h, bands)
 	shell_budget.bands, shell_budget.cap = bands, cap
@@ -633,6 +647,7 @@ view_layout:setBudget(function() recalc_shell_budget() end)
 
 function dlg:resize_cb(w, h)
 	title_bar:fit(w)
+	WorkspaceFrame.setWidth(w)
 	status_bar:fit(w)
 	recalc_shell_budget(h)
 	schedule_recenter()
@@ -1304,6 +1319,7 @@ end
 host._after_scopes = sync_title_bar
 	-- The band's height is only known after a layout pass, and the page's ceiling depends on it.
 	host._dock_changed = function()
+		WorkspaceFrame.refit()
 		iup.Refresh(dlg)
 		if recalc_shell_budget() then iup.Refresh(dlg) end
 	end

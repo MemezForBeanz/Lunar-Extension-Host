@@ -18,13 +18,15 @@ local CORNER_TL, CORNER_TR, CORNER_BL, CORNER_BR, CORNER_NONE = 16, 32, 64, 128,
 
 local DC = {}
 DC.__index = DC
+-- Calls whose first argument is a texture id.
+local IMAGE_OPS = { image = true, image_rounded = true, image_rounded_uv = true, image_nine = true }
 M.DC = DC
 
 -- Recordings can outlive both an image mutation and the upload cache entry.
 -- Retain only the texture IDs they actually reference, releasing them on explicit
 -- snapshot release or GC. This also makes byte-budget eviction safe mid-frame.
 local function retain_recording(rec, B, op, id)
-	if (op ~= "image" and op ~= "image_rounded") or not B.texture_retain then return end
+	if not IMAGE_OPS[op] or not B.texture_retain then return end
 	local pins = rec._textures
 	if not pins then
 		pins = {}; rec._textures = pins
@@ -60,6 +62,9 @@ function DC:begin(w, h)
 	self.cx1, self.cy1, self.cx2, self.cy2 = 0, 0, w or 1e9, h or 1e9
 	self.layer_index = 0
 	self.surfaces, self.surface_id = nil, 0
+	self.glass_gpu = nil -- core.ui.Glass asks the backend once per frame
+	self.glass_frame = nil -- and starts its per-frame record of surfaces on the first one
+	self.glass_art = nil
 	if self.B.layer then self.B.layer(0) end
 end
 
@@ -75,6 +80,15 @@ local function corner_flags(radius, corners)
 	return f
 end
 M.corner_flags = corner_flags
+-- `opts.fine`: this rounded shape's arcs finer than the style's (lunar_glass::FINE_ARC in
+-- the backend; small radii such as posters and cards step visibly otherwise)
+local FINE_ARC = 4096
+M.FINE_ARC = FINE_ARC
+local function shape_flags(r, opts)
+	local f = corner_flags(r, opts and opts.corners)
+	if opts and opts.fine and r > 0 then f = f + FINE_ARC end
+	return f
+end
 
 function DC:_color(c)
 	if type(c) ~= "number" then c = Color.parse(c) end
@@ -103,14 +117,19 @@ end
 
 function DC:fill(x, y, w, h, color, opts)
 	local m = self.material
-	if m and not self.painting_material and w > 16 and h > 8 and self:_color(color) == self:_color(m.bg) then
+	-- (a spacer with no material of its own, `none`, never paints its colour at any size)
+	if m and not self.painting_material and (m.glass == "none" or (w > 16 and h > 8)) and self:_color(color) == self:_color(m.bg) then
 		return
 	end
+	-- Inside a glass surface, a fill of the surface's own colour (a label or a grid
+	-- painting its parent's background) would cover the glass with an opaque box.
+	local under = self.glass_under
+	if under and w > 16 and h > 8 and Color.parse(color) == under then return end
 	local c = self:_color(color)
 	if not c or w <= 0 or h <= 0 then return end
 	x, y = x + self.ox, y + self.oy
 	local r = opts and opts.radius or 0
-	self:_emit("rect_filled", x, y, x + w, y + h, c, r, corner_flags(r, opts and opts.corners))
+	self:_emit("rect_filled", x, y, x + w, y + h, c, r, shape_flags(r, opts))
 end
 
 function DC:rect(x, y, w, h, color, opts)
@@ -119,7 +138,7 @@ function DC:rect(x, y, w, h, color, opts)
 	x, y = x + self.ox, y + self.oy
 	local r = opts and opts.radius or 0
 	local t = opts and opts.thickness or 1
-	self:_emit("rect", x, y, x + w, y + h, c, r, t, corner_flags(r, opts and opts.corners))
+	self:_emit("rect", x, y, x + w, y + h, c, r, t, shape_flags(r, opts))
 end
 
 --- A gradient from c1 to c2. With a radius, ImGui has no rounded multi-colour rect, so
@@ -466,6 +485,9 @@ function DC:bits(ptr, w, h, stride, x, y, opts)
 	local tint = 0xFFFFFFFF
 	if self.alpha < 1 then tint = Color.alpha(tint, self.alpha) end
 	x, y = x + self.ox, y + self.oy
+	-- live glass under this (core.ui.Glass) extends the first poster drawn on it
+	local art = self.glass_art
+	if art and not art.tex then art.tex, art.x, art.y, art.w, art.h = tex, x, y, w, h end
 	local radius = opts and opts.radius or 0
 	if radius > 0 and self.B.image_rounded then
 		self:_emit("image_rounded", tex, x, y, x + w, y + h, tint, radius)
@@ -562,14 +584,17 @@ end
 local XS = {
 	rect_filled = { 1, 3 }, rect = { 1, 3 }, rect_gradient = { 1, 3 }, line = { 1, 3 },
 	circle = { 1 }, text = { 3, 8, 10 }, image = { 2, 4 }, clip_push = { 1, 3 },
-	image_rounded = { 2, 4 },
+	image_rounded = { 2, 4 }, image_rounded_uv = { 2, 4 }, image_nine = { 2, 4 }, rim = { 1, 3 },
+	glass = { 1, 3 }, glass_copy = { 1, 3 },
 }
 local YS = {
 	rect_filled = { 2, 4 }, rect = { 2, 4 }, rect_gradient = { 2, 4 }, line = { 2, 4 },
 	circle = { 2 }, text = { 4, 9, 11 }, image = { 3, 5 }, clip_push = { 2, 4 },
-	image_rounded = { 3, 5 },
+	image_rounded = { 3, 5 }, image_rounded_uv = { 3, 5 }, image_nine = { 3, 5 }, rim = { 2, 4 },
+	glass = { 2, 4 }, glass_copy = { 2, 4 },
 }
-local COLOR_ARG = { rect_filled = 5, rect = 5, line = 5, circle = 4, text = 5, poly = 2, image = 10, image_rounded = 6 }
+local COLOR_ARG = { rect_filled = 5, rect = 5, line = 5, circle = 4, text = 5, poly = 2, image = 10, image_rounded = 6,
+	image_rounded_uv = 10, image_nine = 10, glass = 13 }
 
 --- Replay a recording shifted by (dx, dy) with its alpha scaled by `alpha`.
 function DC:replay(list, dx, dy, alpha)
@@ -597,6 +622,8 @@ function DC:replay(list, dx, dy, alpha)
 			if ci and args[ci] then args[ci] = Color.alpha(args[ci], alpha) end
 			if op == "rect_gradient" then
 				for i = 5, 8 do args[i] = Color.alpha(args[i], alpha) end
+			elseif op == "rim" then
+				for i = 6, 8 do args[i] = Color.alpha(args[i], alpha) end
 			end
 		end
 		self:_emit(op, unpack(args))

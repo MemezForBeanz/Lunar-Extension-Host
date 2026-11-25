@@ -90,7 +90,20 @@ function M.addPlainRoles(rules, page)
     derive("dropbutton_quiet", "dropbutton", { bg = quiet, border = rules.actionbutton.border or quiet })
 end
 
+--- The workspace sheet and its corner bands (core.ui.WorkspaceFrame). Outside glass
+-- themes they are exactly the class rules they would otherwise fall back to.
+function M.addWorkspaceRoles(rules)
+    local function copy(from)
+        local rule = {}
+        for key, value in pairs(rules[from] or {}) do rule[key] = value end
+        return rule
+    end
+    rules.workspace_sheet = rules.workspace_sheet or copy("vbox")
+    rules.workspace_band = rules.workspace_band or copy("canvas")
+end
+
 function M.addShellRoles(rules, p)
+    M.addWorkspaceRoles(rules)
     local floor = p.layer02 or p.surface2 or p.surface or p.bg
     local well = p.layer01 or p.surface or p.bg
     local border = p.borderSubtle01 or p.border
@@ -101,6 +114,7 @@ function M.addShellRoles(rules, p)
     local defaults = {
         text_focus = { bg = well, fg = p.text, font = font, border = p.accent },
         settingscard = { bg = floor, border = border },
+        transport_capsule = { bg = floor, border = border },
         settings_name = { fg = p.text, font = font },
         settings_nav = { bg = floor, fg = p.textMuted, font = font, border = floor, borderwidth = 0, hover = hover },
         settings_nav_on = { bg = selected, fg = p.text, font = font, border = selected, borderwidth = 0 },

@@ -470,6 +470,10 @@ end
 --- iupDrawParentBackground: the whole control in its native parent's colour.
 function M.parentBackground(el, dc, st)
 	if dc.material then return end -- the material already painted the enclosing surface
+	-- Inside a glass surface (chrome, floating, the floor) the enclosing container painted
+	-- its own rounded fill: the parent's colour as a square would show at its corners (the
+	-- title bar's Ctrl+P keycap on the search pill).
+	if dc.glass_under then return end
 	local bg = M.nativeParentBg(el)
 	if bg then dc:fill(st.x, st.y, st.w, st.h, bg) end
 end

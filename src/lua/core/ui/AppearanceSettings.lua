@@ -38,6 +38,21 @@ function M.transition_choices()
 	return labels, values
 end
 
+--- The renderer choice for the `hardware_acceleration` setting: "auto" (hardware first,
+-- WARP if it cannot start) when on or unset, "warp" when off. LUNAR_RENDERER overrides both.
+-- @tparam any value the setting
+-- @treturn string
+function M.renderer_for(value) return value == false and "warp" or "auto" end
+
+--- Tell the ImGui host which renderer `value` asks for; with `apply`, a live device is
+-- re-made at the next frame (the device reset path) if that changes it. No-op elsewhere.
+-- @treturn boolean whether a host took it
+function M.apply_renderer(value, apply)
+	local ok, api = pcall(require, "lunarimgui")
+	if not (ok and type(api) == "table" and api.renderer_preference) then return false end
+	return (pcall(api.renderer_preference, M.renderer_for(value), apply == true))
+end
+
 --- Build the section and register it with the host.
 -- @tparam table opts
 -- @tparam table opts.iup the IUP binding
@@ -51,6 +66,8 @@ function M.register(opts)
 	local iup, settings, motion = opts.iup, opts.settings, opts.motion
 	local Glass = require("core.ui.Glass")
 	Glass.setEnabled(rawget(iup, "_IMGUI") and settings:get("glass_effects") ~= false)
+	local imgui = rawget(iup, "_IMGUI") and true or false
+	if imgui then M.apply_renderer(settings:get("hardware_acceleration"), false) end
 
 	local function manage(widget, key)
 		if settings:isLocked(key) then
@@ -179,10 +196,25 @@ function M.register(opts)
 	manage(motion_dd.widget, "motion_enabled")
 	manage(motion_dd.widget, "motion_respect_system")
 	entries[#entries + 1] = { label = "Motion", description = "Follow the system or choose reduced or full motion.", widget = motion_dd.widget }
-	entries[#entries + 1] = { label = "Advanced", children = {
+	local advanced = {
 		{ label = "Motion speed", description = "Scale animation duration.", widget = speed },
 		{ label = "Tab transition", description = "Choose how pages change.", widget = transition_dd.widget },
-	} }
+	}
+	if imgui then
+		-- On: the graphics card (live Liquid Glass), the software renderer if it cannot
+		-- start. Off: the software renderer (WARP), with the baked glass. Applies at once.
+		local hw = iup.flattoggle({ TITLE = "", THEMEROLE = "flattoggle",
+			VALUE = settings:get("hardware_acceleration") ~= false and "ON" or "OFF" })
+		function hw:valuechanged_cb()
+			local on = iup.GetAttribute(hw, "VALUE") == "ON"
+			if set_and_save("hardware_acceleration", on) then M.apply_renderer(on, true) end
+			return iup.DEFAULT
+		end
+		advanced[#advanced + 1] = { label = "Hardware acceleration",
+			description = "Draw with the graphics card. Off uses the software renderer and simpler glass.",
+			widget = manage(hw, "hardware_acceleration") }
+	end
+	entries[#entries + 1] = { label = "Advanced", children = advanced }
 
 	local section = opts.host:addSettings("Appearance", { entries = entries, icon = "color-palette" })
 	local function sync_glass_row()

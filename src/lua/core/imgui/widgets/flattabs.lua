@@ -726,6 +726,14 @@ local def = {
 M.flattabs = Classes.define(def)
 M.tabs = Classes.define(setmetatable({ name = "tabs", place = place_pages(true) }, { __index = def }))
 
+--- Where the extra buttons are ({ x, y, w, h } by id, in the element's coordinates):
+-- core.ui.Glass shapes the rail's glass caps round them.
+function M.extraRects(el)
+	local st = Element.state(el)
+	if not st then return {} end
+	return extraRects(el, st)
+end
+
 -- Shared by the drag preview so it uses the exact header geometry and content.
 function M.headerRects(el)
 	local st, rects, offset = Element.state(el), {}, 0
