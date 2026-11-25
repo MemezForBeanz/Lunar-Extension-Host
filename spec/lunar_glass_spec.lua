@@ -103,7 +103,7 @@ describe("Lunar glass",function()
         local fills={}
         for _,call in ipairs(B.lastFrame()) do
             if call[1]=="rect_filled" then fills[#fills+1]=call end
-            if call[1]=="rim" then assert.equal(2,call[11]) end
+            if call[1]=="rim" then assert.near(1.2,call[11],1e-9) end   -- as thin as the shader's lobe
         end
         -- the lip: the whole surface in a translucent tint, so what is underneath carries through
         local C=require("core.imgui.Color")
@@ -376,16 +376,21 @@ describe("Lunar glass",function()
             assert.equal(0.5,g[13])                     -- hover lift
             -- it eases into the well over the lip, splits no colour and is unbounded
             assert.equal(p.glassLip,g[20]); assert.is_true(g[19]~=0)
-            assert.equal(0,g[21]); assert.equal(0,g[23]); assert.near(0.08,g[24],1e-9)
+            assert.equal(0,g[21]); assert.equal(1,g[23]); assert.equal(0,g[24]); assert.near(0.08,g[25],1e-9)
+            -- over text: 90% blur at the rim, all blur 2 px in
+            assert.equal(0.9,g[26]); assert.equal(2,g[27])
             -- the well is still opaque, 8 px in
             local well=calls(B,"rect_filled"); well=well[#well]
             local C=require("core.imgui.Color")
             assert.equal(208,well[2]); local _,_,_,a=C.unpack(well[6]); assert.equal(255,a)
-            -- the shadow comes first, the well after the glass
+            -- the copy of what is under it comes first (never its own shadow), then the
+            -- shadow, the glass, and the well after it
             local order={}
             for _,c in ipairs(B.lastFrame()) do order[#order+1]=c[1] end
             local function at(op) for i,o in ipairs(order) do if o==op then return i end end end
-            assert.is_true(at("image_nine")<at("glass") and at("glass")<at("rect_filled"))
+            assert.is_true(at("glass_copy")<at("image_nine") and at("image_nine")<at("glass") and at("glass")<at("rect_filled"))
+            local cp=calls(B,"glass_copy")[1]
+            assert.same({200,200,600,500,0,p.glassLip,16},{cp[2],cp[3],cp[4],cp[5],cp[6],cp[7],cp[8]})
         end)
 
         it("draws a tooltip as frosted glass with no well, its luminance bounded",function()
@@ -395,8 +400,12 @@ describe("Lunar glass",function()
                 local g=calls(B,"glass")[1]
                 assert.equal(3,g[7]); assert.equal(0,g[20])     -- frost, no hollow
                 assert.is_nil(ops(B).rect_filled)               -- no opaque well
-                assert.equal(p.glassDark and 0.0622 or -0.62,g[23])
+                -- dark: at most 0.0622; light: a 40% tint, the body at most 0.86 and at least 0.62
+                assert.equal(p.glassDark and 0.0622 or 0.86,g[23])
+                assert.equal(p.glassDark and 0 or 0.62,g[24])
                 assert.equal(0,g[21])
+                local C=require("core.imgui.Color"); local _,_,_,a=C.unpack(g[8])
+                assert.equal(p.glassDark and 140 or 102,a)
             end
         end)
 
@@ -406,22 +415,33 @@ describe("Lunar glass",function()
             assert.is_nil(rules.dropdown_list.chroma); assert.is_nil(rules.contextmenu.chroma)
             local B=hardware(); local dc=Draw.new(B); local p=palette("LunarDarkTheme")
             frame(B,dc,1920,1080,function() Glass.paint(dc,200,200,600,300,"floating",p,16,nil,10,0,{},rules.palette_frame) end)
-            assert.equal(0.25,calls(B,"glass")[1][21])
+            local g=calls(B,"glass")[1]
+            assert.equal(0.25,g[21])
+            assert.equal(0.65,g[26]); assert.equal(3,g[27])   -- 65% blur at the rim, all blur 3 px in
         end)
 
-        it("draws the transport as live glass over its artwork, extended 24 px under it",function()
+        it("draws the transport as live glass over its artwork, held 12 px past it and fading out by 24",function()
             local rules=require("core.classes.Themes.LunarDarkTheme"):new():rules()
             assert.is_true(rules.transport_capsule.live)
             local B=hardware(); local dc=Draw.new(B); local p=palette("LunarDarkTheme")
             local state={glass_art={tex=42,x=130,y=1000,w=32,h=48}}
             frame(B,dc,1920,1080,function() Glass.paint(dc,120,990,1600,64,"chrome",p,999,nil,nil,0,state,rules.transport_capsule) end)
             local order=calls(B,"image_rounded_uv")
-            assert.equal(1,#order); assert.equal(42,order[1][2])
-            -- the artwork reaches 24 px right of itself, the capsule bounds the rest
+            assert.equal(5,#order); assert.equal(42,order[1][2])
+            -- outermost first: the artwork reaches 24 px right of itself (the capsule bounds the
+            -- rest), whole to 12 px; the layers leave 1/8, 3/8, 5/8, 7/8, then all of it
             assert.same({120,990,186,1054},{order[1][3],order[1][4],order[1][5],order[1][6]})
+            assert.same({120,990,174,1054},{order[5][3],order[5][4],order[5][5],order[5][6]})
+            local C=require("core.imgui.Color")
+            local left=1
+            for i,want in ipairs({1/8,3/8,5/8,7/8,1}) do
+                local _,_,_,a=C.unpack(order[i][11])
+                left=left*(1-a/255)
+                assert.near(want,1-left,0.01)
+            end
             local g=calls(B,"glass")[1]
             assert.equal(2,g[7]); assert.equal(6,g[11]); assert.equal(3,g[12]); assert.equal(0.25,g[21])
-            assert.equal(0.0622,g[23])
+            assert.equal(0.0622,g[23]); assert.equal(0,g[24])
             local C=require("core.imgui.Color"); local _,_,_,a=C.unpack(g[8]); assert.equal(191,a)   -- 25% artwork
         end)
 

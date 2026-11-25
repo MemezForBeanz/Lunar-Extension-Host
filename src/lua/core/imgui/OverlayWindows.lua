@@ -1,5 +1,7 @@
 -- Native surfaces for bounded, interactive overlays and tooltips.
 local M = {}
+--- The margin of window round an overlay (px): core.ui.Glass's shadow clearance.
+M.MARGIN = 24
 function M.new(B, now, wake)
 	local enabled = B.overlay_windows == true and B.surface and os.getenv("LUNAR_OVERLAY_WINDOWS") ~= "0"
 	local pool = {}
@@ -43,7 +45,9 @@ function M.new(B, now, wake)
 			x = math.max(bx, math.min(x, bx+bw-w)); y = math.max(by, math.min(y, by+bh-h))
 		end
 		o.shift_x, o.shift_y = x-o.x, y-o.y
-		local margin = 8
+		-- a transparent, click-through margin: room for a glass surface's shadow (6 px drop,
+		-- 18 px falloff), so it fades out instead of ending in a square strip
+		local margin = M.MARGIN
 		if B.window("overlay_place", o.win, x-margin, y-margin, w+margin*2, h+margin*2, true, margin) == false then
 			B.window("overlay_close", o.win); o.win = nil
 			o.shift_x, o.shift_y = nil, nil

@@ -1986,12 +1986,17 @@ function M.frame()
 					-- A borderless glass dialog (the palette, Activity) is one glass surface with
 					-- its own shadow and rim: the window frame's outline, fill and stepped shadow
 					-- would draw a second, differently rounded contour round it.
-					local m = require("core.ui.Glass").material(d, st)
-					if not (m and m.glass == "floating" and not st.data.chrome and Element.getAttribute(d, "BORDER") == "NO") then
+					local Glass = require("core.ui.Glass")
+					local m = Glass.material(d, st)
+					local floating = m and m.glass == "floating" and not st.data.chrome and Element.getAttribute(d, "BORDER") == "NO"
+					if not floating then
 						paint_dialog_frame(d, st)
 					end
 					dc:offset_push(st.data.ox or 0, st.data.oy or 0)
-					dc:clip_push(0, 0, st.w, st.h)
+					-- its shadow (6 px drop, 18 px falloff) lies outside it: clipped at its own
+					-- edge it ended in a flat strip under the lip
+					local c = floating and Glass.CLEARANCE or 0
+					dc:clip_push(-c, -c, st.w + 2 * c, st.h + 2 * c)
 					paint(d, dc)
 					dc:clip_pop()
 					dc:offset_pop()

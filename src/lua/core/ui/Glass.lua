@@ -61,17 +61,22 @@ function M.setEnabled(value) enabled = value == true; if not enabled then releas
 
 -- The shader's optics. `band`: px in from the rim over which the lens falls off;
 -- `thickness`: how far it pulls the view in at the rim (px); `chroma`: the split per
--- channel at the rim (px). Menus, dropdowns, toasts and tooltips split nothing (their
--- edges are over text); the palette and Activity (`chroma` in their rule) split a quarter
--- px. The transport's tint leaves the artwork a quarter of the result.
+-- channel at the rim (px); `rim_blur`: the blur's share at the rim, reaching all blur
+-- `blur_depth` px in. Menus, dropdowns, toasts and tooltips split nothing and are 90% blur
+-- at the rim, all blur by 2 px (their edges are over text); the palette and Activity
+-- (`chroma` in their rule) split a quarter px, 65% blur at the rim, all blur by 3 px. The
+-- transport's tint leaves the artwork a quarter of the result.
 M.LENS = {
-	floating = { band = 4, thickness = 3, chroma = 0 },
-	frost = { band = 4, thickness = 3, chroma = 0 },
+	floating = { band = 4, thickness = 3, chroma = 0, rim_blur = 0.9, blur_depth = 2 },
+	split = { rim_blur = 0.65, blur_depth = 3 },
+	frost = { band = 4, thickness = 3, chroma = 0, rim_blur = 0.9, blur_depth = 2 },
 	chrome = { band = 8, thickness = 4, chroma = 0.6 },
-	live = { band = 6, thickness = 3, chroma = 0.25, tint = 0.75 },
+	live = { band = 6, thickness = 3, chroma = 0.25, tint = 0.75, rim_blur = 0.65, blur_depth = 3 },
 }
--- How far the nearest artwork reaches under the transport (px).
-M.ART_REACH = 24
+-- The nearest artwork under the transport: whole for ART_HOLD px past the poster, then
+-- fading to nothing over the next ART_FADE px (ART_REACH in all).
+M.ART_HOLD, M.ART_FADE = 12, 12
+M.ART_REACH = M.ART_HOLD + M.ART_FADE
 -- The light turns toward a pointer over or within `range` px of a surface, by up to `turn`.
 M.LIGHT = { range = 48, turn = math.rad(20) }
 -- A tooltip: frosted glass throughout (no opaque well), lit like the rest.
@@ -139,15 +144,22 @@ local function looks(p)
 		spec = Color.pack(255, 255, 255, floor(255 * (p.glassSpecPeak or (dark and 0.38 or 0.45)) + 0.5)),
 		spec_floor = p.glassSpecFloor or (dark and 0.06 or 0.08),
 		shade = Color.pack(0, 0, 0, floor(255 * (p.glassInnerShade or (dark and 0.10 or 0.06)) + 0.5)),
-		-- frosted and live glass carry text: the result's luminance stays at most this
-		-- (dark) or at least this (light), so its labels keep their contrast
-		lum = dark and (p.glassLumMax or 0.0622) or -(p.glassLumMin or 0.62),
-		frost = Color.alpha(col(p.glassFloatingTint, p.layer03), p.glassFrostAlpha or 0.55),
+		-- frosted and live glass carry text: the lit result's luminance stays at most
+		-- lum_max and at least lum_min, so its labels keep their contrast (dark: at most
+		-- 0.0622; light: at least 0.62, and a tooltip's body at most 0.86 so it reads as
+		-- glass, not a white chip)
+		lum_max = dark and (p.glassLumMax or 0.0622) or 1,
+		lum_min = dark and 0 or (p.glassLumMin or 0.62),
+		frost_max = dark and (p.glassLumMax or 0.0622) or (p.glassFrostLumMax or 0.86),
+		frost = Color.alpha(col(p.glassFloatingTint, p.layer03), p.glassFrostAlpha or (dark and 0.55 or 0.40)),
 		live = Color.alpha(col(p.glassChromeTint, p.layer01), M.LENS.live.tint),
 	}
 end
 
-local function textures(dc, p)
+-- The other mode's backdrop is loaded PREWARM s after this one, in an idle frame, so the
+-- first light/dark switch decodes and uploads nothing (it cost that switch 20-30 ms).
+M.PREWARM = 1.5
+local function textures(dc, p, quiet)
 	local B = dc.B
 	if not cache or cache.B ~= B then release(); cache = { B = B, by_key = {} } end
 	local key = p.glassBackdrop or ("flat:" .. tostring(p.bg))
@@ -155,6 +167,15 @@ local function textures(dc, p)
 	if not c then
 		c = { looks = looks(p) }
 		cache.by_key[key] = c
+		if not quiet and cache.prewarm == nil then
+			local R = package.loaded["core.imgui.Runtime"]
+			if R and R.now and R.wakeAt then
+				cache.prewarm = R.now() + M.PREWARM
+				R.wakeAt(cache.prewarm)
+			else
+				cache.prewarm = false
+			end
+		end
 		if B.texture then
 			local sharp, sw, sh, blur, bw, bh
 			if p.glassBackdrop then
@@ -180,6 +201,22 @@ local function textures(dc, p)
 	end
 	return c
 end
+
+-- Once, at idle after the first backdrop loaded: the current theme's other mode's backdrop.
+local function prewarm(dc)
+	local due = cache and cache.prewarm
+	if not due then return end
+	local R = package.loaded["core.imgui.Runtime"]
+	if not (R and R.now) or R.now() < due then return end
+	cache.prewarm = false
+	local manager = Reactor.themeManager()
+	local current = manager and manager.current and manager:current()
+	local other = current and manager.counterpart and manager:counterpart(current)
+	local theme = other and manager.themeById and manager:themeById(other)
+	local p = theme and theme.palette and theme:palette()
+	if p and p.glass and p.glassBackdrop then textures(dc, p, true) end
+end
+M._prewarm = prewarm
 
 -- "Cover" mapping, anchored top-left: window pixel (x, y) -> texture UV.
 local function uv(dc, c, x1, y1, x2, y2, wide, tall)
@@ -220,7 +257,9 @@ local function sample(dc, c, tex, x, y, w, h, radius, refract)
 end
 
 -- The bevel: one upper-left highlight fading to the far corner, one lower inner shade.
-local BEVEL = 2
+-- BEVEL is how far the baked sample softens inside the rim; RIM_WIDTH the rim line itself,
+-- as thin as the shader's 1.2 px lobe so WARP's edge matches the hardware one.
+local BEVEL, RIM_WIDTH = 2, 1.2
 -- Hover lifts the highlight by up to 10 percentage points at its peak.
 local HOVER_LIFT = 0.10
 local function rim(dc, look, x, y, w, h, radius, lift)
@@ -232,7 +271,7 @@ local function rim(dc, look, x, y, w, h, radius, lift)
 	local hi, lo, inner = dc:_color(base), dc:_color(look.rim_lo), dc:_color(look.rim_inner)
 	if dc.B.rim then
 		local ax, ay = x + dc.ox, y + dc.oy
-		dc:_emit("rim", ax, ay, ax + w, ay + h, radius, hi, lo, inner, 0, BEVEL)
+		dc:_emit("rim", ax, ay, ax + w, ay + h, radius, hi, lo, inner, 0, RIM_WIDTH)
 		return
 	end
 	dc:rect(x, y, w, h, lo, shapes[radius])
@@ -402,20 +441,38 @@ end
 
 -- The transport's nearest artwork (recorded by the runtime from its children last frame),
 -- drawn under it reaching ART_REACH px past the artwork: its edge texels stretch to fill.
+-- It is drawn as nested rects, outermost first, each over the last: the poster's edge
+-- texels whole to ART_HOLD px, then four 3 px steps down to nothing at ART_REACH (the
+-- transport's strong blur smooths the steps). ART_STEPS: each step's reach and the alpha
+-- of its layer, so the coverage left there is 1/8, 3/8, 5/8, 7/8, then whole.
 local CORNERS_LEFT, CORNERS_RIGHT, CORNERS_NONE = 16 + 64, 32 + 128, 256
+local ART_STEPS = {}
+do
+	local prev = 0
+	for i = 4, 1, -1 do
+		local cover = (2 * (4 - i) + 1) / 8
+		ART_STEPS[#ART_STEPS + 1] = { M.ART_HOLD + M.ART_FADE * i / 4, (cover - prev) / (1 - prev) }
+		prev = cover
+	end
+	ART_STEPS[#ART_STEPS + 1] = { M.ART_HOLD, 1 }
+end
+M._ART_STEPS = ART_STEPS
 local function extend_art(dc, art, ax, ay, w, h, r)
 	if not (art and art.tex and art.w > 0 and art.h > 0 and dc.B.image_rounded_uv) then return end
-	local reach = M.ART_REACH
-	local x1, y1 = max(ax, art.x - reach), max(ay, art.y - reach)
-	local x2, y2 = min(ax + w, art.x + art.w + reach), min(ay + h, art.y + art.h + reach)
-	if x2 <= x1 or y2 <= y1 then return end
-	local flags = 0
-	if x1 < ax + r then flags = flags + CORNERS_LEFT end
-	if x2 > ax + w - r then flags = flags + CORNERS_RIGHT end
-	if flags == 0 then flags = CORNERS_NONE end
-	dc:_emit("image_rounded_uv", art.tex, x1, y1, x2, y2,
-		(x1 - art.x) / art.w, (y1 - art.y) / art.h, (x2 - art.x) / art.w, (y2 - art.y) / art.h,
-		dc:_color(0xFFFFFFFF), r, flags)
+	for _, step in ipairs(ART_STEPS) do
+		local reach = step[1]
+		local x1, y1 = max(ax, art.x - reach), max(ay, art.y - reach)
+		local x2, y2 = min(ax + w, art.x + art.w + reach), min(ay + h, art.y + art.h + reach)
+		if x2 > x1 and y2 > y1 then
+			local flags = 0
+			if x1 < ax + r then flags = flags + CORNERS_LEFT end
+			if x2 > ax + w - r then flags = flags + CORNERS_RIGHT end
+			if flags == 0 then flags = CORNERS_NONE end
+			dc:_emit("image_rounded_uv", art.tex, x1, y1, x2, y2,
+				(x1 - art.x) / art.w, (y1 - art.y) / art.h, (x2 - art.x) / art.w, (y2 - art.y) / art.h,
+				dc:_color(Color.alpha(0xFFFFFFFF, step[2])), r, flags)
+		end
+	end
 end
 
 --- Paint `kind` at (x, y, w, h) in the dc's local coordinates. `lip` sets a floating
@@ -445,6 +502,7 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 	local solid = kind == "floor" and p.bg or (floating and (p.glassTextWell or p.layer03 or p.layer02) or p.layer01)
 	if not solid then return end
 	local c = enabled and p.glass and textures(dc, p)
+	if c and kind == "floor" then prewarm(dc) end
 	local r = radius or (floating and (p.radiusFloating or 16) or 0)
 	r = min(r, w / 2, h / 2)
 	local tex = c and (kind == "floor" and c.sharp or c.blur)
@@ -463,25 +521,32 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 		-- A text-free lip that shows what is underneath (bent at the bevel, softened
 		-- inside it) under a light tint, round an opaque text well whose last two pixels
 		-- blend into the lip.
-		shadow(dc, look, x, y, w, h)
 		local l = min(lip or p.glassLip or 8, floor(w / 4), floor(h / 4))
+		local frost = live and style and style.frost
+		-- the shader's copy of what is under it comes first: it never samples its own shadow
+		if live and dc.B.glass_copy then
+			local ax, ay = x + dc.ox, y + dc.oy
+			dc:_emit("glass_copy", ax, ay, ax + w, ay + h, frost and 3 or 0, frost and 0 or l, r)
+		end
+		shadow(dc, look, x, y, w, h)
 		if live then
 			-- the shader: the live frame under it, bent across the lip, blurred, tinted, lit,
 			-- easing into the opaque well over the lip's last 3 px (a tooltip: no well)
 			local ax, ay = x + dc.ox, y + dc.oy
-			local frost = style and style.frost
 			local lens = frost and M.LENS.frost or M.LENS.floating
 			local angle = M.light(dc, state, ax, ay, w, h)
 			local chroma = style and style.chroma or lens.chroma
+			-- a surface that splits its rim (palette, Activity) keeps a sharper rim
+			local edge = (style and style.chroma) and M.LENS.split or lens
 			if frost then
 				dc:_emit("glass", ax, ay, ax + w, ay + h, r, 3, look.frost, look.spec, look.shade,
 					lens.band, lens.thickness, lift or 0, dc:_color(0xFFFFFFFF), 0, 0, 0, 0,
-					0, 0, chroma, angle, look.lum, look.spec_floor)
+					0, 0, chroma, angle, look.frost_max, look.lum_min, look.spec_floor, edge.rim_blur, edge.blur_depth)
 				return
 			end
 			dc:_emit("glass", ax, ay, ax + w, ay + h, r, 0, look.floating, look.spec, look.shade,
 				min(lens.band, l), lens.thickness, lift or 0, dc:_color(0xFFFFFFFF), 0, 0, 0, 0,
-				look.well, l, chroma, angle, 0, look.spec_floor)
+				look.well, l, chroma, angle, 1, 0, look.spec_floor, edge.rim_blur, edge.blur_depth)
 			dc:fill(x + l, y + l, w - 2 * l, h - 2 * l, look.well, shapes[max(0, r - l)])
 			return
 		else
@@ -509,13 +574,13 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 			extend_art(dc, state and state.glass_art, ax, ay, w, h, r)
 			dc:_emit("glass", ax, ay, ax + w, ay + h, r, 2, look.live, look.spec, look.shade,
 				min(lens.band, w / 2, h / 2), lens.thickness, lift or 0, dc:_color(0xFFFFFFFF), 0, 0, 0, 0,
-				0, 0, lens.chroma, angle, look.lum, look.spec_floor)
+				0, 0, lens.chroma, angle, look.lum_max, look.lum_min, look.spec_floor, lens.rim_blur, lens.blur_depth)
 			return
 		end
 		local _, _, ku, kv = uv(dc, c, 0, 0, 1, 1, c.sw, c.sh)
 		dc:_emit("glass", ax, ay, ax + w, ay + h, r, 1, look.chrome, look.spec, look.shade,
 			band, min(lens.thickness, band), lift or 0, dc:_color(0xFFFFFFFF), c.sharp, c.blur, ku, kv,
-			0, 0, lens.chroma, angle, 0, look.spec_floor)
+			0, 0, lens.chroma, angle, 1, 0, look.spec_floor, -1, 0)
 		return -- the shader drew the rim
 	else
 		sample(dc, c, tex, x, y, w, h, r, true)
