@@ -43,9 +43,11 @@ LOWER_SHOULDER = 6.0
 # The lower horn sweeps right as the icon's does: its tip 4 px right of the plain shape,
 # easing in from the middle of the lower half.
 LOWER_SWEEP = 4.0
-# The principal star's core: a solid diamond at full opacity, 4 x 6 px dark and 5 x 7 px
-# light (against the light sky a smaller one recedes at narrow width).
-CORE = {"dark": (4.0, 6.0), "light": (5.0, 7.0)}
+# Each star's core: a solid diamond (w x h px, peak opacity), or None for the soft core.
+# The principal star's is 4 x 6 px dark and 6 x 8 px light at full opacity; in the light
+# mode the secondary star gets a 3 x 4 px one at 90% (against the light sky smaller cores
+# recede at narrow width).
+CORE = {"dark": [(4.0, 6.0, 1.0), None], "light": [(6.0, 8.0, 1.0), (3.0, 4.0, 0.90)]}
 # Fourteen point stars, 1-2 px: eight near the crescent, six in exposed perimeter space
 # (the left strip below the crescent, the top reveal, the right reveal). Clear of labels.
 NEAR = [(22, 84), (44, 96), (95, 128), (88, 170), (54, 252), (94, 236), (58, 270), (16, 284)]
@@ -142,7 +144,7 @@ def crescent(img, c):
 
 def sparkle(a, cx, cy, size, peak, core=None):
     """A four-point star `size` px tip to tip: two thin tapering arms and a soft core
-    (`core`: a solid diamond w x h px at the peak opacity instead)."""
+    (`core`: (w, h, peak), a solid diamond w x h px at that opacity as well)."""
     arm = size / 2.0
     r = int(np.ceil(arm)) + 2
     yy, xx = np.mgrid[-r:r + 1, -r:r + 1].astype(np.float64)
@@ -154,10 +156,10 @@ def sparkle(a, cx, cy, size, peak, core=None):
         return taper ** 2.2 * np.exp(-(across / (0.28 + 0.42 * taper)) ** 2)
     star = np.maximum(ray(xx, yy), ray(yy, xx))
     star = np.maximum(star, np.exp(-(xx ** 2 + yy ** 2) / 1.1))
+    star = np.clip(star, 0, 1) * peak
     if core:
         d = np.abs(xx) / (core[0] / 2) + np.abs(yy) / (core[1] / 2)
-        star = np.maximum(star, np.clip((1 - d) * min(core) / 2 + 0.5, 0, 1))
-    star = np.clip(star, 0, 1) * peak
+        star = np.maximum(star, np.clip((1 - d) * min(core[:2]) / 2 + 0.5, 0, 1) * core[2])
     x0, y0 = int(np.floor(cx)) - r, int(np.floor(cy)) - r
     a[y0:y0 + 2 * r + 1, x0:x0 + 2 * r + 1] = np.maximum(a[y0:y0 + 2 * r + 1, x0:x0 + 2 * r + 1], star)
 
@@ -202,7 +204,7 @@ def backdrop(mode):
     band = (outer > -1) & (inner > -1)
     stars = np.zeros((H, W))
     for i, (sx, sy, size, dark_peak, light_peak) in enumerate(SPARKLES):
-        sparkle(stars, sx, sy, size, dark_peak if mode == "dark" else light_peak, CORE[mode] if i == 0 else None)
+        sparkle(stars, sx, sy, size, dark_peak if mode == "dark" else light_peak, CORE[mode][i])
     lo, hi = c["alpha"]
     far = np.zeros((H, W))
     for i, (px, py) in enumerate(NEAR + PERIMETER):
