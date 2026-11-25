@@ -43,8 +43,9 @@ LOWER_SHOULDER = 6.0
 # The lower horn sweeps right as the icon's does: its tip 4 px right of the plain shape,
 # easing in from the middle of the lower half.
 LOWER_SWEEP = 4.0
-# The principal star's core: a solid diamond 4 x 6 px at full opacity.
-CORE = (4.0, 6.0)
+# The principal star's core: a solid diamond at full opacity, 4 x 6 px dark and 5 x 7 px
+# light (against the light sky a smaller one recedes at narrow width).
+CORE = {"dark": (4.0, 6.0), "light": (5.0, 7.0)}
 # Fourteen point stars, 1-2 px: eight near the crescent, six in exposed perimeter space
 # (the left strip below the crescent, the top reveal, the right reveal). Clear of labels.
 NEAR = [(22, 84), (44, 96), (95, 128), (88, 170), (54, 252), (94, 236), (58, 270), (16, 284)]
@@ -52,7 +53,7 @@ PERIMETER = [(30, 340), (62, 430), (20, 540), (1594, 150), (1594, 380), (1594, 6
 COLORS = {
     "dark": dict(space="#080A0F", body="#B9C7D8", crest="#F2F6FC", inner="#334257",
                  star="#F2F6FC", far_star="#F2F6FC", alpha=(0.28, 0.52), tone=("#101721", "#374451")),
-    "light": dict(sky="#B4C2D4", sky_max=0.64, body="#EDF3FB", crest="#FFFFFF", inner="#657284",
+    "light": dict(sky="#B4C2D4", sky_max=0.60, body="#EDF3FB", crest="#FFFFFF", inner="#657284",
                   star="#FFFFFF", far_star="#4A5463", alpha=(0.44, 0.70), tone=("#E9EEF4", "#C9D3E0")),
 }
 
@@ -201,7 +202,7 @@ def backdrop(mode):
     band = (outer > -1) & (inner > -1)
     stars = np.zeros((H, W))
     for i, (sx, sy, size, dark_peak, light_peak) in enumerate(SPARKLES):
-        sparkle(stars, sx, sy, size, dark_peak if mode == "dark" else light_peak, CORE if i == 0 else None)
+        sparkle(stars, sx, sy, size, dark_peak if mode == "dark" else light_peak, CORE[mode] if i == 0 else None)
     lo, hi = c["alpha"]
     far = np.zeros((H, W))
     for i, (px, py) in enumerate(NEAR + PERIMETER):
