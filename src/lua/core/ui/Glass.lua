@@ -21,7 +21,7 @@
 -- a live shader instead (lunar_glass_d3d11.inc): each surface is one `glass` call that
 -- refracts and blurs what is actually under it this frame, with one specular lobe on its
 -- rim, an inner shade and the same tints; floating glass eases into its opaque text well
--- over 3 px, a tooltip is frosted glass throughout, and the Media transport shows the
+-- over 6 px, a tooltip is frosted glass throughout, and the Media transport shows the
 -- nearest artwork extended under it. The lobe turns up to 20 degrees toward the pointer
 -- near a surface (fixed with reduced motion). The floating shadow stays as below. On WARP,
 -- an SDL host, or with hardware acceleration off, the baked path below is used unchanged.
@@ -45,6 +45,8 @@ local SHADOW_PAD, SHADOW_OFFSET, SHADOW_BORDER, SHADOW_TEX = 24, 6, 40, 96
 local REFRACT = 2
 
 local shapes = setmetatable({}, { __index = function(t, r) local v = { radius = r }; rawset(t, r, v); return v end })
+-- the matte card's corners: finer arcs (they stepped at native size)
+local fine_shapes = setmetatable({}, { __index = function(t, r) local v = { radius = r, fine = true }; rawset(t, r, v); return v end })
 
 local function release()
 	if cache and cache.B and cache.B.texture_free then
@@ -62,23 +64,26 @@ function M.setEnabled(value) enabled = value == true; if not enabled then releas
 -- The shader's optics. `band`: px in from the rim over which the lens falls off;
 -- `thickness`: how far it pulls the view in at the rim (px); `chroma`: the split per
 -- channel at the rim (px); `rim_blur`: the blur's share at the rim, reaching all blur
--- `blur_depth` px in. Menus, dropdowns, toasts and tooltips split nothing and are 90% blur
--- at the rim, all blur by 2 px (their edges are over text); the palette and Activity
--- (`chroma` in their rule) split a quarter px, 65% blur at the rim, all blur by 3 px.
--- `soft`: the surface samples the strong (16 px) blur, which leaves no grey smear of the
--- text under a menu's or dropdown's lip; the palette and Activity keep the light blur, whose
--- detail their split refracts. The transport's tint leaves the artwork a quarter of the result.
+-- `blur_depth` px in; `well_ease`: px over which a floating lip eases into its opaque well.
+-- Floating glass is an 8 px lens pulling 5 px at the rim, so it reads as a curved slab of
+-- glass, not a card with a rim. Every floating surface is 90% blur at the rim and all blur
+-- by 2 px, over the strong (16 px) blur (`soft`), so no text under its lip shows as glyphs
+-- or grey smears; the palette and Activity (`chroma` in their rule) also split a quarter px.
+-- The transport's tint leaves the artwork a quarter of the result (light: LIGHT_ART).
 M.LENS = {
-	floating = { band = 4, thickness = 3, chroma = 0, rim_blur = 0.9, blur_depth = 2, soft = true },
-	split = { rim_blur = 0.65, blur_depth = 3, soft = false },
+	floating = { band = 8, thickness = 5, chroma = 0, rim_blur = 0.9, blur_depth = 2, soft = true, well_ease = 6 },
+	split = { rim_blur = 0.9, blur_depth = 2, soft = true },
 	frost = { band = 4, thickness = 3, chroma = 0, rim_blur = 0.9, blur_depth = 2 },
 	chrome = { band = 8, thickness = 4, chroma = 0.6 },
 	live = { band = 6, thickness = 3, chroma = 0.25, tint = 0.75, rim_blur = 0.65, blur_depth = 3 },
 }
 -- The nearest artwork under the transport: whole for ART_HOLD px past the poster, then
--- fading to nothing over the next ART_FADE px (ART_REACH in all).
+-- fading to nothing over the next ART_FADE px (ART_REACH in all). The light mode holds
+-- 12 px and fades over 24 (LIGHT_ART) under a lighter tint (60%), the artwork 7/8 opaque
+-- under it so it keeps 35% of the result: a violet-to-pearl run along the capsule.
 M.ART_HOLD, M.ART_FADE = 12, 12
 M.ART_REACH = M.ART_HOLD + M.ART_FADE
+M.LIGHT_ART = { hold = 12, fade = 24, tint = 0.60, share = 0.35 }
 -- The light turns toward a pointer over or within `range` px of a surface, by up to `turn`.
 M.LIGHT = { range = 48, turn = math.rad(20) }
 -- A tooltip: frosted glass throughout (no opaque well), lit like the rest.
@@ -134,6 +139,9 @@ local function looks(p)
 	return {
 		chrome = Color.alpha(col(p.glassChromeTint, p.layer01), p.glassChromeAlpha or (dark and 0.32 or 0.36)),
 		floating = Color.alpha(col(p.glassFloatingTint, p.layer03), p.glassFloatingAlpha or (dark and 0.24 or 0.22)),
+		-- the baked lip (WARP, no blur chain): a heavier tint, so text under it stays a smear
+		floating_baked = Color.alpha(col(p.glassFloatingTint, p.layer03),
+			(p.glassFloatingAlpha or (dark and 0.24 or 0.22)) * M.BAKED_LIP_TINT),
 		well = col(p.glassTextWell, p.layer03),
 		-- the well's last two pixels blend into the lip instead of ending in an edge
 		well_feather = { Color.alpha(col(p.glassTextWell, p.layer03), 0.35), Color.alpha(col(p.glassTextWell, p.layer03), 0.5) },
@@ -153,8 +161,12 @@ local function looks(p)
 		lum_max = dark and (p.glassLumMax or 0.0622) or 1,
 		lum_min = dark and 0 or (p.glassLumMin or 0.62),
 		frost_max = dark and (p.glassLumMax or 0.0622) or (p.glassFrostLumMax or 0.86),
-		frost = Color.alpha(col(p.glassFloatingTint, p.layer03), p.glassFrostAlpha or (dark and 0.55 or 0.40)),
-		live = Color.alpha(col(p.glassChromeTint, p.layer01), M.LENS.live.tint),
+		frost = Color.alpha(col(p.glassFloatingTint, p.layer03), p.glassFrostAlpha or (dark and 0.55 or 0.32)),
+		-- a tooltip's shadow: lighter in the light mode, so the frost does not read as a chip
+		frost_shadow = Color.pack(0, 0, 0, floor(255 * (p.glassFrostShadowAlpha
+			or (dark and (p.glassShadowAlpha or 0.32) or 0.12)) + 0.5)),
+		live = Color.alpha(col(p.glassChromeTint, p.layer01), dark and M.LENS.live.tint or M.LIGHT_ART.tint),
+		art = dark and M._ART_STEPS or M._LIGHT_ART_STEPS,
 	}
 end
 
@@ -280,13 +292,13 @@ local function rim(dc, look, x, y, w, h, radius, lift)
 	dc:line(x + radius, y + 0.5, x + w - radius, y + 0.5, hi)
 end
 
-local function shadow(dc, look, x, y, w, h)
+local function shadow(dc, look, x, y, w, h, col)
 	local tex = cache and cache.shadow
 	if not (tex and dc.B.image_nine) then return end
 	local ax, ay = x + dc.ox - SHADOW_PAD, y + dc.oy - SHADOW_PAD + SHADOW_OFFSET
 	local b = SHADOW_BORDER / SHADOW_TEX
 	dc:_emit("image_nine", tex, ax, ay, ax + w + 2 * SHADOW_PAD, ay + h + 2 * SHADOW_PAD,
-		SHADOW_BORDER, SHADOW_BORDER, b, b, dc:_color(look.shadow))
+		SHADOW_BORDER, SHADOW_BORDER, b, b, dc:_color(col or look.shadow))
 end
 
 -- The floating entrance: seconds to fade in, and pixels of lift. A borderless glass
@@ -355,8 +367,12 @@ M._caps = caps
 
 -- What lies under a floating surface, from the frame copy (the main window's background
 -- layer this frame): pulled 2 px inward across the bevel so it bends there, and softened
--- by four half-pixel taps (about 1.5 px) across the rest. Off when the backend has no copy.
-local SOFT = 0.75
+-- by four diagonal taps 1.5 px out (about 3 px) across the rest, under a heavier tint than
+-- the shader's (BAKED_LIP_TINT), so text under the lip is a smear, not glyphs. Off when
+-- the backend has no copy.
+local SOFT = 1.5
+-- The baked lip's tint, as a multiple of the shader's (which blurs what it tints).
+M.BAKED_LIP_TINT = 1.8
 local function underneath(dc, x, y, w, h, r)
 	local B = dc.B
 	if dc.rec or not (B.window and B.image_rounded_uv) then return end
@@ -444,24 +460,28 @@ end
 -- The transport's nearest artwork (recorded by the runtime from its children last frame),
 -- drawn under it reaching ART_REACH px past the artwork: its edge texels stretch to fill.
 -- It is drawn as nested rects, outermost first, each over the last: the poster's edge
--- texels whole to ART_HOLD px, then four 3 px steps down to nothing at ART_REACH (the
+-- texels whole to ART_HOLD px, then four equal steps down to nothing at ART_REACH (the
 -- transport's strong blur smooths the steps). ART_STEPS: each step's reach and the alpha
--- of its layer, so the coverage left there is 1/8, 3/8, 5/8, 7/8, then whole.
+-- of its layer, so the coverage left there is 1/8, 3/8, 5/8, 7/8, then whole (the light
+-- mode's steps: the same shares of 7/8, over 24 px).
 local CORNERS_LEFT, CORNERS_RIGHT, CORNERS_NONE = 16 + 64, 32 + 128, 256
-local ART_STEPS = {}
-do
-	local prev = 0
+-- `peak`: the artwork's own coverage where it is whole (the light mode's 7/8)
+local function art_steps(hold, fade, peak)
+	local steps, prev = {}, 0
 	for i = 4, 1, -1 do
-		local cover = (2 * (4 - i) + 1) / 8
-		ART_STEPS[#ART_STEPS + 1] = { M.ART_HOLD + M.ART_FADE * i / 4, (cover - prev) / (1 - prev) }
+		local cover = (2 * (4 - i) + 1) / 8 * peak
+		steps[#steps + 1] = { hold + fade * i / 4, (cover - prev) / (1 - prev) }
 		prev = cover
 	end
-	ART_STEPS[#ART_STEPS + 1] = { M.ART_HOLD, 1 }
+	steps[#steps + 1] = { hold, (peak - prev) / (1 - prev) }
+	return steps
 end
+local ART_STEPS = art_steps(M.ART_HOLD, M.ART_FADE, 1)
 M._ART_STEPS = ART_STEPS
-local function extend_art(dc, art, ax, ay, w, h, r)
+M._LIGHT_ART_STEPS = art_steps(M.LIGHT_ART.hold, M.LIGHT_ART.fade, M.LIGHT_ART.share / (1 - M.LIGHT_ART.tint))
+local function extend_art(dc, art, ax, ay, w, h, r, steps)
 	if not (art and art.tex and art.w > 0 and art.h > 0 and dc.B.image_rounded_uv) then return end
-	for _, step in ipairs(ART_STEPS) do
+	for _, step in ipairs(steps or ART_STEPS) do
 		local reach = step[1]
 		local x1, y1 = max(ax, art.x - reach), max(ay, art.y - reach)
 		local x2, y2 = min(ax + w, art.x + art.w + reach), min(ay + h, art.y + art.h + reach)
@@ -495,9 +515,9 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 	end
 	if kind == "card" then
 		local r = radius or p.radiusSheet or 14
-		dc:fill(x, y, w, h, p.layer02, shapes[r])
+		dc:fill(x, y, w, h, p.layer02, fine_shapes[r])
 		local c = enabled and p.glass and textures(dc, p)
-		dc:rect(x, y, w, h, c and c.looks.card_rim or (p.glassDark and "255 255 255 15" or "0 0 0 15"), shapes[r])
+		dc:rect(x, y, w, h, c and c.looks.card_rim or (p.glassDark and "255 255 255 15" or "0 0 0 15"), fine_shapes[r])
 		return
 	end
 	local floating = kind == "floating"
@@ -532,10 +552,10 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 			local ax, ay = x + dc.ox, y + dc.oy
 			dc:_emit("glass_copy", ax, ay, ax + w, ay + h, frost and 3 or 0, frost and 0 or l, r, edge.soft)
 		end
-		shadow(dc, look, x, y, w, h)
+		shadow(dc, look, x, y, w, h, frost and look.frost_shadow or nil)
 		if live then
 			-- the shader: the live frame under it, bent across the lip, blurred, tinted, lit,
-			-- easing into the opaque well over the lip's last 3 px (a tooltip: no well)
+			-- easing into the opaque well over the lip's last 6 px (a tooltip: no well)
 			local ax, ay = x + dc.ox, y + dc.oy
 			local lens = frost and M.LENS.frost or M.LENS.floating
 			local angle = M.light(dc, state, ax, ay, w, h)
@@ -547,13 +567,14 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 				return
 			end
 			dc:_emit("glass", ax, ay, ax + w, ay + h, r, 0, look.floating, look.spec, look.shade,
-				min(lens.band, l), lens.thickness, lift or 0, dc:_color(0xFFFFFFFF), 0, 0, 0, 0,
-				look.well, l, chroma, angle, 1, 0, look.spec_floor, edge.rim_blur, edge.blur_depth, edge.soft)
+				min(lens.band, l), min(lens.thickness, l), lift or 0, dc:_color(0xFFFFFFFF), 0, 0, 0, 0,
+				look.well, l, chroma, angle, 1, 0, look.spec_floor, edge.rim_blur, edge.blur_depth, edge.soft,
+				lens.well_ease)
 			dc:fill(x + l, y + l, w - 2 * l, h - 2 * l, look.well, shapes[max(0, r - l)])
 			return
 		else
 			underneath(dc, x, y, w, h, r)
-			dc:fill(x, y, w, h, look.floating, shapes[r])
+			dc:fill(x, y, w, h, look.floating_baked, shapes[r])
 		end
 		if l >= 3 then
 			for k = 2, 1, -1 do
@@ -573,7 +594,7 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 			-- the transport: the nearest artwork extended under it, copied with what lies
 			-- there, strongly blurred, mostly tinted and bounded for its labels
 			lens = M.LENS.live
-			extend_art(dc, state and state.glass_art, ax, ay, w, h, r)
+			extend_art(dc, state and state.glass_art, ax, ay, w, h, r, look.art)
 			dc:_emit("glass", ax, ay, ax + w, ay + h, r, 2, look.live, look.spec, look.shade,
 				min(lens.band, w / 2, h / 2), lens.thickness, lift or 0, dc:_color(0xFFFFFFFF), 0, 0, 0, 0,
 				0, 0, lens.chroma, angle, look.lum_max, look.lum_min, look.spec_floor, lens.rim_blur, lens.blur_depth)

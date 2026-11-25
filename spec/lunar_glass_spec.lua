@@ -105,10 +105,11 @@ describe("Lunar glass",function()
             if call[1]=="rect_filled" then fills[#fills+1]=call end
             if call[1]=="rim" then assert.near(1.2,call[11],1e-9) end   -- as thin as the shader's lobe
         end
-        -- the lip: the whole surface in a translucent tint, so what is underneath carries through
+        -- the lip: the whole surface in a translucent tint, so what is underneath carries
+        -- through as a smear (heavier than the shader's tint, which blurs what it tints)
         local C=require("core.imgui.Color")
         local _,_,_,a=C.unpack(fills[1][6])
-        assert.equal(math.floor(255*p.glassFloatingAlpha+0.5),a)
+        assert.near(255*p.glassFloatingAlpha*Glass.BAKED_LIP_TINT,a,1)
         -- the well: opaque, 8 px in from every edge, its last two pixels blending into the lip
         assert.equal(206,fills[2][2]); local _,_,_,f1=C.unpack(fills[2][6]); assert.equal(math.floor(255*0.35),f1)
         assert.equal(207,fills[3][2]); local _,_,_,f2=C.unpack(fills[3][6]); assert.is_true(f2>f1 and f2<255)
@@ -128,9 +129,9 @@ describe("Lunar glass",function()
         assert.equal(5,#taps)
         -- the whole surface, sampled 2 px in from each edge: the view bends at the rim
         assert.equal(200,taps[1][3]); assert.near(202/1920,taps[1][7],1e-9); assert.near(598/1920,taps[1][9],1e-9)
-        -- inside the bevel: four half-pixel taps averaging to about 1.5 px of softening
+        -- inside the bevel: four diagonal taps 1.5 px out, about 3 px of softening
         for k=2,5 do assert.equal(202,taps[k][3]); assert.equal(14,taps[k][12]) end
-        assert.near((202-0.75)/1920,taps[2][7],1e-9); assert.near((202+0.75)/1920,taps[5][7],1e-9)
+        assert.near((202-1.5)/1920,taps[2][7],1e-9); assert.near((202+1.5)/1920,taps[5][7],1e-9)
         -- the lip is 10 px here: the well starts 10 px in
         local wells=0
         for _,call in ipairs(B.lastFrame()) do if call[1]=="rect_filled" and call[2]==210 then wells=wells+1 end end
@@ -371,8 +372,9 @@ describe("Lunar glass",function()
             assert.equal(0,copies)
             local g=calls(B,"glass")[1]
             assert.equal(0,g[7])                        -- floating
-            assert.equal(Glass.LENS.floating.band,g[11])        -- 3 px of lens, falling off over 4 px
-            assert.equal(3,g[12])
+            assert.equal(8,g[11]); assert.equal(Glass.LENS.floating.band,g[11])   -- 5 px of lens, falling off over 8 px
+            assert.equal(5,g[12])
+            assert.equal(6,g[29])                       -- easing into the well over 6 px
             assert.equal(0.5,g[13])                     -- hover lift
             -- it eases into the well over the lip, splits no colour and is unbounded
             assert.equal(p.glassLip,g[20]); assert.is_true(g[19]~=0)
@@ -400,12 +402,15 @@ describe("Lunar glass",function()
                 local g=calls(B,"glass")[1]
                 assert.equal(3,g[7]); assert.equal(0,g[20])     -- frost, no hollow
                 assert.is_nil(ops(B).rect_filled)               -- no opaque well
-                -- dark: at most 0.0622; light: a 40% tint, the body at most 0.86 and at least 0.62
+                -- dark: at most 0.0622; light: a 32% tint, the body at most 0.86 and at least 0.62
                 assert.equal(p.glassDark and 0.0622 or 0.86,g[23])
                 assert.equal(p.glassDark and 0 or 0.62,g[24])
                 assert.equal(0,g[21])
                 local C=require("core.imgui.Color"); local _,_,_,a=C.unpack(g[8])
-                assert.equal(p.glassDark and 140 or 102,a)
+                assert.equal(p.glassDark and 140 or 82,a)
+                -- and a lighter shadow in the light mode (12%), so it does not read as a chip
+                local sh=calls(B,"image_nine")[1]; local _,_,_,sa=C.unpack(sh[11])
+                assert.equal(p.glassDark and 82 or 31,sa)
             end
         end)
 
@@ -417,8 +422,8 @@ describe("Lunar glass",function()
             frame(B,dc,1920,1080,function() Glass.paint(dc,200,200,600,300,"floating",p,16,nil,10,0,{},rules.palette_frame) end)
             local g=calls(B,"glass")[1]
             assert.equal(0.25,g[21])
-            assert.equal(0.65,g[26]); assert.equal(3,g[27])   -- 65% blur at the rim, all blur 3 px in
-            assert.is_false(g[28])                            -- and the light blur its split refracts
+            assert.equal(0.9,g[26]); assert.equal(2,g[27])    -- 90% blur at the rim, all blur 2 px in
+            assert.is_true(g[28])                             -- over the strong (16 px) blur
         end)
 
         it("draws the transport as live glass over its artwork, held 12 px past it and fading out by 24",function()
@@ -444,6 +449,27 @@ describe("Lunar glass",function()
             assert.equal(2,g[7]); assert.equal(6,g[11]); assert.equal(3,g[12]); assert.equal(0.25,g[21])
             assert.equal(0.0622,g[23]); assert.equal(0,g[24])
             local C=require("core.imgui.Color"); local _,_,_,a=C.unpack(g[8]); assert.equal(191,a)   -- 25% artwork
+        end)
+
+        it("gives the light transport 35% artwork under a 60% tint, held 12 px and fading over 24",function()
+            local rules=require("core.classes.Themes.LunarLightTheme"):new():rules()
+            local B=hardware(); local dc=Draw.new(B); local p=palette("LunarLightTheme")
+            local state={glass_art={tex=42,x=130,y=1000,w=32,h=48}}
+            frame(B,dc,1920,1080,function() Glass.paint(dc,120,990,1600,64,"chrome",p,999,nil,nil,0,state,rules.transport_capsule) end)
+            local order=calls(B,"image_rounded_uv")
+            assert.equal(5,#order)
+            assert.same({120,990,198,1054},{order[1][3],order[1][4],order[1][5],order[1][6]})   -- 36 px past it
+            assert.same({120,990,174,1054},{order[5][3],order[5][4],order[5][5],order[5][6]})   -- whole to 12
+            local C=require("core.imgui.Color")
+            local left=1
+            for i,want in ipairs({1/8,3/8,5/8,7/8,1}) do
+                local _,_,_,a=C.unpack(order[i][11])
+                left=left*(1-a/255)
+                assert.near(want*0.875,1-left,0.01)
+            end
+            local g=calls(B,"glass")[1]
+            local _,_,_,a=C.unpack(g[8]); assert.equal(153,a)   -- a 60% tint: 0.4 x 0.875 = 35% artwork
+            assert.equal(1,g[23]); assert.equal(0.62,g[24])
         end)
 
         it("turns the light toward a nearby pointer, eased, and keeps it fixed with reduced motion",function()

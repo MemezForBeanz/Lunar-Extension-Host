@@ -537,8 +537,8 @@ int l_window(lua_State *L) {
 #define LUNAR_FFI extern "C" __attribute__((visibility("default")))
 LUNAR_FFI ImDrawList *lunar_ui_draw_list(int layer){return g.frame_open?list(0,layer):scratch_list();}
 LUNAR_FFI ImDrawList *lunar_ui_popup_list(int id,int layer){auto w=window(id);if(!g.frame_open||!w)return scratch_list();w->drawn=true;return list(id,layer);}
-LUNAR_FFI void lunar_ui_rect(ImDrawList *d,float a,float b,float c,float e,uint32_t color,float radius,float thick,int flags){d->AddRect({a,b},{c,e},color,radius,thick,(ImDrawFlags)flags);}
-LUNAR_FFI void lunar_ui_rect_filled(ImDrawList *d,float a,float b,float c,float e,uint32_t color,float radius,int flags){d->AddRectFilled({a,b},{c,e},color,radius,(ImDrawFlags)flags);}
+LUNAR_FFI void lunar_ui_rect(ImDrawList *d,float a,float b,float c,float e,uint32_t color,float radius,float thick,int flags){lunar_glass::FineArcs fine(d,(flags&lunar_glass::FINE_ARC)!=0);d->AddRect({a,b},{c,e},color,radius,thick,(ImDrawFlags)(flags&~lunar_glass::FINE_ARC));}
+LUNAR_FFI void lunar_ui_rect_filled(ImDrawList *d,float a,float b,float c,float e,uint32_t color,float radius,int flags){lunar_glass::FineArcs fine(d,(flags&lunar_glass::FINE_ARC)!=0);d->AddRectFilled({a,b},{c,e},color,radius,(ImDrawFlags)(flags&~lunar_glass::FINE_ARC));}
 LUNAR_FFI void lunar_ui_rect_gradient(ImDrawList *d,float a,float b,float c,float e,uint32_t c1,uint32_t c2,uint32_t c3,uint32_t c4){d->AddRectFilledMultiColor({a,b},{c,e},c1,c2,c3,c4);}
 LUNAR_FFI void lunar_ui_line(ImDrawList *d,float a,float b,float c,float e,uint32_t color,float thick){d->AddLine({a,b},{c,e},color,thick);}
 LUNAR_FFI void lunar_ui_circle(ImDrawList *d,float x,float y,float r,uint32_t color,float thick,int seg){if(thick<=0)d->AddCircleFilled({x,y},r,color,seg);else d->AddCircle({x,y},r,color,seg,thick);}
@@ -553,7 +553,7 @@ LUNAR_FFI int lunar_ui_texture_bits(const unsigned char *p,int w,int h,int strid
     return upload(rgba.data(),w,h);
 }
 LUNAR_FFI void lunar_ui_texture_free(int id){free_texture(id);}
-LUNAR_FFI int lunar_ui_image_rounded(ImDrawList *d,int id,float x1,float y1,float x2,float y2,uint32_t color,float radius){auto t=g.textures.find(id);if(t==g.textures.end())return 0;d->AddImageRounded((ImTextureID)t->second.gl,{x1,y1},{x2,y2},{0,0},{1,1},color,radius);return 1;}
+LUNAR_FFI int lunar_ui_image_rounded(ImDrawList *d,int id,float x1,float y1,float x2,float y2,uint32_t color,float radius){auto t=g.textures.find(id);if(t==g.textures.end())return 0;lunar_glass::FineArcs fine(d,true);d->AddImageRounded((ImTextureID)t->second.gl,{x1,y1},{x2,y2},{0,0},{1,1},color,radius);return 1;}
 LUNAR_FFI int lunar_ui_image_rounded_uv(ImDrawList *d,int id,float x1,float y1,float x2,float y2,float u1,float v1,float u2,float v2,uint32_t color,float radius,int flags){auto t=g.textures.find(id);if(t==g.textures.end())return 0;lunar_glass::image_rounded_uv(d,(ImTextureID)t->second.gl,x1,y1,x2,y2,u1,v1,u2,v2,color,radius,flags);return 1;}
 LUNAR_FFI int lunar_ui_image_nine(ImDrawList *d,int id,float x1,float y1,float x2,float y2,float bx,float by,float ub,float vb,uint32_t color){auto t=g.textures.find(id);if(t==g.textures.end())return 0;lunar_glass::image_nine(d,(ImTextureID)t->second.gl,x1,y1,x2,y2,bx,by,ub,vb,color);return 1;}
 LUNAR_FFI void lunar_ui_rim(ImDrawList *d,float x1,float y1,float x2,float y2,float r,uint32_t hi,uint32_t lo,uint32_t inner,int flags,float thick){lunar_glass::rim(d,x1,y1,x2,y2,r,hi,lo,inner,flags,thick);}

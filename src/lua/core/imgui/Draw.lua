@@ -80,6 +80,15 @@ local function corner_flags(radius, corners)
 	return f
 end
 M.corner_flags = corner_flags
+-- `opts.fine`: this rounded shape's arcs finer than the style's (lunar_glass::FINE_ARC in
+-- the backend; small radii such as posters and cards step visibly otherwise)
+local FINE_ARC = 4096
+M.FINE_ARC = FINE_ARC
+local function shape_flags(r, opts)
+	local f = corner_flags(r, opts and opts.corners)
+	if opts and opts.fine and r > 0 then f = f + FINE_ARC end
+	return f
+end
 
 function DC:_color(c)
 	if type(c) ~= "number" then c = Color.parse(c) end
@@ -120,7 +129,7 @@ function DC:fill(x, y, w, h, color, opts)
 	if not c or w <= 0 or h <= 0 then return end
 	x, y = x + self.ox, y + self.oy
 	local r = opts and opts.radius or 0
-	self:_emit("rect_filled", x, y, x + w, y + h, c, r, corner_flags(r, opts and opts.corners))
+	self:_emit("rect_filled", x, y, x + w, y + h, c, r, shape_flags(r, opts))
 end
 
 function DC:rect(x, y, w, h, color, opts)
@@ -129,7 +138,7 @@ function DC:rect(x, y, w, h, color, opts)
 	x, y = x + self.ox, y + self.oy
 	local r = opts and opts.radius or 0
 	local t = opts and opts.thickness or 1
-	self:_emit("rect", x, y, x + w, y + h, c, r, t, corner_flags(r, opts and opts.corners))
+	self:_emit("rect", x, y, x + w, y + h, c, r, t, shape_flags(r, opts))
 end
 
 --- A gradient from c1 to c2. With a radius, ImGui has no rounded multi-colour rect, so

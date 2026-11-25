@@ -12,6 +12,24 @@
 
 namespace lunar_glass {
 
+/* Lunar's own ImDrawFlags bit (above ImGui's corner bits, stripped before ImGui sees it):
+   this rounded shape's arcs at FINE_ARC_ERROR px instead of the style's error. Small
+   radii (posters, cards) step visibly at the style's 0.15 px; a few more vertices there
+   cost nothing measurable. */
+const int FINE_ARC = 1 << 12;
+const float FINE_ARC_ERROR = 0.10f;
+/* For its lifetime, `dl`'s arcs at FINE_ARC_ERROR (when that is finer than the style's). */
+struct FineArcs {
+    ImDrawListSharedData *d = nullptr; float saved = 0;
+    FineArcs(ImDrawList *dl, bool on) {
+        if (!on || !dl || !dl->_Data || dl->_Data->CircleTessellationMaxError <= FINE_ARC_ERROR) return;
+        d = dl->_Data; saved = d->CircleTessellationMaxError;
+        d->SetCircleTessellationMaxError(FINE_ARC_ERROR);
+    }
+    ~FineArcs() { if (d) d->SetCircleTessellationMaxError(saved); }
+    FineArcs(const FineArcs &) = delete; FineArcs &operator=(const FineArcs &) = delete;
+};
+
 inline ImU32 lerp_color(ImU32 a, ImU32 b, float t) {
     t = t < 0 ? 0 : (t > 1 ? 1 : t);
     int out = 0;

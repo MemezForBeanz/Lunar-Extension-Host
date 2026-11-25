@@ -253,7 +253,15 @@ and the rim's light turns toward a nearby pointer unless motion is reduced); on 
 with hardware acceleration off, on SDL and with Carbon it is the baked backdrop path with
 no per-frame shader work. `renderer().glass` says which ("shader" or "baked"); a hardware
 device lost and re-made on WARP switches path at the next frame. Its cost, measured with
-`LUNAR_GPU_TIMING=1` (D3D11 timestamp queries), is in `docs/imgui-performance-results.md`. Device flags that stop the driver's worker threads bring WARP below IUP
+`LUNAR_GPU_TIMING=1` (D3D11 timestamp queries), is in `docs/imgui-performance-results.md`.
+Stacked floating glass (a submenu over its menu, a dropdown over a dialog's glass) samples
+the main window's background layer, not the glass beneath it: the shared copy is taken
+once, after that layer, so the upper surface refracts the window under both. This is
+deliberate (one copy per frame; the opaque text wells keep both readable). A surface
+whose copy failed, whose texture is missing or whose constants would not map draws its
+rounded tint, never stale pixels or nothing. `window("frame_spans_take")` returns the
+CPU's per-frame spans in `frame_end` (main lists, overlay windows, their staging readback,
+`Present`) for the warm light/dark switch study. Device flags that stop the driver's worker threads bring WARP below IUP
 (36 MiB) but make a full-window repaint ten times slower, so they are not used.
 
 Text is measured the way IUP's Windows driver measures it: a GDI font made with
