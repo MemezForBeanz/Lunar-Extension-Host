@@ -165,7 +165,7 @@ enum { GLASS_FLOATING = 0, GLASS_CHROME = 1, GLASS_LIVE = 2, GLASS_FROST = 3 };
 struct GlassTiming {
     ID3D11Query *disjoint = nullptr; ID3D11Query *ts[GLASS_TS] = {};
     int n = 0; bool pending = false;
-    unsigned char opens[GLASS_TS] = {};   /* 0 closes a span; opens 1 a surface, 2 a copy, 3 a blur */
+    unsigned char opens[GLASS_TS] = {};   /* 0 closes a span; opens 1 a surface, 2 a copy, 3 a blur, 4 the probe load */
 };
 struct GlassGpu {
     bool tried = false, ready = false;
@@ -199,6 +199,11 @@ struct GlassGpu {
     bool force = false;    /* window("glass_force_copy"): never skip (worst-case timing) */
     bool off = false;      /* window("glass_shader", false): the baked path, for comparison */
     bool flush_probe = false;   /* window("glass_flush_probe"): Flush after the floating blur */
+    /* window("glass_probe_load", n), LUNAR_GPU_TIMING only: n blur passes over two private
+       1024 px targets after the timed spans each frame, so the GPU holds its clocks under a
+       light vsync-paced load and the spans compare between phases */
+    int probe_load = 0;
+    GlassLevel load[2];
     uint64_t last_hash = 0;
     long long surfaces = 0, copies = 0, skips = 0, passes = 0, creations = 0, live_copies = 0, live_skips = 0;
     bool timing = false, timing_open = false;
@@ -209,6 +214,7 @@ struct GlassGpu {
        copy alone, blur alone (us), and the CPU's time in l_frame_end before Present (us) */
     float sample_glass[GLASS_SAMPLES] = {}, sample_copy[GLASS_SAMPLES] = {}, sample_frame[GLASS_SAMPLES] = {};
     float sample_copy_only[GLASS_SAMPLES] = {}, sample_blur[GLASS_SAMPLES] = {};
+    float sample_load[GLASS_SAMPLES] = {};   /* the probe load: fixed work, so a clock gauge */
     int samples = 0;
 } gg;
 
@@ -220,6 +226,7 @@ struct GlassCmd {
     float blur_depth;   /* px in from the rim where it is all blur */
     int kind;
     int point;      /* its copy: a point in the background layer, or -1 the shared copy */
+    int soft;       /* floating: samples the strong blur (its edges lie over text) */
     int floor_sharp, floor_blur;   /* chrome: the floor images' texture ids */
 };
 
@@ -246,20 +253,22 @@ void glass_timing_collect() {
         if (!ok) continue;   /* the disjoint query can land before its timestamps: next frame */
         t.pending = false;
         if (dj.Disjoint || dj.Frequency == 0 || t.n < 2) continue;
-        double us = 1e6 / (double)dj.Frequency, glass = 0, copy = 0, blur = 0;
+        double us = 1e6 / (double)dj.Frequency, glass = 0, copy = 0, blur = 0, load = 0;
         for (int i = 0; i + 1 < t.n; i++) {
             double span = (double)(v[i + 1] - v[i]) * us;
+            if (t.opens[i] == 4) { load += span; continue; }
             if (t.opens[i]) glass += span;
             if (t.opens[i] == 2) copy += span;
             if (t.opens[i] == 3) blur += span;
         }
-        double frame = (double)(v[t.n - 1] - v[0]) * us;
+        double frame = (double)(v[t.n - 1] - v[0]) * us - load;
         gg.gpu_copy_us_sum += copy; gg.gpu_blur_us_sum += blur;
         gg.gpu_glass_us_last = glass;
         if (gg.samples < GLASS_SAMPLES) {
             gg.sample_glass[gg.samples] = (float)glass; gg.sample_copy[gg.samples] = (float)(copy + blur);
             gg.sample_frame[gg.samples] = (float)frame;
             gg.sample_copy_only[gg.samples] = (float)copy; gg.sample_blur[gg.samples] = (float)blur;
+            gg.sample_load[gg.samples] = (float)load;
             gg.samples++;
         }
         gg.gpu_glass_us_sum += glass; gg.gpu_glass_us_max = std::max(gg.gpu_glass_us_max, glass);
@@ -296,8 +305,17 @@ void glass_release_levels() {
     gg.tw = gg.th = 0; glass_invalidate();
 }
 
+void glass_release_load() {
+    for (GlassLevel &l : gg.load) {
+        if (l.rtv) { l.rtv->Release(); l.rtv = nullptr; }
+        if (l.srv) { l.srv->Release(); l.srv = nullptr; }
+        if (l.tex) { l.tex->Release(); l.tex = nullptr; }
+    }
+}
+
 void glass_release() {
     glass_release_levels();
+    glass_release_load();
     auto rel = [](auto *&p) { if (p) { p->Release(); p = nullptr; } };
     rel(gg.vs); rel(gg.down4); rel(gg.down); rel(gg.up); rel(gg.glass); rel(gg.cb); rel(gg.blur_cb); rel(gg.rs); rel(gg.smp);
     for (GlassTiming &t : gg.tq) { rel(t.disjoint); for (auto *&q : t.ts) rel(q); t.pending = false; t.n = 0; }
@@ -650,6 +668,45 @@ void glass_cb_copy(const ImDrawList *, const ImDrawCmd *cmd) {
     g.ctx->OMSetRenderTargets(1, &g.rtv, nullptr);
 }
 
+/* The probe load (see GlassGpu::probe_load): untimed, after the frame's last timestamp. */
+void glass_probe_frame() {
+    if (!gg.timing || gg.probe_load <= 0 || !gg.ready) return;
+    const int N = 1024;
+    if (!gg.load[0].tex) {
+        for (GlassLevel &l : gg.load) {
+            D3D11_TEXTURE2D_DESC d = {};
+            d.Width = d.Height = N; d.MipLevels = 1; d.ArraySize = 1; d.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT; d.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+            if (FAILED(g.device->CreateTexture2D(&d, nullptr, &l.tex)) || FAILED(g.device->CreateShaderResourceView(l.tex, nullptr, &l.srv))
+                || FAILED(g.device->CreateRenderTargetView(l.tex, nullptr, &l.rtv))) { glass_release_load(); gg.probe_load = 0; return; }
+        }
+    }
+    ID3D11DeviceContext *c = g.ctx;
+    D3D11_MAPPED_SUBRESOURCE m;
+    if (FAILED(c->Map(gg.blur_cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) return;
+    float *v = (float*)m.pData;
+    v[0] = v[1] = 1.0f / N; v[2] = v[3] = N - 0.5f; v[4] = v[5] = (float)N; v[6] = 0; v[7] = 1;
+    v[8] = v[9] = 0; v[10] = v[11] = (float)N;
+    c->Unmap(gg.blur_cb, 0);
+    c->IASetInputLayout(nullptr); c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    c->VSSetShader(gg.vs, nullptr, 0); c->VSSetConstantBuffers(0, 1, &gg.blur_cb);
+    c->PSSetConstantBuffers(0, 1, &gg.blur_cb); c->PSSetSamplers(1, 1, &gg.smp); c->PSSetShader(gg.up, nullptr, 0);
+    c->GSSetShader(nullptr, nullptr, 0); c->OMSetBlendState(nullptr, nullptr, 0xffffffff);
+    c->OMSetDepthStencilState(nullptr, 0); c->RSSetState(gg.rs);
+    D3D11_VIEWPORT vp = {0, 0, (float)N, (float)N, 0, 1}; c->RSSetViewports(1, &vp);
+    ID3D11ShaderResourceView *none = nullptr;
+    glass_stamp(4);
+    for (int k = 0; k < gg.probe_load; k++) {
+        GlassLevel &src = gg.load[k & 1], &dst = gg.load[(k + 1) & 1];
+        c->OMSetRenderTargets(1, &dst.rtv, nullptr);
+        c->PSSetShaderResources(0, 1, &src.srv);
+        c->Draw(6, 0);
+        c->PSSetShaderResources(0, 1, &none);
+    }
+    glass_stamp(0);
+    c->OMSetRenderTargets(0, nullptr, nullptr);
+}
+
 /* -- the surface ------------------------------------------------------------------------ */
 ID3D11ShaderResourceView *texture_srv(int id) {
     auto it = g.textures.find(id);
@@ -680,7 +737,7 @@ void glass_cb_bind(const ImDrawList *dl, const ImDrawCmd *cmd) {
         srv[0] = texture_srv(d->floor_sharp); srv[1] = texture_srv(d->floor_blur);
         ku = d->ku; kv = d->kv; vw = vh = 1e7f;
     } else {                         /* this frame's copy and the one blur it samples */
-        srv[0] = gg.lv[0].srv; srv[1] = d->kind == GLASS_FLOATING ? gg.lv[1].srv : gg.lv[3].srv;
+        srv[0] = gg.lv[0].srv; srv[1] = d->kind == GLASS_FLOATING && !d->soft ? gg.lv[1].srv : gg.lv[3].srv;
         ku = 1.0f / gg.tw; kv = 1.0f / gg.th; vw = (float)gg.vw; vh = (float)gg.vh;
     }
     if (!stale && (!srv[0] || !srv[1])) return;

@@ -64,11 +64,13 @@ function M.setEnabled(value) enabled = value == true; if not enabled then releas
 -- channel at the rim (px); `rim_blur`: the blur's share at the rim, reaching all blur
 -- `blur_depth` px in. Menus, dropdowns, toasts and tooltips split nothing and are 90% blur
 -- at the rim, all blur by 2 px (their edges are over text); the palette and Activity
--- (`chroma` in their rule) split a quarter px, 65% blur at the rim, all blur by 3 px. The
--- transport's tint leaves the artwork a quarter of the result.
+-- (`chroma` in their rule) split a quarter px, 65% blur at the rim, all blur by 3 px.
+-- `soft`: the surface samples the strong (16 px) blur, which leaves no grey smear of the
+-- text under a menu's or dropdown's lip; the palette and Activity keep the light blur, whose
+-- detail their split refracts. The transport's tint leaves the artwork a quarter of the result.
 M.LENS = {
-	floating = { band = 4, thickness = 3, chroma = 0, rim_blur = 0.9, blur_depth = 2 },
-	split = { rim_blur = 0.65, blur_depth = 3 },
+	floating = { band = 4, thickness = 3, chroma = 0, rim_blur = 0.9, blur_depth = 2, soft = true },
+	split = { rim_blur = 0.65, blur_depth = 3, soft = false },
 	frost = { band = 4, thickness = 3, chroma = 0, rim_blur = 0.9, blur_depth = 2 },
 	chrome = { band = 8, thickness = 4, chroma = 0.6 },
 	live = { band = 6, thickness = 3, chroma = 0.25, tint = 0.75, rim_blur = 0.65, blur_depth = 3 },
@@ -523,10 +525,12 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 		-- blend into the lip.
 		local l = min(lip or p.glassLip or 8, floor(w / 4), floor(h / 4))
 		local frost = live and style and style.frost
+		-- a surface that splits its rim (palette, Activity) keeps a sharper rim and the light blur
+		local edge = (style and style.chroma) and M.LENS.split or (frost and M.LENS.frost or M.LENS.floating)
 		-- the shader's copy of what is under it comes first: it never samples its own shadow
 		if live and dc.B.glass_copy then
 			local ax, ay = x + dc.ox, y + dc.oy
-			dc:_emit("glass_copy", ax, ay, ax + w, ay + h, frost and 3 or 0, frost and 0 or l, r)
+			dc:_emit("glass_copy", ax, ay, ax + w, ay + h, frost and 3 or 0, frost and 0 or l, r, edge.soft)
 		end
 		shadow(dc, look, x, y, w, h)
 		if live then
@@ -536,8 +540,6 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 			local lens = frost and M.LENS.frost or M.LENS.floating
 			local angle = M.light(dc, state, ax, ay, w, h)
 			local chroma = style and style.chroma or lens.chroma
-			-- a surface that splits its rim (palette, Activity) keeps a sharper rim
-			local edge = (style and style.chroma) and M.LENS.split or lens
 			if frost then
 				dc:_emit("glass", ax, ay, ax + w, ay + h, r, 3, look.frost, look.spec, look.shade,
 					lens.band, lens.thickness, lift or 0, dc:_color(0xFFFFFFFF), 0, 0, 0, 0,
@@ -546,7 +548,7 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 			end
 			dc:_emit("glass", ax, ay, ax + w, ay + h, r, 0, look.floating, look.spec, look.shade,
 				min(lens.band, l), lens.thickness, lift or 0, dc:_color(0xFFFFFFFF), 0, 0, 0, 0,
-				look.well, l, chroma, angle, 1, 0, look.spec_floor, edge.rim_blur, edge.blur_depth)
+				look.well, l, chroma, angle, 1, 0, look.spec_floor, edge.rim_blur, edge.blur_depth, edge.soft)
 			dc:fill(x + l, y + l, w - 2 * l, h - 2 * l, look.well, shapes[max(0, r - l)])
 			return
 		else

@@ -2192,6 +2192,7 @@ int l_frame_end(lua_State *) {
     } else {
         glass_invalidate();
     }
+    glass_probe_frame();    /* LUNAR_GPU_TIMING probe only: inside its own span, out of the others */
     glass_timing_end();
     gg.used = false; gg.fl.clear(); gg.npts = 0; gg.fl_strong = false; gg.fl_ok = false;
     gg.pending_dl = nullptr; gg.pending_pt = -1;
@@ -2577,11 +2578,12 @@ int l_window(lua_State *L) {
     if (is("glass_force_copy")) { gg.force = lua_toboolean(L, 2) != 0; return 0; }
     if (is("glass_shader")) { gg.off = !lua_toboolean(L, 2); return 0; }
     if (is("glass_flush_probe")) { gg.flush_probe = lua_toboolean(L, 2) != 0; return 0; }
+    if (is("glass_probe_load")) { gg.probe_load = std::max(0, std::min(400, (int)luaL_optinteger(L, 2, 0))); return 0; }
     if (is("glass_timing_take")) {
-        lua_createtable(L, 0, 5);
-        const char *names[5] = {"glass", "copy", "frame", "copy_only", "blur"};
-        float *arrays[5] = {gg.sample_glass, gg.sample_copy, gg.sample_frame, gg.sample_copy_only, gg.sample_blur};
-        for (int k = 0; k < 5; k++) {
+        lua_createtable(L, 0, 6);
+        const char *names[6] = {"glass", "copy", "frame", "copy_only", "blur", "load"};
+        float *arrays[6] = {gg.sample_glass, gg.sample_copy, gg.sample_frame, gg.sample_copy_only, gg.sample_blur, gg.sample_load};
+        for (int k = 0; k < 6; k++) {
             lua_createtable(L, gg.samples, 0);
             for (int i = 0; i < gg.samples; i++) { lua_pushnumber(L, arrays[k][i]); lua_rawseti(L, -2, i + 1); }
             lua_setfield(L, -2, names[k]);
@@ -3030,21 +3032,21 @@ LUNAR_FFI int lunar_ui_glass_ready() {
    shadow): in the main window's background layer, the copy of what is under it is taken
    here, so it never samples its own shadow; the next lunar_ui_glass on `dl` uses it. In a
    later list the shared copy is taken after the background layer anyway: nothing to do. */
-static void glass_add_point(ImDrawList *dl, float x1, float y1, float x2, float y2, int kind, float lip, float radius) {
+static void glass_add_point(ImDrawList *dl, float x1, float y1, float x2, float y2, int kind, float lip, float radius, bool strong) {
     if (gg.npts == gg.pts.size()) gg.pts.emplace_back();
     GlassGpu::Point &pt = gg.pts[gg.npts++];
     pt.rects.clear();
     GlassRect r = {(int)std::floor(x1), (int)std::floor(y1), (int)std::ceil(x2), (int)std::ceil(y2)};
     glass_regions(r, kind == GLASS_FLOATING ? lip : 0.0f, radius, pt.rects);
-    pt.strong = kind != GLASS_FLOATING; pt.skip = pt.done = pt.ok = false;
+    pt.strong = strong; pt.skip = pt.done = pt.ok = false;
     dl->AddCallback(glass_cb_copy, (void*)(intptr_t)(gg.npts - 1));
     dl->AddCallback(ImGui::GetPlatformIO().DrawCallback_ResetRenderState, nullptr);
     gg.pending_dl = dl; gg.pending_pt = (int)gg.npts - 1;
 }
-LUNAR_FFI int lunar_ui_glass_copy(ImDrawList *dl, float x1, float y1, float x2, float y2, int kind, float lip, float radius) {
+LUNAR_FFI int lunar_ui_glass_copy(ImDrawList *dl, float x1, float y1, float x2, float y2, int kind, float lip, float radius, int soft) {
     if (!dl || !g.frame_open || !gg.ready || g.warp || x2 <= x1 || y2 <= y1 || kind == GLASS_CHROME) return 0;
     if (g.lists.empty() || dl != g.lists[0]) return 1;
-    glass_add_point(dl, x1, y1, x2, y2, kind, lip, radius);
+    glass_add_point(dl, x1, y1, x2, y2, kind, lip, radius, kind != GLASS_FLOATING || soft);
     return 1;
 }
 /* One glass surface (kinds in lunar_glass_d3d11.inc: 0 floating, 1 chrome, 2 live, 3 frost).
@@ -3055,12 +3057,14 @@ LUNAR_FFI int lunar_ui_glass_copy(ImDrawList *dl, float x1, float y1, float x2, 
    channel in px, `angle` the light's turn from the upper left (radians), `lum_max` and
    `lum_min` bound the lit result's luminance (1 and 0: unbounded), `rim_floor` the specular
    rim's alpha away from the light, `rim_blur` the blur's share at the rim (< 0: chrome's
-   sharp rim) reaching all blur `blur_depth` px in. 0 when the shader path is not available. */
+   sharp rim) reaching all blur `blur_depth` px in; `soft`: a floating surface samples the
+   strong blur, not the light one (its edges lie over text). 0 when the shader path is not
+   available. */
 LUNAR_FFI int lunar_ui_glass(ImDrawList *dl, float x1, float y1, float x2, float y2, float radius, int kind,
                              uint32_t tint, uint32_t rim, uint32_t inner, float band, float thickness,
                              float lift, uint32_t fade, int sharp, int blur, float ku, float kv,
                              uint32_t well, float lip, float chroma, float angle, float lum_max, float lum_min,
-                             float rim_floor, float rim_blur, float blur_depth) {
+                             float rim_floor, float rim_blur, float blur_depth, int soft) {
     if (!dl || !g.frame_open || !gg.ready || g.warp || x2 <= x1 || y2 <= y1 || kind < 0 || kind > GLASS_FROST) return 0;
     if (kind == GLASS_CHROME && !(texture_srv(sharp) && texture_srv(blur))) return 0;
     GlassCmd d = {};
@@ -3085,17 +3089,19 @@ LUNAR_FFI int lunar_ui_glass(ImDrawList *dl, float x1, float y1, float x2, float
         d.well[3] = (well >> IM_COL32_A_SHIFT) & 0xFF ? std::min(3.0f, lip) : 0.0f;
     }
     d.point = -1;
+    d.soft = kind == GLASS_FLOATING && soft ? 1 : 0;
+    bool strong = kind != GLASS_FLOATING || d.soft;
     if (kind == GLASS_CHROME) { d.floor_sharp = sharp; d.floor_blur = blur; d.ku = ku; d.kv = kv; }
     else if (!g.lists.empty() && dl == g.lists[0]) {
         /* in the main window's background layer: the copy of what was drawn under it so far,
            taken at its copy point (lunar_ui_glass_copy, before its shadow), or here */
         if (!(gg.pending_dl == dl && gg.pending_pt >= 0 && (size_t)gg.pending_pt < gg.npts))
-            glass_add_point(dl, x1, y1, x2, y2, kind, d.hollow, radius);
+            glass_add_point(dl, x1, y1, x2, y2, kind, d.hollow, radius, strong);
         d.point = gg.pending_pt;
     } else {
         GlassRect r = {(int)std::floor(x1), (int)std::floor(y1), (int)std::ceil(x2), (int)std::ceil(y2)};
         glass_regions(r, d.hollow, radius, gg.fl);
-        if (kind != GLASS_FLOATING) gg.fl_strong = true;
+        if (strong) gg.fl_strong = true;
     }
     gg.pending_dl = nullptr; gg.pending_pt = -1;
     gg.used = true;

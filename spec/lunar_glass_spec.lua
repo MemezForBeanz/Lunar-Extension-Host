@@ -378,7 +378,7 @@ describe("Lunar glass",function()
             assert.equal(p.glassLip,g[20]); assert.is_true(g[19]~=0)
             assert.equal(0,g[21]); assert.equal(1,g[23]); assert.equal(0,g[24]); assert.near(0.08,g[25],1e-9)
             -- over text: 90% blur at the rim, all blur 2 px in
-            assert.equal(0.9,g[26]); assert.equal(2,g[27])
+            assert.equal(0.9,g[26]); assert.equal(2,g[27]); assert.is_true(g[28])   -- the strong blur
             -- the well is still opaque, 8 px in
             local well=calls(B,"rect_filled"); well=well[#well]
             local C=require("core.imgui.Color")
@@ -390,7 +390,7 @@ describe("Lunar glass",function()
             local function at(op) for i,o in ipairs(order) do if o==op then return i end end end
             assert.is_true(at("glass_copy")<at("image_nine") and at("image_nine")<at("glass") and at("glass")<at("rect_filled"))
             local cp=calls(B,"glass_copy")[1]
-            assert.same({200,200,600,500,0,p.glassLip,16},{cp[2],cp[3],cp[4],cp[5],cp[6],cp[7],cp[8]})
+            assert.same({200,200,600,500,0,p.glassLip,16,true},{cp[2],cp[3],cp[4],cp[5],cp[6],cp[7],cp[8],cp[9]})
         end)
 
         it("draws a tooltip as frosted glass with no well, its luminance bounded",function()
@@ -418,6 +418,7 @@ describe("Lunar glass",function()
             local g=calls(B,"glass")[1]
             assert.equal(0.25,g[21])
             assert.equal(0.65,g[26]); assert.equal(3,g[27])   -- 65% blur at the rim, all blur 3 px in
+            assert.is_false(g[28])                            -- and the light blur its split refracts
         end)
 
         it("draws the transport as live glass over its artwork, held 12 px past it and fading out by 24",function()

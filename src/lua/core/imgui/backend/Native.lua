@@ -289,21 +289,22 @@ int lunar_ui_glass_ready(void);
 int lunar_ui_glass(ImDrawList *dl, float x1, float y1, float x2, float y2, float radius, int kind,
 	uint32_t tint, uint32_t rim, uint32_t inner, float band, float thickness, float lift, uint32_t fade,
 	int sharp, int blur, float ku, float kv, uint32_t well, float lip, float chroma, float angle, float lum_max,
-	float lum_min, float rim_floor, float rim_blur, float blur_depth);
-int lunar_ui_glass_copy(ImDrawList *dl, float x1, float y1, float x2, float y2, int kind, float lip, float radius);
+	float lum_min, float rim_floor, float rim_blur, float blur_depth, int soft);
+int lunar_ui_glass_copy(ImDrawList *dl, float x1, float y1, float x2, float y2, int kind, float lip, float radius,
+	int soft);
 ]]) and pcall(function() return C.lunar_ui_glass_ready, C.lunar_ui_glass, C.lunar_ui_glass_copy end) then
 	--- true while the live device draws glass with the shader (hardware, not WARP)
 	function B.glass_ready() return C.lunar_ui_glass_ready() ~= 0 end
 	function B.glass(x1, y1, x2, y2, radius, kind, tint, rim, inner, band, thickness, lift, fade, sharp, blur, ku, kv,
-	                 well, lip, chroma, angle, lum_max, lum_min, rim_floor, rim_blur, blur_depth)
+	                 well, lip, chroma, angle, lum_max, lum_min, rim_floor, rim_blur, blur_depth, soft)
 		return C.lunar_ui_glass(dl, x1, y1, x2, y2, radius or 0, kind or 0, tint or 0, rim or 0, inner or 0,
 			band or 8, thickness or 6, lift or 0, fade or 0xFFFFFFFF, sharp or 0, blur or 0, ku or 0, kv or 0,
 			well or 0, lip or 0, chroma or 0, angle or 0, lum_max or 1, lum_min or 0, rim_floor or 0,
-			rim_blur or 0.65, blur_depth or 3) ~= 0
+			rim_blur or 0.65, blur_depth or 3, soft and 1 or 0) ~= 0
 	end
 	--- a glass surface's copy point, before its shadow: it never samples its own shadow
-	function B.glass_copy(x1, y1, x2, y2, kind, lip, radius)
-		return C.lunar_ui_glass_copy(dl, x1, y1, x2, y2, kind or 0, lip or 0, radius or 0) ~= 0
+	function B.glass_copy(x1, y1, x2, y2, kind, lip, radius, soft)
+		return C.lunar_ui_glass_copy(dl, x1, y1, x2, y2, kind or 0, lip or 0, radius or 0, soft and 1 or 0) ~= 0
 	end
 end
 function B.clip_push(x1, y1, x2, y2) C.lunar_ui_clip_push(dl, x1, y1, x2, y2) end
