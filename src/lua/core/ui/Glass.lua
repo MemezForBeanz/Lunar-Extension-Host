@@ -214,8 +214,8 @@ local function prewarm(dc)
 	local manager = Reactor.themeManager()
 	local current = manager and manager.current and manager:current()
 	local other = current and manager.counterpart and manager:counterpart(current)
-	local theme = other and manager.themeById and manager:themeById(other)
-	local p = theme and theme.palette and theme:palette()
+	local twin = other and manager.themeById and manager:themeById(other)
+	local p = twin and twin.palette and twin:palette()
 	if p and p.glass and p.glassBackdrop then textures(dc, p, true) end
 end
 M._prewarm = prewarm

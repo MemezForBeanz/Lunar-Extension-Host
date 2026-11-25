@@ -1,6 +1,6 @@
 -- Native surfaces for bounded, interactive overlays and tooltips.
 local M = {}
---- The margin of window round an overlay (px): core.ui.Glass's shadow clearance.
+-- The margin of window round an overlay (px): core.ui.Glass's shadow clearance.
 M.MARGIN = 24
 function M.new(B, now, wake)
 	local enabled = B.overlay_windows == true and B.surface and os.getenv("LUNAR_OVERLAY_WINDOWS") ~= "0"

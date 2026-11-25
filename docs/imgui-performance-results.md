@@ -135,38 +135,58 @@ not separately measured.
 On a hardware device the Lunar theme's glass is a live shader (`src/cpp/lunar_glass_d3d11.inc`).
 Its work per frame: nothing without glass on screen; chrome samples the floor's images
 already on the GPU (no copy, no textures made); glass that shows what is under it copies
-that region and blurs it at quarter resolution, once per frame and only where it is. Glass
-in the window's foreground layer or its own window shares one copy taken after the
-background layer; glass inside the background layer (the Media transport, a dialog drawn
-in the window) copies its region at its own place in the draw list, before it draws. The
-light blur is one pass (16 texels in 4 bilinear taps); the strong one (the transport, a
-tooltip) adds a dual-Kawase step to 1/8 and back, run only when something samples it.
-Every copy is skipped while nothing that reaches its region changed (draw commands,
-indices, textures, callback data). One single-pass draw per surface. Textures are made once
-at the monitor's size; nothing is uploaded per frame.
+the regions it samples and blurs them, once per frame and only there. A floating surface
+round an opaque text well (the palette, Activity, menus) samples only the four strips of
+its lip, so its centre is never copied or blurred. Glass in the window's foreground layer
+or its own window shares one copy taken after the background layer; glass inside the
+background layer (the Media transport, a dialog drawn in the window) copies its regions at
+its own place in the draw list, before its shadow and itself. The light blur is one pass
+(16 texels in 4 bilinear taps); the strong one (the transport, tooltips, menus, dropdowns,
+toasts) adds a dual-Kawase step to 1/8 and back, run only when something samples it.
+Every copy is skipped while nothing drawn inside its regions changed (triangles meeting
+them, their textures and clips, other glass there without its light or hover); the pointer
+moving or the light turning never copies. A copy that failed or did not run draws the tint
+that frame, never stale pixels. One single-pass draw per surface. Textures are made once at
+the monitor's size; nothing is uploaded per frame. The other light/dark mode's backdrop is
+loaded once, at idle 1.5 s after the first, so the first switch decodes and uploads nothing.
 
 GPU time from D3D11 timestamp queries (`LUNAR_GPU_TIMING=1`, the council's
-`gpu-run.ps1` / `gpuprobe.lua`), Media at 1920x1080 (its transport is live glass), NVIDIA
-GeForce RTX 3070 Ti at the clocks the idle-paced app runs at, median of 240 frames per
-phase, runs 5-10 (2026-11-24):
+`gpu-run.ps1 -Probe gpuprobe3.lua`), Media at 1920x1080 (its transport is live glass),
+NVIDIA GeForce RTX 3070 Ti, median of 240 frames per phase, three runs (2026-11-24).
+Under the app's light vsync-paced load the GPU drops its clocks by 4-8x between phases,
+which made earlier figures swing (chrome alone read 5 us in one run and 37-53 us in the
+next). The probe now holds the clocks with a fixed untimed load after each frame's glass
+work (`window("glass_probe_load", n)`, probe builds of the timing only) and reports that
+load's own span, fixed work, as a clock gauge, plus a glass-off whole frame after every
+phase as the reference (140-205 us in every phase of these runs).
 
-| Scene | Glass GPU per frame | of which copy + blur |
+| Scene | Glass GPU per frame (median) | p99 |
 | --- | --- | --- |
-| Media + palette, nothing under the glass changing | 53-55 us | 0 (skipped) |
-| Media + palette, every copy and blur forced every frame | 249-256 us | 160-163 us |
-| Palette refreshing every frame (transport as plain chrome) | 131-133 us | 68-71 us |
-| Transport refreshing every frame (palette closed) | 150-164 us | 86-97 us |
-| Media, palette closed, transport cached | 5-8 us | 0 |
+| Media + palette, nothing under the glass changing | 8-9 us | 12-17 us |
+| Media + palette, every copy and blur forced every frame | 35-53 us | 52-63 us |
+| Palette refreshing every frame (transport as plain chrome) | 20-22 us | 30-32 us |
+| Transport refreshing every frame (palette closed) | 33 us | 38-41 us |
+| Transport artwork really changing every frame (no forcing) | 33 us | 41-43 us |
+| Media, palette closed, transport cached | 6-8 us | 9-28 us |
+| Chrome alone (no live or floating glass) | 6-7 us | 10-14 us |
 
-The forced case refreshes both copies every frame, the worst case; content changing under
-only one of them refreshes only that one.
+The spread in the forced row is the two clock states the gauge shows (the same fixed load
+takes about 4.1 or 6.1 ms); scaled to one state the runs agree within 2 us. With
+`LUNAR_VSYNC=0` the same scenes read 7, 35, 20, 22, 22, 5 and 4 us, and no glass span's
+99th percentile passes 53 us: the 2.4-2.7 ms percentiles of earlier runs were the swap
+chain's vsync wait landing in an open span, not glass work.
 
-With vsync on, the 90th and 99th percentiles of a glass span reach 2.4-2.7 ms in about one
-frame in ten, even in frames that copy nothing. That is the GPU waiting on the swap chain's
-vsync flip, counted in whichever span is open when the wait happens, not glass work: the
-whole frame's GPU span does not grow (4.1-4.2 ms with the shader, 4.2 ms baked); a Flush
-after the copy does not move it; with `LUNAR_VSYNC=0` it is gone (forced-copy glass p90
-235-238 us, and the frame span falls to 1.1-1.4 ms). A static screen draws no frames at all.
+Rounded edges: ImGui draws arcs at half its default tessellation error (0.15 px), which
+adds 704 vertices and 3036 indices (12% and 24%) to a Media + palette frame and no
+measurable GPU frame time (paired whole-frame medians 193.5/193.5, 146.4/148.5,
+144.4/147.5 us); the glass shader's coverage falls off over a 1.25 px band at the edge.
+
+Resize and light/dark switching (`perf-run.ps1`, three runs each, frame times, ms): glass
+on and off match on both devices. Resize frames: p95 23-30 hardware, 24-27 WARP, max 31-39
+either way. The first (cold) switch's longest frame is 16.4-16.8 hardware and 19.7-20.0
+WARP with glass on, 16.6-16.8 and 18.2-20.3 with it off (53-60 and 94-121 before the
+backdrop was loaded at idle). An occasional single missed vsync (25-33 ms) on a later,
+already-warm switch shows in about one switch in fifteen with glass on, none with it off.
 
 ## Controls and reproduction
 
