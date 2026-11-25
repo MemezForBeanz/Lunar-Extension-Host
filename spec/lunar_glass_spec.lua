@@ -129,9 +129,9 @@ describe("Lunar glass",function()
         assert.equal(5,#taps)
         -- the whole surface, sampled 2 px in from each edge: the view bends at the rim
         assert.equal(200,taps[1][3]); assert.near(202/1920,taps[1][7],1e-9); assert.near(598/1920,taps[1][9],1e-9)
-        -- inside the bevel: four diagonal taps 1.5 px out, about 3 px of softening
+        -- inside the bevel: four diagonal taps 2 px out, about 4 px of softening
         for k=2,5 do assert.equal(202,taps[k][3]); assert.equal(14,taps[k][12]) end
-        assert.near((202-1.5)/1920,taps[2][7],1e-9); assert.near((202+1.5)/1920,taps[5][7],1e-9)
+        assert.near((202-2)/1920,taps[2][7],1e-9); assert.near((202+2)/1920,taps[5][7],1e-9)
         -- the lip is 10 px here: the well starts 10 px in
         local wells=0
         for _,call in ipairs(B.lastFrame()) do if call[1]=="rect_filled" and call[2]==210 then wells=wells+1 end end

@@ -367,12 +367,12 @@ M._caps = caps
 
 -- What lies under a floating surface, from the frame copy (the main window's background
 -- layer this frame): pulled 2 px inward across the bevel so it bends there, and softened
--- by four diagonal taps 1.5 px out (about 3 px) across the rest, under a heavier tint than
+-- by four diagonal taps 2 px out (about 4 px) across the rest, under a heavier tint than
 -- the shader's (BAKED_LIP_TINT), so text under the lip is a smear, not glyphs. Off when
 -- the backend has no copy.
-local SOFT = 1.5
+local SOFT = 2
 -- The baked lip's tint, as a multiple of the shader's (which blurs what it tints).
-M.BAKED_LIP_TINT = 1.8
+M.BAKED_LIP_TINT = 2.6
 local function underneath(dc, x, y, w, h, r)
 	local B = dc.B
 	if dc.rec or not (B.window and B.image_rounded_uv) then return end
