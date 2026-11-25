@@ -220,6 +220,7 @@ struct GlassGpu {
     std::string error;
     ID3D11VertexShader *vs = nullptr; ID3D11PixelShader *down4 = nullptr, *down = nullptr, *up = nullptr, *glass = nullptr, *mask = nullptr;
     ID3D11Buffer *mask_cb = nullptr;   /* ps_mask's constants, one Map per rounded image */
+    ID3D11Buffer *mask_fallback = nullptr;   /* the same 32 bytes, DEFAULT usage (UpdateSubresource) */
     ID3D11Buffer *cb = nullptr, *blur_cb = nullptr;
     ID3D11Buffer *cb_fallback = nullptr;   /* DEFAULT usage: written by UpdateSubresource, which cannot fail */
     ID3D11RasterizerState *rs = nullptr; ID3D11SamplerState *smp = nullptr;
@@ -253,6 +254,9 @@ struct GlassGpu {
     bool force = false;    /* window("glass_force_copy"): never skip (worst-case timing) */
     bool off = false;      /* window("glass_shader", false): the baked path, for comparison */
     bool flush_probe = false;   /* window("glass_flush_probe"): Flush after the floating blur */
+    /* window("glass_fail", what), LUNAR_GPU_TIMING only: the failure paths on demand.
+       1: every surface's textures are missing at bind; 2: every constant Map fails */
+    int fail = 0;
     /* window("glass_probe_load", n), LUNAR_GPU_TIMING only: n blur passes over two private
        1024 px targets after the timed spans each frame, so the GPU holds its clocks under a
        light vsync-paced load and the spans compare between phases */
@@ -371,7 +375,7 @@ void glass_release() {
     glass_release_levels();
     glass_release_load();
     auto rel = [](auto *&p) { if (p) { p->Release(); p = nullptr; } };
-    rel(gg.mask); rel(gg.mask_cb); rel(gg.vs); rel(gg.down4); rel(gg.down); rel(gg.up); rel(gg.glass); rel(gg.cb); rel(gg.cb_fallback); rel(gg.blur_cb); rel(gg.rs); rel(gg.smp);
+    rel(gg.mask); rel(gg.mask_cb); rel(gg.mask_fallback); rel(gg.vs); rel(gg.down4); rel(gg.down); rel(gg.up); rel(gg.glass); rel(gg.cb); rel(gg.cb_fallback); rel(gg.blur_cb); rel(gg.rs); rel(gg.smp);
     for (GlassTiming &t : gg.tq) { rel(t.disjoint); for (auto *&q : t.ts) rel(q); t.pending = false; t.n = 0; }
     gg.tried = gg.ready = false; gg.used = gg.skip = false; gg.timing_open = false;
     gg.fl.clear(); gg.npts = 0;
@@ -415,6 +419,8 @@ bool glass_ensure() {
         ok = ok && SUCCEEDED(g.device->CreateBuffer(&b, nullptr, &gg.blur_cb));
         b.ByteWidth = 2 * 16;
         ok = ok && SUCCEEDED(g.device->CreateBuffer(&b, nullptr, &gg.mask_cb));
+        D3D11_BUFFER_DESC mf = b; mf.Usage = D3D11_USAGE_DEFAULT; mf.CPUAccessFlags = 0;
+        ok = ok && SUCCEEDED(g.device->CreateBuffer(&mf, nullptr, &gg.mask_fallback));
         D3D11_RASTERIZER_DESC r = {};
         r.FillMode = D3D11_FILL_SOLID; r.CullMode = D3D11_CULL_NONE; r.DepthClipEnable = TRUE;
         ok = ok && SUCCEEDED(g.device->CreateRasterizerState(&r, &gg.rs));
@@ -875,7 +881,7 @@ void glass_cb_bind(const ImDrawList *dl, const ImDrawCmd *cmd) {
     }
     /* a texture gone (a floor image freed mid-frame, a level not made): the rounded tint,
        never the transparent quad */
-    if (!srv[0] || !srv[1]) { stale = true; srv[0] = srv[1] = nullptr; }
+    if (!srv[0] || !srv[1] || gg.fail == 1) { stale = true; srv[0] = srv[1] = nullptr; }
     /* the blur's last written texel centre, in px: ceil(extent / 4) - 0.5 texels */
     float bx = d->kind == GLASS_CHROME ? 1e7f : (((gg.vw + 3) >> 2) - 0.5f) * 4.0f;
     float by = d->kind == GLASS_CHROME ? 1e7f : (((gg.vh + 3) >> 2) - 0.5f) * 4.0f;
@@ -895,7 +901,7 @@ void glass_cb_bind(const ImDrawList *dl, const ImDrawCmd *cmd) {
     };
     ID3D11Buffer *buf = gg.cb;
     D3D11_MAPPED_SUBRESOURCE m;
-    if (SUCCEEDED(g.ctx->Map(gg.cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
+    if (gg.fail != 2 && SUCCEEDED(g.ctx->Map(gg.cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
         memcpy(m.pData, cb, sizeof(cb)); g.ctx->Unmap(gg.cb, 0);
     } else {
         /* the dynamic buffer would not map: the same constants, the tint alone, through the
@@ -912,7 +918,9 @@ void glass_cb_bind(const ImDrawList *dl, const ImDrawCmd *cmd) {
 
 /* A rounded image's mask (ps_mask): its constants and shader; ImGui binds its texture and
    sampler for the quad that follows, and the state reset after it puts ImGui's shader
-   back. If the constants will not map, ImGui's own shader draws the quad (square). */
+   back. If the constants will not map they go through the default-usage buffer, so the
+   image keeps its silhouette (never the square quad, 1 px too large, that a glass copy
+   later in the frame or the next one could take up). */
 struct MaskCmd { float rect[4]; float radius; };
 void glass_cb_mask(const ImDrawList *dl, const ImDrawCmd *cmd) {
     const MaskCmd *d = (const MaskCmd*)cmd->UserCallbackData;
@@ -920,11 +928,16 @@ void glass_cb_mask(const ImDrawList *dl, const ImDrawCmd *cmd) {
         d = (const MaskCmd*)(dl->_CallbacksDataBuf.Data + cmd->UserCallbackDataOffset);
     if (!d || !gg.ready || !gg.mask) return;
     float cb[8] = {d->rect[0], d->rect[1], d->rect[2], d->rect[3], gg.origin.x, gg.origin.y, d->radius, 0};
+    ID3D11Buffer *buf = gg.mask_cb;
     D3D11_MAPPED_SUBRESOURCE m;
-    if (FAILED(g.ctx->Map(gg.mask_cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) return;
-    memcpy(m.pData, cb, sizeof(cb)); g.ctx->Unmap(gg.mask_cb, 0);
+    if (gg.fail != 2 && SUCCEEDED(g.ctx->Map(gg.mask_cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
+        memcpy(m.pData, cb, sizeof(cb)); g.ctx->Unmap(gg.mask_cb, 0);
+    } else {
+        g.ctx->UpdateSubresource(gg.mask_fallback, 0, nullptr, cb, 0, 0);
+        buf = gg.mask_fallback;
+    }
     g.ctx->PSSetShader(gg.mask, nullptr, 0);
-    g.ctx->PSSetConstantBuffers(0, 1, &gg.mask_cb);
+    g.ctx->PSSetConstantBuffers(0, 1, &buf);
 }
 
 void glass_unpack(uint32_t c, float out[4]) {

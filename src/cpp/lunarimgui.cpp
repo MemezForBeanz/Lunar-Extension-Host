@@ -2074,12 +2074,23 @@ bool overlay_dib(Popup *p, int w, int h) {
 /* The CPU's time in l_frame_end per frame (us), for window("frame_spans_take"): the main
    window's lists, the overlay and popup windows, the overlay windows' staging readback
    alone (the Map that waits for the GPU), Present, and all of it. Up to N frames, kept
-   until taken. */
+   until taken. Kept only with LUNAR_GPU_TIMING=1 (made on the first frame end): otherwise
+   no arrays and no clock reads in the frame path. */
 struct FrameSpans {
     static const int N = 4096;
     float main[N], windows[N], readback[N], present[N], total[N];
     int n = 0; double readback_us = 0;
-} frame_spans;
+};
+std::unique_ptr<FrameSpans> frame_spans;
+FrameSpans *spans() {
+    static int on = -1;
+    if (on < 0) {
+        char v[8] = ""; GetEnvironmentVariableA("LUNAR_GPU_TIMING", v, sizeof(v));
+        on = v[0] == '1';
+        if (on) frame_spans.reset(new FrameSpans());
+    }
+    return frame_spans.get();
+}
 
 /* Its lists (drawn after the main window's, so the atlas is up to date) to its window. */
 void overlay_render(Popup *p) {
@@ -2109,9 +2120,11 @@ void overlay_render(Popup *p) {
     D3D11_BOX box = {0, 0, 0, (UINT)w, (UINT)h, 1};
     g.ctx->CopySubresourceRegion(g.ov_copy, 0, 0, 0, 0, g.ov_tex, 0, &box);
     D3D11_MAPPED_SUBRESOURCE map;
-    auto map_t0 = std::chrono::steady_clock::now();
+    FrameSpans *fs = spans();
+    std::chrono::steady_clock::time_point map_t0;
+    if (fs) map_t0 = std::chrono::steady_clock::now();
     HRESULT map_hr = g.ctx->Map(g.ov_copy, 0, D3D11_MAP_READ, 0, &map);
-    frame_spans.readback_us += std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - map_t0).count();
+    if (fs) fs->readback_us += std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - map_t0).count();
     if (FAILED(map_hr)) {
         g.device_reason = g.device->GetDeviceRemovedReason();
         if (FAILED(g.device_reason)) g.renderer_status = "device_lost";
@@ -2147,11 +2160,14 @@ void overlay_render(Popup *p) {
 int l_frame_end(lua_State *) {
     if (!g.frame_open) return 0;
     g.frame_open = false;
-    auto span_t0 = std::chrono::steady_clock::now();
+    FrameSpans *fs = spans();   /* null unless LUNAR_GPU_TIMING=1 */
+    std::chrono::steady_clock::time_point span_t0, span_t1, span_t2, span_t3;
+    auto span_now = [fs](std::chrono::steady_clock::time_point &t) { if (fs) t = std::chrono::steady_clock::now(); };
     auto span_us = [](std::chrono::steady_clock::time_point a, std::chrono::steady_clock::time_point b) {
         return (float)std::chrono::duration<double, std::micro>(b - a).count();
     };
-    frame_spans.readback_us = 0;
+    span_now(span_t0);
+    if (fs) fs->readback_us = 0;
     video_frame_end();
     ImGui::Render();
     if (!fit_target()) {
@@ -2206,14 +2222,14 @@ int l_frame_end(lua_State *) {
     g.frame_want = false;
     /* overlay windows before the shots (a capture of a window includes them) and before
        the presents (one that just left a surface is up before that surface drops it) */
-    auto span_t1 = std::chrono::steady_clock::now();
+    span_now(span_t1);
     std::vector<Popup*> overlays;
     for (Popup *p : popups) if (p->overlay && p->visible) overlays.push_back(p);
     std::sort(overlays.begin(), overlays.end(), [](Popup *a, Popup *b) { return a->order < b->order; });
     for (Popup *p : overlays) overlay_render(p);
     if (g.shot.pending && g.shot.popup == 0) write_shot();
     for (Popup *p : popups) popup_render(p);
-    auto span_t2 = std::chrono::steady_clock::now();
+    span_now(span_t2);
     glass_frame_done(glass, floating_ok);   /* what a later frame may reuse */
     glass_probe_frame();    /* LUNAR_GPU_TIMING probe only: inside its own span, out of the others */
     glass_timing_end();
@@ -2222,11 +2238,11 @@ int l_frame_end(lua_State *) {
     /* LUNAR_VSYNC=0 presents at once (frame timing in scripts/imgui_perf.lua) */
     static int vsync = -1;
     if (vsync < 0) { char v[8] = ""; GetEnvironmentVariableA("LUNAR_VSYNC", v, sizeof(v)); vsync = v[0] == '0' ? 0 : 1; }
-    auto span_t3 = std::chrono::steady_clock::now();
+    span_now(span_t3);
     HRESULT hr = g.swap->Present((UINT)vsync, 0);
-    {
+    if (fs) {
         auto span_t4 = std::chrono::steady_clock::now();
-        FrameSpans &f = frame_spans;
+        FrameSpans &f = *fs;
         if (f.n < FrameSpans::N) {
             f.main[f.n] = span_us(span_t0, span_t1); f.windows[f.n] = span_us(span_t1, span_t2);
             f.readback[f.n] = (float)f.readback_us; f.present[f.n] = span_us(span_t3, span_t4);
@@ -2611,12 +2627,19 @@ int l_window(lua_State *L) {
     if (is("glass_force_copy")) { gg.force = lua_toboolean(L, 2) != 0; return 0; }
     if (is("glass_shader")) { gg.off = !lua_toboolean(L, 2); return 0; }
     if (is("glass_flush_probe")) { gg.flush_probe = lua_toboolean(L, 2) != 0; return 0; }
+    if (is("glass_fail")) {   /* "texture", "map" or nil: the failure paths, for a capture */
+        const char *what = luaL_optstring(L, 2, "");
+        gg.fail = !gg.timing ? 0 : strcmp(what, "texture") == 0 ? 1 : strcmp(what, "map") == 0 ? 2 : 0;
+        lua_pushboolean(L, gg.fail != 0); return 1;
+    }
     if (is("circle_error")) {   /* ImGui's arc tessellation error (px), for measuring its cost */
         ImGui::GetStyle().CircleTessellationMaxError = std::max(0.05f, (float)luaL_checknumber(L, 2)); return 0;
     }
     if (is("glass_probe_load")) { gg.probe_load = std::max(0, std::min(400, (int)luaL_optinteger(L, 2, 0))); return 0; }
     if (is("frame_spans_take")) {   /* the CPU's spans in l_frame_end, per frame (us), then cleared */
-        FrameSpans &f = frame_spans;
+        FrameSpans *fp = spans();
+        if (!fp) return 0;   /* LUNAR_GPU_TIMING=1 only */
+        FrameSpans &f = *fp;
         lua_createtable(L, 0, 5);
         const char *names[5] = {"main", "windows", "readback", "present", "total"};
         float *arrays[5] = {f.main, f.windows, f.readback, f.present, f.total};
@@ -3131,7 +3154,6 @@ LUNAR_FFI int lunar_ui_glass(ImDrawList *dl, float x1, float y1, float x2, float
                              uint32_t well, float lip, float chroma, float angle, float lum_max, float lum_min,
                              float rim_floor, float rim_blur, float blur_depth, int soft, float well_ease) {
     if (!dl || !g.frame_open || !gg.ready || g.warp || x2 <= x1 || y2 <= y1 || kind < 0 || kind > GLASS_FROST) return 0;
-    if (kind == GLASS_CHROME && !(texture_srv(sharp) && texture_srv(blur))) return 0;
     GlassCmd d = {};
     d.kind = kind;
     d.rect[0] = x1; d.rect[1] = y1; d.rect[2] = x2; d.rect[3] = y2;
