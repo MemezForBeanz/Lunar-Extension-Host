@@ -259,8 +259,8 @@ the main window's background layer, not the glass beneath it: the shared copy is
 once, after that layer, so the upper surface refracts the window under both. This is
 deliberate (one copy per frame; the opaque text wells keep both readable). A surface
 whose copy failed, whose texture is missing or whose constants would not map draws its
-rounded tint, never stale pixels or nothing. `window("frame_spans_take")` returns the
-CPU's per-frame spans in `frame_end` (main lists, overlay windows, their staging readback,
+rounded tint, never stale pixels or nothing. With `LUNAR_GPU_TIMING=1`,
+`window("frame_spans_take")` returns the CPU's per-frame spans in `frame_end` (main lists, overlay windows, their staging readback,
 `Present`) for the warm light/dark switch study. Device flags that stop the driver's worker threads bring WARP below IUP
 (36 MiB) but make a full-window repaint ten times slower, so they are not used.
 

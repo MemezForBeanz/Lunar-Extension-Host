@@ -202,7 +202,8 @@ max 35 on, 37-38 off. The first (cold) switch's longest frame is 16.4-16.7 hardw
 19.7-23.2 WARP with glass on, 16.5-18.4 and 16.4-19.3 with it off. Backdrop generations stay
 at two (both modes, loaded at start and idle) through every switch.
 
-The occasional dropped frame on a warm switch: `window("frame_spans_take")` times the CPU
+The occasional dropped frame on a warm switch: `window("frame_spans_take")` (kept only
+with `LUNAR_GPU_TIMING=1`) times the CPU
 in `frame_end` per frame (main lists, overlay and popup windows, the overlay windows'
 staging readback alone, `Present`). Warm switches 700 ms apart (`switchprobe.lua`), 180
 per setting (60 + 120), frames at or over 25 ms: hardware 4 glass on, 1 off; WARP 3 on, 1
