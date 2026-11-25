@@ -178,6 +178,26 @@ float4 ps_glass(PI i) : SV_Target {
     [branch] if (well.a > 0) col = lerp(col, well.rgb, smoothstep(optic.w - well.a, optic.w, depth));
     return float4(col, cov);
 }
+
+/* A rounded image (posters, artwork) through ImGui's own texture and sampler: a square
+   quad 1 px past the rect, its alpha the rounded rect's analytic coverage over the same
+   1.25 px band as the glass (ImGui's polygon arcs stepped on small radii). */
+cbuffer M : register(b0) {
+    float4 mrect;   /* x1 y1 x2 y2 (ImGui px) */
+    float4 mshape;  /* origin x y, corner radius, 0 */
+};
+Texture2D img : register(t0); SamplerState img_smp : register(s0);
+float4 ps_mask(PI i) : SV_Target {
+    float2 p = i.pos.xy + mshape.xy;
+    float2 c = (mrect.xy + mrect.zw) * 0.5, hs = (mrect.zw - mrect.xy) * 0.5;
+    float r = min(mshape.z, min(hs.x, hs.y));
+    float2 q = abs(p - c) - (hs - r);
+    float sd = length(max(q, 0)) + min(max(q.x, q.y), 0) - r;
+    float cov = saturate(0.5 - sd * 0.8);
+    if (cov <= 0) discard;
+    float4 t = img.Sample(img_smp, saturate(i.uv)) * i.col;
+    return float4(t.rgb, t.a * cov);
+}
 )";
 
 void monitor_rects(RECT &work, RECT &full);
@@ -198,7 +218,8 @@ struct GlassTiming {
 struct GlassGpu {
     bool tried = false, ready = false;
     std::string error;
-    ID3D11VertexShader *vs = nullptr; ID3D11PixelShader *down4 = nullptr, *down = nullptr, *up = nullptr, *glass = nullptr;
+    ID3D11VertexShader *vs = nullptr; ID3D11PixelShader *down4 = nullptr, *down = nullptr, *up = nullptr, *glass = nullptr, *mask = nullptr;
+    ID3D11Buffer *mask_cb = nullptr;   /* ps_mask's constants, one Map per rounded image */
     ID3D11Buffer *cb = nullptr, *blur_cb = nullptr;
     ID3D11Buffer *cb_fallback = nullptr;   /* DEFAULT usage: written by UpdateSubresource, which cannot fail */
     ID3D11RasterizerState *rs = nullptr; ID3D11SamplerState *smp = nullptr;
@@ -350,7 +371,7 @@ void glass_release() {
     glass_release_levels();
     glass_release_load();
     auto rel = [](auto *&p) { if (p) { p->Release(); p = nullptr; } };
-    rel(gg.vs); rel(gg.down4); rel(gg.down); rel(gg.up); rel(gg.glass); rel(gg.cb); rel(gg.cb_fallback); rel(gg.blur_cb); rel(gg.rs); rel(gg.smp);
+    rel(gg.mask); rel(gg.mask_cb); rel(gg.vs); rel(gg.down4); rel(gg.down); rel(gg.up); rel(gg.glass); rel(gg.cb); rel(gg.cb_fallback); rel(gg.blur_cb); rel(gg.rs); rel(gg.smp);
     for (GlassTiming &t : gg.tq) { rel(t.disjoint); for (auto *&q : t.ts) rel(q); t.pending = false; t.n = 0; }
     gg.tried = gg.ready = false; gg.used = gg.skip = false; gg.timing_open = false;
     gg.fl.clear(); gg.npts = 0;
@@ -375,14 +396,14 @@ bool glass_ensure() {
     if (!g.device || g.warp) return false;
     ID3DBlob *vs = glass_compile("vs_regions", "vs_4_0"), *down4 = glass_compile("ps_down4", "ps_4_0"),
         *down = glass_compile("ps_down", "ps_4_0"), *up = glass_compile("ps_up", "ps_4_0"),
-        *glass = glass_compile("ps_glass", "ps_4_0");
+        *glass = glass_compile("ps_glass", "ps_4_0"), *mask = glass_compile("ps_mask", "ps_4_0");
     auto ps = [](ID3DBlob *b, ID3D11PixelShader **out) {
         return SUCCEEDED(g.device->CreatePixelShader(b->GetBufferPointer(), b->GetBufferSize(), nullptr, out));
     };
-    bool ok = vs && down4 && down && up && glass
+    bool ok = vs && down4 && down && up && glass && mask
         && SUCCEEDED(g.device->CreateVertexShader(vs->GetBufferPointer(), vs->GetBufferSize(), nullptr, &gg.vs))
-        && ps(down4, &gg.down4) && ps(down, &gg.down) && ps(up, &gg.up) && ps(glass, &gg.glass);
-    for (ID3DBlob *b : {vs, down4, down, up, glass}) if (b) b->Release();
+        && ps(down4, &gg.down4) && ps(down, &gg.down) && ps(up, &gg.up) && ps(glass, &gg.glass) && ps(mask, &gg.mask);
+    for (ID3DBlob *b : {vs, down4, down, up, glass, mask}) if (b) b->Release();
     if (ok) {
         D3D11_BUFFER_DESC b = {};
         b.Usage = D3D11_USAGE_DYNAMIC; b.BindFlags = D3D11_BIND_CONSTANT_BUFFER; b.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
@@ -392,6 +413,8 @@ bool glass_ensure() {
         ok = ok && SUCCEEDED(g.device->CreateBuffer(&f, nullptr, &gg.cb_fallback));
         b.ByteWidth = (2 + GLASS_REGIONS) * 16;
         ok = ok && SUCCEEDED(g.device->CreateBuffer(&b, nullptr, &gg.blur_cb));
+        b.ByteWidth = 2 * 16;
+        ok = ok && SUCCEEDED(g.device->CreateBuffer(&b, nullptr, &gg.mask_cb));
         D3D11_RASTERIZER_DESC r = {};
         r.FillMode = D3D11_FILL_SOLID; r.CullMode = D3D11_CULL_NONE; r.DepthClipEnable = TRUE;
         ok = ok && SUCCEEDED(g.device->CreateRasterizerState(&r, &gg.rs));
@@ -885,6 +908,23 @@ void glass_cb_bind(const ImDrawList *dl, const ImDrawCmd *cmd) {
     g.ctx->PSSetConstantBuffers(0, 1, &buf);
     g.ctx->PSSetShaderResources(1, 2, srv);
     g.ctx->PSSetSamplers(1, 1, &gg.smp);
+}
+
+/* A rounded image's mask (ps_mask): its constants and shader; ImGui binds its texture and
+   sampler for the quad that follows, and the state reset after it puts ImGui's shader
+   back. If the constants will not map, ImGui's own shader draws the quad (square). */
+struct MaskCmd { float rect[4]; float radius; };
+void glass_cb_mask(const ImDrawList *dl, const ImDrawCmd *cmd) {
+    const MaskCmd *d = (const MaskCmd*)cmd->UserCallbackData;
+    if (!d && cmd->UserCallbackDataOffset >= 0 && cmd->UserCallbackDataSize >= (int)sizeof(MaskCmd))
+        d = (const MaskCmd*)(dl->_CallbacksDataBuf.Data + cmd->UserCallbackDataOffset);
+    if (!d || !gg.ready || !gg.mask) return;
+    float cb[8] = {d->rect[0], d->rect[1], d->rect[2], d->rect[3], gg.origin.x, gg.origin.y, d->radius, 0};
+    D3D11_MAPPED_SUBRESOURCE m;
+    if (FAILED(g.ctx->Map(gg.mask_cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) return;
+    memcpy(m.pData, cb, sizeof(cb)); g.ctx->Unmap(gg.mask_cb, 0);
+    g.ctx->PSSetShader(gg.mask, nullptr, 0);
+    g.ctx->PSSetConstantBuffers(0, 1, &gg.mask_cb);
 }
 
 void glass_unpack(uint32_t c, float out[4]) {

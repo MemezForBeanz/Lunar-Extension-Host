@@ -3051,10 +3051,20 @@ LUNAR_FFI int lunar_ui_image_rounded(ImDrawList *dl, int tex, float x1, float y1
     auto it = g.textures.find(tex);
     if (it == g.textures.end()) return 0;
     if (!it->second.srv) return 0;
-    /* posters and artwork: small radii, finer arcs */
+    ImTextureRef image((ImTextureID)(intptr_t)it->second.srv);
+    /* posters and artwork: on a hardware device the shared rounded mask (analytic coverage,
+       no polygon steps on small radii); elsewhere ImGui's rounded image at finer arcs */
+    if (rounding > 0 && g.device && !g.warp && glass_ensure() && gg.mask && x2 > x1 && y2 > y1) {
+        MaskCmd d = {{x1, y1, x2, y2}, rounding};
+        dl->AddCallback(glass_cb_mask, &d, sizeof(d));
+        /* 1 px past the rect for the coverage band; the uv runs on past 0..1 (clamped) */
+        float du = 1.0f / (x2 - x1), dv = 1.0f / (y2 - y1);
+        dl->AddImage(image, ImVec2(x1 - 1, y1 - 1), ImVec2(x2 + 1, y2 + 1), ImVec2(-du, -dv), ImVec2(1 + du, 1 + dv), col);
+        dl->AddCallback(ImGui::GetPlatformIO().DrawCallback_ResetRenderState, nullptr);
+        return 1;
+    }
     lunar_glass::FineArcs fine(dl, true);
-    dl->AddImageRounded(ImTextureRef((ImTextureID)(intptr_t)it->second.srv), ImVec2(x1, y1), ImVec2(x2, y2),
-        ImVec2(0, 0), ImVec2(1, 1), col, rounding);
+    dl->AddImageRounded(image, ImVec2(x1, y1), ImVec2(x2, y2), ImVec2(0, 0), ImVec2(1, 1), col, rounding);
     return 1;
 }
 /* Glass (core.ui.Glass): one call per primitive whatever the surface's size or radius. */
