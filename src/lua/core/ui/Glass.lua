@@ -154,6 +154,9 @@ local function looks(p)
 		spec = Color.pack(255, 255, 255, floor(255 * (p.glassSpecPeak or (dark and 0.38 or 0.45)) + 0.5)),
 		spec_floor = p.glassSpecFloor or (dark and 0.06 or 0.08),
 		shade = Color.pack(0, 0, 0, floor(255 * (p.glassInnerShade or (dark and 0.10 or 0.06)) + 0.5)),
+		-- the palette and Activity (a split rim): 0.10 in both modes, so a light surface's
+		-- lower and right lip read as a curved edge, not a flat band
+		split_shade = Color.pack(0, 0, 0, floor(255 * (p.glassSplitShade or p.glassInnerShade or 0.10) + 0.5)),
 		-- frosted and live glass carry text: the lit result's luminance stays at most
 		-- lum_max and at least lum_min, so its labels keep their contrast (dark: at most
 		-- 0.0622; light: at least 0.62, and a tooltip's body at most 0.86 so it reads as
@@ -566,8 +569,8 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 					0, 0, chroma, angle, look.frost_max, look.lum_min, look.spec_floor, edge.rim_blur, edge.blur_depth)
 				return
 			end
-			dc:_emit("glass", ax, ay, ax + w, ay + h, r, 0, look.floating, look.spec, look.shade,
-				min(lens.band, l), min(lens.thickness, l), lift or 0, dc:_color(0xFFFFFFFF), 0, 0, 0, 0,
+			dc:_emit("glass", ax, ay, ax + w, ay + h, r, 0, look.floating, look.spec,
+				(style and style.chroma) and look.split_shade or look.shade, min(lens.band, l), min(lens.thickness, l), lift or 0, dc:_color(0xFFFFFFFF), 0, 0, 0, 0,
 				look.well, l, chroma, angle, 1, 0, look.spec_floor, edge.rim_blur, edge.blur_depth, edge.soft,
 				lens.well_ease)
 			dc:fill(x + l, y + l, w - 2 * l, h - 2 * l, look.well, shapes[max(0, r - l)])

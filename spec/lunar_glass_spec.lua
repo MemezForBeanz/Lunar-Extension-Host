@@ -395,6 +395,21 @@ describe("Lunar glass",function()
             assert.same({200,200,600,500,0,p.glassLip,16,true},{cp[2],cp[3],cp[4],cp[5],cp[6],cp[7],cp[8],cp[9]})
         end)
 
+        it("shades the palette's and Activity's lower lip at 10% in both modes",function()
+            local C=require("core.imgui.Color")
+            for _,name in ipairs({"LunarDarkTheme","LunarLightTheme"}) do
+                local B=hardware(); local dc=Draw.new(B); local p=palette(name)
+                frame(B,dc,1920,1080,function()
+                    Glass.paint(dc,200,200,400,300,"floating",p,16,nil,nil,0,nil,{chroma=0.25})
+                    Glass.paint(dc,700,200,400,300,"floating",p,16)
+                end)
+                local g=calls(B,"glass")
+                local _,_,_,split=C.unpack(g[1][10]); local _,_,_,plain=C.unpack(g[2][10])
+                assert.equal(26,split)                                   -- 0.10
+                assert.equal(name=="LunarDarkTheme" and 26 or 15,plain)  -- menus: 0.10 dark, 0.06 light
+            end
+        end)
+
         it("draws a tooltip as frosted glass with no well, its luminance bounded",function()
             for _,name in ipairs({"LunarDarkTheme","LunarLightTheme"}) do
                 local B=hardware(); local dc=Draw.new(B); local p=palette(name)
