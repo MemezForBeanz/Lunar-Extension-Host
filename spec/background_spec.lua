@@ -222,6 +222,10 @@ describe("reactive backgrounds",function()
         motion_on=false
         frame(B,dc,light); frame(B,dc,light)
         assert.equal(255,top())
+        -- off the GPU path (WARP): one render, no ease
+        motion_on=true; Scene.clear()
+        frame(B,dc,dark,800,600,false); frame(B,dc,light,800,600,false)
+        assert.equal(255,top()); assert.is_nil(Scene.due())
     end)
 
     it("follows a pushed signal (the rail) and registers new ones",function()

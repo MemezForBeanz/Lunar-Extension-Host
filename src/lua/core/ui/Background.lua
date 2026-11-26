@@ -447,7 +447,9 @@ local function follow(p, now)
 		local on, director = motion()
 		local cur = signals.mode.read({ now = now })
 		mode.from, mode.to, mode.at = cur, want, now
-		mode.dur = on and M.MODE_EASE * (director and director._scale or 1) or 0
+		-- off the GPU path (WARP, hardware acceleration off) the scene is static: the
+		-- switch is one render, not a render per frame of the ease
+		mode.dur = (on and animated) and M.MODE_EASE * (director and director._scale or 1) or 0
 	end
 	active = scene
 	M._deps = scene.deps
@@ -522,9 +524,9 @@ function M.floor(dc, x, y, w, h, p, live)
 	if not M.of(p) then active = nil; M._deps = nil; return false end
 	local R = package.loaded["core.imgui.Runtime"]
 	local now = R and R.now and R.now() or 0
+	animated = live and (motion()) or false
 	local scene = follow(p, now)
 	warm(B, scene)
-	animated = live and (motion()) or false
 	local W, H = dc.window_w or w, dc.window_h or h
 	window.w, window.h = W, H
 	local ctx = context(now, W, H)
