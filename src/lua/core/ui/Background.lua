@@ -464,8 +464,14 @@ local function emit(B, scene, s, w, h, part, marks)
 					local rot = layer.rotation(s)
 					local tint = layer.tint(s)
 					local col = pack(tint, opacity)
-					local list, from
-					if mark then list, from = B.vtx_mark() end
+					-- a marked sprite is drawn at an alpha of at least 1, so its vertices exist
+					-- (ImGui drops a sprite of alpha 0) for M.cover to recolour, then takes
+					-- its colour
+					local list, from, draw = nil, nil, col
+					if mark then
+						list, from = B.vtx_mark()
+						if floor(col / 16777216) % 256 == 0 then draw = col + 16777216 end
+					end
 					if rot ~= 0 and B.image_quad then
 						local ca, sa = cos(rot * pi / 180), sin(rot * pi / 180)
 						local function at(px, py) return cx + px * ca - py * sa, cy + px * sa + py * ca end
@@ -473,12 +479,13 @@ local function emit(B, scene, s, w, h, part, marks)
 						local x2, y2 = at(hw, -hh)
 						local x3, y3 = at(hw, hh)
 						local x4, y4 = at(-hw, hh)
-						B.image_quad(id, x1, y1, x2, y2, x3, y3, x4, y4, col)
+						B.image_quad(id, x1, y1, x2, y2, x3, y3, x4, y4, draw)
 					else
-						B.image(id, cx - hw, cy - hh, cx + hw, cy + hh, 0, 0, 1, 1, col)
+						B.image(id, cx - hw, cy - hh, cx + hw, cy + hh, 0, 0, 1, 1, draw)
 					end
 					if mark then
 						local _, to = B.vtx_mark()
+						if draw ~= col then B.vtx_color(list, from, to, col) end
 						marks[i] = { list, from, to, tint, base }
 					end
 					n = n + 1
@@ -888,12 +895,19 @@ function M.cover(rects)
 	local W, H = window.w, window.h
 	if W <= 0 or H <= 0 then return false end
 	local now = now_of()
-	local s = setmetatable({ mode = mode.to, width = W, height = H }, { __index = last_values })
+	-- each body is tested where this present shows it: a held resize stretches the target's
+	-- render (target.w x target.h) over the window, so its box is laid out at that size and
+	-- scaled to the window; direct draw lays it out at the window's size
+	local LW, LH = W, H
+	if target and not direct then LW, LH = target.w, target.h end
+	local kx, ky = W / LW, H / LH
+	local s = setmetatable({ mode = mode.to, width = LW, height = LH }, { __index = last_values })
 	local started, instant = false, false
 	for _, layer in ipairs(active.layers) do
 		local wh = layer.whole
 		if wh then
-			local x0, y0, x1, y1 = box_of(layer, s, W, H)
+			local x0, y0, x1, y1 = box_of(layer, s, LW, LH)
+			x0, y0, x1, y1 = x0 * kx, y0 * ky, x1 * kx, y1 * ky
 			local state = M.coverage(x0, y0, x1, y1, rects)
 			local want = state == "partial" and 0 or 1
 			wh.state = state

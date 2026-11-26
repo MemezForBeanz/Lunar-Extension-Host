@@ -257,6 +257,46 @@ describe("whole-or-hidden background layers",function()
         assert.near(W/math.ceil(W/256)/256,u,1e-9)
     end)
 
+    it("tests a held resize's body where the stretched render shows it (motion off)",function()
+        motion_on=false
+        local B=Null.new({scene=true}); local dc=Draw.new(B); local p=scene()
+        -- the body (a fixed-pixel box at x 550..650) in an 800 x 600 render; the window grows
+        -- to 900 wide within RESIZE_SETTLE, so it shows at x 618.75..731.25
+        local edge={{660,0,240,600}}   -- a panel from x 660: cuts the stretched body only
+        local left={{0,0,600,600}}     -- a panel to x 600: cuts the body at 900 wide only
+        frame_at(B,dc,p,800,600,edge)
+        assert.equal("clear",(Scene.coverState(2)))
+        assert.equal(255,body_alpha(B))
+        for _,step in ipairs({ {edge,"partial",0}, {left,"clear",255}, {edge,"partial",0} }) do
+            clock=clock+0.02
+            frame_at(B,dc,p,900,600,step[1])
+            assert.same({800,600},B.scene_size)   -- still the held render
+            assert.equal(step[2],(Scene.coverState(2)))
+            assert.equal(step[3],body_alpha(B))
+        end
+        -- settled: drawn at 900 wide, the body is at 550..650 again
+        clock=clock+Scene.RESIZE_SETTLE+0.01
+        frame_at(B,dc,p,900,600,edge)
+        assert.same({900,600},B.scene_size)
+        assert.equal("clear",(Scene.coverState(2)))
+        assert.equal(255,body_alpha(B))
+        clock=clock+0.02
+        frame_at(B,dc,p,900,600,left)
+        assert.equal("partial",(Scene.coverState(2)))
+        assert.equal(0,body_alpha(B))
+    end)
+
+    it("drops a sprite of alpha 0 as ImGui does (the Null backend)",function()
+        local B=Null.new()
+        B.frame_begin()
+        B.image(1,0,0,10,10,0,0,1,1,0x00FFFFFF)
+        B.image_quad(1,0,0,10,0,10,10,0,10,0x00FFFFFF)
+        assert.equal(0,#B.frame_calls)
+        B.image(1,0,0,10,10,0,0,1,1,0x01FFFFFF)
+        assert.equal(1,#B.frame_calls)
+        B.frame_end()
+    end)
+
     it("recolours the direct-draw floor's body in the frame that found the change",function()
         -- no scene target (an SDL host, the Null backend): the layers straight onto the list;
         -- motion off, so each change is instant
