@@ -146,12 +146,12 @@ end
 -- workspace, the sheet and the dock resize with it in the same frames; the background's
 -- crescent follows through `on_width`); without motion it jumps.
 function ToolRail:toggle()
+	local from = self:width()
 	self._collapsed = not self._collapsed
 	if self._settings then
 		self._settings:set(SETTING, self._collapsed)
 		self._settings:save()
 	end
-	local from = self:width()
 	local to = self._collapsed and ToolRail.NARROW or ToolRail.WIDE
 	local iup = self._iup
 	local function frame(v)

@@ -421,6 +421,8 @@ local last_values = {}   -- the signals the last emission read
 local last_emit = -1e9
 local animated = false   -- may time and the pointer move it (motion on, GPU path)
 local window = { w = 0, h = 0 }
+local pending_resize = false   -- a resize stretched the last render; one more is due
+M.RESIZE_HZ = 30
 local target             -- { tw, th } of the scene target, while one holds the scene
 
 local function motion()
@@ -490,6 +492,7 @@ function M.due()
 	local R = package.loaded["core.imgui.Runtime"]
 	local now = R and R.now and R.now() or 0
 	if mode.dur > 0 and now < mode.at + mode.dur then return now end
+	if pending_resize then return last_emit + 1 / M.RESIZE_HZ end
 	if animated and active.deps.time then return last_emit + 1 / active.fps end
 	if active.deps.clock then
 		local t = os.date("*t")
@@ -509,7 +512,7 @@ local function draw_target(B, scene, s, w, h)
 		return nil
 	end
 	stats.sprites = n
-	return { tw = tw, th = th }
+	return { tw = tw, th = th, w = w, h = h }
 end
 
 --- Paint the floor at (x, y, w, h) of the main window on `dc` with `p`'s scene; false
@@ -527,7 +530,14 @@ function M.floor(dc, x, y, w, h, p, live)
 	local ctx = context(now, W, H)
 	local s, changed = read(scene, ctx)
 	if B.scene_begin and (dc.surface_id or 0) == 0 then
-		if changed or not target or not B.scene_valid() or M._target_size ~= W .. "x" .. H then
+		local resized = M._target_size ~= W .. "x" .. H
+		-- a live resize redraws the scene at most RESIZE_HZ times a second; between, the last
+		-- render stretches to the window and a last one follows when it settles (M.due)
+		if resized and target and B.scene_valid() and now - last_emit < 1 / M.RESIZE_HZ then
+			pending_resize = true
+			stats.stretched = (stats.stretched or 0) + 1
+		elseif changed or not target or not B.scene_valid() or resized then
+			pending_resize = false
 			target = draw_target(B, scene, s, W, H)
 			if target then
 				last_values, last_emit = s, now
@@ -538,13 +548,13 @@ function M.floor(dc, x, y, w, h, p, live)
 			stats.skipped = stats.skipped + 1
 		end
 		if target then
+			-- the target's rendered area (target.w x target.h) maps onto the window
+			local sx, sy = target.w / (W * target.tw), target.h / (H * target.th)
 			dc:_emit("image", B.SCENE_SHARP, x + dc.ox, y + dc.oy, x + dc.ox + w, y + dc.oy + h,
-				(x + dc.ox) / target.tw, (y + dc.oy) / target.th, (x + dc.ox + w) / target.tw, (y + dc.oy + h) / target.th,
+				(x + dc.ox) * sx, (y + dc.oy) * sy, (x + dc.ox + w) * sx, (y + dc.oy + h) * sy,
 				dc:_color(0xFFFFFFFF))
-			if R and R.wakeAt then
-				local due = M.due()
-				if due then R.wakeAt(due) end
-			end
+			-- the next time-bound draw is the idle loop's (Runtime.step asks M.due), as a
+			-- scene-only present: a wake here would make it a frame of the UI
 			return true
 		end
 	end
@@ -568,7 +578,8 @@ end
 -- the scene is not in a target.
 function M.textures(B)
 	if not (active and target and B.SCENE_SHARP) then return nil end
-	return B.SCENE_SHARP, B.SCENE_BLUR, 1 / target.tw, 1 / target.th
+	local W, H = max(1, window.w), max(1, window.h)
+	return B.SCENE_SHARP, B.SCENE_BLUR, target.w / (W * target.tw), target.h / (H * target.th)
 end
 
 --- From the runtime's idle loop, when M.due() has come: draw the scene again and present
@@ -581,7 +592,8 @@ function M.tick(B)
 	animated = animated and (motion()) or false
 	local ctx = context(now, window.w, window.h)
 	local s, changed = read(active, ctx)
-	if not changed then last_emit = now; stats.skipped = stats.skipped + 1; return true end
+	if not changed and not pending_resize then last_emit = now; stats.skipped = stats.skipped + 1; return true end
+	pending_resize = false
 	if not B.scene_valid() then return false end
 	local t = draw_target(B, active, s, window.w, window.h)
 	if not t then return false end
@@ -602,6 +614,7 @@ function M.wantsPointer() return active ~= nil and animated and active.deps.mous
 --- Forget the active scene (theme without one, tests).
 function M.clear()
 	active, target, M._deps, last_values, last_emit, t0 = nil, nil, nil, {}, -1e9, nil
+	pending_resize = false
 	mode.from, mode.to, mode.dur = 0, 0, 0
 	for k in pairs(pushed) do pushed[k] = nil end
 end

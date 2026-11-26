@@ -542,6 +542,9 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 			local r = radius or p.radiusSheet or 14
 			local ax, ay = x + dc.ox, y + dc.oy
 			local lens = M.LENS.veil
+			-- `glassVeilClear`: clear tinted glass, the sharp scene in its body (stars stay
+			-- points behind the panel); otherwise frosted, the blurred scene
+			if p.glassVeilClear then blur = sharp end
 			dc:_emit("glass", ax, ay, ax + w, ay + h, r, 1, look.veil, look.spec, look.shade,
 				min(lens.band, w / 2, h / 2), lens.thickness, 0, dc:_color(0xFFFFFFFF), sharp, blur, ku, kv,
 				0, 0, lens.chroma, 0, look.veil_max, look.veil_min, look.spec_floor, -1, 0)

@@ -16,9 +16,10 @@
  *   - lunar_ui_scene_present: a frame whose only change is the scene (a twinkle tick, a
  *     parallax step) renders the scene list into the target and re-renders the main
  *     window's last draw data (valid until the next NewFrame) and presents, without a Lua
- *     frame of the UI. Refused (0) when that frame drew anything that holds a copy of
- *     the frame (floating or live glass, the frame copy), overlay or dialog windows, or a
- *     shot: those take a full frame.
+ *     frame of the UI. Refused (0) when that frame drew glass in a later list (floating
+ *     glass), the frame copy, overlay or dialog windows, or a shot: those take a full
+ *     frame. Glass inside the main list (the transport) is planned again and copies at
+ *     its own callback, as in a full frame.
  *   - Nothing is uploaded: the sprites' textures are made once by Lua; the target and its
  *     levels once per size class.
  * Texture ids SCENE_SHARP and SCENE_BLUR (never real ids) name the target and its blur in
@@ -37,6 +38,7 @@ struct SceneGpu {
     bool valid = false;    /* the target holds a finished scene */
     bool blurred = false;  /* its blur too */
     bool reusable = false; /* the last full frame may be presented again (see above) */
+    size_t points = 0;     /* its in-window glass copy points (gg.pts keeps them) */
     long long renders = 0, presents = 0, refusals = 0, creations = 0, sprites = 0;
     double cpu_us_sum = 0;   /* render + present of scene-only frames, CPU side */
 } sg;

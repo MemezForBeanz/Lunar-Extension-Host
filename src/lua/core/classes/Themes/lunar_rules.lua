@@ -535,6 +535,10 @@ function M.build(p)
         rules.tool_rail.scene_room = true
         rules.workspace_sheet.glass = "veil"
         rules.page_surface.glass = "veil"
+        -- navigation rows rest on the veil (only their states fill)
+        for _, role in ipairs({ "settings_nav", "settings_nav_on", "settingsheader", "settingsrow" }) do
+            if rules[role] then rules[role].bg, rules[role].border = p.layer02, p.layer02 end
+        end
         local opaque = p.glassContentWell or p.layer01
         for _, role in ipairs({ "flatlist", "flatrows", "flatgrid", "list_plain", "well", "settingscard" }) do
             if rules[role] then

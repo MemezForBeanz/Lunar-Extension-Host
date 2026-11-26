@@ -107,6 +107,21 @@ describe("reactive backgrounds",function()
         assert.equal(2,B.scene_renders)
     end)
 
+    it("redraws at most RESIZE_HZ times a second during a live resize, then once when it settles",function()
+        local B=Null.new({scene=true}); local dc=Draw.new(B)
+        frame(B,dc,static,800,600)
+        for k=1,5 do clock=clock+0.005; frame(B,dc,static,800+k*10,600) end
+        assert.equal(1,B.scene_renders)
+        -- the last render stretches over the window meanwhile
+        local floor
+        for _,c in ipairs(B.lastFrame()) do if c[1]=="image" then floor=c end end
+        assert.near(800/1024,floor[9],1e-9)
+        assert.near(clock-0.025+1/Scene.RESIZE_HZ,Scene.due(),1e-9)
+        clock=Scene.due()
+        assert.is_true(Scene.tick(B))
+        assert.equal(2,B.scene_renders); assert.is_nil(Scene.due())
+    end)
+
     it("uploads each element once and never again on resize, mode or rail changes",function()
         local B=Null.new({scene=true}); local dc=Draw.new(B)
         local p=require("core.classes.Themes.LunarDarkTheme"):new():palette()

@@ -63,9 +63,6 @@ M.SVG = {
 		.. '<stop offset="0" stop-color="#FFFFFF"/><stop offset="0.86" stop-color="#FFFFFF"/>'
 		.. '<stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient></defs>'
 		.. '<circle cx="64" cy="64" r="64" fill="url(#s)"/>'),
-	-- the moon's halo, apart from it, so the shadow never cuts it
-	halo = svg(256, 256, '<defs>' .. glow("h", "#DCE4F5", 0.30, 0.50) .. '</defs>'
-		.. '<circle cx="128" cy="128" r="126" fill="url(#h)"/>'),
 	-- the sun: a warm core in a wide glow, and its rays (they turn slowly)
 	sun = svg(256, 256, '<defs>' .. glow("g", "#FFE7A8", 0.70, 0.30)
 		.. '<radialGradient id="c" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#FFFDF4"/>'
@@ -92,14 +89,16 @@ M.SVG = {
 		.. '<ellipse cx="96" cy="120" rx="96" ry="118" fill="url(#h)"/>'
 		.. '<path d="M 112 22 A 92 92 0 1 0 112 218 A 78 84 0 1 1 112 22 Z" fill="url(#c)" transform="rotate(12 100 120)"/>'
 		.. '<path d="M 150 70 L 154 84 L 168 88 L 154 92 L 150 106 L 146 92 L 132 88 L 146 84 Z" fill="#FFFFFF" fill-opacity="0.9"/>'),
-	-- by day: pearl, its shadow side a pale blue, lighter than the sky's darkest
+	-- by day: a pearl crescent, its lit limb white and its body a cool blue-grey that
+	-- reads on the pale sky, edged by a thin shade (no halo: a white glow on a white sky
+	-- read as a ring)
 	crescent_day = svg(200, 240, '<defs>'
 		.. '<linearGradient id="c" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFFFF"/>'
-		.. '<stop offset="0.65" stop-color="#F1F5FB"/><stop offset="1" stop-color="#D3DEEE"/></linearGradient>'
-		.. glow("h", "#FFFFFF", 0.55, 0.50) .. '</defs>'
-		.. '<ellipse cx="96" cy="120" rx="96" ry="118" fill="url(#h)"/>'
-		.. '<path d="M 112 22 A 92 92 0 1 0 112 218 A 78 84 0 1 1 112 22 Z" fill="url(#c)" transform="rotate(12 100 120)"/>'
-		.. '<path d="M 150 70 L 154 84 L 168 88 L 154 92 L 150 106 L 146 92 L 132 88 L 146 84 Z" fill="#FFFFFF"/>'),
+		.. '<stop offset="0.45" stop-color="#DCE6F3"/><stop offset="1" stop-color="#93A8C6"/></linearGradient></defs>'
+		.. '<path d="M 112 22 A 92 92 0 1 0 112 218 A 78 84 0 1 1 112 22 Z" fill="url(#c)" stroke="#7F96B8"'
+		.. ' stroke-opacity="0.45" stroke-width="1.5" transform="rotate(12 100 120)"/>'
+		.. '<path d="M 150 70 L 154 84 L 168 88 L 154 92 L 150 106 L 146 92 L 132 88 L 146 84 Z" fill="#FFFFFF"'
+		.. ' stroke="#8EA4C4" stroke-opacity="0.5" stroke-width="1"/>'),
 }
 
 local S = M.SVG
@@ -148,15 +147,13 @@ function M.background(rail_w)
 				twinkle = { amount = 0.55, share = 0.6, period = { 2.5, 6 } },
 				opacity = by_mode(0.40, 0, { 0, 0.5 }), parallax = 9 },
 			-- the ringed planet and its orbits, lower right; a pale daytime body in light
-			{ svg = S.orbits, width = 760, height = 380, x = 0.86, y = 0.84,
+			{ svg = S.orbits, width = 760, height = 380, x = 0.84, y = 0.68,
 				opacity = by_mode(0.85, 0.25), tint = by_mode("#FFFFFF", "#5C7090"), parallax = 7 },
-			{ svg = S.planet, size = 300, x = 0.86, y = 0.84, raster = 1.2,
-				opacity = by_mode(0.95, 0.40), tint = by_mode("#FFFFFF", "#E8EEF8"), parallax = 8,
+			{ svg = S.planet, size = 300, x = 0.84, y = 0.68, raster = 1.2,
+				opacity = by_mode(0.95, 0.22), tint = by_mode("#FFFFFF", "#F4F8FD"), parallax = 8,
 				rotation = { signal = "time", wave = "sine", period = 60, min = -2, max = 2 } },
 			-- the moon, upper right: night's shadow slides off its face (a crescent waxing
 			-- to full), then it fades as the sun takes its place
-			{ svg = S.halo, size = 300, raster = 0.5, x = 0.83, y = 0.17, parallax = 6,
-				opacity = by_mode(0.55, 0, { 0, 0.7 }) },
 			{ svg = S.moon, size = 260, x = 0.83, y = 0.17, parallax = 6,
 				opacity = by_mode(1, 0, { 0.45, 0.85 }) },
 			{ svg = S.shade, size = 152, x = 0.83, y = 0.17, parallax = 6,

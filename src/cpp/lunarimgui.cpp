@@ -2251,8 +2251,9 @@ int l_frame_end(lua_State *) {
     glass_frame_done(glass, floating_ok);   /* what a later frame may reuse */
     /* a scene-only frame may present these lists again: nothing in them holds a copy of
        this frame, and no other window shows it */
-    sg.reusable = !copy && gg.fl.empty() && gg.npts == 0 && overlays.empty() && !g.shot.pending;
+    sg.reusable = !copy && gg.fl.empty() && overlays.empty() && !g.shot.pending;
     for (Popup *p : popups) if (p->visible) sg.reusable = false;
+    sg.points = glass ? gg.npts : 0;   /* in-window copies (the transport) a scene-only frame redoes */
     glass_probe_frame();    /* LUNAR_GPU_TIMING probe only: inside its own span, out of the others */
     glass_timing_end();
     gg.used = false; gg.fl.clear(); gg.npts = 0; gg.fl_strong = false; gg.fl_ok = false;
@@ -2674,10 +2675,11 @@ int l_window(lua_State *L) {
         return 1;
     }
     if (is("glass_timing_take")) {
-        lua_createtable(L, 0, 6);
-        const char *names[6] = {"glass", "copy", "frame", "copy_only", "blur", "load"};
-        float *arrays[6] = {gg.sample_glass, gg.sample_copy, gg.sample_frame, gg.sample_copy_only, gg.sample_blur, gg.sample_load};
-        for (int k = 0; k < 6; k++) {
+        lua_createtable(L, 0, 7);
+        const char *names[7] = {"glass", "copy", "frame", "copy_only", "blur", "load", "scene"};
+        float *arrays[7] = {gg.sample_glass, gg.sample_copy, gg.sample_frame, gg.sample_copy_only, gg.sample_blur, gg.sample_load,
+            gg.sample_scene};
+        for (int k = 0; k < 7; k++) {
             lua_createtable(L, gg.samples, 0);
             for (int i = 0; i < gg.samples; i++) { lua_pushnumber(L, arrays[k][i]); lua_rawseti(L, -2, i + 1); }
             lua_setfield(L, -2, names[k]);
@@ -3279,6 +3281,15 @@ LUNAR_FFI int lunar_ui_scene_present(void) {
     auto t0 = std::chrono::steady_clock::now();
     glass_timing_begin();
     if (!scene_render(nullptr)) { glass_timing_end(); sg.refusals++; return 0; }
+    /* in-window glass (the transport) copies what is under it at its callback: the scene
+       under it changed, so its points are planned again (the texture revision the scene
+       bumped fails their hashes) and copied as the lists draw */
+    bool points = sg.points > 0 && gg.ready && !g.warp && gg.lv[0].tex && sg.points <= gg.pts.size();
+    if (points) {
+        gg.npts = sg.points;
+        for (size_t i = 0; i < gg.npts; i++) { gg.pts[i].done = gg.pts[i].ok = false; }
+        glass_plan(g.lists.empty() ? nullptr : g.lists[0]);
+    }
     const float black[4] = {0, 0, 0, 1};
     g.ctx->OMSetRenderTargets(1, &g.rtv, nullptr);
     g.ctx->ClearRenderTargetView(g.rtv, black);
@@ -3289,6 +3300,7 @@ LUNAR_FFI int lunar_ui_scene_present(void) {
     if (all->CmdLists.Size > 0) ImGui_ImplDX11_RenderDrawData(all);
     gg.rendering_main = false;
     all->Textures = textures;
+    if (points) { glass_frame_done(true, false); gg.npts = 0; }
     glass_timing_end();
     static int vsync = -1;
     if (vsync < 0) { char v[8] = ""; GetEnvironmentVariableA("LUNAR_VSYNC", v, sizeof(v)); vsync = v[0] == '0' ? 0 : 1; }
