@@ -516,6 +516,8 @@ function M.build(p)
         for _, role in ipairs({ "primary_btn", "actionbutton", "ghost_btn", "danger_btn", "warning_btn", "info_btn", "icon_btn", "dropbutton", "text" }) do
             rules[role].focuscolor = p.accent
             rules[role].controlheight = 32
+            -- an icon-only button is a 32 px square, not its padding's width
+            rules[role].iconsquare = true
         end
     end
     if p.glass and p.background then
@@ -539,6 +541,30 @@ function M.build(p)
                 rules[role].bg = opaque
                 if rules[role].scrollbg then rules[role].scrollbg = opaque end
             end
+        end
+        -- One glass language for every interactive state (buttons, icon and toolbar
+        -- buttons, tabs, the rail, rows, settings navigation): hover and pressed/selected
+        -- are the same frosted chip (slate by night, cool pearl by day), mostly opaque so
+        -- labels keep 4.5:1 over the brightest star the frame can show, translucent enough
+        -- that it takes the colour of what it lies on; the same radius and the same 110 ms
+        -- ease. The primary action keeps its own opaque gradient (the one inverted element).
+        -- Fills that were the old opaque hover/selected greys (or the wells') become the pair.
+        local lift = p.glassStateHover or (p.glassDark and "44 52 64 150" or "196 210 228 100")
+        local press = p.glassStateSelected or (p.glassDark and "54 62 76 205" or "182 198 220 150")
+        local old_hover = { [tostring(hover)] = true, [tostring(p.glassWellHover)] = true }
+        local old_press = { [tostring(selected)] = true, [tostring(p.glassWellSelected)] = true,
+            [tostring(p.accentSoft)] = true }
+        for role, r in pairs(rules) do
+            if role ~= "primary_btn" and type(r) == "table" then
+                if r.hover and old_hover[tostring(r.hover)] then r.hover = lift end
+                if r.hover and old_press[tostring(r.hover)] then r.hover = press end
+                if r.pressed and (old_press[tostring(r.pressed)] or old_hover[tostring(r.pressed)]) then r.pressed = press end
+                if r.selbg and (old_press[tostring(r.selbg)] or old_hover[tostring(r.selbg)]) then r.selbg = press end
+                if r.itemradius then r.itemradius = R end
+            end
+        end
+        for _, role in ipairs({ "flattabs", "flattabs_sub", "titlebar_tabs", "tool_rail" }) do
+            if rules[role] then rules[role].radius = R end
         end
     end
     -- A disclosure ("Technical details") is a quiet button whose text starts at the

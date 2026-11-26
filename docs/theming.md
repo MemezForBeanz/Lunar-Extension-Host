@@ -138,3 +138,107 @@ whose background doesn't say it clearly can declare it in its spec:
 Theme.initialize(self, { id = "my_theme", label = "My Theme", dark = true, palette = p })
 ```
 
+
+## Reactive backgrounds
+
+A glass theme may put a live scene behind the whole window (`core.ui.Background`): the
+frame round the work sheet shows it under a light tint, and the sheet's glass and every
+floating surface refract it. Declare it in the palette as `background`; give the light and
+dark palettes of a family the same table (or the same `id`) and switching mode animates
+the scene instead of swapping it. Lunar's space scene is `Themes/lunar_space.lua`.
+
+```lua
+local p = {
+    glass = true, glassDark = true,
+    background = {
+        id = "acme-sky",   -- one scene for both modes: `mode` eases across a switch
+        fps = 24,          -- the cap for time-driven redraws (default 24)
+        layers = {
+            { kind = "fill", top = { signal = "mode", from = "#05070D", to = "#A6C2E4" },
+                bottom = "#0A1122" },
+            { kind = "stars", count = 200, seed = 3, size = { 0.6, 1.6 },
+                twinkle = { amount = 0.4, share = 0.4, period = { 3, 8 } },
+                opacity = { signal = "mode", from = 0.4, to = 0, range = { 0, 0.6 } }, parallax = 4 },
+            { svg = "<svg ...>...</svg>", size = 300, x = 0.83, y = 0.17,
+                rotation = { signal = "time", rate = 2.5, wrap = 360 } },
+        },
+    },
+    glassFrameTint = "7 10 18", glassFrameAlpha = 0.40,   -- the frame: the scene under this
+    glassVeilTint = "23 27 33", glassVeilAlpha = 0.74,    -- the sheet: its glass's tint
+}
+```
+
+**Layers**, drawn in order:
+
+| `kind` | What | Its own keys |
+|---|---|---|
+| `fill` | the whole window, a vertical gradient | `top`, `bottom` |
+| `svg` (or a layer with `svg` / `file`) | one SVG element (NanoSVG: paths, shapes, linear and radial gradients, opacity; no filters) | `svg` (inline) or `file` (under `assets/scene`), `size` or `width`/`height` (px), `raster` (rasterize at this multiple: above 1 for a layer scaled up, below 1 for soft glows), `unit = "px"` for `x`/`y` in pixels (negative: from the right or bottom) |
+| `stars` | a seeded star field | `count`, `seed`, `size = { min, max }`, `colors`, `twinkle = { amount, share, period = { min, max } }`, `region = { x0, y0, x1, y1 }` (fractions) |
+| `video` | the API is in place; with no in-process decoder it shows its `poster` (an `svg` layer table) | `file`, `poster` |
+
+Every layer takes `opacity`, `tint` (a colour multiplied in), `x`, `y` (fractions of the
+window by default), `dx`, `dy` (px), `scale`, `rotation` (degrees) and `parallax` (px the
+pointer moves it at the window's edge; a star moves by its depth). Each of those is a
+constant or a **binding**:
+
+| Binding | Value |
+|---|---|
+| `{ signal = s, from = a, to = b, range = { lo, hi }, ease = "smooth" }` | `a`..`b` as `s` goes `lo`..`hi` (numbers or colours) |
+| `{ signal = s, stops = { { at, v }, ... } }` | piecewise between stops |
+| `{ signal = s, wave = "sine" \| "triangle", period, phase, min, max }` | an oscillation |
+| `{ signal = s, rate = r, offset, wrap }` | `offset + s * r`, wrapped (a turn in degrees per second) |
+| `{ signal = s, scale = k, offset }` | `offset + s * k` |
+| `{ add = { ... } }`, `{ mul = { ... } }` | the sum or product of bindings |
+| `function(s) ... end` | anything; list what it reads in the layer's `deps` |
+
+**Signals**: `time` (s), `clock` (time of day 0..1), `mode` (0 dark .. 1 light, eased while
+the theme switches), `mouse_x`, `mouse_y` (-1..1 across the window), `width`, `height`,
+`rail` (the sidebar, 0 collapsed .. 1 extended, following its motion), `rail_room` (px free
+below the rail's entries) and `fullscreen`. A new one is one call,
+`Background.signal(name, { read = function(ctx) return value end })`, or a pushed value,
+`Background.set(name, value)`.
+
+**Cost.** Each layer knows the signals it reads, and the scene is drawn again only when one
+of them changed: an idle window with a static scene draws nothing; a time-bound layer
+redraws at the scene's `fps` and no faster; a pointer-bound one only when the pointer
+moved. On Direct3D 11 the layers render into one texture the floor and the glass sample,
+and a frame whose only change is the scene is presented without rebuilding the UI. SVGs are
+rasterized and uploaded once, when the scene first shows; nothing uploads afterwards. With
+reduced motion, hardware acceleration off or on WARP, time and the pointer read 0: the scene
+is drawn once per window size, mode or rail change, then costs nothing.
+
+**Contrast.** Labels on the frame must keep 4.5:1 over the brightest (dark) or darkest
+(light) pixel the scene can put under them at any time; give that pixel as
+`glassSampleWorst` and `scripts/theme_contrast.lua` checks every label and state over it
+under `glassFrameTint`. Keep bright bodies away from where labels sit, or fade them out
+there with a signal (Lunar's crescent fades when the rail's entries would reach it).
+
+## Panels over a reactive background
+
+The rule Lunar follows, and a theme with a background should too:
+
+* **Large structural panels let the scene through.** The work sheet and the page surfaces
+  are a veil of glass (`glass = "veil"`): the scene blurred, refracted at the edge, under the
+  panel's tint (`glassVeilAlpha`), the result's luminance bounded (dark at most 0.0622,
+  light at least 0.62) so text on it keeps its contrast whatever the scene shows. Children
+  painting the panel's own colour draw nothing, so tab strips, settings panels and page
+  bodies show the veil.
+* **Dense, important content stays opaque.** Lists, tables, grids, row lists, editors,
+  the terminal, cards holding a form, and every dialog and floating surface's text well
+  sit on an opaque fill (`glassContentWell`, default `layer01`).
+* Off the GPU path (WARP, hardware acceleration off) the veil is the opaque card.
+
+## One language for interactive states
+
+In Lunar every interactive state is the same frosted chip: hover and pressed/selected
+(`glassStateHover`, `glassStateSelected`; slate by night, cool pearl by day) on buttons,
+icon and toolbar buttons, tabs, the rail, list rows and settings navigation, with the same
+corner radius (`radius`) and the same 110 ms ease in and out. The chip is translucent
+enough to take the colour of what it lies on and opaque enough that labels keep 4.5:1 over
+the brightest star the frame can show. The primary action keeps its own opaque gradient.
+
+Button sizes come from content: a text button is its label plus the theme's padding; an
+icon-only button in a role with `iconsquare` is a square at its `controlheight`; a side
+strip's image-only buttons (the rail's "+" and chevron) draw a square pill however wide the
+strip. Nothing stretches unless its layout asks it to.

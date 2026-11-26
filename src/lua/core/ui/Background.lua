@@ -276,37 +276,17 @@ local function dot_pixels()
 	return table.concat(out), n, n
 end
 
-local ok_ffi, ffi = pcall(require, "ffi")
-local rasterizer
--- NanoSVG (the exe's own) for a file under ASSET_DIR or an inline string; nil without it.
+-- NanoSVG through core.ui.VectorIcon, for a file under ASSET_DIR or an inline string; nil
+-- without it.
 local function svg_pixels(src, w, h)
-	if not ok_ffi then return nil end
-	local okv, VectorIcon = pcall(require, "core.ui.VectorIcon")
-	if not (okv and VectorIcon.available) then return nil end
-	local C = ffi.C
-	pcall(ffi.cdef, "NSVGimage* nsvgParse(char* input, const char* units, float dpi);")
-	local image
-	if src:find("<svg", 1, true) then
-		local ok, fn = pcall(function() return C.nsvgParse end)
-		if not ok then return nil end
-		local buf = ffi.new("char[?]", #src + 1)
-		ffi.copy(buf, src)
-		image = fn(buf, "px", 96)
-	else
+	local ok, VectorIcon = pcall(require, "core.ui.VectorIcon")
+	if not (ok and VectorIcon.available and VectorIcon.rasterize) then return nil end
+	if not src:find("<svg", 1, true) then
 		if not M.ASSET_DIR then return nil end
 		local sep = M.ASSET_DIR:find("\\", 1, true) and "\\" or "/"
-		image = C.nsvgParseFromFile(M.ASSET_DIR .. sep .. src, "px", 96)
+		src = M.ASSET_DIR .. sep .. src
 	end
-	if image == nil or image.width <= 0 or image.height <= 0 then
-		if image ~= nil then C.nsvgDelete(image) end
-		return nil
-	end
-	rasterizer = rasterizer or C.nsvgCreateRasterizer()
-	local scale = min(w / image.width, h / image.height)
-	local buf = ffi.new("uint8_t[?]", w * h * 4)
-	C.nsvgRasterize(rasterizer, image, (w - image.width * scale) / 2, (h - image.height * scale) / 2, scale, buf, w, h, w * 4)
-	C.nsvgDelete(image)
-	return ffi.string(buf, w * h * 4), w, h
+	return VectorIcon.rasterize(src, w, h)
 end
 M._svg_pixels = svg_pixels -- specs replace it
 

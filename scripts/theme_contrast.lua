@@ -50,6 +50,15 @@ end
 function M.audit(theme, output)
     local p, rules = theme:palette(), theme:rules()
     local failures, count = {}, 0
+    -- a translucent fill (the glass state family) over what it lies on
+    local function over(fill,under)
+        if not fill or not under then return fill end
+        local f=channels(fill)
+        if not f[4] or f[4]>=255 then return fill end
+        local u=channels(under); local a=f[4]/255; local out={}
+        for i=1,3 do out[i]=math.floor(f[i]*a+u[i]*(1-a)+0.5) end
+        return table.concat(out," ")
+    end
     local function check(role,state,fg,bg,minimum)
         if not fg or not bg then return end
         local ratio=lunar.contrast(fg,bg)
@@ -62,9 +71,9 @@ function M.audit(theme, output)
         if role ~= "snap_preview" then
         local bg=r.bg or p.layer02 or p.bg
         check(role,"text",r.fg,bg,4.5)
-        if r.hover then check(role,"hover",r.hovertext or r.fg,r.hover,4.5) end
-        if r.pressed then check(role,"pressed",r.pressedtext or r.fg,r.pressed,4.5) end
-        if r.selbg then check(role,"selected",r.seltext or r.fg,r.selbg,4.5) end
+        if r.hover then check(role,"hover",r.hovertext or r.fg,over(r.hover,bg),4.5) end
+        if r.pressed then check(role,"pressed",r.pressedtext or r.fg,over(r.pressed,bg),4.5) end
+        if r.selbg then check(role,"selected",r.seltext or r.fg,over(r.selbg,bg),4.5) end
         check(role,"secondary",r.secondary,bg,4.5)
         check(role,"inactive",r.inactivefg,r.inactivebg or bg,4.5)
         check(role,"tabs",r.tabsfg,r.tabsbg or bg,4.5)

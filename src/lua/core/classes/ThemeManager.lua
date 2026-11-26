@@ -736,6 +736,7 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
         if r.focuscolor then attrs.FOCUSCOLOR = r.focuscolor end
         if r.focusinset then attrs.FOCUSINSETCOLOR = r.focusinset end
         if r.controlheight then attrs.CONTROLHEIGHT = tostring(r.controlheight) end
+        if cls == "flatbutton" then attrs.ICONSQUARE = r.iconsquare and "YES" or "NO" end
     end
 	if r.padding then
 		attrs.PADDING = r.padding

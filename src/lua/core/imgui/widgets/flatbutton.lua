@@ -76,6 +76,14 @@ local function natural(e, st, L)
 			own(e, "IMAGE"), own(e, "TITLE"), nil, focus_room)
 	end
 	local bw = border_width(e)
+	-- ICONSQUARE (a theme's button roles): an icon-only button is square at its control
+	-- height, however wide its padding would make it
+	local ch = tonumber(attr(e, "CONTROLHEIGHT"))
+	local title = own(e, "TITLE")
+	if ch and own(e, "IMAGE") and (not title or title == "") and bool(attr(e, "ICONSQUARE")) then
+		local iw = F.imageInfo(own(e, "IMAGE")) or 0
+		return math.max(ch, iw + 4 + 2 * bw), ch
+	end
     if not own(e, "IMAGE") and own(e, "TITLE") then
         local hp = F.intint(attr(e, "PADDING"))
         w = w + math.max(0, int(attr(e, "TEXTRIGHTPADDING"), hp) - hp)

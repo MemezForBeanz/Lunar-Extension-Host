@@ -873,4 +873,31 @@ function VectorIcon:isSpinning()
 end
 
 VectorIcon.available = true
+--- Rasterize an SVG (inline markup, or a file path) to straight RGBA pixels, fitted and
+-- centred in a w x h box, keeping its own colours; for textures (core.ui.Background).
+-- @treturn string|nil w * h * 4 bytes, w, h
+function VectorIcon.rasterize(src, w, h)
+	w, h = math.max(1, math.floor(w)), math.max(1, math.floor(h))
+	local image
+	if src:find("<svg", 1, true) then
+		pcall(ffi.cdef, "NSVGimage* nsvgParse(char* input, const char* units, float dpi);")
+		local ok, parse = pcall(function() return C.nsvgParse end)
+		if not ok then return nil end
+		local buf = ffi.new("char[?]", #src + 1)
+		ffi.copy(buf, src)
+		image = parse(buf, "px", 96)
+	else
+		image = C.nsvgParseFromFile(src, "px", 96)
+	end
+	if image == nil then return nil end
+	if image.width <= 0 or image.height <= 0 then C.nsvgDelete(image); return nil end
+	local scale = math.min(w / image.width, h / image.height)
+	local buf = ffi.new("uint8_t[?]", w * h * 4)
+	local ok = pcall(C.nsvgRasterize, rasterizer(), image, (w - image.width * scale) / 2,
+		(h - image.height * scale) / 2, scale, buf, w, h, w * 4)
+	C.nsvgDelete(image)
+	if not ok then return nil end
+	return ffi.string(buf, w * h * 4), w, h
+end
+
 return VectorIcon

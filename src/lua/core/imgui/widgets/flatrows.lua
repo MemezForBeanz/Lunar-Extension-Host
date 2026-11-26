@@ -14,6 +14,7 @@
 --   rows_create (create), iupFlatRowsNewClass (Classes.define)
 --   rows_get_idvalue: IDVALUEn is answered by the `getId` hook below
 -- @module core.imgui.widgets.flatrows
+local motion = require("core.imgui.motion")
 local Classes = require("core.imgui.Classes")
 local Element = require("core.imgui.Element")
 local iup = require("core.imgui.iup")
@@ -211,8 +212,14 @@ local function rows_redraw(ih, st, dc)
 				else U.fill(dc, ox, oy, 4, y, w - 5, y + rh - 1, fillc) end
 				if marker then U.fill(dc, ox, oy, 5, y + 6, 7, y + rh - 7, markerc) end
 				if textps then text_color = U.strcolor(textps, fgc) end
-			elseif pos == d.hover then
-				U.fill(dc, ox, oy, 4, y + 1, w - 5, y + rh - 2, U.strcolor(U.attr(ih, "HLCOLOR"), bgc))
+			else
+				-- the hover: the selection's shape (rounded by ITEMRADIUS), easing in and out
+				-- like every other hover (motion "hover"; instant with motion off)
+				local hc = motion.color(st, "hover" .. pos, pos == d.hover and U.strcolor(U.attr(ih, "HLCOLOR"), bgc) or nil, "hover")
+				if hc then
+					local radius = U.int(ih, "ITEMRADIUS")
+					dc:fill(ox + 4, oy + y + 1, w - 9, rh - 2, hc, radius > 0 and { radius = radius } or nil)
+				end
 			end
 			if bits then
 				local pixels, stride = U.bits(ih, "ROWBITS_CB", pos, image_w, image_h)

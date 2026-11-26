@@ -438,9 +438,17 @@ local function draw(el, st, dc)
 		local fill = selected and (attr(el, "TABSSELCOLOR") or attr(el, "BGCOLOR"))
 			or (st.data.extraHover == id and (attr(el, "EXTRAHIGHCOLOR" .. id) or attr(el, "HLCOLOR")))
 		fill = motion.color(st, "extra" .. id, fill or nil, "hover")
-		if active and fill then dc:fill(x, y, w, h, fill, { radius = integer(attr(el, "CORNERRADIUS"), 0) }) end
 		local iw, ih = Draw.imageSize(image)
-		if image then dc:image(image, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih, {}) end
+		-- An image-only button down a side strip draws as a square of its height (the
+		-- click target keeps the strip's breadth): its icon stays in the column where it
+		-- sits when the strip is narrow, rather than a strip-wide bar or a centred icon.
+		local fx, fw = x, w
+		if image and title == "" and not horizontal(el) and w > h then
+			fw = h
+			fx = x + math.floor((math.min(w, h + 12) - h) / 2)
+		end
+		if active and fill then dc:fill(fx, y, fw, h, fill, { radius = integer(attr(el, "CORNERRADIUS"), 0) }) end
+		if image then dc:image(image, fx + (fw - iw) / 2, y + (h - ih) / 2, iw, ih, {}) end
 		if title ~= "" then dc:text(title, x + 6, y + 4, w - 12, h - 8, color, font, { align = "center", valign = "center", ellipsis = true }) end
 	end
 	if yes(attr(el, "SHOWLINES")) then
