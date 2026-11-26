@@ -176,7 +176,10 @@ Who chooses, highest first: the user (Appearance > Tab transition, saved as
 for reduced motion, the switch is instant. A strip opts out with `PAGETRANSITION=NO`.
 
 An extension adds a kind (host API 5). It is listed in Appearance settings, a theme can
-name it, and it is removed when the extension unloads:
+name it, and it is removed when the extension unloads. `ctx:registerPageTransition` refuses a
+built-in name; a kind set over one with `PageTransitions.register` replaces it until
+`PageTransitions.unregister`, which puts the built-in back (the built-ins themselves cannot be
+removed):
 
 ```lua
 self:registerPageTransition("drop", {

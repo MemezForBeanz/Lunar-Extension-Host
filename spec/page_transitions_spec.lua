@@ -181,6 +181,29 @@ describe("page transition kinds", function()
 		assert.is_nil(PT.get("zoomtest"))
 		assert.is_false(PT.unregister("push"))
 	end)
+
+	it("restores the built-in push when an extension that registered over it unregisters", function()
+		local builtin = PT.get("push")
+		local names = {}
+		for i, k in ipairs(PT.list()) do names[i] = k.name end
+		-- even a def that copies the built-in's `builtin` flag
+		local over = { builtin = true, label = "Mine", role = { duration = 90 },
+			frame = function(t) return { alpha = 1 - t }, { dy = 10 * (1 - t), alpha = t } end }
+		assert.is_true(PT.register("push", over))
+		assert.equal(over, (PT.resolve({}, nil)))
+		assert.is_true(PT.unregister("push"))
+		assert.equal(builtin, PT.get("push"))
+		local def, spec, name = PT.resolve({}, nil)
+		assert.equal(builtin, def); assert.equal("push", name)
+		assert.is_nil(def.role)   -- the built-in's own timing, not the extension's
+		assert.not_equal(90, spec.duration)
+		local after = {}
+		for i, k in ipairs(PT.list()) do after[i] = k.name end
+		assert.same(names, after)
+		-- the built-in itself still cannot be removed
+		assert.is_false(PT.unregister("push"))
+		assert.equal(builtin, PT.get("push"))
+	end)
 end)
 
 describe("MotionDirector:pageTransition", function()

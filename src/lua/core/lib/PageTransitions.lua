@@ -85,6 +85,7 @@ M.OUTGOING_LEAD = 0.5  -- the outgoing page moves half as far as the incoming on
 M.FADE_SPAN = 0.85     -- the incoming page is opaque by 85% of the way
 
 local kinds, order = {}, {}
+local builtins = {}   -- name -> the host's own def (the end of this file)
 
 local function clamp01(v) if v < 0 then return 0 elseif v > 1 then return 1 end return v end
 
@@ -99,10 +100,12 @@ function M.register(name, def)
 	return true
 end
 
---- Remove a kind (an extension unloading). Built-in kinds stay.
+--- Remove a kind (an extension unloading). Built-in kinds stay: one an extension
+-- registered over is restored, in its place in the list.
 function M.unregister(name)
 	local def = kinds[name]
-	if not def or def.builtin then return false end
+	if not def or def == builtins[name] then return false end
+	if builtins[name] then kinds[name] = builtins[name]; return true end
 	kinds[name] = nil
 	for i = #order, 1, -1 do if order[i] == name then table.remove(order, i) end end
 	return true
@@ -254,5 +257,6 @@ M.register("slide", {
 })
 
 M.register("none", { builtin = true, label = "None" })
+for name, def in pairs(kinds) do builtins[name] = def end
 
 return M
