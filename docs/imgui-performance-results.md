@@ -224,7 +224,9 @@ the target is rendered again only when one changed, and a frame whose only chang
 scene (a twinkle tick) is a *scene-only present*: the scene list is rendered, the last
 frame's draw data is drawn again (in-window glass such as the Media transport copies at its
 own callback, as in a full frame) and presented, without a Lua frame of the UI. Floating
-glass in a later list, overlay or dialog windows and shots take a full frame instead.
+glass in a later list, overlay or dialog windows and shots take a full frame instead. A scene
+already due when the idle loop looks still gets a zero wait (a poll for input), so it stays a
+scene-only present rather than a full frame.
 
 Measured on the Media page at 1920x1080, RTX 3070 Ti, `LUNAR_GPU_TIMING=1`, a light
 clock-holding load (`tools/bgprobe.lua`, 6 s per phase):

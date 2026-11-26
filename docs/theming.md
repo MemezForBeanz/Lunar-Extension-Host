@@ -216,7 +216,8 @@ and a frame whose only change is the scene is presented without rebuilding the U
 render is compared with the last sprite by sprite; a floating glass copy is redone only when
 a changed sprite (widened by the blur's reach) meets its regions, so a twinkle elsewhere
 leaves it alone; a sprite counts once it has moved 1 px or its colour drifted 32 levels since
-the copies last saw it (below that, the blurred lip cannot show it). A twinkling star is drawn even while faint, so the list keeps its shape. SVGs are
+the copies last saw it (below that, the blurred lip cannot show it). A sprite drawn with
+another texture at the same place (an svg `set` entry chosen by a signal) counts too. A twinkling star is drawn even while faint, so the list keeps its shape. SVGs are
 rasterized and uploaded once, when the scene first shows; nothing uploads afterwards. With
 reduced motion, hardware acceleration off or on WARP, time and the pointer read 0: the scene
 is drawn once per window size, mode or rail change, then costs nothing. During a live resize
@@ -249,10 +250,13 @@ there with a signal (Lunar's crescent fades when the rail's entries would reach 
 never an arc in the gap between two panels. Give it `whole = true` and keep its art and glow
 inside its box. After each frame of the UI the opaque fills laid over the scene (at least
 24 px each way, on the main window's base layer; a page sliding in counts where it will
-rest, a page leaving not at all) are tested against the box, where the layer will be at the
-mode the sky is easing to: wholly clear or wholly covered, it shows; partly covered, it
-fades out over 150 ms, and back in when that changes (at once off the GPU path, and with no
-fade the first time). Still place it where most pages leave it whole: px from the edges the
+rest, a page leaving not at all; a cached canvas replayed counts inside its own clips) are
+tested against the box exactly (a gap of any width between two panels makes it partial),
+where the layer will be at the mode the sky is easing to: wholly clear or wholly covered, it
+shows; partly covered, it fades out over 150 ms, and back in when that changes (at once off
+the GPU path, and with no fade the first time). A change with no fade is in the frame that
+finds it: the scene is emitted again before that frame ends (off the GPU path, the next
+frame). Still place it where most pages leave it whole: px from the edges the
 pages are laid out from (`unit = "px"`, negative `x` from the right). Lunar's band is
 y 325..483 at 192 px from the right (`lunar_space.M.BODY`); below 1400 px wide both bodies
 fade out (gone by 1150).
