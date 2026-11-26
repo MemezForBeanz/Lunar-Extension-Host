@@ -442,6 +442,18 @@ describe("reactive backgrounds",function()
             frame(B,dc,static,900,600,false)
             assert.equal(2,B.scene_renders); assert.is_nil(Scene.due())
         end)
+        it("fades Lunar's moon and sun out on a narrow window, where the pages' controls reach them",function()
+            local space=require("core.classes.Themes.lunar_space")
+            local bg=space.background()
+            local scene=Scene._scene_of(bg)
+            local moon,sun
+            for _,l in ipairs(scene.layers) do
+                if l.def.svg and type(l.def.svg)=="table" then moon=l end
+                if l.def.svg==space.SVG.sun then sun=l end
+            end
+            assert.equal(1,moon.opacity({mode=0,width=1920})); assert.equal(0,moon.opacity({mode=0,width=1084}))
+            assert.equal(1,sun.opacity({mode=1,width=1920})); assert.equal(0,sun.opacity({mode=1,width=1084}))
+        end)
         it("derives Lunar's contrast samples from its layer table",function()
             local space=require("core.classes.Themes.lunar_space")
             local bright=Scene.extremes(space.background(),{mode=0})

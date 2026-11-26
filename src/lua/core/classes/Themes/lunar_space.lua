@@ -183,6 +183,12 @@ local function crescent(art, rail_w, opacity)
 		deps = { "mode", "width", "height", "rail_settled", "rail_room" },
 		parallax = 2, labels = false }
 end
+-- On a narrow window the pages' controls reach the right of the sheet where the bodies are:
+-- the moon and the sun fade out below WIDE px (gone at NARROW), never sitting behind a row.
+M.BODIES = { narrow = 1150, wide = 1400 }
+local function wide_only(opacity)
+	return { mul = { opacity, { signal = "width", from = 0, to = 1, range = { M.BODIES.narrow, M.BODIES.wide } } } }
+end
 local function sun_x(s) return (sun_at(s.mode or 0)) end
 local function sun_y(s) local _, y = sun_at(s.mode or 0); return y end
 local function by_mode(dark, light, range, ease)
@@ -249,10 +255,10 @@ function M.background(rail_w)
 			-- crescent to full as the sky brightens, then fades as the sun takes its place
 			{ svg = { signal = "mode", set = M.MOON_PHASES, range = { 0, 0.5 } }, size = M.MOON.size,
 				x = M.MOON.x, y = M.MOON.y, rotation = M.MOON.turn, parallax = 6, labels = false, hot = 0.62,
-				opacity = by_mode(1, 0, { 0.52, 0.72 }) },
+				opacity = wide_only(by_mode(1, 0, { 0.52, 0.72 })) },
 			-- the sun rises along its path (M.SUN) as the sky brightens
 			{ svg = S.sun, size = 300, x = sun_x, y = sun_y, parallax = 6, labels = false,
-				opacity = by_mode(0, 1, { 0.40, 1 }), scale = by_mode(0.7, 1, { 0.4, 1 }), deps = { "mode" } },
+				opacity = wide_only(by_mode(0, 1, { 0.40, 1 })), scale = by_mode(0.7, 1, { 0.4, 1 }), deps = { "mode", "width" } },
 			-- the extended sidebar's crescent, low in the rail; silver at night (dim enough for
 			-- the rail's labels), pearl by day
 			crescent(S.crescent, rail_w, by_mode(0.55, 0, { 0, 0.6 })),
