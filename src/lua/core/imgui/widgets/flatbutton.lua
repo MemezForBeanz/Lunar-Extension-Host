@@ -197,9 +197,17 @@ local function draw(e, st, dc)
 	local hp, vp = F.intint(attr(e, "PADDING"))
 	local ha, va = F.alignment(attr(e, "ALIGNMENT"), "ACENTER", "ACENTER")
 	local name, fade = F.imageName(e, "IMAGE", image, image_pressed, d.highlighted, active)
+	-- TEXTINACTIVECOLOR (this host's, from a theme's `inactivetext`): a disabled label in
+	-- exactly that colour, instead of FGCOLOR faded halfway to the fill (patch 0005), which
+	-- can leave it far below 4.5:1. The icon still fades.
+	local text_fg, text_active = fgcolor, active
+	if not active then
+		local c = own(e, "TEXTINACTIVECOLOR")
+		if c then text_fg, text_active = c, true end
+	end
 	F.icon(e, dc, x0, y0, inner, inner, cw - 2 * inner, ch - 2 * inner,
 		F.imagePosition(attr(e, "IMAGEPOSITION")), int(attr(e, "SPACING"), 2), ha, va, hp, vp,
-		name, fade, title, flags, fgcolor, bgcolor, active)
+		name, fade, title, flags, text_fg, bgcolor, text_active)
 
 	if fgimage then
 		local fname, ffade = F.imageName(e, "FRONTIMAGE", fgimage, image_pressed, d.highlighted, active)

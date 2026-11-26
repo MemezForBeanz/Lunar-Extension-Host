@@ -391,6 +391,7 @@ function M.build(p)
         rules[role].inactivebg = elevated
         rules[role].inactiveborder = border
         rules[role].inactivefg = p.textMuted
+        rules[role].inactivetext = require("core.classes.Themes.fluent_rules").disabledText(p.textMuted, elevated)
     end
     -- U3 page-template roles: opaque work surfaces, shared by every tool.
     local page_bg = p.layer02 or p.surface or p.bg

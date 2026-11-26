@@ -75,7 +75,17 @@ function M.audit(theme, output)
         if r.pressed then check(role,"pressed",r.pressedtext or r.fg,over(r.pressed,bg),4.5) end
         if r.selbg then check(role,"selected",r.seltext or r.fg,over(r.selbg,bg),4.5) end
         check(role,"secondary",r.secondary,bg,4.5)
-        check(role,"inactive",r.inactivefg,r.inactivebg or bg,4.5)
+        -- a disabled label as drawn: `inactivetext` exactly, else `inactivefg` faded halfway
+        -- to the fill (flatdraw.inactive, IUP patch 0005)
+        if r.inactivefg or r.inactivetext then
+            local under=r.inactivebg or bg
+            local shown=r.inactivetext
+            if not shown then
+                local f,u=channels(r.inactivefg),channels(under)
+                shown=string.format("%d %d %d",math.floor((f[1]+u[1])/2),math.floor((f[2]+u[2])/2),math.floor((f[3]+u[3])/2))
+            end
+            check(role,"inactive",shown,under,4.5)
+        end
         check(role,"tabs",r.tabsfg,r.tabsbg or bg,4.5)
         if r.glass and r.glass~="card" and r.glass~="none" and p.glass then
             local floating=r.glass=="floating" or r.glass=="content"

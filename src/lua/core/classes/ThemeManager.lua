@@ -812,6 +812,8 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 		if r.inactivefg then
 			attrs.FGCOLOR, attrs.TEXTHLCOLOR, attrs.TEXTPSCOLOR = r.inactivefg, r.inactivefg, r.inactivefg
 		end
+		-- the label exactly (the flat button does not fade it toward its fill again)
+		if r.inactivetext then attrs.TEXTINACTIVECOLOR = r.inactivetext end
 	end
 	return attrs
 end
