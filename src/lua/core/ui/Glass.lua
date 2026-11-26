@@ -14,7 +14,7 @@
 --   floating  menus, palette, toasts, tooltips, dialogs: a nine-slice shadow, the softened
 --             backdrop, a tint, one rim
 --   card      the matte work sheet: an opaque rounded fill and a faint rim
---   veil      the work sheet over a reactive background (core.ui.Scene): on the GPU, chrome
+--   veil      the work sheet over a reactive background (core.ui.Background): on the GPU, chrome
 --             glass sampling the live scene (blurred body, a refracting rim, the sheet's
 --             tint at `glassVeilAlpha`, luminance bounded for its text); otherwise the card
 --   content / chrome_content / none   children of the above: nothing (the parent's glass
@@ -522,7 +522,7 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 		local ok, tabs = pcall(require, "core.imgui.widgets.flattabs")
 		local rects = ok and tabs.extraRects and tabs.extraRects(el) or {}
 		local add, foot = rects[1], rects[2]
-		if add and foot then require("core.ui.Scene").set("rail_room", foot[2] - (add[2] + add[4])) end
+		if add and foot then require("core.ui.Background").set("rail_room", foot[2] - (add[2] + add[4])) end
 	end
 	if kind == "content" or kind == "chrome_content" or kind == "none" then return end
 	if kind == "caps" then
@@ -534,8 +534,8 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 		return
 	end
 	if kind == "veil" then
-		local Scene = require("core.ui.Scene")
-		local sharp, blur, ku, kv = Scene.textures(dc.B)
+		local Background = require("core.ui.Background")
+		local sharp, blur, ku, kv = Background.textures(dc.B)
 		if not (enabled and p.glass and gpu(dc) and sharp) then kind = "card" else
 			local c = textures(dc, p)
 			local look = c.looks
@@ -572,8 +572,8 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 		return
 	end
 	if kind == "floor" then
-		local Scene = require("core.ui.Scene")
-		if Scene.of(p) and Scene.floor(dc, x, y, w, h, p, gpu(dc)) then
+		local Background = require("core.ui.Background")
+		if Background.of(p) and Background.floor(dc, x, y, w, h, p, gpu(dc)) then
 			if p.glassFrameAlpha and p.glassFrameAlpha > 0 then
 				dc:fill(x, y, w, h, Color.alpha(Color.parse(p.glassFrameTint or p.bg), p.glassFrameAlpha))
 			end
@@ -646,7 +646,7 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 		end
 		local _, _, ku, kv = uv(dc, c, 0, 0, 1, 1, c.sw, c.sh)
 		local sharp, blur = c.sharp, c.blur
-		local ss, sb, sku, skv = require("core.ui.Scene").textures(dc.B)
+		local ss, sb, sku, skv = require("core.ui.Background").textures(dc.B)
 		if ss then sharp, blur, ku, kv = ss, sb, sku, skv end
 		dc:_emit("glass", ax, ay, ax + w, ay + h, r, 1, look.chrome, look.spec, look.shade,
 			band, min(lens.thickness, band), lift or 0, dc:_color(0xFFFFFFFF), sharp, blur, ku, kv,

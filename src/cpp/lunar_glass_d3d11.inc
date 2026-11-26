@@ -274,7 +274,7 @@ struct GlassGpu {
     float sample_glass[GLASS_SAMPLES] = {}, sample_copy[GLASS_SAMPLES] = {}, sample_frame[GLASS_SAMPLES] = {};
     float sample_copy_only[GLASS_SAMPLES] = {}, sample_blur[GLASS_SAMPLES] = {};
     float sample_load[GLASS_SAMPLES] = {};   /* the probe load: fixed work, so a clock gauge */
-    float sample_scene[GLASS_SAMPLES] = {};  /* the scene target's render and blur (core.ui.Scene) */
+    float sample_scene[GLASS_SAMPLES] = {};  /* the scene target's render and blur (core.ui.Background) */
     double gpu_scene_us_sum = 0; long long gpu_scene_frames = 0;
     int samples = 0;
 } gg;

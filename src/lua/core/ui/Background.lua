@@ -25,7 +25,7 @@
 -- loop). SVGs are rasterized and uploaded once per size; nothing uploads after warm-up.
 -- With motion off, on WARP or with hardware acceleration off, the scene is static: time
 -- and the pointer read 0, so it is drawn once per window size, mode or rail change.
--- @module core.ui.Scene
+-- @module core.ui.Background
 local Color = require("core.imgui.Color")
 local M = {}
 

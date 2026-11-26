@@ -307,7 +307,7 @@ int lunar_ui_glass_copy(ImDrawList *dl, float x1, float y1, float x2, float y2, 
 		return C.lunar_ui_glass_copy(dl, x1, y1, x2, y2, kind or 0, lip or 0, radius or 0, soft and 1 or 0) ~= 0
 	end
 end
--- Reactive backgrounds (core.ui.Scene): a private list rendered into the scene target, the
+-- Reactive backgrounds (core.ui.Background): a private list rendered into the scene target, the
 -- target's ids, a scene-only present, and a turned sprite.
 if pcall(ffi.cdef, [[
 ImDrawList *lunar_ui_scene_begin(int w, int h, float *out);

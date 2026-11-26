@@ -519,7 +519,7 @@ function M.build(p)
         end
     end
     if p.glass and p.background then
-        -- Over a reactive background (core.ui.Scene) the title strip, rail and status bar are
+        -- Over a reactive background (core.ui.Background) the title strip, rail and status bar are
         -- not separate glass pieces: they lie on the frame, the scene under one tint, so
         -- they read as one connected chrome round the sheet. The sheet and the page
         -- surfaces are a veil of glass over the scene (docs/theming.md, "Panels over a

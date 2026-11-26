@@ -309,7 +309,7 @@ describe("Lunar glass",function()
 
     it("gives the work sheet, its bands and the transport capsule their materials",function()
         local rules=require("core.classes.Themes.LunarDarkTheme"):new():rules()
-        -- over the reactive background the sheet is a veil of glass (core.ui.Scene)
+        -- over the reactive background the sheet is a veil of glass (core.ui.Background)
         assert.equal("veil",rules.workspace_sheet.glass); assert.equal(14,rules.workspace_sheet.radius)
         assert.equal("veil",rules.page_surface.glass)
         -- the shell's strips lie on the frame: one connected chrome, no separate pieces

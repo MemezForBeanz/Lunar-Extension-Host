@@ -2204,7 +2204,7 @@ int l_frame_end(lua_State *) {
     /* a texture ImGui made, updated or dropped (the font atlas) can change what is under the glass */
     if (all->Textures) for (ImTextureData *t : *all->Textures) if (t->Status != ImTextureStatus_OK) g.texture_revision++;
     glass_timing_begin();   /* LUNAR_GPU_TIMING only: every frame, so glass on and off compare */
-    /* the background scene (core.ui.Scene), when Lua re-emitted it: before the lists that
+    /* the background scene (core.ui.Background), when Lua re-emitted it: before the lists that
        draw it and before the glass plan, whose hashes it invalidates */
     if (sg.emitted) {
         scene_render(all->Textures);
@@ -3244,7 +3244,7 @@ LUNAR_FFI int lunar_ui_glass(ImDrawList *dl, float x1, float y1, float x2, float
     gg.surfaces++;
     return 1;
 }
-/* core.ui.Scene (lunar_scene_d3d11.inc): the scene list for a w x h window, emptied; null
+/* core.ui.Background (lunar_scene_d3d11.inc): the scene list for a w x h window, emptied; null
    without a device. out[0], out[1]: the target's size (a sprite's uv there is px / size). */
 LUNAR_FFI ImDrawList *lunar_ui_scene_begin(int w, int h, float *out) {
     if (!g.device || !g.ctx || w <= 0 || h <= 0 || sg.open) return nullptr;

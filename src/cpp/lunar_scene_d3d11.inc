@@ -1,4 +1,4 @@
-/* Reactive backgrounds (core.ui.Scene) on Direct3D 11.
+/* Reactive backgrounds (core.ui.Background) on Direct3D 11.
  *
  * Included by lunarimgui.cpp after lunar_glass_d3d11.inc, inside its namespace.
  *

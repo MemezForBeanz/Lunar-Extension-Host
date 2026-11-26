@@ -516,7 +516,7 @@ local pane_grid = PaneGrid:new({ iup = iup, main = tabs, settings = settings_mgr
 local tool_rail = ToolRail.new({
 	iup = iup, main = tabs, settings = settings_mgr, motion = motion_director,
 	-- the reactive background's `rail` signal (the crescent follows the rail's motion)
-	on_width = function(progress) require("core.ui.Scene").set("rail", progress) end,
+	on_width = function(progress) require("core.ui.Background").set("rail", progress) end,
 	icon = function(name, size, role) return Kit.icon(iup, name, size, role or "neutral") end,
 	is_settings = function(page) return require("core.lib.handle").same(iup, page, settings_view:widget()) end,
 })

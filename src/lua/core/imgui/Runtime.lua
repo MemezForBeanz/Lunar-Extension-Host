@@ -1051,9 +1051,9 @@ function M.step(wait)
 	if wake_at and now >= wake_at then wake_at = nil; need_frame = true end
 	if wait and not need_frame and not animating then
 		local due = next_timer_due()
-		-- a reactive background (core.ui.Scene) drawing again on its own: a twinkle tick
-		local Scene = package.loaded["core.ui.Scene"]
-		local scene_due = Scene and Scene.due()
+		-- a reactive background (core.ui.Background) drawing again on its own: a twinkle tick
+		local Background = package.loaded["core.ui.Background"]
+		local scene_due = Background and Background.due()
 		if scene_due and (not due or scene_due < due) then due = scene_due end
 		local t = 0.5
 		if due then t = math.max(0, math.min(t, due - M.now())) end
@@ -1066,7 +1066,7 @@ function M.step(wait)
 		if woke == false and not need_frame and not animating then
 			-- only the scene changed: it is drawn and presented without a frame of the UI,
 			-- unless the last frame cannot be shown again (then a full frame)
-			if not (scene_due and M.now() >= scene_due) or Scene.tick(B) then return DEFAULT end
+			if not (scene_due and M.now() >= scene_due) or Background.tick(B) then return DEFAULT end
 		end
 	end
 	M.frame()

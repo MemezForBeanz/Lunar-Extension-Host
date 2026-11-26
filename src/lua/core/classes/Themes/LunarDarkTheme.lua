@@ -34,7 +34,7 @@ function LunarDarkTheme:initialize()
         font = "Segoe UI, 10",
         glass = true,
         glassDark = true,
-        -- The reactive space scene (core.ui.Scene, lunar_space.lua), shared with the light
+        -- The reactive space scene (core.ui.Background, lunar_space.lua), shared with the light
         -- mode so a switch animates it; the frame round the sheet is the scene under a
         -- light tint (one connected chrome), the sheet a veil of glass over it.
         background = space.background(),

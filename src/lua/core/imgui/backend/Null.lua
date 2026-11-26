@@ -124,7 +124,7 @@ function M.new(opts)
 	function B.glass(...) record("glass", ...); return true end
 	function B.glass_copy(...) record("glass_copy", ...); return true end
 	function B.image_quad(...) record("image_quad", ...) end
-	-- The scene target (core.ui.Scene), when built with { scene = true }: its calls go to
+	-- The scene target (core.ui.Background), when built with { scene = true }: its calls go to
 	-- B.scene_calls, a render per scene_end, and scene_present succeeds unless
 	-- B.scene_refuse is set.
 	if opts.scene then

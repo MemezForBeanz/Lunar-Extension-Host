@@ -1,4 +1,4 @@
---- Lunar's reactive background (core.ui.Scene): a space scene shared by the dark and light
+--- Lunar's reactive background (core.ui.Background): a space scene shared by the dark and light
 -- modes, so switching mode animates it (`mode` eases 0 -> 1): the night sky brightens into
 -- an airy day, the stars fade, the moon's terminator sweeps off its face and it warms into
 -- a rising sun; the ringed planet pales into a daytime moon. The crescent belongs to the
