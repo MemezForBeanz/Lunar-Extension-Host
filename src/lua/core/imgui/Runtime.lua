@@ -1057,8 +1057,9 @@ function M.step(wait)
 		if scene_due and (not due or scene_due < due) then due = scene_due end
 		local t = 0.5
 		if due then t = math.max(0, math.min(t, due - M.now())) end
-		local woke
-		if t > 0 then woke = B.wait(t) end
+		-- a zero wait still polls: a scene already due with no input pending stays a
+		-- scene-only present, not a frame of the UI
+		local woke = B.wait(t)
 		run_timers(M.now())
 		if wake_at and M.now() >= wake_at then wake_at = nil; need_frame = true end
 		-- Nothing arrived and nothing changed: the window already shows this frame. (A
