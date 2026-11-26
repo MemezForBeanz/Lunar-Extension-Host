@@ -8,6 +8,8 @@ ToolRail.WIDE = 176
 ToolRail.NARROW = 48
 -- Titles show once the rail is this wide (extending: from about a third of the way).
 ToolRail.TITLES_FROM = ToolRail.NARROW + 56
+-- ms: the extended state's elements ease in after the rail has finished extending
+ToolRail.SETTLE_MS = 150
 local SETTING = "tool_rail_collapsed"
 
 --- What a row should say about its tab's background work. Running wins: it's still going,
@@ -31,8 +33,17 @@ function ToolRail.new(opts)
 	local iup = opts.iup
 	local self = setmetatable({ _iup = iup, _root = opts.main, _settings = opts.settings,
 		_icon = opts.icon, _is_settings = opts.is_settings, _motion = opts.motion,
-		_on_width = opts.on_width, _anim = {} }, ToolRail)
+		_on_width = opts.on_width, _on_settled = opts.on_settled, _anim = {}, _settle = {} }, ToolRail)
 	self._collapsed = not opts.settings or opts.settings:get(SETTING) ~= false
+	if self._on_settled then self._on_settled(self._collapsed and 0 or 1) end
+	-- the reactive background's `rail_room`: px free between the rail's last entry ("+")
+	-- and its foot, read from the rail's layout when the scene draws (its crescent fades
+	-- before the entries reach it)
+	local ok, Background = pcall(require, "core.ui.Background")
+	if ok and Background.signal then
+		local rail = self
+		Background.signal("rail_room", { read = function() return rail:room() end })
+	end
 	self._strip = iup.flattabs({ TABTYPE = "LEFT", TABSBREADTH = tostring(ToolRail.NARROW),
 		TABSHIDETITLE = "YES", TABSLETTERS = "YES", TABSALIGNMENT = "ALEFT:ACENTER",
 		TABSTEXTELLIPSIS = "YES", EXPAND = "VERTICAL", CANFOCUS = "NO", THEMEROLE = "tool_rail" })
@@ -60,6 +71,16 @@ function ToolRail.new(opts)
 end
 
 function ToolRail:widget() return self._strip end
+
+--- Px free between the last entry ("+") and the collapse chevron at the foot (0 before
+-- the first layout).
+function ToolRail:room()
+	local ok, tabs = pcall(require, "core.imgui.widgets.flattabs")
+	local rects = ok and tabs.extraRects and tabs.extraRects(self._strip) or {}
+	local add, foot = rects[1], rects[2]
+	if add and foot then return foot[2] - (add[2] + add[4]) end
+	return 0
+end
 function ToolRail:connect(opts)
 	self._groups, self._activity, self._prompt = opts.groups, opts.activity, opts.prompt
 	self._view:setOrder(opts.order)
@@ -164,14 +185,32 @@ function ToolRail:toggle()
 	self._width = from
 	self:_size()
 	self:refresh()
+	-- the extended state's own elements (the crescent) come in only once the rail is fully
+	-- extended, over SETTLE_MS, and go the moment it starts to collapse
+	local settled = self._on_settled
+	local function settle()
+		if not settled then return end
+		if self._motion then
+			self._motion:animate({ target = self._settle, from = 0, to = 1, duration = ToolRail.SETTLE_MS,
+				curve = "entrance", on_frame = settled })
+		else settled(1) end
+	end
+	if settled then
+		if self._motion then self._motion:cancel({ target = self._settle }) end
+		settled(0)
+	end
 	if self._motion and from ~= to then
 		self._motion:animate({ target = self._anim, from = from, to = to, distance = math.abs(to - from),
 			curve = "standard", on_frame = frame,
-			on_done = function() self._width = nil end })
+			on_done = function(completed)
+				self._width = nil
+				if completed and not self._collapsed then settle() end
+			end })
 	else
 		self._width = nil
 		frame(to)
 		self._width = nil
+		if not self._collapsed then settle() end
 	end
 end
 

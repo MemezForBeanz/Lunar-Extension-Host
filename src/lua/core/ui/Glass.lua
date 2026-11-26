@@ -517,13 +517,6 @@ end
 -- transport). Native popups map the backdrop by their own window.
 function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 	p = p or Reactor.palette()
-	if style and style.scene_room and el then
-		-- the rail: the px free between its last entry ("+") and its foot, for the scene
-		local ok, tabs = pcall(require, "core.imgui.widgets.flattabs")
-		local rects = ok and tabs.extraRects and tabs.extraRects(el) or {}
-		local add, foot = rects[1], rects[2]
-		if add and foot then require("core.ui.Background").set("rail_room", foot[2] - (add[2] + add[4])) end
-	end
 	if kind == "content" or kind == "chrome_content" or kind == "none" then return end
 	if kind == "caps" then
 		local subs = state and state.caps
@@ -548,6 +541,7 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 			dc:_emit("glass", ax, ay, ax + w, ay + h, r, 1, look.veil, look.spec, look.shade,
 				min(lens.band, w / 2, h / 2), lens.thickness, 0, dc:_color(0xFFFFFFFF), sharp, blur, ku, kv,
 				0, 0, lens.chroma, 0, look.veil_max, look.veil_min, look.spec_floor, -1, 0)
+			if p.glassVeilRim then dc:rect(x, y, w, h, p.glassVeilRim, fine_shapes[r]) end
 			return
 		end
 	end
@@ -577,8 +571,11 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 	if kind == "floor" then
 		local Background = require("core.ui.Background")
 		if Background.of(p) and Background.floor(dc, x, y, w, h, p, gpu(dc)) then
-			if p.glassFrameAlpha and p.glassFrameAlpha > 0 then
-				dc:fill(x, y, w, h, Color.alpha(Color.parse(p.glassFrameTint or p.bg), p.glassFrameAlpha))
+			-- the frame's tint; while a mode switch's sky is still on its way it holds as much
+			-- more as the labels on it need (Background.frameAlpha)
+			local a = Background.frameAlpha(p)
+			if a > 0 then
+				dc:fill(x, y, w, h, Color.alpha(Color.parse(p.glassFrameTint or p.bg), a))
 			end
 			return
 		end
@@ -649,11 +646,16 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 		end
 		local _, _, ku, kv = uv(dc, c, 0, 0, 1, 1, c.sw, c.sh)
 		local sharp, blur = c.sharp, c.blur
-		local ss, sb, sku, skv = require("core.ui.Background").textures(dc.B)
+		local Background = require("core.ui.Background")
+		local ss, sb, sku, skv = Background.textures(dc.B)
 		if ss then sharp, blur, ku, kv = ss, sb, sku, skv end
+		-- while a mode switch's sky has not reached the UI's mode, chrome bounds its
+		-- luminance for its labels as the transport does
+		local hi, lo = 1, 0
+		if ss and Background.lag() > 0 then hi, lo = look.lum_max, look.lum_min end
 		dc:_emit("glass", ax, ay, ax + w, ay + h, r, 1, look.chrome, look.spec, look.shade,
 			band, min(lens.thickness, band), lift or 0, dc:_color(0xFFFFFFFF), sharp, blur, ku, kv,
-			0, 0, lens.chroma, angle, 1, 0, look.spec_floor, -1, 0)
+			0, 0, lens.chroma, angle, hi, lo, look.spec_floor, -1, 0)
 		return -- the shader drew the rim
 	else
 		sample(dc, c, tex, x, y, w, h, r, true)

@@ -531,10 +531,9 @@ function M.build(p)
             rules[role].glass = "chrome_content"
         end
         rules.tool_rail.glass, rules.tool_rail.radius = "chrome_content", nil
-        -- the rail tells the scene how much of it is free below its entries (its crescent)
-        rules.tool_rail.scene_room = true
+        -- one veil: the sheet; the page surfaces inside it show it (no second glass pass)
         rules.workspace_sheet.glass = "veil"
-        rules.page_surface.glass = "veil"
+        rules.page_surface.glass = "content"
         -- navigation rows rest on the veil (only their states fill)
         for _, role in ipairs({ "settings_nav", "settings_nav_on", "settingsheader", "settingsrow" }) do
             if rules[role] then rules[role].bg, rules[role].border = p.layer02, p.layer02 end

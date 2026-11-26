@@ -373,8 +373,9 @@ function ThemeManager:toggleMode()
 	return self:apply(other) ~= false
 end
 
---- Wrap every later theme change: `fn(paint)` must call `paint()` exactly once, before
--- it returns. `core.ui.ThemeTransition` covers the repaint and fades it in.
+--- Wrap every later theme change: `fn(paint, from, to)` must call `paint()` exactly once,
+-- before it returns (`from`, `to`: the Theme objects). `core.ui.ThemeTransition` covers the
+-- repaint and fades it in.
 -- @tparam function|nil fn
 function ThemeManager:setTransition(fn)
 	self._transition = fn
@@ -1661,7 +1662,7 @@ function ThemeManager:apply(name, opts)
 	end
 
 	if self._transition and self._applied and not opts.force then
-		self._transition(function() self:_paintTheme(theme, opts) end)
+		self._transition(function() self:_paintTheme(theme, opts) end, self._theme_by_id[self._applied], theme)
 	else
 		self:_paintTheme(theme, opts)
 	end

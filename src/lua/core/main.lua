@@ -515,8 +515,10 @@ local WORK_W, WORK_H, TASKBAR = STARTUP.work_w, STARTUP.work_h, STARTUP.taskbar
 local pane_grid = PaneGrid:new({ iup = iup, main = tabs, settings = settings_mgr })
 local tool_rail = ToolRail.new({
 	iup = iup, main = tabs, settings = settings_mgr, motion = motion_director,
-	-- the reactive background's `rail` signal (the crescent follows the rail's motion)
+	-- the reactive background's `rail` signal (the scene follows the rail's motion) and
+	-- `rail_settled` (the crescent: in once the rail has finished extending)
 	on_width = function(progress) require("core.ui.Background").set("rail", progress) end,
+	on_settled = function(k) require("core.ui.Background").set("rail_settled", k) end,
 	icon = function(name, size, role) return Kit.icon(iup, name, size, role or "neutral") end,
 	is_settings = function(page) return require("core.lib.handle").same(iup, page, settings_view:widget()) end,
 })
@@ -1521,7 +1523,18 @@ do
 		compositor = function() return require("core.lib.Compositor").forDialog(iup, dlg) end,
 		motion = motion_director,
 	})
-	theme_mgr:setTransition(function(paint) fade:run(paint) end)
+	-- Two palettes of one reactive scene (Lunar dark and light): no picture of the window
+	-- fades (a cross-fade of two UIs halves every label's contrast); the UI switches in one
+	-- frame, its frame and chrome holding their contrast while the sky eases after it
+	-- (core.ui.Background.frameAlpha).
+	theme_mgr:setTransition(function(paint, from, to)
+		local Background = require("core.ui.Background")
+		if from and to and Background.shared(from:palette(), to:palette()) then
+			fade:settle()
+			return paint()
+		end
+		fade:run(paint)
+	end)
 end
 
 if not settings_mgr:get("welcome_tour_completed")

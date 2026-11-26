@@ -11,6 +11,8 @@
 --   mouse_x/y   the pointer, -1..1 across the window (0 while static or away)
 --   width/height  the window, px
 --   rail        the sidebar, 0 collapsed .. 1 extended (follows its motion)
+--   rail_settled  0 .. 1 once the sidebar has finished extending (0 as it starts to collapse)
+--   rail_room   px free below the sidebar's entries (read from the rail's layout)
 --   fullscreen  0 or 1
 --
 -- More signals are one call: `Scene.signal(name, { read = function(ctx) ... end })`, or a
@@ -32,7 +34,8 @@ local M = {}
 local floor, max, min, sin, cos, pi = math.floor, math.max, math.min, math.sin, math.cos, math.pi
 
 M.FPS = 24          -- the default cap for time-bound redraws
-M.MODE_EASE = 0.9   -- s: the sky's dark/light change (scaled like other motion)
+M.MODE_EASE = 0.6   -- s: the sky's dark/light change (scaled like other motion)
+M.MODE_DELAY = 0.08 -- s: it starts this long after the UI has switched
 M.ASSET_DIR = nil   -- where `file =` SVGs live (assets/scene next to the exe)
 
 -- Signals ------------------------------------------------------------------------------
@@ -62,6 +65,7 @@ M.signal("clock", { read = function()
 end })
 M.signal("mode", { read = function(ctx)
 	if mode.dur <= 0 or ctx.now >= mode.at + mode.dur then return mode.to end
+	if ctx.now <= mode.at then return mode.from end
 	local t = (ctx.now - mode.at) / mode.dur
 	t = t * t * (3 - 2 * t)
 	return mode.from + (mode.to - mode.from) * t
@@ -71,6 +75,7 @@ M.signal("mouse_y", { read = function(ctx) return ctx.static and 0 or ctx.my or 
 M.signal("width", { read = function(ctx) return ctx.w end })
 M.signal("height", { read = function(ctx) return ctx.h end })
 M.signal("rail", { read = function() return pushed.rail or 0 end })
+M.signal("rail_settled", { read = function() return pushed.rail_settled or 0 end })
 M.signal("fullscreen", { read = function() return pushed.fullscreen or 0 end })
 
 -- Values -------------------------------------------------------------------------------
@@ -196,8 +201,31 @@ local function lcg(seed)
 	end
 end
 
+-- An svg layer's art: one source (`svg` inline or `file`), or a set chosen by a signal
+-- (`svg = { signal = s, set = { ... } [, range = { lo, hi }] }`, every entry made when the
+-- scene first shows). A video's art is its `poster` (an svg layer table), never its file.
+local function art_of(def, kind, deps)
+	local src = def.svg or def.file
+	if kind == "video" then
+		src = type(def.poster) == "table" and (def.poster.svg or def.poster.file) or nil
+	end
+	if type(src) == "table" and src.set then
+		local set, name = src.set, src.signal
+		local lo, hi = 0, 1
+		if src.range then lo, hi = src.range[1], src.range[2] end
+		if name then deps[name] = true end
+		return set, function(s)
+			local t = ((s[name] or 0) - lo) / (hi - lo)
+			t = t < 0 and 0 or (t > 1 and 1 or t)
+			return set[1 + floor(t * (#set - 1) + 0.5)]
+		end
+	end
+	if src == nil then return {}, function() return nil end end
+	return { src }, function() return src end
+end
+
 local function compile_layer(def)
-	local layer = { def = def, kind = def.kind or (def.svg and "svg") or (def.file and "svg") or "fill", deps = {} }
+	local layer = { def = def, kind = def.kind or ((def.svg or def.file) and "svg") or "fill", deps = {} }
 	for _, k in ipairs(PROPS) do
 		local v = def[k]
 		if v == nil then v = DEFAULTS[k] end
@@ -230,9 +258,18 @@ local function compile_layer(def)
 			}
 		end
 		layer.stars, layer.amount = stars, tw.amount or 0
+		-- `frame = { opacity, top, bottom, left }`: stars in those strips of the window (px;
+		-- `left` may be bound) are capped at `opacity`, scaled down with the rest
+		if def.frame then
+			layer.frame_left = compile(def.frame.left or 0, layer.deps)
+			layer.frame_cap = def.frame.opacity or 1
+		end
 		if layer.amount > 0 and share > 0 then layer.deps.time = true end
 	end
-	if layer.kind == "video" then layer.deps.time = true end
+	if layer.kind == "svg" or layer.kind == "video" then
+		-- a video's poster is still: it reads only what its own properties read
+		layer.arts, layer.art = art_of(def, layer.kind, layer.deps)
+	end
 	-- a parallax offset reads the pointer
 	if def.parallax and def.parallax ~= 0 then layer.deps.mouse_x, layer.deps.mouse_y = true, true end
 	return layer
@@ -305,12 +342,11 @@ function M.reset()
 	M._last_key, M._target = nil, nil
 end
 
--- An svg layer's (or a video's poster's) texture: its box `width` x `height` (or `size`)
--- px, rasterized at `raster` times that (above 1 for a layer scaled up, below for soft
--- glows that need no detail).
-local function layer_texture(B, layer)
+-- An svg layer's (or a video's poster's) texture for art `src`: its box `width` x `height`
+-- (or `size`) px, rasterized at `raster` times that (above 1 for a layer scaled up, below
+-- for soft glows that need no detail).
+local function layer_texture(B, layer, src)
 	local def = layer.def
-	local src = def.svg or def.file or (def.poster and (def.poster.svg or def.poster.file))
 	if not src then return nil end
 	local bw = def.width or def.size or 64
 	local bh = def.height or def.size or bw
@@ -327,7 +363,9 @@ local function warm(B, scene)
 	scene.warm = B
 	for _, layer in ipairs(scene.layers) do
 		if layer.kind == "stars" then texture(B, "dot", dot_pixels)
-		elseif layer.kind ~= "fill" then layer_texture(B, layer) end
+		elseif layer.arts then
+			for _, src in ipairs(layer.arts) do layer_texture(B, layer, src) end
+		end
 	end
 end
 
@@ -357,6 +395,11 @@ local function emit(B, scene, s, w, h, ctx)
 					local mx, my = (s.mouse_x or 0) * par, (s.mouse_y or 0) * par
 					local tint = layer.tint(s)
 					local dx, dy = layer.dx(s), layer.dy(s)
+					local cap, left, top, bottom = 1, -1, -1, h + 1
+					if layer.frame_cap then
+						cap = min(1, layer.frame_cap / opacity)
+						left, top, bottom = layer.frame_left(s), layer.def.frame.top or 0, h - (layer.def.frame.bottom or 0)
+					end
 					for _, st in ipairs(layer.stars) do
 						local a = st.base * opacity
 						if st.twinkles and amount > 0 then
@@ -365,6 +408,7 @@ local function emit(B, scene, s, w, h, ctx)
 						if a > 0.01 then
 							local x = st.u * w + dx - mx * st.depth
 							local y = st.v * h + dy - my * st.depth
+							if x < left or y < top or y > bottom then a = a * cap end
 							local r = st.r * 2.2   -- the sprite's falloff reaches past the core
 							local col = st.color
 							B.image(id, x - r, y - r, x + r, y + r, 0, 0, 1, 1,
@@ -376,7 +420,7 @@ local function emit(B, scene, s, w, h, ctx)
 			else
 				-- svg (and a video's poster): one sprite, anchored at its centre
 				local def = layer.def
-				local id, bw, bh = layer_texture(B, layer)
+				local id, bw, bh = layer_texture(B, layer, layer.art(s))
 				if id then
 					local scale = layer.scale(s)
 					local par = layer.parallax(s)
@@ -422,8 +466,14 @@ local last_emit = -1e9
 local animated = false   -- may time and the pointer move it (motion on, GPU path)
 local window = { w = 0, h = 0 }
 local pending_resize = false   -- a resize stretched the last render; one more is due
-M.RESIZE_HZ = 30
-local target             -- { tw, th } of the scene target, while one holds the scene
+local last_resize = -1e9       -- when the window last changed size
+local seen_size                -- the window size the last frame had
+local listed                   -- the target size the last full frame's lists sample at
+M.RESIZE_HZ = 30        -- GPU path: redraws during a live resize at most this often
+M.RESIZE_SETTLE = 0.15  -- static path (WARP, motion off): the last render stretches until
+                        -- the size has held this long, then one redraw
+local EASE_HZ = 60      -- a mode ease redraws at most this often
+local target            -- { tw, th } of the scene target, while one holds the scene
 
 local function motion()
 	local Reactor = package.loaded["core.ui.ThemeReactor"]
@@ -435,7 +485,14 @@ end
 --- Is `p`'s scene live on this backend (it has a background)?
 function M.of(p) return p and p.background and p.background.layers and scene_of(p.background) or nil end
 
--- Follow the palette: a new background starts fresh; the same one with another mode eases.
+--- Do palettes `a` and `b` show one scene (a switch between them eases it, not a fade)?
+function M.shared(a, b)
+	local x, y = a and a.background, b and b.background
+	return x ~= nil and y ~= nil and (x == y or (x.id ~= nil and x.id == y.id))
+end
+
+-- Follow the palette: a new background starts fresh; the same one with another mode eases,
+-- MODE_DELAY after the UI has switched.
 local function follow(p, now)
 	local bg = p.background
 	local scene = scene_of(bg)
@@ -446,14 +503,31 @@ local function follow(p, now)
 	elseif want ~= mode.to then
 		local on, director = motion()
 		local cur = signals.mode.read({ now = now })
-		mode.from, mode.to, mode.at = cur, want, now
+		local scale = director and director._scale or 1
 		-- off the GPU path (WARP, hardware acceleration off) the scene is static: the
 		-- switch is one render, not a render per frame of the ease
-		mode.dur = (on and animated) and M.MODE_EASE * (director and director._scale or 1) or 0
+		local eases = on and animated
+		mode.from, mode.to = cur, want
+		mode.at = now + (eases and M.MODE_DELAY * scale or 0)
+		mode.dur = eases and M.MODE_EASE * scale or 0
 	end
 	active = scene
 	M._deps = scene.deps
 	return scene
+end
+
+local function now_of()
+	local R = package.loaded["core.imgui.Runtime"]
+	return R and R.now and R.now() or 0
+end
+
+--- How far the sky still is from the mode the UI shows: 0 at rest, 1 when it has not
+-- started to move (a switch's first MODE_DELAY).
+function M.lag(now)
+	if not active or mode.dur <= 0 then return 0 end
+	now = now or now_of()
+	if now >= mode.at + mode.dur then return 0 end
+	return math.abs(mode.to - signals.mode.read({ now = now }))
 end
 
 local function context(now, w, h)
@@ -488,13 +562,38 @@ local function read(scene, ctx)
 	return s, changed
 end
 
+--- Drop the active scene and its idle scheduling, keeping pushed signals (the rail) for
+-- when a scene shows again: the theme left it (Lunar -> Carbon).
+function M.deactivate()
+	active, target, M._deps, last_values, last_emit = nil, nil, nil, {}, -1e9
+	pending_resize, listed, seen_size, M._target_size = false, nil, nil, nil
+	mode.from, mode.to, mode.dur = 0, 0, 0
+end
+
+-- Is the active scene still the palette's (the theme may have changed since it drew)?
+local function current()
+	if not active then return false end
+	local Reactor = package.loaded["core.ui.ThemeReactor"]
+	local ok, p = pcall(function() return Reactor and Reactor.palette and Reactor.palette() end)
+	if ok and type(p) == "table" and not M.shared(p, { background = active.bg }) then
+		M.deactivate()
+		return false
+	end
+	return true
+end
+M._current = current
+
 --- When should the scene be drawn again (M.now seconds), or nil: never on its own.
 function M.due()
-	if not active then return nil end
-	local R = package.loaded["core.imgui.Runtime"]
-	local now = R and R.now and R.now() or 0
-	if mode.dur > 0 and now < mode.at + mode.dur then return now end
-	if pending_resize then return last_emit + 1 / M.RESIZE_HZ end
+	if not current() then return nil end
+	local now = now_of()
+	if mode.dur > 0 and now < mode.at + mode.dur then
+		-- an ease: from its start, at most EASE_HZ times a second
+		return max(mode.at, last_emit + 1 / EASE_HZ)
+	end
+	if pending_resize then
+		return animated and last_emit + 1 / M.RESIZE_HZ or last_resize + M.RESIZE_SETTLE
+	end
 	if animated and active.deps.time then return last_emit + 1 / active.fps end
 	if active.deps.clock then
 		local t = os.date("*t")
@@ -521,9 +620,8 @@ end
 -- when `p` has none. `live`: the GPU path (time and the pointer may move it).
 function M.floor(dc, x, y, w, h, p, live)
 	local B = dc.B
-	if not M.of(p) then active = nil; M._deps = nil; return false end
-	local R = package.loaded["core.imgui.Runtime"]
-	local now = R and R.now and R.now() or 0
+	if not M.of(p) then if active then M.deactivate() end; return false end
+	local now = now_of()
 	animated = live and (motion()) or false
 	local scene = follow(p, now)
 	warm(B, scene)
@@ -532,10 +630,15 @@ function M.floor(dc, x, y, w, h, p, live)
 	local ctx = context(now, W, H)
 	local s, changed = read(scene, ctx)
 	if B.scene_begin and (dc.surface_id or 0) == 0 then
-		local resized = M._target_size ~= W .. "x" .. H
-		-- a live resize redraws the scene at most RESIZE_HZ times a second; between, the last
-		-- render stretches to the window and a last one follows when it settles (M.due)
-		if resized and target and B.scene_valid() and now - last_emit < 1 / M.RESIZE_HZ then
+		local size = W .. "x" .. H
+		if seen_size ~= size then seen_size, last_resize = size, now end
+		local resized = M._target_size ~= size
+		-- a live resize stretches the last render over the window: on the GPU path it is
+		-- drawn again at most RESIZE_HZ times a second, on the static path once the size
+		-- has held for RESIZE_SETTLE; either way a last one follows when it settles (M.due)
+		local hold
+		if animated then hold = now - last_emit < 1 / M.RESIZE_HZ - 1e-6 else hold = now - last_resize < M.RESIZE_SETTLE - 1e-6 end
+		if resized and target and B.scene_valid() and hold then
 			pending_resize = true
 			stats.stretched = (stats.stretched or 0) + 1
 		elseif changed or not target or not B.scene_valid() or resized then
@@ -543,7 +646,7 @@ function M.floor(dc, x, y, w, h, p, live)
 			target = draw_target(B, scene, s, W, H)
 			if target then
 				last_values, last_emit = s, now
-				M._target_size = W .. "x" .. H
+				M._target_size = size
 				stats.emits = stats.emits + 1
 			end
 		else
@@ -555,6 +658,7 @@ function M.floor(dc, x, y, w, h, p, live)
 			dc:_emit("image", B.SCENE_SHARP, x + dc.ox, y + dc.oy, x + dc.ox + w, y + dc.oy + h,
 				(x + dc.ox) * sx, (y + dc.oy) * sy, (x + dc.ox + w) * sx, (y + dc.oy + h) * sy,
 				dc:_color(0xFFFFFFFF))
+			listed = target.w .. "x" .. target.h
 			-- the next time-bound draw is the idle loop's (Runtime.step asks M.due), as a
 			-- scene-only present: a wake here would make it a frame of the UI
 			return true
@@ -586,16 +690,18 @@ end
 
 --- From the runtime's idle loop, when M.due() has come: draw the scene again and present
 -- it without a frame of the UI. Returns true when done (or nothing changed), false when a
--- full frame is needed instead.
+-- full frame is needed instead: during a mode ease (the frame's tint and the chrome follow
+-- the sky, see M.frameAlpha), when the size changed since the last full frame (its lists'
+-- uvs are for the old size), when the theme left the scene.
 function M.tick(B)
-	if not active or not target or not (B and B.scene_present) then return false end
-	local R = package.loaded["core.imgui.Runtime"]
-	local now = R and R.now and R.now() or 0
+	if not current() or not target or not (B and B.scene_present) then return false end
+	local now = now_of()
+	if mode.dur > 0 and now < mode.at + mode.dur then return false end
 	animated = animated and (motion()) or false
 	local ctx = context(now, window.w, window.h)
 	local s, changed = read(active, ctx)
 	if not changed and not pending_resize then last_emit = now; stats.skipped = stats.skipped + 1; return true end
-	pending_resize = false
+	if pending_resize or listed ~= window.w .. "x" .. window.h then return false end
 	if not B.scene_valid() then return false end
 	local t = draw_target(B, active, s, window.w, window.h)
 	if not t then return false end
@@ -613,11 +719,148 @@ end
 --- Does a pointer move change the scene (a parallax layer, motion on)?
 function M.wantsPointer() return active ~= nil and animated and active.deps.mouse_x == true end
 
+-- Contrast ---------------------------------------------------------------------------------
+-- Labels on the frame lie over the scene under the frame's tint. A layer may give `peak`
+-- = { colour, alpha }, the brightest pixel of its art (a star field's is its brightest
+-- colour at its `frame` cap, else its opacity), and `labels = false` when it never lies
+-- under labels (kept clear of them, or faded out where they are).
+local function lin(v) v = v / 255; return v <= 0.04045 and v / 12.92 or ((v + 0.055) / 1.055) ^ 2.4 end
+local function luminance(c) return 0.2126 * lin(c[1]) + 0.7152 * lin(c[2]) + 0.0722 * lin(c[3]) end
+M.luminance = luminance
+local function over(under, c, a)
+	return { under[1] + (c[1] - under[1]) * a, under[2] + (c[2] - under[2]) * a, under[3] + (c[3] - under[3]) * a }
+end
+M.over = over
+
+--- The brightest and darkest pixel (sRGB 0..255) `bg`'s scene can put under the frame's
+-- labels with signals `s` (`mode`; the rest read 0 unless given), from its layer table.
+-- `bg.labels = { top, bottom, left, sizes }` names the strips where labels lie (px; `left`
+-- may be bound, `sizes` the window sizes to check, default 1920x1080 and 1084x792). A glow
+-- (`glow = { colour, alpha, mid }`: an ellipse filling its box, alpha falling linearly to
+-- `alpha * 0.45` at `mid` and to 0 at its edge) counts at the nearest point of those strips
+-- (less its parallax); a star field at its `frame` cap; another layer at its `peak` = {
+-- colour, alpha }, unless `labels = false` (it never lies under labels). Glows are taken
+-- not to overlap one another there, nor star fields: the brightest of each counts.
+local function glow_alpha(g, d)
+	local a, mid = g[2] or 1, g[3] or 0.45
+	if d >= 1 then return 0 end
+	if d <= mid then return a + (a * 0.45 - a) * (d / mid) end
+	return a * 0.45 * (1 - (d - mid) / (1 - mid))
+end
+-- the nearest distance from (cx, cy) to rect (x, y, w, h), in units of the radii rx, ry
+local function reach(cx, cy, rx, ry, x, y, w, h)
+	local px, py = max(x, min(cx, x + w)), max(y, min(cy, y + h))
+	return math.sqrt(((px - cx) / rx) ^ 2 + ((py - cy) / ry) ^ 2)
+end
+function M.extremes(bg, s)
+	local scene = scene_of(bg)
+	local lab = bg.labels or {}
+	local left = compile(lab.left or 0, {})
+	local sizes = lab.sizes or { { 1920, 1080 }, { 1084, 792 } }
+	local bright, dark
+	local glow_c, glow_a, star_c, star_a = nil, 0, nil, 0
+	for _, layer in ipairs(scene.layers) do
+		local def = layer.def
+		local o = layer.opacity(s)
+		if type(o) == "number" and o > 0.002 and def.labels ~= false then
+			local t = layer.tint(s)
+			local function tinted(c) return { c[1] * t[1] / 255, c[2] * t[2] / 255, c[3] * t[3] / 255 } end
+			if layer.kind == "fill" then
+				local a, b = layer.top(s), layer.bottom(s)
+				local hi, lo = a, b
+				if luminance(b) > luminance(a) then hi, lo = b, a end
+				bright = over(bright or { 0, 0, 0 }, hi, o)
+				dark = over(dark or { 0, 0, 0 }, lo, o)
+			elseif layer.kind == "stars" then
+				local c
+				for _, col in ipairs(def.colors or { "#FFFFFF" }) do
+					local v = rgba(col)
+					if not c or luminance(v) > luminance(c) then c = v end
+				end
+				local a = def.frame and def.frame.opacity and min(o, def.frame.opacity) or o
+				if a > star_a then star_c, star_a = tinted(c), a end
+			elseif def.glow then
+				local bw, bh = def.width or def.size or 64, def.height or def.size or def.width or 64
+				local sc, par = layer.scale(s), layer.parallax(s)
+				for _, size in ipairs(sizes) do
+					local W, H = size[1], size[2]
+					for _, rail in ipairs({ 0, 1 }) do
+						local ss = setmetatable({ width = W, height = H, rail = rail }, { __index = s })
+						local cx, cy = layer.x(ss), layer.y(ss)
+						if def.unit ~= "px" then cx, cy = cx * W, cy * H end
+						cx, cy = cx + layer.dx(ss), cy + layer.dy(ss)
+						local rx, ry = bw * sc / 2, bh * sc / 2
+						local l = left(ss)
+						local d = math.min(reach(cx, cy, rx, ry, 0, 0, W, lab.top or 0),
+							reach(cx, cy, rx, ry, 0, H - (lab.bottom or 0), W, lab.bottom or 0),
+							reach(cx, cy, rx, ry, 0, 0, l, H))
+						d = max(0, d - par / min(rx, ry))
+						local a = glow_alpha(def.glow, d) * o
+						if a > glow_a then glow_c, glow_a = tinted(rgba(def.glow[1])), a end
+					end
+				end
+			elseif def.peak then
+				local c, a = tinted(rgba(def.peak[1])), (def.peak[2] or 1) * o
+				if bright and luminance(c) >= luminance(bright) then bright = over(bright, c, a) end
+				if dark and luminance(c) < luminance(dark) then dark = over(dark, c, a) end
+			end
+		end
+	end
+	bright, dark = bright or { 0, 0, 0 }, dark or { 0, 0, 0 }
+	for _, part in ipairs({ { glow_c, glow_a }, { star_c, star_a } }) do
+		local c, a = part[1], part[2]
+		if c and a > 0 then
+			if luminance(c) >= luminance(bright) then bright = over(bright, c, a) end
+			if luminance(c) < luminance(dark) then dark = over(dark, c, a) end
+		end
+	end
+	return bright, dark
+end
+
+local function ratio(a, b)
+	local x, y = luminance(a), luminance(b)
+	if x < y then x, y = y, x end
+	return (x + 0.05) / (y + 0.05)
+end
+M.ratio = ratio
+
+-- per palette: the frame's alpha needed with the sky at mode 0, 1/STEPS, .. 1
+local frame_needs = setmetatable({}, { __mode = "k" })
+local STEPS = 20
+M.FRAME_CONTRAST = 4.6
+
+--- The frame's tint alpha now: `glassFrameAlpha` at rest; while a switch's sky has not yet
+-- reached the mode the UI shows, as much more as keeps the palette's text and muted text
+-- at FRAME_CONTRAST over the worst pixel the sky can show at its current mode.
+function M.frameAlpha(p, now)
+	local rest = p.glassFrameAlpha or 0
+	if not (active and p.background) or M.lag(now) <= 0 then return rest end
+	local need = frame_needs[p]
+	if not need then
+		need = {}
+		local tint = rgba(p.glassFrameTint or p.bg) or { 0, 0, 0 }
+		local texts = { rgba(p.text), rgba(p.textMuted) }
+		for i = 0, STEPS do
+			local bright, dark = M.extremes(p.background, { mode = i / STEPS })
+			local a = rest
+			for _, worst in ipairs({ bright, dark }) do
+				for _, t in ipairs(texts) do
+					while a < 1 and ratio(t, over(worst, tint, a)) < M.FRAME_CONTRAST do a = min(1, a + 0.01) end
+				end
+			end
+			need[i] = a
+		end
+		frame_needs[p] = need
+	end
+	local m = signals.mode.read({ now = now or now_of() }) * STEPS
+	local i = floor(m)
+	return max(need[max(0, min(STEPS, i))], need[max(0, min(STEPS, i + 1))])
+end
+
 --- Forget the active scene (theme without one, tests).
 function M.clear()
-	active, target, M._deps, last_values, last_emit, t0 = nil, nil, nil, {}, -1e9, nil
-	pending_resize = false
-	mode.from, mode.to, mode.dur = 0, 0, 0
+	M.deactivate()
+	t0 = nil
 	for k in pairs(pushed) do pushed[k] = nil end
 end
 

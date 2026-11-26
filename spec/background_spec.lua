@@ -17,20 +17,22 @@ local function compile(v)
 end
 
 describe("reactive backgrounds",function()
-    local saved_rt, saved_tm, saved_svg
+    local saved_rt, saved_tm, saved_svg, saved_pal
     before_each(function()
         clock,pointer,motion_on,wakes=10,{-1,-1,false},true,{}
         saved_rt=package.loaded["core.imgui.Runtime"]
         package.loaded["core.imgui.Runtime"]=fake_runtime()
-        saved_tm=Reactor.themeManager
+        saved_tm,saved_pal=Reactor.themeManager,Reactor.palette
         Reactor.themeManager=function() return { _motion={ enabled=function() return motion_on end, _scale=1 } } end
+        Reactor.palette=function() return nil end
         saved_svg=Scene._svg_pixels
         Scene._svg_pixels=function(src,w,h) return string.rep("\255",w*h*4),w,h end
         Scene.clear(); Scene.reset()
+        Scene.signal("rail_room",nil)   -- a rail of an earlier spec registers it; here it is pushed
     end)
     after_each(function()
         package.loaded["core.imgui.Runtime"]=saved_rt
-        Reactor.themeManager=saved_tm
+        Reactor.themeManager,Reactor.palette=saved_tm,saved_pal
         Scene._svg_pixels=saved_svg
         Scene.clear(); Scene.reset()
     end)
@@ -118,7 +120,9 @@ describe("reactive backgrounds",function()
         assert.near(800/1024,floor[9],1e-9)
         assert.near(clock-0.025+1/Scene.RESIZE_HZ,Scene.due(),1e-9)
         clock=Scene.due()
-        assert.is_true(Scene.tick(B))
+        -- the last frame's lists sample the old size: the settling draw is a full frame
+        assert.is_false(Scene.tick(B))
+        frame(B,dc,static,850,600)
         assert.equal(2,B.scene_renders); assert.is_nil(Scene.due())
     end)
 
@@ -207,8 +211,11 @@ describe("reactive backgrounds",function()
             for _,c in ipairs(B.scene_calls) do if c[1]=="rect_gradient" then return c[6] % 256 end end
         end
         assert.equal(0,top())   -- the switch starts from dark
-        clock=clock+Scene.MODE_EASE/2
-        assert.equal(clock,Scene.due())   -- frames while it moves
+        -- the sky starts MODE_DELAY after the UI switched
+        assert.near(clock+Scene.MODE_DELAY,Scene.due(),1e-9)
+        assert.equal(1,Scene.lag(clock))
+        clock=clock+Scene.MODE_DELAY+Scene.MODE_EASE/2
+        assert.is_true(Scene.due()<=clock)   -- frames while it moves
         frame(B,dc,light)
         local mid=top()
         assert.is_true(mid>60 and mid<200)
@@ -264,7 +271,7 @@ describe("reactive backgrounds",function()
         local function crescent(p,rail,room,mode_now)
             local B=Null.new({scene=true}); local dc=Draw.new(B)
             Scene.clear()
-            Scene.set("rail",rail); Scene.set("rail_room",room)
+            Scene.set("rail",rail); Scene.set("rail_settled",rail); Scene.set("rail_room",room)
             frame(B,dc,p,1920,1080)
             local best,facing=0,nil
             for _,c in ipairs(B.scene_calls) do
@@ -292,6 +299,17 @@ describe("reactive backgrounds",function()
                 assert.equal(0,crescent_alpha(p,1,200))   -- entries would reach it
             end
         end)
+        it("keeps the crescent out while the rail moves: it follows rail_settled, not rail",function()
+            local B=Null.new({scene=true}); local dc=Draw.new(B)
+            Scene.set("rail",0.6); Scene.set("rail_settled",0); Scene.set("rail_room",400)
+            frame(B,dc,dark,1920,1080)
+            for _,c in ipairs(B.scene_calls) do
+                if c[1]=="image_quad" and math.abs(c[5]-c[3])+math.abs(c[6]-c[4])>100 then
+                    local cx=(c[3]+c[5]+c[7]+c[9])/4
+                    assert.is_false(cx<200 and math.floor(c[11]/16777216)>0)
+                end
+            end
+        end)
         it("lights the crescent from the sun: below the lower right at night, the upper right by day",function()
             local space=require("core.classes.Themes.lunar_space")
             for _,case in ipairs({{dark,0},{light,1}}) do
@@ -304,17 +322,137 @@ describe("reactive backgrounds",function()
             local _,night=crescent(dark,1,400); local _,day=crescent(light,1,400)
             assert.is_true(night[2]>0 and day[2]<0)   -- lit from below at night, from above by day
         end)
-        it("dims the night's stars enough for the frame's labels and lets day hide them",function()
+        it("caps the night's stars in the frame's label strips, brighter behind the sheet; day hides them",function()
+            local space=require("core.classes.Themes.lunar_space")
             local B=Null.new({scene=true}); local dc=Draw.new(B)
             frame(B,dc,dark,1920,1080)
-            local brightest=0
+            local framed,body=0,0
             for _,c in ipairs(B.scene_calls) do
-                if c[1]=="image" and c[5]-c[3]<14 then brightest=math.max(brightest,math.floor(c[11]/16777216)) end
+                if c[1]=="image" and c[5]-c[3]<16 then
+                    local x,y=(c[3]+c[5])/2,(c[4]+c[6])/2
+                    local a=math.floor(c[11]/16777216)
+                    if x<60 or y<46 or y>1080-30 then framed=math.max(framed,a) else body=math.max(body,a) end
+                end
             end
-            assert.is_true(brightest>0 and brightest<=math.floor(255*0.40+0.5))
+            assert.is_true(framed>0 and framed<=math.ceil(255*space.FRAME_STARS))
+            assert.is_true(body>framed and body<=math.ceil(255*0.70))
             Scene.clear()
             frame(B,dc,light,1920,1080)
             for _,c in ipairs(B.scene_calls) do assert.is_false(c[1]=="image" and c[5]-c[3]<14) end
+        end)
+    end)
+
+    describe("art sets, video posters and the lifecycle",function()
+        local Color=require("core.imgui.Color")
+        local function rgb(v) local r,g,b=Color.unpack(Color.parse(v)); return {r,g,b} end
+        it("picks an svg from a set by a signal, every entry made when the scene first shows",function()
+            local B=Null.new({scene=true}); local dc=Draw.new(B)
+            local made={}
+            Scene._svg_pixels=function(src,w,h) made[#made+1]=src; return string.rep("\255",w*h*4),w,h end
+            local p={glassDark=true,background={id="set",layers={{svg={signal="mode",set={"<svg>a</svg>","<svg>b</svg>","<svg>c</svg>"}},size=8}}}}
+            frame(B,dc,p)
+            local before=Scene.stats().uploads
+            frame(B,dc,p)
+            assert.equal(3,#made); assert.equal(before,Scene.stats().uploads)
+            local scene=Scene._scene_of(p.background)
+            assert.is_true(scene.layers[1].deps.mode)
+            assert.equal("<svg>a</svg>",scene.layers[1].art({mode=0}))
+            assert.equal("<svg>b</svg>",scene.layers[1].art({mode=0.5}))
+            assert.equal("<svg>c</svg>",scene.layers[1].art({mode=1}))
+            -- a switch draws the other entries without a new upload
+            frame(B,dc,{glassDark=false,background=p.background})
+            clock=clock+2; frame(B,dc,{glassDark=false,background=p.background})
+            assert.equal(before,Scene.stats().uploads); assert.equal(3,#made)
+        end)
+        it("shows a video layer's poster, never loads its file as art, and costs nothing idle",function()
+            local B=Null.new({scene=true}); local dc=Draw.new(B)
+            local loaded={}
+            Scene._svg_pixels=function(src,w,h) loaded[#loaded+1]=src; return string.rep("\255",w*h*4),w,h end
+            local p={background={id="v",layers={{kind="video",file="clip.mp4",poster={svg="<svg>poster</svg>"},size=16},
+                {kind="video",file="other.mp4",size=16}}}}
+            frame(B,dc,p)
+            assert.same({"<svg>poster</svg>"},loaded)
+            assert.is_nil(Scene._scene_of(p.background).deps.time)
+            assert.is_nil(Scene.due())
+            for _=1,10 do clock=clock+1; frame(B,dc,p) end
+            assert.equal(1,B.scene_renders)
+        end)
+        it("drops the scene and its idle ticks when the theme leaves it, keeping the rail",function()
+            local B=Null.new({scene=true}); local dc=Draw.new(B)
+            local twinkle={background={id="t",layers={{kind="stars",count=5,twinkle={amount=1,share=1}}}}}
+            Reactor.palette=function() return twinkle end
+            Scene.set("rail",1)
+            frame(B,dc,twinkle)
+            assert.is_not_nil(Scene.due())
+            Reactor.palette=function() return {bg="0 0 0"} end   -- Carbon: no scene
+            assert.is_nil(Scene.due())
+            assert.is_false(Scene.tick(B))
+            assert.is_nil(Scene.textures(B))
+            assert.equal(1,Scene.get("rail"))
+        end)
+        it("holds full frames through a mode ease, the frame's tint raised while the sky lags",function()
+            local B=Null.new({scene=true}); local dc=Draw.new(B)
+            local dark=require("core.classes.Themes.LunarDarkTheme"):new():palette()
+            local light=require("core.classes.Themes.LunarLightTheme"):new():palette()
+            frame(B,dc,dark,1920,1080)
+            assert.equal(dark.glassFrameAlpha,Scene.frameAlpha(dark))
+            frame(B,dc,light,1920,1080)
+            -- the UI is light, the sky still night: the frame holds its labels' contrast
+            local held=Scene.frameAlpha(light)
+            assert.is_true(held>light.glassFrameAlpha+0.2)
+            clock=clock+Scene.MODE_DELAY+0.01
+            assert.is_false(Scene.tick(B))   -- a frame of the UI, not a scene-only present
+            clock=clock+Scene.MODE_EASE
+            frame(B,dc,light,1920,1080)
+            assert.equal(0,Scene.lag(clock))
+            assert.equal(light.glassFrameAlpha,Scene.frameAlpha(light))
+        end)
+        it("keeps labels on the frame at 4.5:1 at every step of a switch, both ways",function()
+            for _,ui in ipairs({"LunarDarkTheme","LunarLightTheme"}) do
+                local p=require("core.classes.Themes."..ui):new():palette()
+                local other=require("core.classes.Themes."..(ui=="LunarDarkTheme" and "LunarLightTheme" or "LunarDarkTheme")):new():palette()
+                local B=Null.new({scene=true}); local dc=Draw.new(B)
+                Scene.clear(); frame(B,dc,other,1920,1080); frame(B,dc,p,1920,1080)
+                local start=clock
+                local tint=rgb(p.glassFrameTint)
+                for k=0,40 do
+                    local now=start+k*(Scene.MODE_DELAY+Scene.MODE_EASE)/40
+                    local a=Scene.frameAlpha(p,now)
+                    local lag=Scene.lag(now)
+                    local sky=p.glassDark and lag or 1-lag   -- 0 night .. 1 day
+                    local bright,dk=Scene.extremes(p.background,{mode=sky})
+                    for _,worst in ipairs({bright,dk}) do
+                        local under=Scene.over(worst,tint,a)
+                        for _,text in ipairs({p.text,p.textMuted}) do
+                            assert.is_true(Scene.ratio(rgb(text),under)>=4.5,ui.." step "..k)
+                        end
+                    end
+                end
+            end
+        end)
+        it("stretches the last render through a resize off the GPU path, drawing once it settles",function()
+            local B=Null.new({scene=true}); local dc=Draw.new(B)
+            frame(B,dc,static,800,600,false)
+            for k=1,10 do clock=clock+0.05; frame(B,dc,static,800+k*10,600,false) end
+            assert.equal(1,B.scene_renders)
+            assert.near(clock+Scene.RESIZE_SETTLE,Scene.due(),1e-9)
+            clock=Scene.due()
+            -- the last frame's lists sample the old size: a full frame, not a scene-only present
+            assert.is_false(Scene.tick(B))
+            frame(B,dc,static,900,600,false)
+            assert.equal(2,B.scene_renders); assert.is_nil(Scene.due())
+        end)
+        it("derives Lunar's contrast samples from its layer table",function()
+            local space=require("core.classes.Themes.lunar_space")
+            local bright=Scene.extremes(space.background(),{mode=0})
+            local _,dark=Scene.extremes(space.background(),{mode=1})
+            local function near(sample,c)
+                local i=0
+                for v in sample:gmatch("%d+") do i=i+1; assert.is_true(math.abs(tonumber(v)-c[i])<=1) end
+            end
+            near(space.SAMPLES.dark.frame,bright); near(space.SAMPLES.light.frame,dark)
+            -- the moon, sun, galaxy and crescent never lie under labels; the glows count where they reach
+            assert.is_true(bright[1]<140)
         end)
     end)
 end)

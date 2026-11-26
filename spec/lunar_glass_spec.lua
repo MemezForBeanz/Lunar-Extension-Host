@@ -311,7 +311,8 @@ describe("Lunar glass",function()
         local rules=require("core.classes.Themes.LunarDarkTheme"):new():rules()
         -- over the reactive background the sheet is a veil of glass (core.ui.Background)
         assert.equal("veil",rules.workspace_sheet.glass); assert.equal(14,rules.workspace_sheet.radius)
-        assert.equal("veil",rules.page_surface.glass)
+        -- one veil: the page surfaces inside it show the sheet's (no second glass pass)
+        assert.equal("content",rules.page_surface.glass)
         -- the shell's strips lie on the frame: one connected chrome, no separate pieces
         for _,role in ipairs({"statusbar","titlebar_window","tool_rail","shellheader"}) do
             assert.equal("chrome_content",rules[role].glass,role)

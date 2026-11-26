@@ -16,6 +16,11 @@ local M = {}
 local function rt() return require("core.imgui.Runtime") end
 local function backend() return rt().backend() end
 local function is_main(el) return rt().mainDialog() == el end
+-- the reactive background's `fullscreen` signal (core.ui.Background), when it is loaded
+local function fullscreen_signal(on)
+	local Background = package.loaded["core.ui.Background"]
+	if Background and Background.set then Background.set("fullscreen", on and 1 or 0) end
+end
 local function tray_target(el) return is_main(el) or not rt().mainDialog() end
 
 local function parse_size(s)
@@ -130,11 +135,13 @@ Classes.define({
 				elseif value == "MINIMIZED" then backend().window("minimize")
 				elseif value == "FULL" then backend().window("fullscreen", true)
 				else backend().window("restore") end
+				fullscreen_signal(value == "FULL")
 			end
 		end,
 		FULLSCREEN = function(el, st, value)
 			if is_main(el) and backend() and backend().alive() then
 				backend().window("fullscreen", value == "YES")
+				fullscreen_signal(value == "YES")
 			end
 		end,
 		VISIBLE = function(el, st, value)

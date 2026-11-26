@@ -36,8 +36,10 @@ function LunarLightTheme:initialize()
         glassDark = false,
         -- The same space scene as the dark mode, by day (lunar_space.lua).
         background = space.background(),
-        glassFrameTint = rgb("#F4F7FB"), glassFrameAlpha = 0.36,
-        glassVeilTint = rgb("#F8F9FA"), glassVeilAlpha = 0.68, glassVeilClear = true,
+        glassFrameTint = rgb("#F4F7FB"), glassFrameAlpha = 0.46,
+        glassVeilTint = rgb("#F4F8FD"), glassVeilAlpha = 0.58, glassVeilClear = true,
+        -- a 1 px pearl rim parts the sheet from the frame
+        glassVeilRim = "255 255 255 178",
         glassChromeTint = rgb("#F4F7FB"), glassChromeAlpha = 0.36,
         glassFloatingTint = rgb("#F4F7FB"), glassFloatingAlpha = 0.22, glassLip = 8,
         glassTextWell = rgb("#EEF1F5"),

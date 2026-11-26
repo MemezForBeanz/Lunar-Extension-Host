@@ -38,7 +38,7 @@ function LunarDarkTheme:initialize()
         -- mode so a switch animates it; the frame round the sheet is the scene under a
         -- light tint (one connected chrome), the sheet a veil of glass over it.
         background = space.background(),
-        glassFrameTint = rgb("#070A12"), glassFrameAlpha = 0.40,
+        glassFrameTint = rgb("#070A12"), glassFrameAlpha = 0.44,
         glassVeilTint = rgb("#171B21"), glassVeilAlpha = 0.66, glassVeilClear = true,
         glassChromeTint = rgb("#151B24"), glassChromeAlpha = 0.32,
         glassFloatingTint = rgb("#1E2630"), glassFloatingAlpha = 0.24, glassLip = 8,
