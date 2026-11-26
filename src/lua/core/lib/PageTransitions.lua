@@ -169,7 +169,9 @@ end
 -- first SETTLE_SPAN of the duration, and it is never nearer rest than a creep
 -- at SETTLE_SPEED to the end of the duration (joined smoothly, over SETTLE_SOFT px): its
 -- last few pixels take the last few frames. The leaving page, opacity and dimming keep the
--- kind's curve over the whole duration, which does not change.
+-- kind's curve over the whole duration, which does not change. Only the built-in push
+-- settles so (it was tuned for that one's straight approach); every other kind, an
+-- extension's above all, gets its own signed offsets on the kind's curve, overshoot and all.
 M.SETTLE_SPAN = 0.85   -- of the duration: the arriving page's movement runs over this much
 M.SETTLE_SPEED = 90    -- px/s: the creep into place
 M.SETTLE_SOFT = 3      -- px: the join between the two
@@ -186,14 +188,16 @@ local function copy(t)
 	return c
 end
 
+local push   -- the built-in push's def: the one kind that settles
+
 --- Both pages at progress `p` (0..1 of the duration `dur` seconds) of `def` with easing
 -- `ease`: the outgoing and the incoming page's tables, and the eased value (the kind's
--- curve at `p`). The incoming page's offsets settle as SETTLE_SPAN says.
+-- curve at `p`). The built-in push's incoming page settles as SETTLE_SPAN says.
 function M.at(def, ctx, ease, p, dur)
 	p = clamp01(p)
 	local q = ease(p)
 	local out, inn = def.frame(q, ctx)
-	if type(out) ~= "table" or type(inn) ~= "table" or p >= 1 then return out, inn, q end
+	if def ~= push or type(out) ~= "table" or type(inn) ~= "table" or p >= 1 then return out, inn, q end
 	local _, minn = def.frame(ease(math.min(1, p / M.SETTLE_SPAN)), ctx)
 	local _, inn0 = def.frame(0, ctx)
 	inn = copy(inn)
@@ -210,7 +214,7 @@ function M.at(def, ctx, ease, p, dur)
 	return out, inn, q
 end
 
-M.register("push", {
+push = {
 	builtin = true, label = "Push",
 	frame = function(t, ctx)
 		local alpha = 1
@@ -218,7 +222,8 @@ M.register("push", {
 		return { dx = ctx.dir * ctx.travel * ctx.lead * t, dy = 0, alpha = 1 },
 			{ dx = -ctx.dir * ctx.travel * (1 - t), dy = 0, alpha = alpha }
 	end,
-})
+}
+M.register("push", push)
 
 M.register("fade", {
 	builtin = true, label = "Fade",

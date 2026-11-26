@@ -165,7 +165,9 @@ On the ImGui strip a moving page comes to rest gently within the same duration
 (`PageTransitions.at`): the arriving page moves over the first 85% (`SETTLE_SPAN`), and the
 arriving page is never nearer rest than a 90 px/s creep to the end (`SETTLE_SPEED`, joined
 over `SETTLE_SOFT` px), so its last few pixels, where its text lines up, take the last frames
-instead of one.
+instead of one. This applies to the built-in `push` only: `rise`, `slide` and every kind an
+extension registers get the offsets their `frame` returns, signed and unchanged, on the
+kind's curve (a page may overshoot and come back).
 
 Who chooses, highest first: the user (Appearance > Tab transition, saved as
 `motion_tab_transition`; "Theme default" defers), then the theme

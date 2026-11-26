@@ -85,6 +85,52 @@ describe("page transition kinds", function()
 		end
 	end)
 
+	it("gives a registered kind its own signed offsets: an overshoot through zero survives", function()
+		local ease, dur = require("core.imgui.motion").timing(Tokens.ROLES.tab_transition)
+		-- dy = (1-t)(20-80t): +20 at the start, through zero at t 0.25, down to -20, back to 0;
+		-- dx: +24 -> -4 -> 0 (an overshoot past rest)
+		assert.is_true(PT.register("crosstest", { label = "Cross", frame = function(t)
+			local dx = t < 0.7 and 24 - 28 * t / 0.7 or -4 * (1 - t) / 0.3
+			return { alpha = 1 - t }, { dx = dx, dy = (1 - t) * (20 - 80 * t), alpha = t }
+		end }))
+		local def = PT.get("crosstest")
+		local c = ctx(1000)
+		local neg_dx, neg_dy = false, false
+		for i = 0, 200 do
+			local p = i / 200
+			local out, inn, q = PT.at(def, c, ease, p, dur)
+			local wout, winn = def.frame(ease(p), c)
+			assert.equal(ease(p), q)
+			assert.equal(winn.dx, inn.dx, "p " .. p)
+			assert.equal(winn.dy, inn.dy, "p " .. p)
+			assert.equal(winn.alpha, inn.alpha)
+			assert.equal(wout.alpha, out.alpha)
+			neg_dx = neg_dx or inn.dx < -1
+			neg_dy = neg_dy or inn.dy < -10
+		end
+		assert.is_true(neg_dx and neg_dy)   -- the overshoot is there
+		PT.unregister("crosstest")
+		-- the built-in rise and slide keep their own offsets too; only push settles
+		for _, name in ipairs({ "rise", "slide" }) do
+			local _, spec = PT.resolve(nil, name)
+			local k = PT.get(name)
+			local cc = PT.context(spec, 1000, 600, true)
+			for _, p in ipairs({ 0.2, 0.5, 0.9, 0.97 }) do
+				local _, inn = PT.at(k, cc, ease, p, dur)
+				local _, want = k.frame(ease(p), cc)
+				assert.equal(want.dx, inn.dx, name); assert.equal(want.dy, inn.dy, name)
+			end
+		end
+		-- a kind registered over the name "push" is an extension's: it is not settled either
+		local builtin = PT.get("push")
+		local own = { frame = builtin.frame }
+		PT.register("push", own)
+		local _, inn = PT.at(own, ctx(4000), ease, 0.97, dur)
+		local _, want = own.frame(ease(0.97), ctx(4000))
+		PT.register("push", builtin)
+		assert.equal(want.dx, inn.dx)
+	end)
+
 	it("rises the incoming page 16 px and fades the outgoing one out early", function()
 		local _, spec = PT.resolve(nil, "rise")
 		local out, inn = PT.get("rise").frame(0.5, PT.context(spec, 1000, 600, true))
