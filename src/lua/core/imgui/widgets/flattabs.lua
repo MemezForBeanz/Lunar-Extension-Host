@@ -536,13 +536,22 @@ local function paintChildren(el, st, d, kids, R)
 	local base = attr(el, "BGCOLOR") or Element.globals.DLGBGCOLOR or "0 0 0"
 	if tr.def.backdrop ~= false then d:fill(x, y, w, h, base) end
 	local q = tr.ease(p < 0 and 0 or p)
+	if tr.in_fades == nil then
+		local ok0, _, inn0 = pcall(tr.def.frame, 0, ctx)
+		tr.in_fades = ok0 and type(inn0) == "table" and (tonumber(inn0.alpha) or 1) < 1 or false
+	end
 	local function page(child, t, leaving)
 		local alpha = tonumber(t.alpha) or 1
 		local bg = Element.getAttribute(child, "BGCOLOR") or base
 		-- Over glass a page's own colour draws nothing (core.imgui.Draw: it would cover the
 		-- glass), so the arriving page cannot cover the leaving one: the leaving page fades
-		-- out over the first half instead of staying until the cut.
-		if leaving and M._see_through(d, bg) then alpha = alpha * (1 - math.min(1, q / 0.5)) end
+		-- out as the arriving one fades in, on the same curve, so the two together change
+		-- the frame no faster than one opaque page covering the other. A kind whose
+		-- arriving page does not fade (slide, cover) clears the leaving one by halfway.
+		if leaving and M._see_through(d, bg) then
+			local gone = tr.in_fades and (tonumber(inn.alpha) or 1) or q / 0.5
+			alpha = alpha * (1 - (gone > 1 and 1 or gone))
+		end
 		if alpha <= 0 then return end
 		local dx, dy = round(tonumber(t.dx) or 0), round(tonumber(t.dy) or 0)
 		-- what covers the scene is the layout the switch lands on: the arriving page where
