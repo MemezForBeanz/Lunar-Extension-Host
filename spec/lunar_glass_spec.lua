@@ -361,6 +361,42 @@ describe("Lunar glass",function()
             return out
         end
 
+        it("draws the veil's lens on its band only; its body a plain fill composing the same tint, bounded where the scene is bright",function()
+            local Scene=require("core.ui.Background")
+            local C=require("core.imgui.Color")
+            local B=Null.new({scene=true}); B.glass_ready=function() return true end
+          for _,name in ipairs({"LunarDarkTheme","LunarLightTheme"}) do
+            local B=Null.new({scene=true}); B.glass_ready=function() return true end
+            local dc=Draw.new(B); local p=palette(name)
+            local Reactor=require("core.ui.ThemeReactor")
+            local realp=Reactor.palette; Reactor.palette=function() return p end
+            Scene.clear()
+            frame(B,dc,1920,1080,function()
+                Glass.paint(dc,0,0,1920,1080,"floor",p)
+                Glass.paint(dc,186,46,1724,1004,"veil",p,14)
+            end)
+            Reactor.palette=realp
+            local glass=calls(B,"glass")
+            -- four band strips plus the bounded body over the moon and the galaxy's core
+            assert.is_true(#glass>=4 and #glass<=8,name.." "..#glass)
+            local fills=calls(B,"rect_filled")
+            local body
+            for _,f in ipairs(fills) do if f[2]==186+16 and f[3]==46+16 then body=f end end
+            assert.is_not_nil(body,name)
+            -- floor (scene under the frame's tint at f) then the body fill = scene under the veil's tint at a
+            local fr,fg,fb=C.unpack(C.parse(p.glassFrameTint)); local vr,vg,vb=C.unpack(C.parse(p.glassVeilTint))
+            local br,bg,bb,ba=C.unpack(body[6]); ba=ba/255
+            local f,a=p.glassFrameAlpha,p.glassVeilAlpha
+            for _,sky in ipairs({{0,0,0},{255,255,255},{10,17,34}}) do
+                local floor={sky[1]*(1-f)+fr*f,sky[2]*(1-f)+fg*f,sky[3]*(1-f)+fb*f}
+                local got={floor[1]*(1-ba)+br*ba,floor[2]*(1-ba)+bg*ba,floor[3]*(1-ba)+bb*ba}
+                local want={sky[1]*(1-a)+vr*a,sky[2]*(1-a)+vg*a,sky[3]*(1-a)+vb*a}
+                for i=1,3 do assert.is_true(math.abs(got[i]-want[i])<=1.5) end
+            end
+            Scene.clear()
+          end
+        end)
+
         it("draws chrome as one shader surface: no baked sample, tint or rim",function()
             local B=hardware(); local dc=Draw.new(B); local p=baked("LunarDarkTheme")
             frame(B,dc,1920,1080,function() Glass.paint(dc,0,40,48,1000,"chrome",p,14) end)

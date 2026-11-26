@@ -397,6 +397,7 @@ local function draw(el, st, dc)
 				end
 			end
 			drawTabContent(el, st, dc, i - 1, x, y, w, h, color or attr(el, "FGCOLOR"))
+			if selected then st.data.focus_tab = { x, y, w, h } end
 			if selected and not dragged and attr(el, "TABSACTIVELINE") then indicator = { x, y, w, h, child } end
 			if yes(attr(el, "SHOWCLOSE")) then
 				local cx, cy = x + w - CLOSE_GAP - CLOSE_SIZE, y + (h - CLOSE_SIZE) / 2
@@ -412,6 +413,18 @@ local function draw(el, st, dc)
 			if dragged then dc:alpha_pop() end
 			offset = offset + (horizontal(el) and w or h)
 		end
+	end
+	-- Keyboard focus: a ring round the current tab in the tab's own shape (FOCUSFEEDBACK;
+	-- FOCUSCOLOR, else the foreground)
+	local R2 = package.loaded["core.imgui.Runtime"]
+	local ft = st.data.focus_tab
+	st.data.focus_tab = nil
+	if ft and R2 and R2.focused and R2.focused() == el and attr(el, "FOCUSFEEDBACK") ~= "NO" then
+		local radius = integer(attr(el, "CORNERRADIUS"), 0)
+		local x, y, w, h = ft[1], ft[2], ft[3], ft[4]
+		if t == "LEFT" then x, y, w, h = x + 6, y + 1, math.max(0, w - 12), math.max(0, h - 3) end
+		dc:rect(x + 1, y + 1, w - 2, h - 2, attr(el, "FOCUSCOLOR") or attr(el, "FORECOLOR") or attr(el, "FGCOLOR"),
+			{ thickness = 2, radius = math.max(0, radius - 1) })
 	end
 	-- The selected tab's line: slides and stretches from the old tab to the new one
 	-- (role tab_indicator); a tab that only moved (a resize) takes it along at once.

@@ -81,8 +81,11 @@ local function natural(e, st, L)
 	local ch = tonumber(attr(e, "CONTROLHEIGHT"))
 	local title = own(e, "TITLE")
 	if ch and own(e, "IMAGE") and (not title or title == "") and bool(attr(e, "ICONSQUARE")) then
-		local iw = F.imageInfo(own(e, "IMAGE")) or 0
-		return math.max(ch, iw + 4 + 2 * bw), ch
+		local iw, ih = F.imageInfo(own(e, "IMAGE"))
+		-- square in both dimensions, even for an image larger than the control height
+		-- (an image at the control height fills it; only a larger one grows the square)
+		local side = math.max(ch, (iw or 0) + 2 * bw, (ih or 0) + 2 * bw)
+		return side, side
 	end
     if not own(e, "IMAGE") and own(e, "TITLE") then
         local hp = F.intint(attr(e, "PADDING"))
@@ -212,9 +215,13 @@ local function draw(e, st, dc)
 		local fb = inner - 1
 		local radius = int(attr(e, "CORNERRADIUS"), 0)
 		if attr(e, "FOCUSCOLOR") then
+            -- a theme's ring follows the button's own corners (a square ring on a rounded
+            -- button read as a different control)
             local x, y, w, h = x0 + 2, y0 + 2, cw - 4, ch - 4
-            dc:rect(x, y, w, h, attr(e, "FOCUSCOLOR"), { thickness = 2 })
-            if attr(e, "FOCUSINSETCOLOR") then dc:rect(x + 2, y + 2, w - 4, h - 4, attr(e, "FOCUSINSETCOLOR"), { thickness = 1 }) end
+            dc:rect(x, y, w, h, attr(e, "FOCUSCOLOR"), { thickness = 2, radius = math.max(0, radius - 2) })
+            if attr(e, "FOCUSINSETCOLOR") then
+                dc:rect(x + 2, y + 2, w - 4, h - 4, attr(e, "FOCUSINSETCOLOR"), { thickness = 1, radius = math.max(0, radius - 4) })
+            end
         elseif radius > 0 then
 			F.roundBorder(dc, x0, y0, fb, cw - 1 - fb, fb, ch - 1 - fb, radius > fb and radius - fb or 1, 1, fgcolor, nil, active)
 		else

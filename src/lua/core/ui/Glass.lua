@@ -510,6 +510,32 @@ local function extend_art(dc, art, ax, ay, w, h, r, steps)
 	end
 end
 
+-- The veil's body as a plain fill over the floor (the scene under the frame's tint at
+-- alpha f): alpha b and colour X so that floor * (1 - b) + X * b is the scene under the
+-- veil's tint at its alpha a, as the shader composes it. nil while a mode switch's sky
+-- lags, when the frame is as opaque as the veil, or when no X in range exists (the shader
+-- body then); `hot`, where the clamped shader body is still needed.
+local function veil_body(Background, p, look)
+	if Background.lag() > 0 then return nil end
+	local a, f = p.glassVeilAlpha or 0.8, Background.frameAlpha(p)
+	if f >= a then return nil end
+	local V = { Color.unpack(Color.parse(p.glassVeilTint or p.layer02)) }
+	local Ft = { Color.unpack(Color.parse(p.glassFrameTint or p.bg)) }
+	local b = 1 - (1 - a) / (1 - f)
+	local X = {}
+	for i = 1, 3 do
+		X[i] = (V[i] * a - Ft[i] * f * (1 - b)) / b
+		-- clamped into range where that moves the result by under one level
+		local clamped = max(0, min(255, X[i]))
+		if math.abs(X[i] - clamped) * b > 1 then return nil end
+		X[i] = clamped
+	end
+	local hot = Background.hot({ V[1], V[2], V[3] }, a, look.veil_max, look.veil_min)
+	if not hot then return nil end
+	return { fill = string.format("%d %d %d %d", floor(X[1] + 0.5), floor(X[2] + 0.5), floor(X[3] + 0.5),
+		floor(b * 255 + 0.5)), hot = hot }
+end
+
 --- Paint `kind` at (x, y, w, h) in the dc's local coordinates. `lip` sets a floating
 -- surface's see-through edge (default the palette's `glassLip`), `lift` (0..1) the eased
 -- hover on the rim's highlight. `state` (a table kept with the surface) eases its light;
@@ -538,9 +564,32 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 			-- `glassVeilClear`: clear tinted glass, the sharp scene in its body (stars stay
 			-- points behind the panel); otherwise frosted, the blurred scene
 			if p.glassVeilClear then blur = sharp end
-			dc:_emit("glass", ax, ay, ax + w, ay + h, r, 1, look.veil, look.spec, look.shade,
-				min(lens.band, w / 2, h / 2), lens.thickness, 0, dc:_color(0xFFFFFFFF), sharp, blur, ku, kv,
-				0, 0, lens.chroma, 0, look.veil_max, look.veil_min, look.spec_floor, -1, 0)
+			local band = min(lens.band, w / 2, h / 2)
+			local function veil()
+				dc:_emit("glass", ax, ay, ax + w, ay + h, r, 1, look.veil, look.spec, look.shade,
+					band, lens.thickness, 0, dc:_color(0xFFFFFFFF), sharp, blur, ku, kv,
+					0, 0, lens.chroma, 0, look.veil_max, look.veil_min, look.spec_floor, -1, 0)
+			end
+			local body = p.glassVeilClear and veil_body(Background, p, look)
+			local d = band + 2
+			if body and w > 4 * d and h > 4 * d then
+				-- The lens only where it bends: its band (four strips), the body a plain fill
+				-- over the floor that composes to the same tint, and the bounded body where the
+				-- scene can pass the bounds (Background.hot: the moon, the galaxy's core)
+				local ri = max(0, r - d)
+				dc:fill(x + d, y + d, w - 2 * d, h - 2 * d, body.fill, shapes[ri])
+				local e = d + ri
+				for _, c in ipairs({ { x, y, w, e }, { x, y + h - e, w, e }, { x, y + e, e, h - 2 * e }, { x + w - e, y + e, e, h - 2 * e } }) do
+					dc:clip_push(c[1], c[2], c[3], c[4]); veil(); dc:clip_pop()
+				end
+				for _, hr in ipairs(body.hot) do
+					local x0, y0 = max(x + e, hr[1] - dc.ox), max(y + e, hr[2] - dc.oy)
+					local x1, y1 = min(x + w - e, hr[3] - dc.ox), min(y + h - e, hr[4] - dc.oy)
+					if x1 > x0 and y1 > y0 then dc:clip_push(x0, y0, x1 - x0, y1 - y0); veil(); dc:clip_pop() end
+				end
+			else
+				veil()
+			end
 			if p.glassVeilRim then dc:rect(x, y, w, h, p.glassVeilRim, fine_shapes[r]) end
 			return
 		end

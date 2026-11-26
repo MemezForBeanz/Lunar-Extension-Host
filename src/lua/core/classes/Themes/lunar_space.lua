@@ -193,6 +193,10 @@ M.by_mode = by_mode
 -- Stars in the frame strips (where labels sit) are capped at this; behind the sheet the
 -- veil bounds what they do to its text, so there they may be brighter.
 M.FRAME_STARS = 0.34
+-- Behind the sheet a star's core, over the brightest night sky and a nebula's peak, under
+-- the veil's tint must stay inside its luminance bound (0.0622): the veil draws its body as
+-- a plain fill there, bounding only where the moon and the galaxy's core are (Glass).
+M.BODY_STARS = 0.50
 -- The strips round the sheet where the frame's labels lie (px): the title strip, the
 -- status strip and the rail (with the sheet's gap), as wide as the rail is.
 local function labels(rail_w)
@@ -229,21 +233,22 @@ function M.background(rail_w)
 			{ kind = "stars", count = 320, seed = 11, size = { 0.9, 2.0 },
 				colors = { "#FFFFFF", "#DDE6FF", "#FFF1DC" },
 				twinkle = { amount = 0.45, share = 0.35, period = { 3, 8 } },
-				opacity = by_mode(0.65, 0, { 0, 0.6 }), frame = frame_band(rail_w), parallax = 3 },
+				opacity = by_mode(M.BODY_STARS, 0, { 0, 0.6 }), frame = frame_band(rail_w), parallax = 3 },
 			-- near stars: few, brighter, more parallax
 			{ kind = "stars", count = 46, seed = 29, size = { 1.6, 3.0 },
 				colors = { "#FFFFFF", "#CFE0FF", "#FFE6C4" },
 				twinkle = { amount = 0.55, share = 0.6, period = { 2.5, 6 } },
-				opacity = by_mode(0.70, 0, { 0, 0.5 }), frame = frame_band(rail_w), parallax = 9 },
+				opacity = by_mode(M.BODY_STARS, 0, { 0, 0.5 }), frame = frame_band(rail_w), parallax = 9 },
 			-- a spiral galaxy, lower right, swaying a few degrees over a minute and a half; by day
 			-- a pale wisp
-			{ svg = S.galaxy, size = 420, raster = 1.1, x = 0.74, y = 0.78, parallax = 8, labels = false,
+			-- (only its core, a 46/160 disc, can pass the veil's bound: `hot`)
+			{ svg = S.galaxy, size = 420, raster = 1.1, x = 0.74, y = 0.78, parallax = 8, labels = false, hot = 0.32,
 				opacity = by_mode(0.90, 0.30), tint = by_mode("#FFFFFF", "#B8C8E8"),
 				rotation = { signal = "time", wave = "sine", period = 90, min = -3, max = 3 } },
 			-- the moon, right of the pages' content below their header band: it waxes from a
 			-- crescent to full as the sky brightens, then fades as the sun takes its place
 			{ svg = { signal = "mode", set = M.MOON_PHASES, range = { 0, 0.5 } }, size = M.MOON.size,
-				x = M.MOON.x, y = M.MOON.y, rotation = M.MOON.turn, parallax = 6, labels = false,
+				x = M.MOON.x, y = M.MOON.y, rotation = M.MOON.turn, parallax = 6, labels = false, hot = 0.62,
 				opacity = by_mode(1, 0, { 0.52, 0.72 }) },
 			-- the sun rises along its path (M.SUN) as the sky brightens
 			{ svg = S.sun, size = 300, x = sun_x, y = sun_y, parallax = 6, labels = false,

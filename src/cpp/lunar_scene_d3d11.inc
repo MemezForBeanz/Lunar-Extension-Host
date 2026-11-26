@@ -39,6 +39,8 @@ struct SceneGpu {
     bool blurred = false;  /* its blur too */
     bool reusable = false; /* the last full frame may be presented again (see above) */
     size_t points = 0;     /* its in-window glass copy points (gg.pts keeps them) */
+    ID3D11DeviceContext1 *ctx1 = nullptr;   /* ClearView, to clear only the part in use */
+    bool ctx1_asked = false;
     long long renders = 0, presents = 0, refusals = 0, creations = 0, sprites = 0;
     double cpu_us_sum = 0;   /* render + present of scene-only frames, CPU side */
 } sg;
@@ -56,11 +58,17 @@ void scene_release() {
     scene_release_levels();
     if (sg.list) { IM_DELETE(sg.list); sg.list = nullptr; }
     sg.open = sg.emitted = sg.reusable = false;
+    if (sg.ctx1) { sg.ctx1->Release(); sg.ctx1 = nullptr; }
+    sg.ctx1_asked = false;
 }
 
+/* A list emitted this frame is rendered before the main lists draw (scene_render at the
+   frame's end), so a target made this frame is bound already: its first frame shows it. */
 ID3D11ShaderResourceView *scene_srv(int tex) {
-    if (tex == SCENE_SHARP) return sg.valid ? sg.lv[0].srv : nullptr;
-    if (tex == SCENE_BLUR) return !sg.valid ? nullptr : (sg.blurred ? sg.lv[3].srv : sg.lv[0].srv);
+    bool ready = sg.valid || sg.emitted || sg.open;
+    bool blur = sg.emitted || sg.open ? (gg.ready && sg.lv[3].srv) : sg.blurred;
+    if (tex == SCENE_SHARP) return ready ? sg.lv[0].srv : nullptr;
+    if (tex == SCENE_BLUR) return !ready ? nullptr : (blur ? sg.lv[3].srv : sg.lv[0].srv);
     return nullptr;
 }
 
@@ -135,7 +143,14 @@ bool scene_render(ImVector<ImTextureData*> *textures) {
     dd.Textures = textures;
     const float clear[4] = {0, 0, 0, 1};
     g.ctx->OMSetRenderTargets(1, &sg.lv[0].rtv, nullptr);
-    g.ctx->ClearRenderTargetView(sg.lv[0].rtv, clear);
+    /* only the part in use (the target is the monitor's size); the blur's passes already
+       draw only that part's quads and read no further */
+    if (!sg.ctx1_asked) {
+        sg.ctx1_asked = true;
+        if (FAILED(g.ctx->QueryInterface(__uuidof(ID3D11DeviceContext1), (void**)&sg.ctx1))) sg.ctx1 = nullptr;
+    }
+    if (sg.ctx1) { D3D11_RECT rc = {0, 0, sg.vw, sg.vh}; sg.ctx1->ClearView(sg.lv[0].rtv, clear, &rc, 1); }
+    else g.ctx->ClearRenderTargetView(sg.lv[0].rtv, clear);
     ImVec2 origin = gg.origin; gg.origin = ImVec2(0, 0);
     ImGui_ImplDX11_RenderDrawData(&dd);
     gg.origin = origin;

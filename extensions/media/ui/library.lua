@@ -768,12 +768,13 @@ function M.new(ctx, opts)
 	local tagline_row = iup.hbox({ sample_tagline, MARGIN = text_column .. "x0" })
 	local sample_note = iup.vbox({
 		tagline_row,
-		-- less link_btn's own 2 px pad, so its label starts on the same column
+		-- the pill's edge on the rows' own column (their selection chip's 6 px inset), so it
+		-- reads as one of the rail's entries, not text floating at the label column
 		iup.hbox({ iup.flatbutton({ TITLE = "Connect a server", THEMEROLE = "link_btn", CANFOCUS = "YES",
 			flat_action = function()
 				if opts.on_connect then opts.on_connect() end
 				return iup.DEFAULT
-			end }), MARGIN = (text_column - 2) .. "x0" }),
+			end }), MARGIN = "6x0" }),
 		GAP = L.gap(1), MARGIN = "0x0", ALIGNMENT = "ALEFT",
 	})
 	local function show_sample_note()

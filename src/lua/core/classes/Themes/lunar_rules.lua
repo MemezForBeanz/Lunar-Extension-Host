@@ -164,15 +164,15 @@ function M.build(p)
         tabs          = { bg = p.bg,     fg = p.text, font = p.font, border = border },
         -- The tab strip: a well one step DARKER than the app floor, so the
         -- selected tab -- filled with the page surface and rounded on top --
-        -- reads as a raised card the way Obsidian's active tab does. The
-        -- square dotted focus rectangle is suppressed: it redraws the card as
-        -- a sharp box and tabs are reachable by click and shortcut anyway.
+        -- reads as a raised card the way Obsidian's active tab does. Keyboard
+        -- focus is a rounded ring in the tab's own shape (flattabs), not IUP's
+        -- dotted square.
         flattabs      = {
             bg = layer1, fg = p.text, font = p.font,
             tabsbg = p.gradShellWell or shade(p.bg, -0.35), tabsfg = p.textMuted,
             border = border, borderwidth = 1,
             hover = hover, selbg = selected,
-            radius = R, focusfeedback = false, showlines = false,
+            radius = R, focuscolor = p.accent, showlines = false,
             tabspadding = "12x6",
         },
         -- The bar inside a group: the tool level, so it sits on the page itself and only
@@ -182,7 +182,7 @@ function M.build(p)
             tabsbg = layer1, tabsfg = p.textMuted,
             border = border, borderwidth = 1,
             hover = hover, selbg = selected,
-            radius = R, focusfeedback = false, showlines = false,
+            radius = R, focuscolor = p.accent, showlines = false,
             tabspadding = "12x6",
         },
         scrollbox     = { bg = layer1, fg = p.text, border = border },

@@ -817,6 +817,66 @@ function M.extremes(bg, s)
 	return bright, dark
 end
 
+--- Where the scene may be brighter (or darker) than a glass body's bounds allow under its
+-- tint: screen rects (x0, y0, x1, y1) of the layers whose brightest pixel (`peak`, a glow's
+-- `glow`, else white), under `tint` (sRGB) at `alpha`, leaves luminance above `hi` or below
+-- `lo`, as drawn now, over the sky's brightest / darkest; nil when the sky alone under the
+-- tint is outside them. A star field is never listed: its opacity must keep it inside (a
+-- spec checks Lunar's). The glass draws its clamped body only over these.
+function M.hot(tint, alpha, hi, lo)
+	local out = {}
+	if not active or not target then return nil end
+	local s = last_values
+	local W, H = window.w, window.h
+	-- the sky (fill layers) at its brightest and darkest: the body alone must already be
+	-- inside the bounds over it, else nil (the caller bounds the whole body)
+	local bright, dark
+	for _, layer in ipairs(active.layers) do
+		if layer.kind == "fill" then
+			local o = layer.opacity(s)
+			local a, b = layer.top(s), layer.bottom(s)
+			local up, down = a, b
+			if luminance(b) > luminance(a) then up, down = b, a end
+			bright = over(bright or { 0, 0, 0 }, up, o)
+			dark = over(dark or { 0, 0, 0 }, down, o)
+		end
+	end
+	bright, dark = bright or { 0, 0, 0 }, dark or { 0, 0, 0 }
+	if luminance(over(bright, tint, alpha)) > hi or luminance(over(dark, tint, alpha)) < lo then return nil end
+	for _, layer in ipairs(active.layers) do
+		local def = layer.def
+		local kind = layer.kind
+		if kind == "svg" or kind == "video" then
+			local o = layer.opacity(s)
+			if type(o) == "number" and o > 0.002 then
+				local c, a = { 255, 255, 255 }, o
+				if def.glow then c, a = rgba(def.glow[1]), (def.glow[2] or 1) * o
+				elseif def.peak then c, a = rgba(def.peak[1]), (def.peak[2] or 1) * o end
+				local t = layer.tint(s)
+				c = { c[1] * t[1] / 255, c[2] * t[2] / 255, c[3] * t[3] / 255 }
+				if luminance(over(over(bright, c, a), tint, alpha)) > hi
+					or luminance(over(over(dark, c, a), tint, alpha)) < lo then
+					local bw, bh = def.width or def.size or 64, def.height or def.size or def.width or 64
+					local sc, par = layer.scale(s), layer.parallax(s)
+					local lx, ly = layer.x(s), layer.y(s)
+					if def.unit == "px" then
+						lx = lx < 0 and W + lx or lx
+						ly = ly < 0 and H + ly or ly
+					else
+						lx, ly = lx * W, ly * H
+					end
+					local cx, cy = lx + layer.dx(s), ly + layer.dy(s)
+					-- any turn and the pointer's parallax; `hot` (0..1): the part of the box,
+					-- round its centre, where the art is that bright (default all of it)
+					local r = math.sqrt(bw * bw + bh * bh) * sc / 2 * (def.hot or 1) + math.abs(par) + 2
+					out[#out + 1] = { cx - r, cy - r, cx + r, cy + r }
+				end
+			end
+		end
+	end
+	return out
+end
+
 local function ratio(a, b)
 	local x, y = luminance(a), luminance(b)
 	if x < y then x, y = y, x end

@@ -113,6 +113,21 @@ float3 at(Texture2D t, float2 p) { return t.SampleLevel(smp, clamp(p, 0.5, shape
 float3 at_blur(float2 p) { return blurred.SampleLevel(smp, clamp(p, 0.5, more.zw) * frame.zw, 0).rgb; }
 float3 to_lin(float3 c) { return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }
 float3 to_srgb(float3 c) { return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1 / 2.4) - 0.055; }
+/* the lit result's luminance at most light.z, at least light.w (labels keep their contrast) */
+float3 bound_lum(float3 col) {
+    float3 lin = to_lin(saturate(col));
+    float y = dot(lin, float3(0.2126, 0.7152, 0.0722));
+    if (y > light.z) lin *= light.z / y;
+    y = dot(lin, float3(0.2126, 0.7152, 0.0722));
+    /* raised to the floor keeping its hue: scaled toward the gamut's edge first, and
+       only the rest of the way by mixing in white */
+    if (y < light.w) {
+        lin *= min(light.w / max(y, 1e-4), 1 / max(max(lin.r, max(lin.g, lin.b)), 1e-4));
+        y = dot(lin, float3(0.2126, 0.7152, 0.0722));
+        if (y < light.w) lin += (1 - lin) * ((light.w - y) / max(1e-4, 1 - y));
+    }
+    return to_srgb(lin);
+}
 float4 ps_glass(PI i) : SV_Target {
     float2 p = i.pos.xy + frame.xy;
     float2 c = (rect.xy + rect.zw) * 0.5, hs = (rect.zw - rect.xy) * 0.5;
@@ -125,6 +140,15 @@ float4 ps_glass(PI i) : SV_Target {
     float cov = saturate(0.5 - sd * 0.8) * optic.z;         /* the quad's own colour is transparent */
     if (cov <= 0) discard;
     float depth = max(0, -sd);
+    /* the body of a surface with no well (the veil, chrome, the transport): past the lens band it is
+       the scene as it is, tinted and bounded; no lens, normal, lobe or shade work there */
+    [branch] if (optic.w <= 0 && well.a <= 0 && more.y < 0.5 && depth > shape.w + 2) {
+        float3 b = lerp(at_blur(p), tint.rgb, tint.a);
+        float b_hi = max(b.r, max(b.g, b.b)), b_lo = saturate(min(b.r, min(b.g, b.b)));
+        [branch] if ((light.z < 1 && b_hi * b_hi > light.z) || (light.w > 0 && b_lo * b_lo * sqrt(b_lo) < light.w))
+            b = bound_lum(b);
+        return float4(b, cov);
+    }
     /* under the opaque well nothing shows; the well's own anti-aliased edge (ImGui's 1 px
        fringe, half of it outside) lies over glass that already has the well's colour */
     if (optic.w > 0 && depth > optic.w + 1.5) discard;
@@ -160,20 +184,11 @@ float4 ps_glass(PI i) : SV_Target {
     col = lerp(col, rim.rgb, line_ * a);
     col = lerp(col, inner.rgb, saturate(inner.a * saturate(-f) * exp(-depth / 2.5)));
     /* labels on it keep their contrast: the lit result is bounded, lobe and shade included */
-    [branch] if (light.z < 1 || light.w > 0) {
-        float3 lin = to_lin(saturate(col));
-        float y = dot(lin, float3(0.2126, 0.7152, 0.0722));
-        if (y > light.z) lin *= light.z / y;
-        y = dot(lin, float3(0.2126, 0.7152, 0.0722));
-        /* raised to the floor keeping its hue: scaled toward the gamut's edge first, and
-           only the rest of the way by mixing in white */
-        if (y < light.w) {
-            lin *= min(light.w / max(y, 1e-4), 1 / max(max(lin.r, max(lin.g, lin.b)), 1e-4));
-            y = dot(lin, float3(0.2126, 0.7152, 0.0722));
-            if (y < light.w) lin += (1 - lin) * ((light.w - y) / max(1e-4, 1 - y));
-        }
-        col = to_srgb(lin);
-    }
+    /* skipped where the pixel is provably inside the bounds (the veil's body over a night
+       sky): lum <= to_lin(max) <= max^2, lum >= to_lin(min) >= min^2.5 */
+    float c_hi = max(col.r, max(col.g, col.b)), c_lo = saturate(min(col.r, min(col.g, col.b)));
+    bool bounded = (light.z >= 1 || c_hi * c_hi <= light.z) && (light.w <= 0 || c_lo * c_lo * sqrt(c_lo) >= light.w);
+    [branch] if (!bounded) col = bound_lum(col);
     /* one continuous ease into the opaque well, which Lua draws from the hollow depth in */
     [branch] if (well.a > 0) col = lerp(col, well.rgb, smoothstep(optic.w - well.a, optic.w, depth));
     return float4(col, cov);

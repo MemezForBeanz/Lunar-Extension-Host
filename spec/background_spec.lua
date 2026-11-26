@@ -335,7 +335,7 @@ describe("reactive backgrounds",function()
                 end
             end
             assert.is_true(framed>0 and framed<=math.ceil(255*space.FRAME_STARS))
-            assert.is_true(body>framed and body<=math.ceil(255*0.70))
+            assert.is_true(body>framed and body<=math.ceil(255*space.BODY_STARS))
             Scene.clear()
             frame(B,dc,light,1920,1080)
             for _,c in ipairs(B.scene_calls) do assert.is_false(c[1]=="image" and c[5]-c[3]<14) end
