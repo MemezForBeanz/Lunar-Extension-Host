@@ -173,9 +173,12 @@ local p = {
 | `kind` | What | Its own keys |
 |---|---|---|
 | `fill` | the whole window, a vertical gradient | `top`, `bottom` |
-| `svg` (or a layer with `svg` / `file`) | one SVG element (NanoSVG: paths, shapes, linear and radial gradients, opacity; no filters) | `svg` (inline) or `file` (under `assets/scene`), `size` or `width`/`height` (px), `raster` (rasterize at this multiple: above 1 for a layer scaled up, below 1 for soft glows), `unit = "px"` for `x`/`y` in pixels (negative: from the right or bottom) |
-| `stars` | a seeded star field | `count`, `seed`, `size = { min, max }`, `colors`, `twinkle = { amount, share, period = { min, max } }`, `region = { x0, y0, x1, y1 }` (fractions) |
-| `video` | the API is in place; with no in-process decoder it shows its `poster` (an `svg` layer table) | `file`, `poster` |
+| `svg` (or a layer with `svg` / `file`) | one SVG element (NanoSVG: paths, shapes, linear and radial gradients, opacity; no filters) | `svg` (inline) or `file` (under `assets/scene`), or a set chosen by a signal, `svg = { signal = s, set = { ... }, range = { lo, hi } }` (every entry is made when the scene first shows); `size` or `width`/`height` (px), `raster` (rasterize at this multiple: above 1 for a layer scaled up, below 1 for soft glows), `unit = "px"` for `x`/`y` in pixels (negative: from the right or bottom) |
+| `stars` | a seeded star field | `count`, `seed`, `size = { min, max }`, `colors`, `twinkle = { amount, share, period = { min, max } }`, `region = { x0, y0, x1, y1 }` (fractions), `frame = { opacity, top, bottom, left }` (stars in those strips of the window, where the frame's labels sit, are capped at `opacity`; `left` may be bound) |
+| `video` | the API is in place; with no in-process decoder it shows its `poster` (an `svg` layer table: `{ svg = ... }` or `{ file = ... }`; never the video file). A poster is still: the layer reads only the signals its own properties read | `file`, `poster` |
+
+SVG gradients: give `cx`, `cy`, `r`, `x1`.. in percent (`50%`). NanoSVG reads a unitless
+`0.5` as half a user unit, not half the shape's box.
 
 Every layer takes `opacity`, `tint` (a colour multiplied in), `x`, `y` (fractions of the
 window by default), `dx`, `dy` (px), `scale`, `rotation` (degrees) and `parallax` (px the
@@ -194,8 +197,10 @@ constant or a **binding**:
 
 **Signals**: `time` (s), `clock` (time of day 0..1), `mode` (0 dark .. 1 light, eased while
 the theme switches), `mouse_x`, `mouse_y` (-1..1 across the window), `width`, `height`,
-`rail` (the sidebar, 0 collapsed .. 1 extended, following its motion), `rail_room` (px free
-below the rail's entries) and `fullscreen`. A new one is one call,
+`rail` (the sidebar, 0 collapsed .. 1 extended, following its motion), `rail_settled` (0 .. 1
+over 150 ms once the rail has finished extending, 0 the moment it starts to collapse: for
+elements of the extended state), `rail_room` (px free below the rail's entries, read from
+the rail's layout) and `fullscreen` (pushed by the main dialog). A new one is one call,
 `Background.signal(name, { read = function(ctx) return value end })`, or a pushed value,
 `Background.set(name, value)`.
 
@@ -206,12 +211,25 @@ moved. On Direct3D 11 the layers render into one texture the floor and the glass
 and a frame whose only change is the scene is presented without rebuilding the UI. SVGs are
 rasterized and uploaded once, when the scene first shows; nothing uploads afterwards. With
 reduced motion, hardware acceleration off or on WARP, time and the pointer read 0: the scene
-is drawn once per window size, mode or rail change, then costs nothing.
+is drawn once per window size, mode or rail change, then costs nothing. During a live resize
+the last render stretches over the window: on the GPU path it is drawn again at most 30
+times a second, off it once the size has held for 150 ms. A theme without a scene stops the
+scene's idle drawing at once.
+
+**Mode switch.** Two palettes of one scene switch the UI in one frame (no cross-fade of
+pictures, which halves every label's contrast); the sky follows 80 ms later and eases over
+0.6 s. While it lags, the frame's tint is raised as far as its labels need over the worst
+pixel the sky can show at that moment (`Background.frameAlpha`), and chrome bounds its
+luminance like the transport.
 
 **Contrast.** Labels on the frame must keep 4.5:1 over the brightest (dark) or darkest
 (light) pixel the scene can put under them at any time; give that pixel as
 `glassSampleWorst` and `scripts/theme_contrast.lua` checks every label and state over it
-under `glassFrameTint`. Keep bright bodies away from where labels sit, or fade them out
+under `glassFrameTint`. Derive it from the layer table with `Background.extremes(bg, {
+mode = m })`: name the label strips as `bg.labels = { top, bottom, left }`, give a glow its
+gradient (`glow = { colour, alpha, mid }`: it counts at the nearest point of the strips),
+other art its brightest pixel (`peak = { colour, alpha }`), and mark art that never lies
+under labels `labels = false`. Lunar's `SAMPLES` are made this way, so they follow the art. Keep bright bodies away from where labels sit, or fade them out
 there with a signal (Lunar's crescent fades when the rail's entries would reach it).
 
 ## Panels over a reactive background
@@ -221,7 +239,14 @@ The rule Lunar follows, and a theme with a background should too:
 * **Large structural panels let the scene through.** The work sheet and the page surfaces
   are a veil of glass (`glass = "veil"`): the scene blurred, refracted at the edge, under the
   panel's tint (`glassVeilAlpha`), the result's luminance bounded (dark at most 0.0622,
-  light at least 0.62) so text on it keeps its contrast whatever the scene shows. Children
+  light at least 0.62) so text on it keeps its contrast whatever the scene shows. Only the
+  sheet is a veil (one glass pass); page surfaces inside it show it (`content`). The lens
+  runs on the sheet's rim band only; its body is a plain fill over the floor that composes
+  to the same tint, with the bounded shader body only over `Background.hot` rects (art
+  whose brightest pixel could pass the bound: give `hot = k`, the part of its box round its
+  centre where it is that bright). Star fields behind the sheet must stay inside the bound
+  by their opacity (Lunar: 0.50). `glassVeilRim` draws a 1 px rim that parts the sheet
+  from the frame. Children
   painting the panel's own colour draw nothing, so tab strips, settings panels and page
   bodies show the veil.
 * **Dense, important content stays opaque.** Lists, tables, grids, row lists, editors,
@@ -237,6 +262,8 @@ icon and toolbar buttons, tabs, the rail, list rows and settings navigation, wit
 corner radius (`radius`) and the same 110 ms ease in and out. The chip is translucent
 enough to take the colour of what it lies on and opaque enough that labels keep 4.5:1 over
 the brightest star the frame can show. The primary action keeps its own opaque gradient.
+Keyboard focus is a 2 px ring in the control's own shape (`focuscolor` on the role): round
+on rounded buttons, round on the current tab of a strip that has focus.
 
 Button sizes come from content: a text button is its label plus the theme's padding; an
 icon-only button in a role with `iconsquare` is a square at its `controlheight`; a side

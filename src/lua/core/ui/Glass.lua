@@ -579,8 +579,8 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 				local ri = max(0, r - d)
 				dc:fill(x + d, y + d, w - 2 * d, h - 2 * d, body.fill, shapes[ri])
 				local e = d + ri
-				for _, c in ipairs({ { x, y, w, e }, { x, y + h - e, w, e }, { x, y + e, e, h - 2 * e }, { x + w - e, y + e, e, h - 2 * e } }) do
-					dc:clip_push(c[1], c[2], c[3], c[4]); veil(); dc:clip_pop()
+				for _, sr in ipairs({ { x, y, w, e }, { x, y + h - e, w, e }, { x, y + e, e, h - 2 * e }, { x + w - e, y + e, e, h - 2 * e } }) do
+					dc:clip_push(sr[1], sr[2], sr[3], sr[4]); veil(); dc:clip_pop()
 				end
 				for _, hr in ipairs(body.hot) do
 					local x0, y0 = max(x + e, hr[1] - dc.ox), max(y + e, hr[2] - dc.oy)
