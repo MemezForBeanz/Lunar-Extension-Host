@@ -215,7 +215,8 @@ moved. On Direct3D 11 the layers render into one texture the floor and the glass
 and a frame whose only change is the scene is presented without rebuilding the UI. Each
 render is compared with the last sprite by sprite; a floating glass copy is redone only when
 a changed sprite (widened by the blur's reach) meets its regions, so a twinkle elsewhere
-leaves it alone. A twinkling star is drawn even while faint, so the list keeps its shape. SVGs are
+leaves it alone; a sprite counts once it has moved 1 px or its colour drifted 32 levels since
+the copies last saw it (below that, the blurred lip cannot show it). A twinkling star is drawn even while faint, so the list keeps its shape. SVGs are
 rasterized and uploaded once, when the scene first shows; nothing uploads afterwards. With
 reduced motion, hardware acceleration off or on WARP, time and the pointer read 0: the scene
 is drawn once per window size, mode or rail change, then costs nothing. During a live resize
