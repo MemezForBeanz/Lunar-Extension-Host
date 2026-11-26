@@ -49,20 +49,41 @@ struct SceneGpu {
 
 /* The scene's blur reaches this far from a change (1/8 level, two taps), px. */
 const int SCENE_REACH = 40;
+/* A sprite whose only change is its colour counts once it has drifted this far (any
+   channel, 0..255) from what the copies last saw: what a copy keeps feeds a lip blurred over
+   16 px or more under a tint, where a twinkle step that small is far below one level. */
+const int SCENE_COLOUR_STEP = 32;
+/* Likewise a sprite that has moved less than this (px) since: a nebula breathing over 40 s,
+   the galaxy swaying over 90 s; any pointer parallax step moves sprites further. */
+const float SCENE_MOVE_STEP = 1.0f;
+inline bool scene_slight(const ImDrawVert *a, const ImDrawVert *b) {
+    for (int k = 0; k < 4; k++) {
+        if (std::fabs(a[k].pos.x - b[k].pos.x) >= SCENE_MOVE_STEP || std::fabs(a[k].pos.y - b[k].pos.y) >= SCENE_MOVE_STEP
+            || a[k].uv.x != b[k].uv.x || a[k].uv.y != b[k].uv.y) return false;
+        for (int c = 0; c < 32; c += 8) {
+            int d = (int)((a[k].col >> c) & 255) - (int)((b[k].col >> c) & 255);
+            if (d >= SCENE_COLOUR_STEP || d <= -SCENE_COLOUR_STEP) return false;
+        }
+    }
+    return true;
+}
 /* What this render changes against the last: every sprite is a quad of 4 vertices (Lua
    draws fills as gradients, images and turned images: one quad each), so the lists are
-   compared quad by quad; a quad that differs marks its old and new boxes (widened by the
-   blur's reach) in gg.scene_dirty, and lists that differ in shape mark everything. */
+   compared quad by quad with what the copies last saw (sg.prev_vtx); a quad that moved, or
+   whose colour drifted SCENE_COLOUR_STEP, marks its old and new boxes (widened by the
+   blur's reach) in gg.scene_dirty and becomes what they saw; lists that differ in shape
+   mark everything. */
 void scene_diff() {
     const ImDrawList *l = sg.list;
     int n = l ? l->VtxBuffer.Size : 0, cmds = l ? l->CmdBuffer.Size : 0;
     bool same = n == (int)sg.prev_vtx.size() && cmds == sg.prev_cmds && sg.vw == sg.prev_vw && sg.vh == sg.prev_vh
         && n % 4 == 0;
     if (!same) gg.scene_all = true;
-    else if (!gg.scene_all) {
-        const ImDrawVert *a = sg.prev_vtx.data(), *b = l->VtxBuffer.Data;
+    else {
+        ImDrawVert *a = sg.prev_vtx.data(); const ImDrawVert *b = l->VtxBuffer.Data;
         for (int i = 0; i < n; i += 4) {
             if (memcmp(a + i, b + i, 4 * sizeof(ImDrawVert)) == 0) continue;
+            if (scene_slight(a + i, b + i)) continue;
             float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
             for (int k = 0; k < 4; k++) {
                 x0 = std::min({x0, a[i + k].pos.x, b[i + k].pos.x}); y0 = std::min({y0, a[i + k].pos.y, b[i + k].pos.y});
@@ -70,10 +91,14 @@ void scene_diff() {
             }
             GlassRect r = {(int)std::floor(x0) - SCENE_REACH, (int)std::floor(y0) - SCENE_REACH,
                            (int)std::ceil(x1) + SCENE_REACH, (int)std::ceil(y1) + SCENE_REACH};
+            memcpy(a + i, b + i, 4 * sizeof(ImDrawVert));
             /* a few hundred small boxes at most; past that, everything */
-            if (gg.scene_dirty.size() >= 512) { gg.scene_all = true; break; }
-            gg.scene_dirty.push_back(r);
+            if (gg.scene_all || gg.scene_dirty.size() >= 512) gg.scene_all = true;
+            else gg.scene_dirty.push_back(r);
         }
+        sg.prev_cmds = cmds; sg.prev_vw = sg.vw; sg.prev_vh = sg.vh;
+        gg.scene_rev++;
+        return;
     }
     sg.prev_vtx.assign(l ? l->VtxBuffer.Data : nullptr, l ? l->VtxBuffer.Data + n : nullptr);
     sg.prev_cmds = cmds; sg.prev_vw = sg.vw; sg.prev_vh = sg.vh;

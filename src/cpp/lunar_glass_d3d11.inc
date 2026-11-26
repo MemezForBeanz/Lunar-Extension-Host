@@ -296,6 +296,9 @@ struct GlassGpu {
        boxes of the sprites that moved or changed (widened by the scene blur's reach), or
        everything; a copy whose regions meet them hashes the scene's revision */
     std::vector<GlassRect> scene_dirty; bool scene_all = false; uint64_t scene_rev = 0;
+    /* the scene revision that last changed each copy's regions (the shared copy's, the
+       points' by index): hashed every frame, so a copy is redone once per change */
+    uint64_t fl_scene_rev = 0; std::vector<uint64_t> pt_scene_rev;
 } gg;
 
 struct GlassCmd {
@@ -742,14 +745,17 @@ void glass_plan(ImDrawList *bg) {
             GlassGpu::Point &pt = gg.pts[i];
             uint64_t h = glass_mix(base, pt.merged.data(), pt.merged.size() * sizeof(GlassRect));
             h = glass_mix(h, &pt.strong, sizeof(pt.strong));
-            if (glass_scene_meets(pt.merged)) h = glass_mix(h, &gg.scene_rev, sizeof(gg.scene_rev));
+            if (gg.pt_scene_rev.size() < np) gg.pt_scene_rev.resize(np, 0);
+            if (glass_scene_meets(pt.merged)) gg.pt_scene_rev[i] = gg.scene_rev;
+            h = glass_mix(h, &gg.pt_scene_rev[i], sizeof(uint64_t));
             sets.push_back({&pt.merged, {}, ci, h}); owner.push_back((int)i);
         }
     }
     if (!gg.fl.empty() && !gg.merged.empty()) {
         uint64_t h = glass_mix(base, gg.merged.data(), gg.merged.size() * sizeof(GlassRect));
         h = glass_mix(h, &gg.fl_strong, sizeof(gg.fl_strong));
-        if (glass_scene_meets(gg.merged)) h = glass_mix(h, &gg.scene_rev, sizeof(gg.scene_rev));
+        if (glass_scene_meets(gg.merged)) gg.fl_scene_rev = gg.scene_rev;
+        h = glass_mix(h, &gg.fl_scene_rev, sizeof(gg.fl_scene_rev));
         sets.push_back({&gg.merged, {}, bg ? bg->CmdBuffer.Size : 0, h}); owner.push_back(-1);
     }
     glass_hash_sets(bg, sets);
