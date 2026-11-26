@@ -183,7 +183,11 @@ SVG gradients: give `cx`, `cy`, `r`, `x1`.. in percent (`50%`). NanoSVG reads a 
 Every layer takes `opacity`, `tint` (a colour multiplied in), `x`, `y` (fractions of the
 window by default), `dx`, `dy` (px), `scale`, `rotation` (degrees) and `parallax` (px the
 pointer moves it at the window's edge; a star moves by its depth). Each of those is a
-constant or a **binding**:
+constant or a **binding**. Two flags place a layer: `whole = true` shows it whole or not at
+all (see "Bodies" below), and `above = true` draws it over the frame's tint instead of into
+the scene (chrome-like art the labels never share, such as Lunar's rail crescent: it can be
+as bright as its art, and it takes the mode the UI shows at once rather than easing with the
+sky).
 
 | Binding | Value |
 |---|---|
@@ -208,7 +212,10 @@ the rail's layout) and `fullscreen` (pushed by the main dialog). A new one is on
 of them changed: an idle window with a static scene draws nothing; a time-bound layer
 redraws at the scene's `fps` and no faster; a pointer-bound one only when the pointer
 moved. On Direct3D 11 the layers render into one texture the floor and the glass sample,
-and a frame whose only change is the scene is presented without rebuilding the UI. SVGs are
+and a frame whose only change is the scene is presented without rebuilding the UI. Each
+render is compared with the last sprite by sprite; a floating glass copy is redone only when
+a changed sprite (widened by the blur's reach) meets its regions, so a twinkle elsewhere
+leaves it alone. A twinkling star is drawn even while faint, so the list keeps its shape. SVGs are
 rasterized and uploaded once, when the scene first shows; nothing uploads afterwards. With
 reduced motion, hardware acceleration off or on WARP, time and the pointer read 0: the scene
 is drawn once per window size, mode or rail change, then costs nothing. During a live resize
@@ -221,9 +228,10 @@ drawing at once.
 pictures, which halves every label's contrast); the sky follows 80 ms later and eases over
 0.6 s. While it lags, the frame's tint is raised as far as its labels need over the worst
 pixel the sky can show at that moment (`Background.frameAlpha`), and chrome bounds its
-luminance like the transport. The ease ends with one full frame at or after its end (the
-frame's tint and the veil's bounds follow the sky only in full frames); then time-bound
-layers go back to scene-only presents. Two palettes share a scene when they hold the same
+luminance like the transport. The raised tint is the most any step of the ease needs,
+held for the whole ease, so the frame of the UI drawn as it starts serves every frame of
+it: the sky moves under it in scene-only presents. The ease ends with one full frame at or
+after its end (the frame's tint and the veil's bounds back to rest). Two palettes share a scene when they hold the same
 table (with or without an `id`) or tables with the same `id`.
 
 **Contrast.** Labels on the frame must keep 4.5:1 over the brightest (dark) or darkest
@@ -237,12 +245,16 @@ under labels `labels = false`. Lunar's `SAMPLES` are made this way, so they foll
 there with a signal (Lunar's crescent fades when the rail's entries would reach it).
 
 **Bodies and the pages' panels.** A body (Lunar's moon and sun) shows whole or not at all:
-never an arc in the gap between two panels. Place it in px from the edges the pages are
-laid out from (`unit = "px"`, negative `x` from the right), keep its art and glow inside
-its box, and pick a band that every page either leaves open or covers whole. Lunar's is
-y 325..483 at 192 px from the right (`lunar_space.M.BODY`): Media's hero card covers
-250..483 and the iLO editor starts at 325, Build Queue and Settings leave it open; below
-1400 px wide both bodies fade out (gone by 1150).
+never an arc in the gap between two panels. Give it `whole = true` and keep its art and glow
+inside its box. After each frame of the UI the opaque fills laid over the scene (at least
+24 px each way, on the main window's base layer; a page sliding in counts where it will
+rest, a page leaving not at all) are tested against the box, where the layer will be at the
+mode the sky is easing to: wholly clear or wholly covered, it shows; partly covered, it
+fades out over 150 ms, and back in when that changes (at once off the GPU path, and with no
+fade the first time). Still place it where most pages leave it whole: px from the edges the
+pages are laid out from (`unit = "px"`, negative `x` from the right). Lunar's band is
+y 325..483 at 192 px from the right (`lunar_space.M.BODY`); below 1400 px wide both bodies
+fade out (gone by 1150).
 
 ## Panels over a reactive background
 

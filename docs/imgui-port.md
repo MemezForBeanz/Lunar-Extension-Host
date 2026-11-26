@@ -490,6 +490,10 @@ as the flat scrollbar's size (IUP registers 15) were found.
 - **Video host**: `iup.videohost` owns a disabled native child window (`WINDOWID`, from map)
   that follows the element's rect and hides at frame end when no visible videohost placed it
   (a hidden tab or zbox page), so libmpv draws into it as on the IUP build.
+- **Scrollbox `YIELD`** (an emulator attribute, no IUP counterpart): px of leading space the
+  child may give up instead of scrolling. A child that overruns the view by no more than that
+  is shifted up and shows no bar (Settings' column, whose top spacer alone overran the pane at
+  1068x784); a real overflow scrolls as before.
 - **Patch audit**: `docs/imgui-patch-audit.md` maps every hunk of the fork's patches to its
   Lua port; `docs/imgui-scintilla.md` lists the Scintilla surface Lunar uses.
 
