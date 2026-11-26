@@ -214,11 +214,14 @@ function SettingsView:initialize(opts)
     -- BGCOLOR intentionally omitted here: flatscrollbox is themed directly by
     -- ThemeManager's per-class rule, and hardcoding white would survive theme
     -- switches (this widget is otherwise excluded from re-theming).
+    -- YIELD: a section that overruns the pane only by the column's top spacer gives the
+    -- spacer up rather than showing a bar whose whole range is that space.
     self._scroll = iup.flatscrollbox{
         self._column,
         EXPAND    = "YES",
         SCROLLBAR = "VERTICAL",
         XHIDDEN   = "YES",
+        YIELD     = tostring(L.px(L.ROLE.row)),
     }
 
     -- BGCOLOR intentionally omitted: vbox is a "void" layout container that

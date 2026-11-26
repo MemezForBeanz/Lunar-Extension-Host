@@ -1945,6 +1945,12 @@ function M.frame()
 			if d == main_dialog then
 				layout_dialog(d, st.w, st.h)
 				paint(d, dc)
+				-- the scene's whole-or-hidden bodies meet the layout just laid over them
+				if dc.cover then
+					local Background = package.loaded["core.ui.Background"]
+					if Background then Background.cover(dc.cover) end
+					dc.cover = nil
+				end
 				for _, fn in ipairs(M.postPaint) do
 					local okp, errp = pcall(fn, dc, input)
 					if not okp then warn(errp) end

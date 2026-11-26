@@ -927,7 +927,8 @@ function M.new(ctx, opts)
 			go_source("collection", (model.collections or {})[1])
 			return
 		end
-		if state == "home" then
+		if state == "home" or state == "home-nobanner" then
+			if state == "home-nobanner" then reliability.dismiss() end
 			sources:select(1)
 			go_source("home")
 		elseif state == "sheet" then

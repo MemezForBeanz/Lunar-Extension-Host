@@ -13,10 +13,14 @@ function M.new(ctx, model, open)
 	if iup.GetChild then
 		local dismiss = iup.GetChild(line, 2)
 		if dismiss then dismiss.flat_action = function()
-			Kit.show(iup, surface, false)
-			if iup.Refresh then iup.Refresh(surface) end
+			api.dismiss()
 			return iup.DEFAULT
 		end end
+	end
+	--- Hide the notice until the model changes (its dismiss button; a capture fixture).
+	function api.dismiss()
+		Kit.show(iup, surface, false)
+		if iup.Refresh then iup.Refresh(surface) end
 	end
 	function api:_afterThemePass()
 		local p = Reactor.palette()

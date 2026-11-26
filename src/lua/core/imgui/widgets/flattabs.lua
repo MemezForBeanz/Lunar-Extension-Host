@@ -545,6 +545,9 @@ local function paintChildren(el, st, d, kids, R)
 		if leaving and M._see_through(d, bg) then alpha = alpha * (1 - math.min(1, q / 0.5)) end
 		if alpha <= 0 then return end
 		local dx, dy = round(tonumber(t.dx) or 0), round(tonumber(t.dy) or 0)
+		-- what covers the scene is the layout the switch lands on: the arriving page where
+		-- it will rest, the leaving one not at all (core.ui.Background.cover)
+		local saved = d.coverShift and d:coverShift(dx, dy, x, y, w, h, leaving)
 		d:offset_push(dx, dy)
 		d:alpha_push(alpha > 1 and 1 or alpha)
 		-- A page draws over the strip's background, so it has none of its own: give it
@@ -554,6 +557,7 @@ local function paintChildren(el, st, d, kids, R)
 		if leaving then R.paintHidden(child, d) else R.paint(child, d) end
 		d:alpha_pop()
 		d:offset_pop()
+		if saved then d:coverRestore(saved) end
 		local dim = tonumber(t.dim) or 0
 		if dim > 0 then d:fill(x + dx, y + dy, w, h, Color.pack(0, 0, 0, 255 * math.min(1, dim))) end
 	end

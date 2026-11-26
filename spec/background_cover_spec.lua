@@ -1,0 +1,163 @@
+local Scene=require("core.ui.Background")
+local Null=require("core.imgui.backend.Null")
+local Draw=require("core.imgui.Draw")
+local Reactor=require("core.ui.ThemeReactor")
+
+-- Whole-or-hidden layers (`whole = true`): a body partly covered by the layout laid over it
+-- fades out; wholly clear or wholly covered, it shows.
+local clock,motion_on,wakes
+describe("whole-or-hidden background layers",function()
+    local saved_rt,saved_tm,saved_svg,saved_pal
+    before_each(function()
+        clock,motion_on,wakes=10,true,{}
+        saved_rt=package.loaded["core.imgui.Runtime"]
+        package.loaded["core.imgui.Runtime"]={ now=function() return clock end, pointer=function() return -1,-1,false end,
+            wakeAt=function(t) wakes[#wakes+1]=t end, animate=function() end }
+        saved_tm,saved_pal=Reactor.themeManager,Reactor.palette
+        Reactor.themeManager=function() return { _motion={ enabled=function() return motion_on end, _scale=1 } } end
+        Reactor.palette=function() return nil end
+        saved_svg=Scene._svg_pixels
+        Scene._svg_pixels=function(src,w,h) return string.rep("\255",w*h*4),w,h end
+        Scene.clear(); Scene.reset()
+    end)
+    after_each(function()
+        package.loaded["core.imgui.Runtime"]=saved_rt
+        Reactor.themeManager,Reactor.palette=saved_tm,saved_pal
+        Scene._svg_pixels=saved_svg
+        Scene.clear(); Scene.reset()
+    end)
+
+    -- a 100 px body centred at (600, 300) in an 800 x 600 window
+    local function scene() return {background={id="w",layers={{kind="fill",top="#000010",bottom="#000020"},
+        {svg="<svg/>",size=100,unit="px",x=600,y=300,whole=true}}}} end
+    -- one frame of the UI: the floor, then `rects` painted as opaque fills over it
+    local function frame(B,dc,p,rects,live)
+        B.frame_begin(); dc:begin(800,600)
+        Scene.floor(dc,0,0,800,600,p,live~=false)
+        for _,r in ipairs(rects or {}) do dc:fill(r[1],r[2],r[3],r[4],r[5] or "#202020") end
+        Scene.cover(dc.cover)
+        B.frame_end()
+    end
+    local function body_alpha(B)
+        local a=0
+        for _,c in ipairs(B.scene_calls) do if c[1]=="image" then a=math.floor(c[11]/16777216)%256 end end
+        return a
+    end
+
+    it("classifies a box as clear, covered or partial against the rects over it",function()
+        assert.equal("clear",Scene.coverage(0,0,100,100,{}))
+        assert.equal("clear",Scene.coverage(0,0,100,100,{{200,0,300,100}}))
+        assert.equal("covered",Scene.coverage(0,0,100,100,{{-10,-10,110,110}}))
+        -- two rects meeting edge to edge cover it whole
+        assert.equal("covered",Scene.coverage(0,0,100,100,{{-10,-10,50,110},{50,-10,110,110}}))
+        -- a gap between two panels
+        assert.equal("partial",Scene.coverage(0,0,100,100,{{-10,-10,110,40},{-10,60,110,110}}))
+        assert.equal("partial",Scene.coverage(0,0,100,100,{{50,50,200,200}}))
+    end)
+
+    it("shows a body whole when nothing covers it and when a panel covers it all",function()
+        local B=Null.new({scene=true}); local dc=Draw.new(B); local p=scene()
+        frame(B,dc,p,{})
+        assert.equal("clear",(Scene.coverState(2)))
+        frame(B,dc,p,{{500,200,200,200}})
+        assert.equal("covered",(Scene.coverState(2)))
+        local _,v=Scene.coverState(2); assert.equal(1,v)
+    end)
+
+    it("hides a partly covered body from the first layout it meets, without a fade",function()
+        local B=Null.new({scene=true}); local dc=Draw.new(B); local p=scene()
+        -- a panel over its top half, another below: a gap across its middle
+        frame(B,dc,p,{{500,200,200,90},{500,320,200,100}})
+        assert.equal("partial",(Scene.coverState(2)))
+        local _,v=Scene.coverState(2); assert.equal(0,v)
+        -- the next render leaves it out
+        frame(B,dc,p,{{500,200,200,90},{500,320,200,100}})
+        assert.equal(0,body_alpha(B))
+    end)
+
+    it("fades out over COVER_FADE as a layout leaves it partly covered, and back in",function()
+        local B=Null.new({scene=true}); local dc=Draw.new(B); local p=scene()
+        frame(B,dc,p,{})
+        local renders=B.scene_renders
+        frame(B,dc,p,{{500,200,200,90}})       -- now only its top is covered
+        assert.equal("partial",(Scene.coverState(2)))
+        assert.is_true(#wakes>0)
+        -- the fade is scheduled for the idle loop: scene-only presents, not frames of the UI
+        local due=Scene.due(); assert.is_not_nil(due)
+        clock=clock+Scene.COVER_FADE/2
+        assert.is_true(Scene.tick(B))
+        assert.is_true(B.scene_renders>renders)
+        local mid=body_alpha(B); assert.is_true(mid>40 and mid<215,"half way: "..mid)
+        clock=clock+Scene.COVER_FADE
+        assert.is_true(Scene.tick(B))
+        assert.equal(0,body_alpha(B))
+        -- the last value drawn, nothing more is owed
+        assert.is_nil(Scene.due())
+        -- covered whole again: it fades back in
+        frame(B,dc,p,{{500,200,200,200}})
+        clock=clock+Scene.COVER_FADE*2
+        assert.is_true(Scene.tick(B))
+        assert.equal(255,body_alpha(B))
+    end)
+
+    it("counts only opaque fills of at least COVER_MIN px, on the main window's base layer",function()
+        local B=Null.new({scene=true}); local dc=Draw.new(B); local p=scene()
+        frame(B,dc,p,{{500,200,200,90,"32 32 32 128"}})   -- translucent: not a cover
+        assert.equal("clear",(Scene.coverState(2)))
+        frame(B,dc,p,{{560,260,10,10}})                    -- too small to count
+        assert.equal("clear",(Scene.coverState(2)))
+        B.frame_begin(); dc:begin(800,600)
+        Scene.floor(dc,0,0,800,600,p,true)
+        dc:layer("overlay"); dc:fill(500,200,200,90,"#202020"); dc:layer(0)   -- a menu
+        Scene.cover(dc.cover); B.frame_end()
+        assert.equal("clear",(Scene.coverState(2)))
+    end)
+
+    it("cuts a fill to its clip, and counts a sliding page where it will rest",function()
+        local B=Null.new({scene=true}); local dc=Draw.new(B); local p=scene()
+        B.frame_begin(); dc:begin(800,600)
+        Scene.floor(dc,0,0,800,600,p,true)
+        -- the strip's client (0..800); the arriving page is 300 px to the right of its place
+        dc:clip_push(0,0,800,600)
+        local saved=dc:coverShift(300,0,0,0,800,600,false)
+        dc:offset_push(300,0)
+        dc:fill(200,200,500,90,"#202020")   -- drawn at 500..1000 (clipped at 800), rests at 200..700
+        dc:offset_pop(); dc:coverRestore(saved)
+        local gone=dc:coverShift(0,0,0,0,0,0,true)
+        dc:fill(500,320,200,100,"#202020")  -- the leaving page: never counts
+        dc:coverRestore(gone)
+        dc:clip_pop()
+        assert.same({{200,200,700,290}},dc.cover)
+        Scene.cover(dc.cover); B.frame_end()
+        assert.equal("partial",(Scene.coverState(2)))
+    end)
+
+    it("decides where the sky is going: the sun's place at the mode it eases to",function()
+        local B=Null.new({scene=true}); local dc=Draw.new(B)
+        local layers={{kind="fill",top="#000010",bottom="#000020"},
+            {svg="<svg/>",size=100,unit="px",x=600,y={signal="mode",from=700,to=300},whole=true}}
+        local dark={glassDark=true,background={id="m",layers=layers}}
+        local light={glassDark=false,background={id="m",layers=layers}}
+        local panel={{500,200,200,90}}
+        frame(B,dc,dark,panel)
+        assert.equal("clear",(Scene.coverState(2)))   -- below the window, nothing over it
+        frame(B,dc,light,panel)                        -- the ease starts: it will rest at y 300
+        assert.equal("partial",(Scene.coverState(2)))
+    end)
+
+    it("switches at once off the GPU path (static scene)",function()
+        local B=Null.new({scene=true}); local dc=Draw.new(B); local p=scene()
+        frame(B,dc,p,{},false)
+        frame(B,dc,p,{{500,200,200,90}},false)
+        local _,v=Scene.coverState(2); assert.equal(0,v)
+    end)
+
+    it("marks Lunar's moon and sun whole-or-hidden",function()
+        local space=require("core.classes.Themes.lunar_space")
+        local scene=Scene._scene_of(space.background())
+        local n=0
+        for _,l in ipairs(scene.layers) do if l.whole then n=n+1 end end
+        assert.equal(2,n)
+        assert.is_true(scene.wholes)
+    end)
+end)

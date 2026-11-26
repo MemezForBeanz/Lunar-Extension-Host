@@ -220,6 +220,13 @@ local function scroll_place_for(native)
 		-- The range is what the visible content occupies, not the allocation: hidden
 		-- sections and expansion slack below it are not scrolled to.
 		d.ymax = sb_vert and content_height(c, ch) or 0
+		-- The fork's YIELD (px): space at the top of the child it may give up instead of
+		-- scrolling, so a list that overruns only by its own leading space shows no bar.
+		local yield = tonumber(own(e, "YIELD")) or 0
+		if yield > 0 and d.ymax > st.h and d.ymax - st.h <= yield then
+			oy = (oy or 0) - (d.ymax - st.h)
+			d.ymax = st.h
+		end
 		if d.ymax <= st.h then
 			d.dy, d.posy = sb_vert and st.h or 0, 0
 			L.place(c, st.x + (ox or 0) - posx, st.y + (oy or 0), math.max(need_w, st.w), h)

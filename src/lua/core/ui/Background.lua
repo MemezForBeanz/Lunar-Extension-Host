@@ -274,6 +274,10 @@ local function compile_layer(def)
 	end
 	-- a parallax offset reads the pointer
 	if def.parallax and def.parallax ~= 0 then layer.deps.mouse_x, layer.deps.mouse_y = true, true end
+	-- `whole = true`: shown whole or not at all (M.cover)
+	if def.whole and (layer.kind == "svg" or layer.kind == "video") then
+		layer.whole = { from = 1, to = 1, at = 0, dur = 0, seen = false }
+	end
 	return layer
 end
 
@@ -288,6 +292,7 @@ local function scene_of(bg)
 		for k in pairs(layer.deps) do s.deps[k] = true end
 	end
 	if s.deps["*"] then for k in pairs(signals) do s.deps[k] = true end end
+	for _, layer in ipairs(s.layers) do if layer.whole then s.wholes = true end end
 	compiled[bg] = s
 	return s
 end
@@ -372,6 +377,7 @@ local function warm(B, scene)
 end
 
 -- Drawing ------------------------------------------------------------------------------
+local COVER = "\0cover"   -- s[COVER .. i]: a `whole` layer's visibility (M.cover)
 local function pack(c, a)
 	return Color.pack(c[1], c[2], c[3], (c[4] or 255) * (a or 1))
 end
@@ -379,8 +385,9 @@ end
 -- Draw `scene` with signals `s` on B, in a w x h window. Returns the sprite count.
 local function emit(B, scene, s, w, h, ctx)
 	local n = 0
-	for _, layer in ipairs(scene.layers) do
+	for i, layer in ipairs(scene.layers) do
 		local opacity = layer.opacity(s)
+		if layer.whole and type(opacity) == "number" then opacity = opacity * (s[COVER .. i] or 1) end
 		if type(opacity) == "number" and opacity > 0.002 then
 			local kind = layer.kind
 			if kind == "fill" then
@@ -563,6 +570,18 @@ local function read(scene, ctx)
 			if last_values[name] ~= s[name] then changed = true end
 		end
 	end
+	for i, layer in ipairs(scene.layers) do
+		local wh = layer.whole
+		if wh then
+			local v = wh.to
+			if wh.dur > 0 and ctx.now < wh.at + wh.dur then
+				local t = max(0, (ctx.now - wh.at) / wh.dur)
+				v = wh.from + (wh.to - wh.from) * t * t * (3 - 2 * t)
+			end
+			s[COVER .. i] = v
+			if last_values[COVER .. i] ~= v then changed = true end
+		end
+	end
 	return s, changed
 end
 
@@ -598,6 +617,13 @@ function M.due()
 	-- the ease is over: one full frame at or after its end, so the frame's tint and the
 	-- veil's bounds land on the final sky (a scene-only present would keep the last ones)
 	if mode.tail then return max(mode.at + mode.dur, last_emit + 1 / EASE_HZ) end
+	-- a body fading in or out as the layout over it changed (M.cover), to its last value
+	for _, layer in ipairs(active.layers) do
+		local wh = layer.whole
+		if wh and wh.dur > 0 and last_emit < wh.at + wh.dur then
+			return max(wh.at, last_emit + 1 / EASE_HZ)
+		end
+	end
 	if pending_resize then
 		return animated and last_emit + 1 / M.RESIZE_HZ or last_resize + M.RESIZE_SETTLE
 	end
@@ -638,6 +664,7 @@ function M.floor(dc, x, y, w, h, p, live)
 	if mode.tail and now >= mode.at + mode.dur then mode.tail = false end
 	local ctx = context(now, W, H)
 	local s, changed = read(scene, ctx)
+	if scene.wholes and dc.coverBegin and (dc.surface_id or 0) == 0 then dc:coverBegin() end
 	if B.scene_begin and (dc.surface_id or 0) == 0 then
 		local size = W .. "x" .. H
 		if seen_size ~= size then seen_size, last_resize = size, now end
@@ -726,6 +753,109 @@ function M.tick(B)
 	end
 	stats.refusals = stats.refusals + 1
 	return false
+end
+
+-- Whole or hidden -------------------------------------------------------------------------
+-- A layer with `whole = true` (the moon, the sun) is never shown in part. After each frame
+-- of the UI the runtime passes the opaque fills it laid over the scene (core.imgui.Draw
+-- records them from the floor on; a page sliding in counts where it will rest), and each
+-- such layer's box (art and glow, plus parallax) is tested against them where the layer
+-- will be (at the mode the sky is easing to). Wholly clear or wholly covered, it shows;
+-- partly covered, it fades out over COVER_FADE, and back in when that changes.
+M.COVER_FADE = 0.15  -- s
+M.COVER_STEP = 8     -- px between the points tested across a box
+
+-- The box (x0, y0, x1, y1) `layer` takes up with signals `s` in a W x H window.
+local function box_of(layer, s, W, H)
+	local def = layer.def
+	local bw = def.width or def.size or 64
+	local bh = def.height or def.size or bw
+	local sc, par = layer.scale(s), math.abs(layer.parallax(s))
+	local lx, ly = layer.x(s), layer.y(s)
+	if def.unit == "px" then
+		lx = lx < 0 and W + lx or lx
+		ly = ly < 0 and H + ly or ly
+	else
+		lx, ly = lx * W, ly * H
+	end
+	local cx, cy = lx + layer.dx(s), ly + layer.dy(s)
+	local hw, hh = bw * sc / 2 + par, bh * sc / 2 + par
+	return cx - hw, cy - hh, cx + hw, cy + hh
+end
+M._box_of = box_of
+
+--- How much of box (x0, y0, x1, y1) `rects` ({ x0, y0, x1, y1 }, ...) cover: "clear",
+-- "covered" or "partial", tested at points COVER_STEP apart across it (edges included).
+function M.coverage(x0, y0, x1, y1, rects)
+	local hits = {}
+	for _, r in ipairs(rects) do
+		if r[1] <= x1 and r[3] >= x0 and r[2] <= y1 and r[4] >= y0 then hits[#hits + 1] = r end
+	end
+	if #hits == 0 then return "clear" end
+	local nx = max(1, math.ceil((x1 - x0) / M.COVER_STEP))
+	local ny = max(1, math.ceil((y1 - y0) / M.COVER_STEP))
+	local inside, total = 0, 0
+	for j = 0, ny do
+		local y = y0 + (y1 - y0) * j / ny
+		for i = 0, nx do
+			local x = x0 + (x1 - x0) * i / nx
+			total = total + 1
+			for k = 1, #hits do
+				local r = hits[k]
+				if x >= r[1] and x <= r[3] and y >= r[2] and y <= r[4] then inside = inside + 1; break end
+			end
+		end
+	end
+	if inside == 0 then return "clear" end
+	return inside == total and "covered" or "partial"
+end
+
+--- After a frame of the UI: `rects`, the opaque fills laid over the scene (screen px).
+-- Starts the fades of the `whole` layers whose coverage changed; true when one did.
+function M.cover(rects)
+	if not (active and active.wholes and rects) then return false end
+	local W, H = window.w, window.h
+	if W <= 0 or H <= 0 then return false end
+	local now = now_of()
+	local s = setmetatable({ mode = mode.to, width = W, height = H }, { __index = last_values })
+	local started = false
+	for _, layer in ipairs(active.layers) do
+		local wh = layer.whole
+		if wh then
+			local x0, y0, x1, y1 = box_of(layer, s, W, H)
+			local state = M.coverage(x0, y0, x1, y1, rects)
+			local want = state == "partial" and 0 or 1
+			wh.state = state
+			if not wh.seen then
+				-- the first layout it meets: no fade from what was never shown
+				wh.seen, wh.from, wh.to, wh.at, wh.dur = true, want, want, now, 0
+				started = started or want == 0
+			elseif want ~= wh.to then
+				local cur = wh.to
+				if wh.dur > 0 and now < wh.at + wh.dur then
+					local t = max(0, (now - wh.at) / wh.dur)
+					cur = wh.from + (wh.to - wh.from) * t * t * (3 - 2 * t)
+				end
+				local on, director = motion()
+				local scale = director and director._scale or 1
+				wh.from, wh.to, wh.at = cur, want, now
+				wh.dur = (on and animated) and M.COVER_FADE * scale or 0
+				started = true
+			end
+		end
+	end
+	if started then
+		local R = package.loaded["core.imgui.Runtime"]
+		if R and R.wakeAt then R.wakeAt(now) end
+	end
+	return started
+end
+--- A `whole` layer's last coverage ("clear", "covered", "partial") and visibility now.
+function M.coverState(i)
+	local layer = active and active.layers[i]
+	local wh = layer and layer.whole
+	if not wh then return nil end
+	return wh.state, (read(active, { now = now_of(), w = window.w, h = window.h, static = true }))[COVER .. i]
 end
 
 --- Does a pointer move change the scene (a parallax layer, motion on)?

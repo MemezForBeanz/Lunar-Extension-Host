@@ -151,10 +151,12 @@ for i = 0, 23 do M.MOON_PHASES[i + 1] = moon_phase(i / 23) end
 
 local S = M.SVG
 -- Where the bodies sit: px from the window's right and top, so they keep their place in
--- the pages (laid out from the top and the right) at any window size. A body is whole or
--- hidden, never an arc in a gap between two panels: its box (art and glow, plus parallax)
--- fits the band y 325..483 that the pages' right side shares: Media's hero card covers
--- 250..483, the iLO editor 325 and down, Build Queue and Settings leave it open.
+-- the pages (laid out from the top and the right) at any window size. The preferred place
+-- is the band y 325..483 that most pages' right side shares (Media's hero card covers
+-- 250..483, the iLO editor 325 and down, Build Queue and Settings leave it open). A body is
+-- whole or hidden, never an arc in a gap between two panels: `whole = true` tests its box
+-- (art and glow, plus parallax) against the layout actually laid over it and fades it out
+-- where it would be partly covered (core.ui.Background.cover).
 M.BODY = { x = -192, y = 404, size = 152, parallax = 2 }
 -- The sun's path: from below the lower-right horizon at night (fractions of the window) to
 -- M.BODY by day, where the moon was. The visible sun follows it, and the crescent is lit
@@ -270,9 +272,11 @@ function M.background(rail_w)
 			-- (its lit disc, R of the art's 128 half side, is what can pass the veil's bound)
 			{ svg = { signal = "mode", set = M.MOON_PHASES, range = { 0, 0.5 } }, size = M.BODY.size, unit = "px",
 				x = M.BODY.x, y = M.BODY.y, rotation = M.MOON.turn, parallax = M.BODY.parallax, labels = false, hot = 0.47,
+				whole = true,
 				opacity = wide_only(by_mode(1, 0, { 0.52, 0.72 })) },
 			-- the sun rises along its path (M.SUN) as the sky brightens
 			{ svg = S.sun, size = M.BODY.size, unit = "px", x = sun_x, y = sun_y, parallax = M.BODY.parallax, labels = false,
+				whole = true,
 				opacity = wide_only(by_mode(0, 1, { 0.40, 1 })), scale = by_mode(0.7, 1, { 0.4, 1 }),
 				deps = { "mode", "width", "height" } },
 			-- the extended sidebar's crescent, low in the rail; silver at night (dim enough for

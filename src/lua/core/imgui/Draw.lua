@@ -65,7 +65,46 @@ function DC:begin(w, h)
 	self.glass_gpu = nil -- core.ui.Glass asks the backend once per frame
 	self.glass_frame = nil -- and starts its per-frame record of surfaces on the first one
 	self.glass_art = nil
+	-- the opaque fills laid over the floor this frame (core.ui.Background.cover), once the
+	-- floor starts the list; `kx*`: the clip they are cut to, in the layout's own place
+	self.cover, self.cover_off, self.cover_dx, self.cover_dy = nil, nil, 0, 0
+	self.kx1, self.ky1, self.kx2, self.ky2 = self.cx1, self.cy1, self.cx2, self.cy2
 	if self.B.layer then self.B.layer(0) end
+end
+
+-- The smallest fill that counts as covering the scene (px each way), and how opaque.
+M.COVER_MIN, M.COVER_ALPHA = 24, 242
+-- Record an opaque fill (absolute px, packed `color` as drawn) over the scene: cut to the
+-- clip, in the place the layout puts it (a page sliding in during a transition is recorded
+-- where it lands, at its own opacity).
+local function cover(self, x, y, w, h, color)
+	local list = self.cover
+	if not list or self.cover_off or self.layer_index ~= 0 or (self.surface_id or 0) ~= 0 or (self.rec and not self.rec_draw) then return end
+	if w < M.COVER_MIN or h < M.COVER_MIN then return end
+	local _, _, _, a = Color.unpack(color)
+	if a < M.COVER_ALPHA then return end
+	local dx, dy = self.cover_dx, self.cover_dy
+	local x1, y1 = math.max(x - dx, self.kx1), math.max(y - dy, self.ky1)
+	local x2, y2 = math.min(x + w - dx, self.kx2), math.min(y + h - dy, self.ky2)
+	if x2 - x1 >= M.COVER_MIN and y2 - y1 >= M.COVER_MIN then list[#list + 1] = { x1, y1, x2, y2 } end
+end
+
+--- Start recording opaque fills (the floor does, as the scene is laid down).
+function DC:coverBegin() self.cover = {} end
+--- While a page slides in: record its fills `dx, dy` back, cut to (x, y, w, h), its
+-- place; `off`: record nothing (a page on its way out). Returns the state to restore.
+function DC:coverShift(dx, dy, x, y, w, h, off)
+	local saved = { self.cover_dx, self.cover_dy, self.kx1, self.ky1, self.kx2, self.ky2, self.cover_off, self.cover_dx_set }
+	if off then self.cover_off = true
+	else
+		self.cover_dx, self.cover_dy, self.cover_dx_set = self.cover_dx + dx, self.cover_dy + dy, true
+		x, y = x + self.ox, y + self.oy
+		self.kx1, self.ky1, self.kx2, self.ky2 = x, y, x + w, y + h
+	end
+	return saved
+end
+function DC:coverRestore(saved)
+	self.cover_dx, self.cover_dy, self.kx1, self.ky1, self.kx2, self.ky2, self.cover_off, self.cover_dx_set = unpack(saved, 1, 8)
 end
 
 local function corner_flags(radius, corners)
@@ -129,6 +168,7 @@ function DC:fill(x, y, w, h, color, opts)
 	if not c or w <= 0 or h <= 0 then return end
 	x, y = x + self.ox, y + self.oy
 	local r = opts and opts.radius or 0
+	if self.cover then cover(self, x, y, w, h, self.cover_dx_set and Color.parse(color) or c) end
 	self:_emit("rect_filled", x, y, x + w, y + h, c, r, shape_flags(r, opts))
 end
 
@@ -502,7 +542,10 @@ end
 function DC:clip_push(x, y, w, h)
 	x, y = x + self.ox, y + self.oy
 	local stack = self.clips
-	stack[#stack + 1] = { self.cx1, self.cy1, self.cx2, self.cy2 }
+	stack[#stack + 1] = { self.cx1, self.cy1, self.cx2, self.cy2, self.kx1, self.ky1, self.kx2, self.ky2 }
+	local kx, ky = x - (self.cover_dx or 0), y - (self.cover_dy or 0)
+	self.kx1, self.ky1 = math.max(self.kx1 or -1e9, kx), math.max(self.ky1 or -1e9, ky)
+	self.kx2, self.ky2 = math.min(self.kx2 or 1e9, kx + w), math.min(self.ky2 or 1e9, ky + h)
 	self.cx1 = math.max(self.cx1, x)
 	self.cy1 = math.max(self.cy1, y)
 	self.cx2 = math.min(self.cx2, x + w)
@@ -517,6 +560,7 @@ function DC:clip_pop()
 	local top = table.remove(stack)
 	if not top then return end
 	self.cx1, self.cy1, self.cx2, self.cy2 = top[1], top[2], top[3], top[4]
+	self.kx1, self.ky1, self.kx2, self.ky2 = top[5], top[6], top[7], top[8]
 	self:_emit("clip_pop")
 end
 
@@ -603,6 +647,10 @@ function DC:replay(list, dx, dy, alpha)
 	local args = {}
 	for _, cmd in ipairs(list) do
 		local op = cmd[1]
+		if op == "rect_filled" and self.cover then
+			local a = cmd[6] and alpha < 1 and Color.alpha(cmd[6], alpha) or cmd[6]
+			if a then cover(self, cmd[2] + dx, cmd[3] + dy, cmd[4] - cmd[2], cmd[5] - cmd[3], a) end
+		end
 		if dx == 0 and dy == 0 and alpha == 1 then
 			self:_emit(op, unpack(cmd, 2))
 		else
