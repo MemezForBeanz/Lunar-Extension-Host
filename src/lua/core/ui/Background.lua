@@ -516,6 +516,8 @@ local target            -- { tw, th } of the scene target, while one holds the s
 local above_values      -- the signals the last floor read, for M.above
 local scene_B           -- the backend the scene target was last drawn on (M.cover redraws it)
 local direct            -- this frame's direct-draw floor: { B = backend, [i] = mark } (emit)
+local shown             -- the signals the main window's floor shows this frame was drawn with
+                        -- (the held render's on a held resize); M.cover tests them
 
 local function motion()
 	local Reactor = package.loaded["core.ui.ThemeReactor"]
@@ -588,6 +590,25 @@ local function context(now, w, h)
 	return ctx
 end
 
+-- Set each `whole` layer's visibility at `now` in `s`; true when one differs from the last
+-- emission.
+local function covers(scene, now, s)
+	local changed = false
+	for i, layer in ipairs(scene.layers) do
+		local wh = layer.whole
+		if wh then
+			local v = wh.to
+			if wh.dur > 0 and now < wh.at + wh.dur then
+				local t = max(0, (now - wh.at) / wh.dur)
+				v = wh.from + (wh.to - wh.from) * t * t * (3 - 2 * t)
+			end
+			s[COVER .. i] = v
+			if last_values[COVER .. i] ~= v then changed = true end
+		end
+	end
+	return changed
+end
+
 -- The signal values `scene` reads now, time quantized to its fps; changed = differs from
 -- the last emission.
 local function read(scene, ctx)
@@ -604,18 +625,7 @@ local function read(scene, ctx)
 			if last_values[name] ~= s[name] then changed = true end
 		end
 	end
-	for i, layer in ipairs(scene.layers) do
-		local wh = layer.whole
-		if wh then
-			local v = wh.to
-			if wh.dur > 0 and ctx.now < wh.at + wh.dur then
-				local t = max(0, (ctx.now - wh.at) / wh.dur)
-				v = wh.from + (wh.to - wh.from) * t * t * (3 - 2 * t)
-			end
-			s[COVER .. i] = v
-			if last_values[COVER .. i] ~= v then changed = true end
-		end
-	end
+	if covers(scene, ctx.now, s) then changed = true end
 	return s, changed
 end
 
@@ -625,7 +635,7 @@ function M.deactivate()
 	active, target, M._deps, last_values, last_emit = nil, nil, nil, {}, -1e9
 	above_values, scene_B = nil, nil
 	pending_resize, listed, seen_size, M._target_size = false, nil, nil, nil
-	direct = nil
+	direct, shown = nil, nil
 	mode.from, mode.to, mode.dur, mode.tail, mode.framed = 0, 0, 0, false, false
 end
 
@@ -732,6 +742,7 @@ function M.floor(dc, x, y, w, h, p, live)
 			if not resized then pending_resize = false end
 		end
 		if target then
+			shown = last_values
 			-- the target's rendered area (target.w x target.h) maps onto the window
 			local sx, sy = target.w / (W * target.tw), target.h / (H * target.th)
 			dc:_emit("image", B.SCENE_SHARP, x + dc.ox, y + dc.oy, x + dc.ox + w, y + dc.oy + h,
@@ -756,7 +767,7 @@ function M.floor(dc, x, y, w, h, p, live)
 	end
 	local marks = scene.wholes and B.vtx_mark and (dc.surface_id or 0) == 0 and { B = B } or nil
 	emit(Bshift, scene, st, W, H, "scene", marks)
-	direct = marks
+	if (dc.surface_id or 0) == 0 then direct, shown = marks or {}, st end
 	dc:clip_pop()
 	above_values = st
 	return true
@@ -813,7 +824,7 @@ function M.tick(B)
 	local t = draw_target(B, active, s, window.w, window.h)
 	if not t then return false end
 	target = t
-	last_values, last_emit = s, now
+	last_values, last_emit, shown = s, now, s
 	stats.emits = stats.emits + 1
 	if B.scene_present() then
 		stats.presents = stats.presents + 1
@@ -891,7 +902,7 @@ end
 --- After a frame of the UI: `rects`, the opaque fills laid over the scene (screen px).
 -- Starts the fades of the `whole` layers whose coverage changed; true when one did.
 function M.cover(rects)
-	if not (active and active.wholes and rects) then return false end
+	if not (active and active.wholes and rects and shown) then return false end
 	local W, H = window.w, window.h
 	if W <= 0 or H <= 0 then return false end
 	local now = now_of()
@@ -901,7 +912,7 @@ function M.cover(rects)
 	local LW, LH = W, H
 	if target and not direct then LW, LH = target.w, target.h end
 	local kx, ky = W / LW, H / LH
-	local s = setmetatable({ mode = mode.to, width = LW, height = LH }, { __index = last_values })
+	local s = setmetatable({ mode = mode.to, width = LW, height = LH }, { __index = shown })
 	local started, instant = false, false
 	for _, layer in ipairs(active.layers) do
 		local wh = layer.whole
@@ -937,15 +948,18 @@ function M.cover(rects)
 	-- and the glass already on this frame's lists map that size (a resize the floor held
 	-- stays stretched, and its own redraw stays due). Direct draw: the whole sprites this
 	-- frame drew are recoloured where they lie on its list.
-	if instant and target and scene_B and scene_B.scene_begin then
-		local tw, th = target.w, target.h
-		local s2 = read(active, context(now, tw, th))
-		local t = draw_target(scene_B, active, s2, tw, th)
+	if instant and not direct and target and scene_B and scene_B.scene_begin then
+		-- with the values the body was tested at, not a new read (a signal that moved since
+		-- the held render would be drawn where nothing tested it)
+		local s2 = {}
+		for k, v in pairs(shown) do s2[k] = v end
+		covers(active, now, s2)
+		local t = draw_target(scene_B, active, s2, target.w, target.h)
 		if t then
-			target, last_values, last_emit = t, s2, now
+			target, last_values, last_emit, shown = t, s2, now, s2
 			stats.emits = stats.emits + 1
 		end
-	elseif instant and direct then
+	elseif instant and direct and direct.B then
 		for i, m in pairs(direct) do
 			local wh = i ~= "B" and active.layers[i] and active.layers[i].whole
 			if wh then direct.B.vtx_color(m[1], m[2], m[3], pack(m[4], m[5] * wh.to)) end

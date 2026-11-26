@@ -286,6 +286,85 @@ describe("whole-or-hidden background layers",function()
         assert.equal(0,body_alpha(B))
     end)
 
+    -- a 100 px body whose centre x follows `fullscreen`: 200 (150..250) at 0, 700 (650..750) at 1
+    local function moving() return {background={id="m",layers={{kind="fill",top="#000010",bottom="#000020"},
+        {svg="<svg/>",size=100,unit="px",x={signal="fullscreen",from=200,to=700},y=300,whole=true}}}} end
+    -- the body's sprite on `calls`: its left edge and alpha
+    local function body_on(calls)
+        local x,a
+        for _,c in ipairs(calls) do
+            if c[1]=="image" then x,a=c[3],math.floor(c[11]/16777216)%256 end
+        end
+        return x,a
+    end
+    local edge={{700,0,100,600}}   -- a panel from x 700: cuts the body at 650..750 only
+
+    it("tests the direct-draw floor's body where it draws it, as a signal moves it (motion off)",function()
+        motion_on=false
+        local B=Null.new(); local dc=Draw.new(B); local p=moving()
+        Scene.set("fullscreen",0)
+        frame_at(B,dc,p,800,600,edge)
+        local x,a=body_on(B.last)
+        assert.near(150,x,1e-9); assert.equal(255,a)
+        assert.equal("clear",(Scene.coverState(2)))
+        -- the signal moves it across the panel's edge: drawn at 650, tested there, hidden
+        Scene.set("fullscreen",1); clock=clock+0.02
+        frame_at(B,dc,p,800,600,edge)
+        x,a=body_on(B.last)
+        assert.near(650,x,1e-9)
+        assert.equal("partial",(Scene.coverState(2)))
+        assert.equal(0,a)
+        -- and back
+        Scene.set("fullscreen",0); clock=clock+0.02
+        frame_at(B,dc,p,800,600,edge)
+        x,a=body_on(B.last)
+        assert.near(150,x,1e-9); assert.equal(255,a)
+    end)
+
+    it("tests the scene target's body where it draws it, as a signal moves it (motion off)",function()
+        motion_on=false
+        local B=Null.new({scene=true}); local dc=Draw.new(B); local p=moving()
+        Scene.set("fullscreen",0)
+        frame_at(B,dc,p,800,600,edge)
+        local x,a=body_on(B.scene_calls)
+        assert.near(150,x,1e-9); assert.equal(255,a)
+        Scene.set("fullscreen",1); clock=clock+0.02
+        frame_at(B,dc,p,800,600,edge)
+        -- tested at 650..750, where the redraw would put it: hidden, so the render has no
+        -- body sprite (alpha 0 is dropped); then clear of the panel again at 150
+        assert.equal("partial",(Scene.coverState(2)))
+        assert.is_nil((body_on(B.scene_calls)))
+        Scene.set("fullscreen",0); clock=clock+0.02
+        frame_at(B,dc,p,800,600,edge)
+        x,a=body_on(B.scene_calls)
+        assert.near(150,x,1e-9); assert.equal(255,a)
+    end)
+
+    it("redraws a held resize with the values it tested, not a signal that moved since (motion off)",function()
+        motion_on=false
+        local B=Null.new({scene=true}); local dc=Draw.new(B); local p=moving()
+        Scene.set("fullscreen",0)
+        -- a panel to x 220 cuts the body at 150..250: hidden
+        frame_at(B,dc,p,800,600,{{0,0,220,600}})
+        assert.equal("partial",(Scene.coverState(2)))
+        -- the window grows within RESIZE_SETTLE as `fullscreen` turns on (going fullscreen):
+        -- the held render shows the body at 150..250 (168.75..281.25 stretched), clear of
+        -- the panel from x 700, so it is shown at once, in a redraw at the held values
+        Scene.set("fullscreen",1); clock=clock+0.02
+        frame_at(B,dc,p,900,600,edge)
+        assert.same({800,600},B.scene_size)
+        assert.equal("clear",(Scene.coverState(2)))
+        local x,a=body_on(B.scene_calls)
+        assert.near(150,x,1e-9)   -- where it was tested, not at 650 across the panel's edge
+        assert.equal(255,a)
+        -- settled: drawn at 900 wide with `fullscreen` on, at 650..750, cut by the panel
+        clock=clock+Scene.RESIZE_SETTLE+0.01
+        frame_at(B,dc,p,900,600,edge)
+        assert.same({900,600},B.scene_size)
+        assert.equal("partial",(Scene.coverState(2)))
+        assert.is_nil((body_on(B.scene_calls)))
+    end)
+
     it("drops a sprite of alpha 0 as ImGui does (the Null backend)",function()
         local B=Null.new()
         B.frame_begin()
