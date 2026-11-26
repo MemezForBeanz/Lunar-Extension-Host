@@ -44,6 +44,43 @@ describe("page transition kinds", function()
 		assert.equal(-360, back.dx)
 	end)
 
+	it("settles the incoming page over the last frames, in the same duration", function()
+		local ease, dur = require("core.imgui.motion").timing(Tokens.ROLES.tab_transition)
+		local def = PT.get("push")
+		for _, forward in ipairs({ true, false }) do
+			local c = ctx(4000, forward)
+			local frame = 1 / (60 * dur)
+			local function dx(p) local _, inn = PT.at(def, c, ease, p, dur); return inn.dx end
+			assert.equal(360 * (forward and 1 or -1), dx(0))
+			assert.equal(0, dx(1))
+			-- at any phase: never back, within ~2 px of rest a frame before the end, and the
+			-- last frames each move a few px at most (a 1 px text offset is the step there)
+			local last = math.huge
+			for i = 0, 400 do
+				local p = i / 400
+				local r = math.abs(dx(p))
+				assert.is_true(r <= last + 1e-9, "p " .. p)
+				last = r
+				if p >= 1 - frame then assert.is_true(r <= 2.2, "p " .. p .. ": " .. r) end
+				if p >= 1 - 2 * frame and p < 1 then
+					assert.is_true(r - math.abs(dx(math.min(1, p + frame))) <= 3, "p " .. p)
+				end
+			end
+			-- the motion itself still runs on the kind's curve: mid-way it matches the frame
+			-- at the eased value the strip is given
+			local out, inn, q = PT.at(def, c, ease, 0.3, dur)
+			local out2, inn2 = def.frame(q, c)
+			assert.equal(out2.dx, out.dx)
+			assert.near(inn2.dx, inn.dx, 0.5)
+		end
+		-- a kind that does not move stays still
+		local _, spec = PT.resolve(nil, "fade")
+		for _, p in ipairs({ 0, 0.5, 0.9, 0.99, 1 }) do
+			local _, inn = PT.at(PT.get("fade"), PT.context(spec, 1000, 600, true), ease, p, dur)
+			assert.equal(0, inn.dx); assert.equal(0, inn.dy)
+		end
+	end)
+
 	it("rises the incoming page 16 px and fades the outgoing one out early", function()
 		local _, spec = PT.resolve(nil, "rise")
 		local out, inn = PT.get("rise").frame(0.5, PT.context(spec, 1000, 600, true))

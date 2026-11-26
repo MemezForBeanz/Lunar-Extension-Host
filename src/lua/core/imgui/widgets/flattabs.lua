@@ -526,7 +526,8 @@ local function paintChildren(el, st, d, kids, R)
 	end
 	local x, y, w, h = clientRect(el, st)
 	local ctx = PageTransitions.context(tr.spec, w, h, tr.forward)
-	local ok, out, inn = pcall(tr.def.frame, tr.ease(p < 0 and 0 or p), ctx)
+	-- the arriving page settles over the last frames (PageTransitions.at)
+	local ok, out, inn, q = pcall(PageTransitions.at, tr.def, ctx, tr.ease, p, tr.dur)
 	if not ok or type(out) ~= "table" or type(inn) ~= "table" then
 		st.data.page_tr = nil
 		for i = 1, #kids do R.paint(kids[i], d) end
@@ -535,7 +536,6 @@ local function paintChildren(el, st, d, kids, R)
 	d:clip_push(x, y, w, h)
 	local base = attr(el, "BGCOLOR") or Element.globals.DLGBGCOLOR or "0 0 0"
 	if tr.def.backdrop ~= false then d:fill(x, y, w, h, base) end
-	local q = tr.ease(p < 0 and 0 or p)
 	if tr.in_fades == nil then
 		local ok0, _, inn0 = pcall(tr.def.frame, 0, ctx)
 		tr.in_fades = ok0 and type(inn0) == "table" and (tonumber(inn0.alpha) or 1) < 1 or false

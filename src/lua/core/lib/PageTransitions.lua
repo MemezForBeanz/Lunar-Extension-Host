@@ -163,6 +163,48 @@ function M.context(spec, w, h, forward)
 	return ctx
 end
 
+-- How a moving arriving page comes to rest. On its own the curve ends at a few hundred
+-- px/s, so the page's last few pixels cover its text's last offset in one or two frames,
+-- the largest change of the whole switch. Instead the kind's motion runs over the first
+-- SETTLE_SPAN of the duration, and the arriving page is never nearer rest than a creep
+-- at SETTLE_SPEED to the end of the duration (joined smoothly, over SETTLE_SOFT px): its
+-- last few pixels take the last few frames. The duration does not change.
+M.SETTLE_SPAN = 0.85   -- of the duration: the kind's frame runs over this much
+M.SETTLE_SPEED = 90    -- px/s: the creep into place
+M.SETTLE_SOFT = 3      -- px: the join between the two
+
+-- The larger of a and b (both >= 0), with a rounded corner `k` wide; 0 when both are.
+local function softmax(a, b, k)
+	local m = math.max(a, b)
+	return m + k * math.log(math.exp((a - m) / k) + math.exp((b - m) / k) - math.exp(-m / k))
+end
+
+--- Both pages at progress `p` (0..1 of the duration `dur` seconds) of `def` with easing
+-- `ease`: the outgoing and the incoming page's tables, and the eased value the frame took.
+-- The incoming page settles as SETTLE_SPAN describes, along each axis it moves on.
+function M.at(def, ctx, ease, p, dur)
+	p = clamp01(p)
+	local q = ease(math.min(1, p / M.SETTLE_SPAN))
+	local out, inn = def.frame(q, ctx)
+	if type(inn) ~= "table" or p >= 1 then return out, inn, q end
+	local _, inn0 = def.frame(0, ctx)
+	local line = M.SETTLE_SPEED * (dur or 0) * (1 - p)
+	local settled
+	for _, k in ipairs({ "dx", "dy" }) do
+		local v0 = type(inn0) == "table" and tonumber(inn0[k]) or 0
+		if v0 ~= 0 then
+			if not settled then
+				settled = {}
+				for f, x in pairs(inn) do settled[f] = x end
+			end
+			local v = math.abs(tonumber(inn[k]) or 0)
+			local r = softmax(v, math.min(line, math.abs(v0)), M.SETTLE_SOFT)
+			settled[k] = (v0 < 0 and -1 or 1) * r
+		end
+	end
+	return out, settled or inn, q
+end
+
 M.register("push", {
 	builtin = true, label = "Push",
 	frame = function(t, ctx)
