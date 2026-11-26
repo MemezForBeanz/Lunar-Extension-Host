@@ -95,11 +95,13 @@ end
 -- Page transitions, drawn live (core.lib.PageTransitions): the strip paints the leaving
 -- page and the arriving one, moved and faded by the kind, for the transition's length;
 -- the switch itself (VALUE, callbacks, hit testing) has already happened. Only on a strip
--- that shows its tabs, that was on screen the frame before (nothing animates into place
--- as a dialog first appears), and without PAGETRANSITION=NO.
+-- that shows its tabs (or says PAGETRANSITION=YES: its tabs are drawn elsewhere, as the main
+-- window's are in the title bar and the rail), that was on screen the frame before (nothing
+-- animates into place as a dialog first appears), and without PAGETRANSITION=NO.
 function M.beginPageTransition(el, st, from, to, forward)
 	st.data.page_tr = nil
-	if not (from and to) or not yes(attr(el, "SHOWTABS")) then return end
+	local want = tostring(own(el, "PAGETRANSITION") or ""):upper()
+	if not (from and to) or not (yes(attr(el, "SHOWTABS")) or want == "YES") then return end
 	if tostring(attr(el, "PAGETRANSITION") or "YES"):upper() == "NO" then return end
 	local R = package.loaded["core.imgui.Runtime"]
 	if not (R and R.frameNo and st.data.painted_frame and st.data.painted_frame >= R.frameNo() - 1) then return end

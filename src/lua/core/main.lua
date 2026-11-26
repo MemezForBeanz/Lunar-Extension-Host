@@ -1215,6 +1215,8 @@ tab_groups = TabGroups:new({
 tab_order:setGroups(tab_groups)
 -- The main strip's tabs are partitioned between the top and left toolbars.
 iup.SetAttribute(tabs, "SHOWTABS", "NO")
+-- its pages still change with the page transition, as 1.6.2's root tabs did
+iup.SetAttribute(tabs, "PAGETRANSITION", "YES")
 tab_order:setStandIn(tabs, title_bar:groupStrip(), "top", function() return title_bar:dropRect() end)
 tab_order:setStandIn(tabs, tool_rail:widget(), "left")
 title_bar:setOrder(tab_order)

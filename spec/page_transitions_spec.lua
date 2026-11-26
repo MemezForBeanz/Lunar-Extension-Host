@@ -229,6 +229,17 @@ describe("the ImGui tab strip plays the transition with the live pages", functio
 		end
 	end)
 
+	it("plays it on a strip whose tabs are drawn elsewhere only when it says PAGETRANSITION=YES", function()
+		iup.SetAttribute(tabs, "SHOWTABS", "NO"); R.frame()
+		iup.SetAttribute(tabs, "VALUEPOS", "1"); B.advance(0.08); R.frame()
+		assert.is_nil(drawn()["PAGE A"])   -- a stack, not tabs: instant
+		iup.SetAttribute(tabs, "VALUEPOS", "0"); B.advance(1); R.frame()
+		iup.SetAttribute(tabs, "PAGETRANSITION", "YES")
+		iup.SetAttribute(tabs, "VALUEPOS", "1"); B.advance(0.08); R.frame()
+		local mid = drawn()
+		assert.is_not_nil(mid["PAGE A"]); assert.is_not_nil(mid["PAGE B"])
+	end)
+
 	it("tells core.ui.TabTransition it draws its own", function()
 		assert.equal("LIVE", iup.GetAttribute(tabs, "PAGETRANSITIONDRAW"))
 	end)
