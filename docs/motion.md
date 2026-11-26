@@ -161,6 +161,12 @@ through the transition and nothing is captured.
 | `slide` | The new page slides in over the old one, which stays and dims | 240 ms, standard, productive |
 | `none` | Instant | |
 
+On the ImGui strip a moving page comes to rest gently within the same duration
+(`PageTransitions.at`): the kind's frame runs over the first 85% (`SETTLE_SPAN`), and the
+arriving page is never nearer rest than a 90 px/s creep to the end (`SETTLE_SPEED`, joined
+over `SETTLE_SOFT` px), so its last few pixels, where its text lines up, take the last frames
+instead of one.
+
 Who chooses, highest first: the user (Appearance > Tab transition, saved as
 `motion_tab_transition`; "Theme default" defers), then the theme
 (`tab_transition = { kind = "rise" }` in `Theme:motion()`; the theme's other

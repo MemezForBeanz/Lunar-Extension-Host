@@ -255,8 +255,9 @@ tested against the box exactly (a gap of any width between two panels makes it p
 where the layer will be at the mode the sky is easing to: wholly clear or wholly covered, it
 shows; partly covered, it fades out over 150 ms, and back in when that changes (at once off
 the GPU path, and with no fade the first time). A change with no fade is in the frame that
-finds it: the scene is emitted again before that frame ends (off the GPU path, the next
-frame). Still place it where most pages leave it whole: px from the edges the
+finds it: the scene is emitted again before that frame ends, at the size the target holds
+(during a live resize the floor and the glass already map the held render, whose own redraw
+stays due); off the GPU path the body's sprite, already on the frame's list, is recoloured. Still place it where most pages leave it whole: px from the edges the
 pages are laid out from (`unit = "px"`, negative `x` from the right). Lunar's band is
 y 325..483 at 192 px from the right (`lunar_space.M.BODY`); below 1400 px wide both bodies
 fade out (gone by 1150).
