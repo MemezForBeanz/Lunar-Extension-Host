@@ -502,6 +502,14 @@ local function place_pages(native)
 end
 local place = place_pages(false)
 
+-- Does a fill of `color` draw nothing here (inside a glass surface of that colour)?
+local function see_through(d, color)
+	local m = d.material
+	if m and not d.painting_material and d:_color(color) == d:_color(m.bg) then return true end
+	return d.glass_under ~= nil and Color.parse(color) == d.glass_under
+end
+M._see_through = see_through
+
 -- The pages: the current one, or both during a page transition.
 local function paintChildren(el, st, d, kids, R)
 	local tr = st.data.page_tr
@@ -525,8 +533,14 @@ local function paintChildren(el, st, d, kids, R)
 	d:clip_push(x, y, w, h)
 	local base = attr(el, "BGCOLOR") or Element.globals.DLGBGCOLOR or "0 0 0"
 	if tr.def.backdrop ~= false then d:fill(x, y, w, h, base) end
+	local q = tr.ease(p < 0 and 0 or p)
 	local function page(child, t, leaving)
 		local alpha = tonumber(t.alpha) or 1
+		local bg = Element.getAttribute(child, "BGCOLOR") or base
+		-- Over glass a page's own colour draws nothing (core.imgui.Draw: it would cover the
+		-- glass), so the arriving page cannot cover the leaving one: the leaving page fades
+		-- out over the first half instead of staying until the cut.
+		if leaving and M._see_through(d, bg) then alpha = alpha * (1 - math.min(1, q / 0.5)) end
 		if alpha <= 0 then return end
 		local dx, dy = round(tonumber(t.dx) or 0), round(tonumber(t.dy) or 0)
 		d:offset_push(dx, dy)
@@ -534,7 +548,7 @@ local function paintChildren(el, st, d, kids, R)
 		-- A page draws over the strip's background, so it has none of its own: give it
 		-- one here, moving and fading with it, so the arriving page covers the leaving one
 		-- as a solid sheet (the IUP build's snapshots are opaque the same way).
-		d:fill(x, y, w, h, Element.getAttribute(child, "BGCOLOR") or base)
+		d:fill(x, y, w, h, bg)
 		if leaving then R.paintHidden(child, d) else R.paint(child, d) end
 		d:alpha_pop()
 		d:offset_pop()

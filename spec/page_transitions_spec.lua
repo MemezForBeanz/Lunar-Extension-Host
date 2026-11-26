@@ -191,6 +191,27 @@ describe("the ImGui tab strip plays the transition with the live pages", functio
 		assert.equal(a0, done["PAGE B"])
 	end)
 
+	it("fades the leaving page out when its backing draws nothing (a page over glass)", function()
+		local flattabs = require("core.imgui.widgets.flattabs")
+		local saved = flattabs._see_through
+		flattabs._see_through = function() return true end
+		local function alpha(name)
+			for _, c in ipairs(B.lastFrame()) do
+				if c[1] == "text" and c[7] == name then return math.floor(c[6] / 16777216) end
+			end
+		end
+		iup.SetAttribute(tabs, "VALUEPOS", "1")
+		B.advance(0.03); R.frame()
+		local early = alpha("PAGE A")
+		B.advance(0.06); R.frame()
+		local later = alpha("PAGE A")
+		flattabs._see_through = saved
+		assert.is_true(early ~= nil and early < 255, "the leaving page is fading")
+		assert.is_true(later == nil or later < early, "and keeps fading")
+		B.advance(0.5); R.frame()
+		assert.is_nil(alpha("PAGE A"))
+	end)
+
 	it("switches at once with motion off, with kind none and with PAGETRANSITION=NO", function()
 		for _, setup in ipairs({
 			function() use("push", false) end,
