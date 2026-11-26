@@ -328,9 +328,12 @@ describe("reactive backgrounds",function()
             local B=Null.new({scene=true}); local dc=Draw.new(B)
             Scene.clear()
             Scene.set("rail",rail); Scene.set("rail_settled",rail); Scene.set("rail_room",room)
-            frame(B,dc,p,1920,1080)
+            -- the crescent lies over the frame's tint: drawn after the floor, onto the frame
+            B.frame_begin(); dc:begin(1920,1080)
+            Scene.floor(dc,0,0,1920,1080,p,true); Scene.above(dc,0,0,1920,1080)
+            B.frame_end()
             local best,facing=0,nil
-            for _,c in ipairs(B.scene_calls) do
+            for _,c in ipairs(B.lastFrame()) do
                 if c[1]=="image_quad" then
                     local cx=(c[3]+c[5]+c[7]+c[9])/4
                     if math.abs(cx-88)<1 and math.abs(c[5]-c[3])+math.abs(c[6]-c[4])>100 then
@@ -358,8 +361,10 @@ describe("reactive backgrounds",function()
         it("keeps the crescent out while the rail moves: it follows rail_settled, not rail",function()
             local B=Null.new({scene=true}); local dc=Draw.new(B)
             Scene.set("rail",0.6); Scene.set("rail_settled",0); Scene.set("rail_room",400)
-            frame(B,dc,dark,1920,1080)
-            for _,c in ipairs(B.scene_calls) do
+            B.frame_begin(); dc:begin(1920,1080)
+            Scene.floor(dc,0,0,1920,1080,dark,true); Scene.above(dc,0,0,1920,1080)
+            B.frame_end()
+            for _,c in ipairs(B.lastFrame()) do
                 if c[1]=="image_quad" and math.abs(c[5]-c[3])+math.abs(c[6]-c[4])>100 then
                     local cx=(c[3]+c[5]+c[7]+c[9])/4
                     assert.is_false(cx<200 and math.floor(c[11]/16777216)>0)
@@ -446,7 +451,7 @@ describe("reactive backgrounds",function()
             assert.is_nil(Scene.textures(B))
             assert.equal(1,Scene.get("rail"))
         end)
-        it("holds full frames through a mode ease, the frame's tint raised while the sky lags",function()
+        it("serves a mode ease with one frame of the UI, its tint held for the whole ease, then one full frame",function()
             local B=Null.new({scene=true}); local dc=Draw.new(B)
             local dark=require("core.classes.Themes.LunarDarkTheme"):new():palette()
             local light=require("core.classes.Themes.LunarLightTheme"):new():palette()
@@ -456,9 +461,18 @@ describe("reactive backgrounds",function()
             -- the UI is light, the sky still night: the frame holds its labels' contrast
             local held=Scene.frameAlpha(light)
             assert.is_true(held>light.glassFrameAlpha+0.2)
+            -- that frame of the UI serves the ease: the sky moves in scene-only presents, under
+            -- a tint that does not change
+            local renders,frames=B.scene_renders,B.frames
             clock=clock+Scene.MODE_DELAY+0.01
-            assert.is_false(Scene.tick(B))   -- a frame of the UI, not a scene-only present
+            assert.is_true(Scene.tick(B))
+            clock=clock+Scene.MODE_EASE/2
+            assert.is_true(Scene.tick(B))
+            assert.equal(renders+2,B.scene_renders); assert.equal(frames,B.frames)
+            assert.equal(held,Scene.frameAlpha(light))
+            -- after it, one frame of the UI: the tint back to rest
             clock=clock+Scene.MODE_EASE
+            assert.is_false(Scene.tick(B))
             frame(B,dc,light,1920,1080)
             assert.equal(0,Scene.lag(clock))
             assert.equal(light.glassFrameAlpha,Scene.frameAlpha(light))

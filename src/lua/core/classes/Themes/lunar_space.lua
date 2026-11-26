@@ -102,6 +102,14 @@ end
 -- fit its chord, so the inner arc must be the larger one: two near-equal radii leave a
 -- hairline. And its four-point star, in the hollow.
 local CRESCENT = 'M 112 22 A 98 98 0 1 0 112 218 A 128 128 0 0 1 112 22 Z'
+-- A fill lit along the crescent's limb: a radial gradient round the limb's centre (in the
+-- path's own units, turned with it), `stops` = { { offset, colour }, ... } outward.
+local function limb(id, stops)
+	local out = { ('<radialGradient id="%s" gradientUnits="userSpaceOnUse" cx="112" cy="120" r="98">'):format(id) }
+	for _, st in ipairs(stops) do out[#out + 1] = ('<stop offset="%.2f" stop-color="%s"/>'):format(st[1], st[2]) end
+	out[#out + 1] = '</radialGradient>'
+	return table.concat(out)
+end
 local STAR = 'M 150 70 L 154 84 L 168 88 L 154 92 L 150 106 L 146 92 L 132 88 L 146 84 Z'
 
 -- The glows' gradients (colour, alpha, mid), for the contrast audit's geometry.
@@ -128,23 +136,23 @@ M.SVG = {
 		.. '<stop offset="1" stop-color="#FFE29A" stop-opacity="0"/></radialGradient></defs>'
 		.. '<circle cx="128" cy="128" r="126" fill="url(#w)"/><circle cx="128" cy="128" r="104" fill="url(#k)"/>'
 		.. '<circle cx="128" cy="128" r="66" fill="url(#c)"/>'),
-	-- the sidebar's crescent (the logo's): lit along its limb, in a soft halo, beside a
-	-- small four-point star
+	-- the sidebar's crescent (the logo's), lit like the moon: bright along its outer limb,
+	-- shaded toward its inner edge (a radial gradient round the limb's centre, 112 120 r 98,
+	-- so the horns, all limb, stay bright), in a soft halo, beside a small four-point star
 	crescent = svg(200, 240, '<defs>'
-		.. '<linearGradient id="c" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0" stop-color="#FFFFFF"/>'
-		.. '<stop offset="0.6" stop-color="#D5DCE8"/><stop offset="1" stop-color="#9AA4B5"/></linearGradient>'
-		.. glow("h", "#C9D6F0", 0.30, 0.50) .. '</defs>'
+		.. limb("c", { { 0.42, "#8E9FB8" }, { 0.62, "#B4C2D6" }, { 0.84, "#DCE4EF" }, { 0.95, "#EEF3FA" }, { 1, "#F8FAFD" } })
+		.. glow("h", "#C9D6F0", 0.22, 0.50) .. '</defs>'
 		.. '<ellipse cx="96" cy="120" rx="96" ry="118" fill="url(#h)"/>'
 		.. '<path d="' .. CRESCENT .. '" fill="url(#c)" transform="rotate(12 100 120)"/>'
-		.. '<path d="' .. STAR .. '" fill="#FFFFFF" fill-opacity="0.9"/>'),
-	-- by day: a filled pearl body (no strokes) in a faint white halo
+		.. '<path d="' .. STAR .. '" fill="#FFFFFF" fill-opacity="0.95"/>'),
+	-- by day: a pearl-blue body, its inner edge shaded deeper so the whole shape holds
+	-- against the pale rail, in a faint white halo
 	crescent_day = svg(200, 240, '<defs>'
-		.. '<linearGradient id="c" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0" stop-color="#DCE6F3"/>'
-		.. '<stop offset="1" stop-color="#93A8C6"/></linearGradient>'
-		.. glow("h", "#FFFFFF", 0.25, 0.50) .. '</defs>'
+		.. limb("c", { { 0.42, "#6F86AF" }, { 0.66, "#7F95BC" }, { 0.88, "#A2B4CE" }, { 1, "#B7C6DB" } })
+		.. glow("h", "#FFFFFF", 0.30, 0.50) .. '</defs>'
 		.. '<ellipse cx="96" cy="120" rx="96" ry="118" fill="url(#h)"/>'
-		.. '<path d="' .. CRESCENT .. '" fill="url(#c)" fill-opacity="0.85" transform="rotate(12 100 120)"/>'
-		.. '<path d="' .. STAR .. '" fill="#93A8C6" fill-opacity="0.85"/>'),
+		.. '<path d="' .. CRESCENT .. '" fill="url(#c)" transform="rotate(12 100 120)"/>'
+		.. '<path d="' .. STAR .. '" fill="#7F95BC"/>'),
 }
 M.MOON_PHASES = {}
 for i = 0, 23 do M.MOON_PHASES[i + 1] = moon_phase(i / 23) end
@@ -190,7 +198,7 @@ end
 -- labels: `rail_room` (px free between the rail's last entry and its foot) fades it out
 -- before the entries reach it.
 local function crescent(art, rail_w, opacity)
-	return { svg = art, width = 150, height = 180, unit = "px", x = rail_w / 2, y = CRESCENT_Y, raster = 1.5,
+	return { svg = art, width = 150, height = 180, unit = "px", x = rail_w / 2, y = CRESCENT_Y, raster = 1.5, above = true,
 		dx = { signal = "rail_settled", from = -32, to = 0, ease = "smooth" },
 		opacity = { mul = { { signal = "rail_settled", from = 0, to = 1, ease = "smooth" }, opacity,
 			{ signal = "rail_room", from = 0, to = 1, range = { 270, 320 } } } },
@@ -279,10 +287,10 @@ function M.background(rail_w)
 				whole = true,
 				opacity = wide_only(by_mode(0, 1, { 0.40, 1 })), scale = by_mode(0.7, 1, { 0.4, 1 }),
 				deps = { "mode", "width", "height" } },
-			-- the extended sidebar's crescent, low in the rail; silver at night (dim enough for
-			-- the rail's labels), pearl by day
-			crescent(S.crescent, rail_w, by_mode(0.85, 0, { 0, 0.6 })),
-			crescent(S.crescent_day, rail_w, by_mode(0, 0.92, { 0.4, 1 })),
+			-- the extended sidebar's crescent, low in the rail and over the frame's tint (it
+			-- never lies under the rail's labels: `rail_room`); silver at night, pearl by day
+			crescent(S.crescent, rail_w, by_mode(1, 0, { 0, 0.6 })),
+			crescent(S.crescent_day, rail_w, by_mode(0, 1, { 0.4, 1 })),
 		},
 	}
 end

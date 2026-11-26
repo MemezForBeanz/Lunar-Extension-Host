@@ -292,6 +292,10 @@ struct GlassGpu {
     float sample_scene[GLASS_SAMPLES] = {};  /* the scene target's render and blur (core.ui.Background) */
     double gpu_scene_us_sum = 0; long long gpu_scene_frames = 0;
     int samples = 0;
+    /* What the scene's renders (lunar_scene_d3d11.inc) changed since the last plan: the
+       boxes of the sprites that moved or changed (widened by the scene blur's reach), or
+       everything; a copy whose regions meet them hashes the scene's revision */
+    std::vector<GlassRect> scene_dirty; bool scene_all = false; uint64_t scene_rev = 0;
 } gg;
 
 struct GlassCmd {
@@ -697,7 +701,13 @@ void glass_hash_sets(const ImDrawList *bg, std::vector<GlassGpu::HashSet> &sets)
    skipped? One may when everything drawn before it that reaches its regions hashes as
    last frame, last frame's copy there succeeded and no other copy meets its regions (two
    copies that meet write the same texels: those two copy every frame and are not kept;
-   the others are unaffected). */
+   the others are unaffected). The scene target changes only where its renders say
+   (gg.scene_dirty): a copy over an unchanged part of the scene keeps its copy. */
+bool glass_scene_meets(const std::vector<GlassRect> &regions) {
+    if (gg.scene_all) return true;
+    for (const GlassRect &r : regions) for (const GlassRect &d : gg.scene_dirty) if (glass_meets(r, d)) return true;
+    return false;
+}
 void glass_plan(ImDrawList *bg) {
     gg.skip = gg.fl_overlap = false;
     if (gg.fl.empty()) gg.valid = false;
@@ -732,15 +742,18 @@ void glass_plan(ImDrawList *bg) {
             GlassGpu::Point &pt = gg.pts[i];
             uint64_t h = glass_mix(base, pt.merged.data(), pt.merged.size() * sizeof(GlassRect));
             h = glass_mix(h, &pt.strong, sizeof(pt.strong));
+            if (glass_scene_meets(pt.merged)) h = glass_mix(h, &gg.scene_rev, sizeof(gg.scene_rev));
             sets.push_back({&pt.merged, {}, ci, h}); owner.push_back((int)i);
         }
     }
     if (!gg.fl.empty() && !gg.merged.empty()) {
         uint64_t h = glass_mix(base, gg.merged.data(), gg.merged.size() * sizeof(GlassRect));
         h = glass_mix(h, &gg.fl_strong, sizeof(gg.fl_strong));
+        if (glass_scene_meets(gg.merged)) h = glass_mix(h, &gg.scene_rev, sizeof(gg.scene_rev));
         sets.push_back({&gg.merged, {}, bg ? bg->CmdBuffer.Size : 0, h}); owner.push_back(-1);
     }
     glass_hash_sets(bg, sets);
+    gg.scene_dirty.clear(); gg.scene_all = false;
     for (size_t k = 0; k < sets.size(); k++) {
         uint64_t h = sets[k].h;
         if (owner[k] < 0) {

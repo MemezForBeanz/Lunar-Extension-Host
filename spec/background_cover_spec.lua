@@ -152,12 +152,33 @@ describe("whole-or-hidden background layers",function()
         local _,v=Scene.coverState(2); assert.equal(0,v)
     end)
 
-    it("marks Lunar's moon and sun whole-or-hidden",function()
+    it("draws an `above` layer over the frame's tint, not into the scene target",function()
+        local B=Null.new({scene=true}); local dc=Draw.new(B)
+        local p={background={id="a",layers={{kind="fill",top="#000010",bottom="#000020"},
+            {svg="<svg/>",size=40,unit="px",x=100,y=500,above=true}}}}
+        B.frame_begin(); dc:begin(800,600)
+        Scene.floor(dc,0,0,800,600,p,true)
+        local in_scene=0
+        for _,c in ipairs(B.scene_calls) do if c[1]=="image" then in_scene=in_scene+1 end end
+        assert.equal(0,in_scene)
+        local before=#B.frame_calls
+        Scene.above(dc,0,0,800,600)
+        local img
+        for i=before+1,#B.frame_calls do if B.frame_calls[i][1]=="image" then img=B.frame_calls[i] end end
+        B.frame_end()
+        assert.is_not_nil(img)
+        assert.near(80,img[3],1e-9); assert.near(480,img[4],1e-9)
+    end)
+
+    it("marks Lunar's moon and sun whole-or-hidden, and its crescents over the frame",function()
         local space=require("core.classes.Themes.lunar_space")
         local scene=Scene._scene_of(space.background())
         local n=0
         for _,l in ipairs(scene.layers) do if l.whole then n=n+1 end end
         assert.equal(2,n)
         assert.is_true(scene.wholes)
+        local above=0
+        for _,l in ipairs(scene.layers) do if l.def.above then above=above+1 end end
+        assert.equal(2,above); assert.is_true(scene.aboves)
     end)
 end)

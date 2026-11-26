@@ -43,7 +43,42 @@ struct SceneGpu {
     bool ctx1_asked = false;
     long long renders = 0, presents = 0, refusals = 0, creations = 0, sprites = 0;
     double cpu_us_sum = 0;   /* render + present of scene-only frames, CPU side */
+    /* the last rendered list, to find what the next render changes (scene_diff) */
+    std::vector<ImDrawVert> prev_vtx; int prev_cmds = -1, prev_vw = 0, prev_vh = 0;
 } sg;
+
+/* The scene's blur reaches this far from a change (1/8 level, two taps), px. */
+const int SCENE_REACH = 40;
+/* What this render changes against the last: every sprite is a quad of 4 vertices (Lua
+   draws fills as gradients, images and turned images: one quad each), so the lists are
+   compared quad by quad; a quad that differs marks its old and new boxes (widened by the
+   blur's reach) in gg.scene_dirty, and lists that differ in shape mark everything. */
+void scene_diff() {
+    const ImDrawList *l = sg.list;
+    int n = l ? l->VtxBuffer.Size : 0, cmds = l ? l->CmdBuffer.Size : 0;
+    bool same = n == (int)sg.prev_vtx.size() && cmds == sg.prev_cmds && sg.vw == sg.prev_vw && sg.vh == sg.prev_vh
+        && n % 4 == 0;
+    if (!same) gg.scene_all = true;
+    else if (!gg.scene_all) {
+        const ImDrawVert *a = sg.prev_vtx.data(), *b = l->VtxBuffer.Data;
+        for (int i = 0; i < n; i += 4) {
+            if (memcmp(a + i, b + i, 4 * sizeof(ImDrawVert)) == 0) continue;
+            float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+            for (int k = 0; k < 4; k++) {
+                x0 = std::min({x0, a[i + k].pos.x, b[i + k].pos.x}); y0 = std::min({y0, a[i + k].pos.y, b[i + k].pos.y});
+                x1 = std::max({x1, a[i + k].pos.x, b[i + k].pos.x}); y1 = std::max({y1, a[i + k].pos.y, b[i + k].pos.y});
+            }
+            GlassRect r = {(int)std::floor(x0) - SCENE_REACH, (int)std::floor(y0) - SCENE_REACH,
+                           (int)std::ceil(x1) + SCENE_REACH, (int)std::ceil(y1) + SCENE_REACH};
+            /* a few hundred small boxes at most; past that, everything */
+            if (gg.scene_dirty.size() >= 512) { gg.scene_all = true; break; }
+            gg.scene_dirty.push_back(r);
+        }
+    }
+    sg.prev_vtx.assign(l ? l->VtxBuffer.Data : nullptr, l ? l->VtxBuffer.Data + n : nullptr);
+    sg.prev_cmds = cmds; sg.prev_vw = sg.vw; sg.prev_vh = sg.vh;
+    gg.scene_rev++;
+}
 
 void scene_release_levels() {
     for (GlassLevel &l : sg.lv) {
@@ -52,6 +87,7 @@ void scene_release_levels() {
         if (l.tex) { l.tex->Release(); l.tex = nullptr; }
     }
     sg.tw = sg.th = 0; sg.valid = sg.blurred = false;
+    sg.prev_cmds = -1;   /* the next render changes everything */
 }
 
 void scene_release() {
@@ -174,6 +210,6 @@ bool scene_render(ImVector<ImTextureData*> *textures) {
         c->OMSetRenderTargets(0, nullptr, nullptr);
     }
     glass_stamp(0);
-    g.texture_revision++;   /* what lies under every copy changed */
+    scene_diff();   /* what lies under the copies changed only where its sprites did */
     return true;
 }

@@ -54,7 +54,9 @@ function M.get(name) return pushed[name] end
 
 -- `tail`: an ease ran and no full frame has been drawn since it ended (the frame's lag
 -- tint and the veil's bounds follow the sky only in full frames)
-local mode = { value = nil, from = 0, to = 0, at = 0, dur = 0, tail = false }
+-- `framed`: a frame of the UI has been drawn since the ease began (its frame tint is held
+-- for the whole ease, M.frameAlpha), so the ease's frames may be scene-only presents
+local mode = { value = nil, from = 0, to = 0, at = 0, dur = 0, tail = false, framed = false }
 local t0
 M.signal("time", { animated = true, read = function(ctx)
 	if ctx.static then return 0 end
@@ -281,6 +283,7 @@ local function compile_layer(def)
 	return layer
 end
 
+local function def_above(layer) return layer.def.above == true end
 local compiled = setmetatable({}, { __mode = "k" })   -- background table -> compiled scene
 local function scene_of(bg)
 	local s = compiled[bg]
@@ -292,7 +295,10 @@ local function scene_of(bg)
 		for k in pairs(layer.deps) do s.deps[k] = true end
 	end
 	if s.deps["*"] then for k in pairs(signals) do s.deps[k] = true end end
-	for _, layer in ipairs(s.layers) do if layer.whole then s.wholes = true end end
+	for _, layer in ipairs(s.layers) do
+		if layer.whole then s.wholes = true end
+		if def_above(layer) then s.aboves = true end
+	end
 	compiled[bg] = s
 	return s
 end
@@ -383,10 +389,13 @@ local function pack(c, a)
 end
 
 -- Draw `scene` with signals `s` on B, in a w x h window. Returns the sprite count.
-local function emit(B, scene, s, w, h, ctx)
+-- `part`: "scene" leaves out the layers drawn over the frame's tint (`above = true`),
+-- "above" draws only those, nil all.
+local function emit(B, scene, s, w, h, part)
 	local n = 0
 	for i, layer in ipairs(scene.layers) do
-		local opacity = layer.opacity(s)
+		local skip = part and ((part == "above") ~= (layer.def.above == true))
+		local opacity = not skip and layer.opacity(s)
 		if layer.whole and type(opacity) == "number" then opacity = opacity * (s[COVER .. i] or 1) end
 		if type(opacity) == "number" and opacity > 0.002 then
 			local kind = layer.kind
@@ -414,7 +423,9 @@ local function emit(B, scene, s, w, h, ctx)
 						if st.twinkles and amount > 0 then
 							a = a * (1 - amount * (0.5 + 0.5 * sin(2 * pi * (t / st.period + st.phase))))
 						end
-						if a > 0.01 then
+						-- a twinkling star is drawn even when faint, so the list keeps its shape
+						-- and the backend sees only the stars that changed (its scene diff)
+						if a > 0.01 or st.twinkles then
 							local x = st.u * w + dx - mx * st.depth
 							local y = st.v * h + dy - my * st.depth
 							if x < left or y < top or y > bottom then a = a * cap end
@@ -483,6 +494,7 @@ M.RESIZE_SETTLE = 0.15  -- static path (WARP, motion off): the last render stret
                         -- the size has held this long, then one redraw
 local EASE_HZ = 60      -- a mode ease redraws at most this often
 local target            -- { tw, th } of the scene target, while one holds the scene
+local above_values      -- the signals the last floor read, for M.above
 
 local function motion()
 	local Reactor = package.loaded["core.ui.ThemeReactor"]
@@ -521,6 +533,7 @@ local function follow(p, now)
 		mode.at = now + (eases and M.MODE_DELAY * scale or 0)
 		mode.dur = eases and M.MODE_EASE * scale or 0
 		mode.tail = mode.dur > 0
+		mode.framed = false
 	end
 	active = scene
 	M._deps = scene.deps
@@ -589,8 +602,9 @@ end
 -- when a scene shows again: the theme left it (Lunar -> Carbon).
 function M.deactivate()
 	active, target, M._deps, last_values, last_emit = nil, nil, nil, {}, -1e9
+	above_values = nil
 	pending_resize, listed, seen_size, M._target_size = false, nil, nil, nil
-	mode.from, mode.to, mode.dur, mode.tail = 0, 0, 0, false
+	mode.from, mode.to, mode.dur, mode.tail, mode.framed = 0, 0, 0, false, false
 end
 
 -- Is the active scene still the palette's (the theme may have changed since it drew)?
@@ -638,7 +652,7 @@ end
 local function draw_target(B, scene, s, w, h)
 	local tw, th = B.scene_begin(w, h)
 	if not tw then return nil end
-	local ok, n = pcall(emit, B, scene, s, w, h)
+	local ok, n = pcall(emit, B, scene, s, w, h, "scene")
 	B.scene_end(ok and n or 0)
 	if not ok then
 		local log = package.loaded["core.lib.log"]
@@ -662,8 +676,10 @@ function M.floor(dc, x, y, w, h, p, live)
 	window.w, window.h = W, H
 	-- a full frame at or after the ease's end: the tail is drawn
 	if mode.tail and now >= mode.at + mode.dur then mode.tail = false end
+	if mode.dur > 0 and now < mode.at + mode.dur then mode.framed = true end
 	local ctx = context(now, W, H)
 	local s, changed = read(scene, ctx)
+	above_values = s
 	if scene.wholes and dc.coverBegin and (dc.surface_id or 0) == 0 then dc:coverBegin() end
 	if B.scene_begin and (dc.surface_id or 0) == 0 then
 		local size = W .. "x" .. H
@@ -714,9 +730,32 @@ function M.floor(dc, x, y, w, h, p, live)
 		function Bshift.image(id, x1, y1, x2, y2, ...) return B.image(id, x1 + ox, y1 + oy, x2 + ox, y2 + oy, ...) end
 		function Bshift.rect_gradient(x1, y1, x2, y2, ...) return B.rect_gradient(x1 + ox, y1 + oy, x2 + ox, y2 + oy, ...) end
 	end
-	emit(Bshift, scene, st, W, H)
+	emit(Bshift, scene, st, W, H, "scene")
 	dc:clip_pop()
+	above_values = st
 	return true
+end
+
+--- After the frame's tint over the floor at (x, y, w, h): the layers that lie over it
+-- (`above = true`: kept off the labels, lit brighter than the tint would let a layer under
+-- it be), straight onto `dc`'s list with the signals the floor read.
+function M.above(dc, x, y, w, h)
+	if not (active and active.aboves and above_values) then return end
+	local B = dc.B
+	local ox, oy = dc.ox, dc.oy
+	local P = setmetatable({}, { __index = B })
+	function P.image(id, x1, y1, x2, y2, ...) dc:_emit("image", id, x1 + ox, y1 + oy, x2 + ox, y2 + oy, ...) end
+	function P.image_quad(id, x1, y1, x2, y2, x3, y3, x4, y4, ...)
+		dc:_emit("image_quad", id, x1 + ox, y1 + oy, x2 + ox, y2 + oy, x3 + ox, y3 + oy, x4 + ox, y4 + oy, ...)
+	end
+	P.rect_gradient = function() end
+	P.rect_filled = function() end
+	-- they are chrome: they take the mode the UI shows at once, as the frame does, so a
+	-- frame of the UI stays right while the sky eases under it (M.tick)
+	local s = setmetatable({ mode = mode.to }, { __index = above_values })
+	dc:clip_push(x, y, w, h)
+	emit(P, active, s, window.w, window.h, "above")
+	dc:clip_pop()
 end
 
 --- The scene target for chrome glass: sharp id, blur id, and px -> uv (ku, kv); nil when
@@ -735,7 +774,10 @@ end
 function M.tick(B)
 	if not current() or not target or not (B and B.scene_present) then return false end
 	local now = now_of()
-	if mode.dur > 0 and now < mode.at + mode.dur or mode.tail then return false end
+	-- during an ease: scene-only presents once a frame of the UI holds the ease's tint;
+	-- after it, one full frame (the tint and the veil's bounds back to rest)
+	local easing = mode.dur > 0 and now < mode.at + mode.dur
+	if easing and not mode.framed or not easing and mode.tail then return false end
 	animated = animated and (motion()) or false
 	local ctx = context(now, window.w, window.h)
 	local s, changed = read(active, ctx)
@@ -1033,7 +1075,9 @@ M.FRAME_CONTRAST = 4.6
 
 --- The frame's tint alpha now: `glassFrameAlpha` at rest; while a switch's sky has not yet
 -- reached the mode the UI shows, as much more as keeps the palette's text and muted text
--- at FRAME_CONTRAST over the worst pixel the sky can show at its current mode.
+-- at FRAME_CONTRAST over the worst pixel the sky can show anywhere on its way (the most
+-- any step of the ease needs, held for the whole ease: one frame of the UI then serves
+-- every frame of it, the sky moving under it in scene-only presents).
 function M.frameAlpha(p, now)
 	local rest = p.glassFrameAlpha or 0
 	if not (active and p.background) or M.lag(now) <= 0 then return rest end
@@ -1054,9 +1098,11 @@ function M.frameAlpha(p, now)
 		end
 		frame_needs[p] = need
 	end
-	local m = signals.mode.read({ now = now or now_of() }) * STEPS
-	local i = floor(m)
-	return max(need[max(0, min(STEPS, i))], need[max(0, min(STEPS, i + 1))])
+	local lo = max(0, min(STEPS, floor(min(mode.from, mode.to) * STEPS)))
+	local hi = max(0, min(STEPS, math.ceil(max(mode.from, mode.to) * STEPS)))
+	local a = rest
+	for i = lo, hi do a = max(a, need[i]) end
+	return a
 end
 
 --- Forget the active scene (theme without one, tests).

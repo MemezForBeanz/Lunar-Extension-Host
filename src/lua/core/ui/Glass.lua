@@ -626,6 +626,7 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 			if a > 0 then
 				dc:fill(x, y, w, h, Color.alpha(Color.parse(p.glassFrameTint or p.bg), a))
 			end
+			Background.above(dc, x, y, w, h)
 			return
 		end
 		sample(dc, c, tex, x, y, w, h, 0, false); return
