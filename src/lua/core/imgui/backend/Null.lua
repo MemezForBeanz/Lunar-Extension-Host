@@ -106,6 +106,16 @@ function M.new(opts)
 
 	function B.frame_end() B.last = B.frame_calls end
 
+	-- A recorded call stands for its vertices: vtx_mark gives the list and its length, and
+	-- vtx_color recolours the images among calls (from, to].
+	function B.vtx_mark() return B.frame_calls, #B.frame_calls end
+	function B.vtx_color(list, from, to, col)
+		for i = from + 1, math.min(to, #list) do
+			local c = list[i]
+			if c[1] == "image" or c[1] == "image_quad" then c[11] = col end
+		end
+	end
+
 	--- The calls of the frame that was last ended.
 	function B.lastFrame() return B.last or {} end
 

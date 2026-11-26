@@ -3040,6 +3040,15 @@ LUNAR_FFI void lunar_ui_text_size(int face, float px, const char *s, size_t len,
     out[0] = v.x;
     out[1] = line * (v.y / std::max(1.0f, imgui_size(f, px)));
 }
+/* The list's vertex count, and one colour for vertices [from, to) already on it: a sprite
+   drawn before the frame knew its opacity (core.ui.Background, the direct-draw floor). */
+LUNAR_FFI int lunar_ui_vtx_count(ImDrawList *dl) { return dl ? dl->VtxBuffer.Size : 0; }
+LUNAR_FFI void lunar_ui_vtx_color(ImDrawList *dl, int from, int to, uint32_t col) {
+    if (!dl) return;
+    if (from < 0) from = 0;
+    if (to > dl->VtxBuffer.Size) to = dl->VtxBuffer.Size;
+    for (int i = from; i < to; i++) dl->VtxBuffer[i].col = col;
+}
 LUNAR_FFI int lunar_ui_image(ImDrawList *dl, int tex, float x1, float y1, float x2, float y2,
                              float u1, float v1, float u2, float v2, uint32_t col) {
     if (tex == FRAME_TEXTURE) {

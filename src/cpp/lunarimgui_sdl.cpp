@@ -545,6 +545,9 @@ LUNAR_FFI void lunar_ui_circle(ImDrawList *d,float x,float y,float r,uint32_t co
 LUNAR_FFI void lunar_ui_poly(ImDrawList *d,const float *xy,int n,uint32_t color,int fill,float thick){std::vector<ImVec2> p;for(int k=0;k<n;k++)p.emplace_back(xy[2*k],xy[2*k+1]);if(fill)d->AddConvexPolyFilled(p.data(),n,color);else d->AddPolyline(p.data(),n,color,thick,ImDrawFlags_Closed);}
 LUNAR_FFI void lunar_ui_text(ImDrawList *d,int face,float px,float x,float y,uint32_t color,const char *s,size_t n,float wrap,float x1,float y1,float x2,float y2,int){ImVec4 clip(x1,y1,x2,y2);d->AddText(font(face),px,{x,y},color,s,s+n,wrap,&clip);}
 LUNAR_FFI void lunar_ui_text_size(int face,float px,const char *s,size_t n,float wrap,float *out){auto sz=font(face)->CalcTextSizeA(px,FLT_MAX,wrap,s,s+n);out[0]=sz.x;out[1]=sz.y;}
+/* the list's vertex count; one colour for vertices [from, to) already on it (core.ui.Background) */
+LUNAR_FFI int lunar_ui_vtx_count(ImDrawList *d){return d?d->VtxBuffer.Size:0;}
+LUNAR_FFI void lunar_ui_vtx_color(ImDrawList *d,int from,int to,uint32_t color){if(!d)return;if(from<0)from=0;if(to>d->VtxBuffer.Size)to=d->VtxBuffer.Size;for(int i=from;i<to;i++)d->VtxBuffer[i].col=color;}
 LUNAR_FFI int lunar_ui_image(ImDrawList *d,int id,float x1,float y1,float x2,float y2,float u1,float v1,float u2,float v2,uint32_t color){auto t=g.textures.find(id);if(t==g.textures.end())return 0;d->AddImage((ImTextureID)t->second.gl,{x1,y1},{x2,y2},{u1,v1},{u2,v2},color);return 1;}
 LUNAR_FFI int lunar_ui_texture_bits(const unsigned char *p,int w,int h,int stride,int premultiplied){
     if(!p||w<=0||h<=0||w>32768||h>32768||stride<w*4)return 0;

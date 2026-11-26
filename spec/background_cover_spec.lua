@@ -209,6 +209,80 @@ describe("whole-or-hidden background layers",function()
         assert.equal("partial",(Scene.coverState(2)))
     end)
 
+    -- one frame of the UI in a W x H window
+    local function frame_at(B,dc,p,W,H,rects,live)
+        B.frame_begin(); dc:begin(W,H)
+        Scene.floor(dc,0,0,W,H,p,live~=false)
+        for _,r in ipairs(rects or {}) do dc:fill(r[1],r[2],r[3],r[4],r[5] or "#202020") end
+        Scene.cover(dc.cover)
+        B.frame_end()
+    end
+    -- the floor's image of the scene target on the frame just ended: its uv at the window's
+    -- bottom-right corner
+    local function floor_uv(B)
+        for _,c in ipairs(B.last) do
+            if c[1]=="image" and c[2]==B.SCENE_SHARP then return c[9],c[10] end
+        end
+    end
+
+    it("keeps a held resize's size when the cover redraws the scene in that frame (motion off)",function()
+        motion_on=false
+        local B=Null.new({scene=true}); local dc=Draw.new(B); local p=scene()
+        frame_at(B,dc,p,800,600,{})
+        assert.equal(255,body_alpha(B))
+        -- the window grows within RESIZE_SETTLE: the floor keeps the 800 x 600 render,
+        -- stretched; the layout laid over it now leaves the body partly covered
+        local W,H,partial=900,650,{{500,200,200,90},{500,320,200,100}}
+        for _,step in ipairs({ {partial,0}, {{},255}, {partial,0} }) do
+            clock=clock+0.02
+            local renders=B.scene_renders
+            frame_at(B,dc,p,W,H,step[1])
+            -- on that same present: the body is right, rendered at the held size ...
+            assert.equal(step[2],body_alpha(B))
+            assert.equal(renders+1,B.scene_renders)
+            assert.same({800,600},B.scene_size)
+            -- ... and the floor and the glass map the window onto that render
+            local u,v=floor_uv(B)
+            local tw,th=math.ceil(800/256)*256,math.ceil(600/256)*256
+            assert.near(800/tw,u,1e-9); assert.near(600/th,v,1e-9)
+            local _,_,ku,kv=Scene.textures(B)
+            assert.near(u,ku*W,1e-9); assert.near(v,kv*H,1e-9)
+        end
+        -- the size has held: its own redraw comes, at the new size
+        clock=clock+Scene.RESIZE_SETTLE+0.01
+        frame_at(B,dc,p,W,H,partial)
+        assert.same({W,H},B.scene_size)
+        assert.equal(0,body_alpha(B))
+        local u=floor_uv(B)
+        assert.near(W/math.ceil(W/256)/256,u,1e-9)
+    end)
+
+    it("recolours the direct-draw floor's body in the frame that found the change",function()
+        -- no scene target (an SDL host, the Null backend): the layers straight onto the list;
+        -- motion off, so each change is instant
+        motion_on=false
+        local B=Null.new(); local dc=Draw.new(B); local p=scene()
+        local function drawn()
+            local a
+            for _,c in ipairs(B.last) do
+                if c[1]=="image" then a=math.floor(c[11]/16777216)%256 end
+            end
+            return a
+        end
+        local partial={{500,200,200,90},{500,320,200,100}}
+        frame_at(B,dc,p,800,600,partial)
+        assert.equal(0,drawn())       -- the first layout: hidden at once
+        clock=clock+0.02
+        frame_at(B,dc,p,800,600,{})
+        assert.equal(255,drawn())     -- clear again: shown in that same frame
+        clock=clock+0.02
+        frame_at(B,dc,p,800,600,partial)
+        assert.equal(0,drawn())
+        clock=clock+0.02
+        frame_at(B,dc,p,800,600,partial)
+        assert.equal(0,drawn())       -- unchanged: drawn hidden from the start
+    end)
+
     it("switches at once off the GPU path (static scene)",function()
         local B=Null.new({scene=true}); local dc=Draw.new(B); local p=scene()
         frame(B,dc,p,{},false)

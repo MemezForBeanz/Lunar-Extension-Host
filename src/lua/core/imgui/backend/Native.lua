@@ -338,6 +338,15 @@ int lunar_ui_image_quad(ImDrawList *dl, int tex, float x1, float y1, float x2, f
 		C.lunar_ui_image_quad(dl, tex, x1, y1, x2, y2, x3, y3, x4, y4, col or 0xFFFFFFFF)
 	end
 end
+-- A sprite's vertices, recoloured once the frame knows its opacity (core.ui.Background's
+-- direct-draw floor): vtx_mark gives the list and its vertex count now.
+if pcall(ffi.cdef, [[
+int lunar_ui_vtx_count(ImDrawList *dl);
+void lunar_ui_vtx_color(ImDrawList *dl, int from, int to, uint32_t col);
+]]) and pcall(function() return C.lunar_ui_vtx_count, C.lunar_ui_vtx_color end) then
+	function B.vtx_mark() return dl, C.lunar_ui_vtx_count(dl) end
+	function B.vtx_color(list, from, to, col) C.lunar_ui_vtx_color(list, from, to, col) end
+end
 function B.clip_push(x1, y1, x2, y2) C.lunar_ui_clip_push(dl, x1, y1, x2, y2) end
 function B.clip_pop() C.lunar_ui_clip_pop(dl) end
 

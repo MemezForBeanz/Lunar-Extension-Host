@@ -390,14 +390,19 @@ end
 
 -- Draw `scene` with signals `s` on B, in a w x h window. Returns the sprite count.
 -- `part`: "scene" leaves out the layers drawn over the frame's tint (`above = true`),
--- "above" draws only those, nil all.
-local function emit(B, scene, s, w, h, part)
+-- "above" draws only those, nil all. `marks` (direct draw, B.vtx_mark): each `whole` sprite
+-- is drawn even while hidden and noted as marks[i] = { list, from, to, tint, opacity }, so
+-- M.cover can recolour it in the frame that drew it.
+local function emit(B, scene, s, w, h, part, marks)
 	local n = 0
 	for i, layer in ipairs(scene.layers) do
 		local skip = part and ((part == "above") ~= (layer.def.above == true))
 		local opacity = not skip and layer.opacity(s)
+		local base = opacity
 		if layer.whole and type(opacity) == "number" then opacity = opacity * (s[COVER .. i] or 1) end
-		if type(opacity) == "number" and opacity > 0.002 then
+		local mark = marks and layer.whole and layer.kind ~= "fill" and layer.kind ~= "stars"
+			and type(base) == "number" and base > 0.002
+		if mark or type(opacity) == "number" and opacity > 0.002 then
 			local kind = layer.kind
 			if kind == "fill" then
 				local top, bottom = layer.top(s), layer.bottom(s)
@@ -457,7 +462,10 @@ local function emit(B, scene, s, w, h, part)
 					local cy = ly + layer.dy(s) - (s.mouse_y or 0) * par
 					local hw, hh = bw * scale / 2, bh * scale / 2
 					local rot = layer.rotation(s)
-					local col = pack(layer.tint(s), opacity)
+					local tint = layer.tint(s)
+					local col = pack(tint, opacity)
+					local list, from
+					if mark then list, from = B.vtx_mark() end
 					if rot ~= 0 and B.image_quad then
 						local ca, sa = cos(rot * pi / 180), sin(rot * pi / 180)
 						local function at(px, py) return cx + px * ca - py * sa, cy + px * sa + py * ca end
@@ -468,6 +476,10 @@ local function emit(B, scene, s, w, h, part)
 						B.image_quad(id, x1, y1, x2, y2, x3, y3, x4, y4, col)
 					else
 						B.image(id, cx - hw, cy - hh, cx + hw, cy + hh, 0, 0, 1, 1, col)
+					end
+					if mark then
+						local _, to = B.vtx_mark()
+						marks[i] = { list, from, to, tint, base }
 					end
 					n = n + 1
 				end
@@ -496,6 +508,7 @@ local EASE_HZ = 60      -- a mode ease redraws at most this often
 local target            -- { tw, th } of the scene target, while one holds the scene
 local above_values      -- the signals the last floor read, for M.above
 local scene_B           -- the backend the scene target was last drawn on (M.cover redraws it)
+local direct            -- this frame's direct-draw floor: { B = backend, [i] = mark } (emit)
 
 local function motion()
 	local Reactor = package.loaded["core.ui.ThemeReactor"]
@@ -605,6 +618,7 @@ function M.deactivate()
 	active, target, M._deps, last_values, last_emit = nil, nil, nil, {}, -1e9
 	above_values, scene_B = nil, nil
 	pending_resize, listed, seen_size, M._target_size = false, nil, nil, nil
+	direct = nil
 	mode.from, mode.to, mode.dur, mode.tail, mode.framed = 0, 0, 0, false, false
 end
 
@@ -682,6 +696,7 @@ function M.floor(dc, x, y, w, h, p, live)
 	local s, changed = read(scene, ctx)
 	above_values = s
 	if scene.wholes and dc.coverBegin and (dc.surface_id or 0) == 0 then dc:coverBegin() end
+	if (dc.surface_id or 0) == 0 then direct = nil end
 	if B.scene_begin and (dc.surface_id or 0) == 0 then
 		local size = W .. "x" .. H
 		if seen_size ~= size then seen_size, last_resize = size, now end
@@ -732,7 +747,9 @@ function M.floor(dc, x, y, w, h, p, live)
 		function Bshift.image(id, x1, y1, x2, y2, ...) return B.image(id, x1 + ox, y1 + oy, x2 + ox, y2 + oy, ...) end
 		function Bshift.rect_gradient(x1, y1, x2, y2, ...) return B.rect_gradient(x1 + ox, y1 + oy, x2 + ox, y2 + oy, ...) end
 	end
-	emit(Bshift, scene, st, W, H, "scene")
+	local marks = scene.wholes and B.vtx_mark and (dc.surface_id or 0) == 0 and { B = B } or nil
+	emit(Bshift, scene, st, W, H, "scene", marks)
+	direct = marks
 	dc:clip_pop()
 	above_values = st
 	return true
@@ -902,14 +919,22 @@ function M.cover(rects)
 	end
 	-- A change with no fade (the first layout, motion off) shows in the frame that found it:
 	-- the scene list this frame emitted before the layout was known is emitted again, and
-	-- the frame's end renders that one (static path: the next frame)
+	-- the frame's end renders that one. It is drawn at the size the target holds: the floor
+	-- and the glass already on this frame's lists map that size (a resize the floor held
+	-- stays stretched, and its own redraw stays due). Direct draw: the whole sprites this
+	-- frame drew are recoloured where they lie on its list.
 	if instant and target and scene_B and scene_B.scene_begin then
-		local s2 = read(active, context(now, W, H))
-		local t = draw_target(scene_B, active, s2, W, H)
+		local tw, th = target.w, target.h
+		local s2 = read(active, context(now, tw, th))
+		local t = draw_target(scene_B, active, s2, tw, th)
 		if t then
 			target, last_values, last_emit = t, s2, now
-			M._target_size = W .. "x" .. H
 			stats.emits = stats.emits + 1
+		end
+	elseif instant and direct then
+		for i, m in pairs(direct) do
+			local wh = i ~= "B" and active.layers[i] and active.layers[i].whole
+			if wh then direct.B.vtx_color(m[1], m[2], m[3], pack(m[4], m[5] * wh.to)) end
 		end
 	end
 	if started then
