@@ -213,14 +213,18 @@ rasterized and uploaded once, when the scene first shows; nothing uploads afterw
 reduced motion, hardware acceleration off or on WARP, time and the pointer read 0: the scene
 is drawn once per window size, mode or rail change, then costs nothing. During a live resize
 the last render stretches over the window: on the GPU path it is drawn again at most 30
-times a second, off it once the size has held for 150 ms. A theme without a scene stops the
-scene's idle drawing at once.
+times a second, off it once the size has held for 150 ms; a size that comes back to the
+rendered one within that hold owes no redraw. A theme without a scene stops the scene's idle
+drawing at once.
 
 **Mode switch.** Two palettes of one scene switch the UI in one frame (no cross-fade of
 pictures, which halves every label's contrast); the sky follows 80 ms later and eases over
 0.6 s. While it lags, the frame's tint is raised as far as its labels need over the worst
 pixel the sky can show at that moment (`Background.frameAlpha`), and chrome bounds its
-luminance like the transport.
+luminance like the transport. The ease ends with one full frame at or after its end (the
+frame's tint and the veil's bounds follow the sky only in full frames); then time-bound
+layers go back to scene-only presents. Two palettes share a scene when they hold the same
+table (with or without an `id`) or tables with the same `id`.
 
 **Contrast.** Labels on the frame must keep 4.5:1 over the brightest (dark) or darkest
 (light) pixel the scene can put under them at any time; give that pixel as
@@ -231,6 +235,14 @@ gradient (`glow = { colour, alpha, mid }`: it counts at the nearest point of the
 other art its brightest pixel (`peak = { colour, alpha }`), and mark art that never lies
 under labels `labels = false`. Lunar's `SAMPLES` are made this way, so they follow the art. Keep bright bodies away from where labels sit, or fade them out
 there with a signal (Lunar's crescent fades when the rail's entries would reach it).
+
+**Bodies and the pages' panels.** A body (Lunar's moon and sun) shows whole or not at all:
+never an arc in the gap between two panels. Place it in px from the edges the pages are
+laid out from (`unit = "px"`, negative `x` from the right), keep its art and glow inside
+its box, and pick a band that every page either leaves open or covers whole. Lunar's is
+y 325..483 at 192 px from the right (`lunar_space.M.BODY`): Media's hero card covers
+250..483 and the iLO editor starts at 325, Build Queue and Settings leave it open; below
+1400 px wide both bodies fade out (gone by 1150).
 
 ## Panels over a reactive background
 
@@ -253,6 +265,18 @@ The rule Lunar follows, and a theme with a background should too:
   the terminal, cards holding a form, and every dialog and floating surface's text well
   sit on an opaque fill (`glassContentWell`, default `layer01`).
 * Off the GPU path (WARP, hardware acceleration off) the veil is the opaque card.
+
+## Disabled labels
+
+IUP's flat controls fade a disabled label halfway toward the control's fill (patch 0005),
+which takes muted text far under 4.5:1. A theme gives the label instead: `inactivetext` in a
+button role's rule becomes the control's `TEXTINACTIVECOLOR`, which the flat button draws
+exactly (its icon still fades). Lunar and the Fluent themes derive it with
+`fluent_rules.disabledText(textMuted, fill)`: muted text moved toward the fill while it keeps
+5:1 (a small label's anti-aliased strokes measure about 0.2 under its colour), so a disabled
+label reads quieter than muted text and stays legible. `scripts/theme_contrast.lua` checks
+the label as drawn. Carbon keeps its `text-disabled` token (25% of text-primary), as IBM's
+spec sets it.
 
 ## One language for interactive states
 
