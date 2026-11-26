@@ -21,8 +21,6 @@ end
 -- The window class the insets follow (Frame.setWidth): wide from this client width on.
 local WIDE_FROM = 1440
 local wide = true
--- The left rail's current width (main.lua tells), so the sheet's left edge stays put.
-local rail_width = function() return 48 end
 -- Frames to refit when the width class or the rail changes (widget -> refit).
 local fitters = setmetatable({}, { __mode = "k" })
 
@@ -37,10 +35,10 @@ function Frame.metrics(iup)
 	local band = math.max(0, (p.radiusSheet or 14) - 2)
 	local m = (wide and p.glassSheetWide or p.glassSheetNarrow) or {}
 	local side = m.side or p.glassReveal or 8
-	-- The sheet starts at `left` from the window edge: the strip beside the rail stays bare.
-	local left = math.max(side, (m.left or 0) - (rail_width() or 0))
-	-- (narrow, the reveal above and below is slimmer: the full-height bands took that room)
-	return { band = band, left = left, top = m.top or side, right = side, bottom = m.bottom or side }
+	-- The sheet lies beside the rail at `side`: collapsing the rail gives its width back to
+	-- the sheet, which follows the rail's motion (narrow, the reveal above and below is
+	-- slimmer: the full-height bands took that room)
+	return { band = band, left = side, top = m.top or side, right = side, bottom = m.bottom or side }
 end
 
 --- Vertical pixels the frame adds around the workspace (both bands and the insets).
@@ -59,8 +57,7 @@ function Frame.setWidth(w)
 	if now ~= wide then wide = now; refit_all() end
 end
 
---- How wide the rail is now; refits when called with a new reader or on `Frame.refit()`.
-function Frame.setRail(reader) rail_width = reader or rail_width; refit_all() end
+--- Refit every frame (the theme's insets changed).
 function Frame.refit() refit_all() end
 
 function Frame.wrap(iup, child)

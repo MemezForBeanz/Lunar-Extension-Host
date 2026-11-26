@@ -4,10 +4,17 @@ local M = {}
 local function channels(c) local t={} for v in tostring(c):gmatch("%d+") do t[#t+1]=tonumber(v) end return t end
 --- The composited background under glass labels: the palette's worst backdrop sample
 -- (`glassSampleWorst`, measured from assets/glass by gen_glass_assets.py) under the tint.
+-- Over a reactive background (core.ui.Scene) the shell's labels lie on the frame: the
+-- scene's worst pixel (`glassSampleWorst`, lunar_space.SAMPLES) under the frame's tint.
 function M.composite(p,floating)
     local tint=channels(floating and (p.glassFloatingTint or p.layer03) or (p.glassChromeTint or p.layer01))
     local a=floating and (p.glassFloatingAlpha or .76) or (p.glassChromeAlpha or .58)
     local s=channels(p.glassSampleWorst or p.bg)
+    if p.background then
+        -- floating glass sees the frame (the scene already under the frame's tint)
+        if floating then s=channels(M.composite(p,false))
+        else tint=channels(p.glassFrameTint or p.bg); a=p.glassFrameAlpha or 0 end
+    end
     local c={}
     for i=1,3 do c[i]=math.floor(s[i]*(1-a)+tint[i]*a+0.5) end
     return table.concat(c," ")

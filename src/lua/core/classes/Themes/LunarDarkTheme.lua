@@ -1,6 +1,7 @@
 -- Lunar: graphite, pearl and silver glass. Hue is reserved for state.
 local Theme = require("core.classes.Themes.Theme")
 local lunar = require("core.classes.Themes.lunar_rules")
+local space = require("core.classes.Themes.lunar_space")
 local rgb   = lunar.rgb
 
 local LunarDarkTheme = Theme:subclass("LunarDarkTheme")
@@ -33,9 +34,12 @@ function LunarDarkTheme:initialize()
         font = "Segoe UI, 10",
         glass = true,
         glassDark = true,
-        -- Liquid Glass (core.ui.Glass): the baked crescent-and-stars backdrop, chrome and
-        -- floating tints over its softened copy, and the curved rim.
-        glassBackdrop = "lunar-dark",
+        -- The reactive space scene (core.ui.Scene, lunar_space.lua), shared with the light
+        -- mode so a switch animates it; the frame round the sheet is the scene under a
+        -- light tint (one connected chrome), the sheet a veil of glass over it.
+        background = space.background(),
+        glassFrameTint = rgb("#070A12"), glassFrameAlpha = 0.40,
+        glassVeilTint = rgb("#171B21"), glassVeilAlpha = 0.74,
         glassChromeTint = rgb("#151B24"), glassChromeAlpha = 0.32,
         glassFloatingTint = rgb("#1E2630"), glassFloatingAlpha = 0.24, glassLip = 8,
         glassTextWell = rgb("#242C36"),
@@ -43,11 +47,12 @@ function LunarDarkTheme:initialize()
         glassWellHover = rgb("#2C3440"), glassWellSelected = rgb("#353D49"),
         -- The 2 px bevel: an upper-left highlight fading 45% -> 8%, a lower inner shade 14%.
         glassRimHi = "255 255 255 115", glassRimLo = "255 255 255 20", glassRimInner = "0 0 0 36",
-        -- The worst pixel of the softened backdrop (see gen_glass_assets.py), for the audit.
-        glassSampleWorst = "59 72 84",
-        glassShadowAlpha = 0.32, -- The sheet's inset (core.ui.WorkspaceFrame): left edge, top, right and bottom, wide
-        -- and narrow; the left strip shows the bare backdrop and its crescent.
-        glassSheetWide = { left = 104, top = 14, side = 12 }, glassSheetNarrow = { left = 80, top = 6, bottom = 4, side = 8 },
+        -- The scene's worst pixel under labels (lunar_space.SAMPLES), for the audit.
+        glassSampleWorst = space.SAMPLES.dark.frame,
+        glassShadowAlpha = 0.32,
+        -- The sheet's inset (core.ui.WorkspaceFrame) from the rail, title and status strips,
+        -- wide and narrow.
+        glassSheetWide = { top = 6, side = 10 }, glassSheetNarrow = { top = 4, bottom = 4, side = 8 },
         glassTransport = { wide = 18, narrow = 12, below = 8 },
         -- Primary action: an opaque pearl gradient.
         primaryTop = rgb("#FCFDFF"), primaryBottom = rgb("#C1CBD7"), primaryText = rgb("#151A20"),

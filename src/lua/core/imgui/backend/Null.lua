@@ -123,6 +123,31 @@ function M.new(opts)
 	function B.rim(...) record("rim", ...) end
 	function B.glass(...) record("glass", ...); return true end
 	function B.glass_copy(...) record("glass_copy", ...); return true end
+	function B.image_quad(...) record("image_quad", ...) end
+	-- The scene target (core.ui.Scene), when built with { scene = true }: its calls go to
+	-- B.scene_calls, a render per scene_end, and scene_present succeeds unless
+	-- B.scene_refuse is set.
+	if opts.scene then
+		B.SCENE_SHARP, B.SCENE_BLUR = -8, -9
+		B.scene_renders, B.scene_presents, B.scene_is_valid = 0, 0, false
+		local saved
+		function B.scene_begin(w, h)
+			saved = B.frame_calls
+			B.scene_calls, B.frame_calls = {}, {}
+			B.scene_size = { w, h }
+			return math.ceil(w / 256) * 256, math.ceil(h / 256) * 256
+		end
+		function B.scene_end(sprites)
+			B.scene_calls, B.frame_calls = B.frame_calls, saved or B.frame_calls
+			B.scene_sprites, B.scene_renders, B.scene_is_valid = sprites, B.scene_renders + 1, true
+		end
+		function B.scene_valid() return B.scene_is_valid end
+		function B.scene_present()
+			if B.scene_refuse then return false end
+			B.scene_presents = B.scene_presents + 1
+			return true
+		end
+	end
 	function B.clip_push(...) record("clip_push", ...) end
 	function B.clip_pop(...) record("clip_pop", ...) end
 	function B.layer(...) record("layer", ...) end

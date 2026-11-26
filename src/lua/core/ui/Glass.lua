@@ -14,6 +14,9 @@
 --   floating  menus, palette, toasts, tooltips, dialogs: a nine-slice shadow, the softened
 --             backdrop, a tint, one rim
 --   card      the matte work sheet: an opaque rounded fill and a faint rim
+--   veil      the work sheet over a reactive background (core.ui.Scene): on the GPU, chrome
+--             glass sampling the live scene (blurred body, a refracting rim, the sheet's
+--             tint at `glassVeilAlpha`, luminance bounded for its text); otherwise the card
 --   content / chrome_content / none   children of the above: nothing (the parent's glass
 --             shows; the runtime skips their own fill of the material colour)
 --
@@ -76,6 +79,8 @@ M.LENS = {
 	frost = { band = 4, thickness = 3, chroma = 0, rim_blur = 0.9, blur_depth = 2 },
 	chrome = { band = 8, thickness = 4, chroma = 0.6 },
 	live = { band = 6, thickness = 3, chroma = 0.25, tint = 0.75, rim_blur = 0.65, blur_depth = 3 },
+	-- the sheet over a reactive background: a wide, gentle lens, so the stars bend at its edge
+	veil = { band = 14, thickness = 6, chroma = 0.35 },
 }
 -- The nearest artwork under the transport: whole for ART_HOLD px past the poster, then
 -- fading to nothing over the next ART_FADE px (ART_REACH in all). The light mode holds
@@ -169,6 +174,11 @@ local function looks(p)
 		frost_shadow = Color.pack(0, 0, 0, floor(255 * (p.glassFrostShadowAlpha
 			or (dark and (p.glassShadowAlpha or 0.32) or 0.12)) + 0.5)),
 		live = Color.alpha(col(p.glassChromeTint, p.layer01), dark and M.LENS.live.tint or M.LIGHT_ART.tint),
+		-- the sheet over a reactive background: its own colour over the blurred scene, the
+		-- result bounded like frosted glass so its text keeps 4.5:1 over any frame of it
+		veil = Color.alpha(col(p.glassVeilTint, p.layer02), p.glassVeilAlpha or (dark and 0.84 or 0.80)),
+		veil_max = dark and (p.glassVeilLumMax or 0.0622) or 1,
+		veil_min = dark and 0 or (p.glassVeilLumMin or 0.62),
 		art = dark and M._ART_STEPS or M._LIGHT_ART_STEPS,
 	}
 end
@@ -507,6 +517,13 @@ end
 -- transport). Native popups map the backdrop by their own window.
 function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 	p = p or Reactor.palette()
+	if style and style.scene_room and el then
+		-- the rail: the px free between its last entry ("+") and its foot, for the scene
+		local ok, tabs = pcall(require, "core.imgui.widgets.flattabs")
+		local rects = ok and tabs.extraRects and tabs.extraRects(el) or {}
+		local add, foot = rects[1], rects[2]
+		if add and foot then require("core.ui.Scene").set("rail_room", foot[2] - (add[2] + add[4])) end
+	end
 	if kind == "content" or kind == "chrome_content" or kind == "none" then return end
 	if kind == "caps" then
 		local subs = state and state.caps
@@ -515,6 +532,21 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 			M.paint(dc, r[1], r[2], r[3], r[4], "chrome", p, min(radius or 14, r[3] / 2), nil, nil, lift, subs and subs[i])
 		end
 		return
+	end
+	if kind == "veil" then
+		local Scene = require("core.ui.Scene")
+		local sharp, blur, ku, kv = Scene.textures(dc.B)
+		if not (enabled and p.glass and gpu(dc) and sharp) then kind = "card" else
+			local c = textures(dc, p)
+			local look = c.looks
+			local r = radius or p.radiusSheet or 14
+			local ax, ay = x + dc.ox, y + dc.oy
+			local lens = M.LENS.veil
+			dc:_emit("glass", ax, ay, ax + w, ay + h, r, 1, look.veil, look.spec, look.shade,
+				min(lens.band, w / 2, h / 2), lens.thickness, 0, dc:_color(0xFFFFFFFF), sharp, blur, ku, kv,
+				0, 0, lens.chroma, 0, look.veil_max, look.veil_min, look.spec_floor, -1, 0)
+			return
+		end
 	end
 	if kind == "card" then
 		local r = radius or p.radiusSheet or 14
@@ -539,7 +571,16 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 		end
 		return
 	end
-	if kind == "floor" then sample(dc, c, tex, x, y, w, h, 0, false); return end
+	if kind == "floor" then
+		local Scene = require("core.ui.Scene")
+		if Scene.of(p) and Scene.floor(dc, x, y, w, h, p, gpu(dc)) then
+			if p.glassFrameAlpha and p.glassFrameAlpha > 0 then
+				dc:fill(x, y, w, h, Color.alpha(Color.parse(p.glassFrameTint or p.bg), p.glassFrameAlpha))
+			end
+			return
+		end
+		sample(dc, c, tex, x, y, w, h, 0, false); return
+	end
 	local look = c.looks
 	local live = gpu(dc)
 	if floating then
@@ -604,8 +645,11 @@ function M.paint(dc, x, y, w, h, kind, p, radius, el, lip, lift, state, style)
 			return
 		end
 		local _, _, ku, kv = uv(dc, c, 0, 0, 1, 1, c.sw, c.sh)
+		local sharp, blur = c.sharp, c.blur
+		local ss, sb, sku, skv = require("core.ui.Scene").textures(dc.B)
+		if ss then sharp, blur, ku, kv = ss, sb, sku, skv end
 		dc:_emit("glass", ax, ay, ax + w, ay + h, r, 1, look.chrome, look.spec, look.shade,
-			band, min(lens.thickness, band), lift or 0, dc:_color(0xFFFFFFFF), c.sharp, c.blur, ku, kv,
+			band, min(lens.thickness, band), lift or 0, dc:_color(0xFFFFFFFF), sharp, blur, ku, kv,
 			0, 0, lens.chroma, angle, 1, 0, look.spec_floor, -1, 0)
 		return -- the shader drew the rim
 	else

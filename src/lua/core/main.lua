@@ -514,7 +514,9 @@ local WORK_W, WORK_H, TASKBAR = STARTUP.work_w, STARTUP.work_h, STARTUP.taskbar
 -- panes take no space, so with nothing split this is exactly the single strip.
 local pane_grid = PaneGrid:new({ iup = iup, main = tabs, settings = settings_mgr })
 local tool_rail = ToolRail.new({
-	iup = iup, main = tabs, settings = settings_mgr,
+	iup = iup, main = tabs, settings = settings_mgr, motion = motion_director,
+	-- the reactive background's `rail` signal (the crescent follows the rail's motion)
+	on_width = function(progress) require("core.ui.Scene").set("rail", progress) end,
 	icon = function(name, size, role) return Kit.icon(iup, name, size, role or "neutral") end,
 	is_settings = function(page) return require("core.lib.handle").same(iup, page, settings_view:widget()) end,
 })
@@ -522,16 +524,6 @@ local tool_rail = ToolRail.new({
 local dock_slot = iup.vbox({ MARGIN = "0x0", GAP = "0", EXPAND = "HORIZONTAL" })
 local WorkspaceFrame = require("core.ui.WorkspaceFrame")
 local dock_box = WorkspaceFrame.dock(iup, dock_slot)
--- The glass sheet's left edge is fixed in the window, so its inset follows the rail.
-WorkspaceFrame.setRail(function()
-	local size = iup.GetAttribute(tool_rail:widget(), "RASTERSIZE")
-	return tonumber(tostring(size or ""):match("^(%d+)")) or ToolRail.NARROW
-end)
-do
-	local toggle, reveal = tool_rail.toggle, tool_rail.setReveal
-	function tool_rail:toggle(...) toggle(self, ...); WorkspaceFrame.refit() end
-	function tool_rail:setReveal(...) reveal(self, ...); WorkspaceFrame.refit() end
-end
 host._dock_slot = dock_slot
 local terminal = require("core.ui.Terminal").new({ iup = iup, host = host, settings = settings_mgr,
 	extensions = ext_mgr, themes = theme_mgr, version = APP_VERSION })

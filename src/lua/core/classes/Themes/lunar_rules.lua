@@ -518,6 +518,29 @@ function M.build(p)
             rules[role].controlheight = 32
         end
     end
+    if p.glass and p.background then
+        -- Over a reactive background (core.ui.Scene) the title strip, rail and status bar are
+        -- not separate glass pieces: they lie on the frame, the scene under one tint, so
+        -- they read as one connected chrome round the sheet. The sheet and the page
+        -- surfaces are a veil of glass over the scene (docs/theming.md, "Panels over a
+        -- reactive background"): large structural panels let it through; dense content
+        -- (lists, tables, grids, editors, forms, the terminal) sits on an opaque well.
+        for _, role in ipairs({ "statusbar", "titlebar_window", "shellheader" }) do
+            rules[role].glass = "chrome_content"
+        end
+        rules.tool_rail.glass, rules.tool_rail.radius = "chrome_content", nil
+        -- the rail tells the scene how much of it is free below its entries (its crescent)
+        rules.tool_rail.scene_room = true
+        rules.workspace_sheet.glass = "veil"
+        rules.page_surface.glass = "veil"
+        local opaque = p.glassContentWell or p.layer01
+        for _, role in ipairs({ "flatlist", "flatrows", "flatgrid", "list_plain", "well", "settingscard" }) do
+            if rules[role] then
+                rules[role].bg = opaque
+                if rules[role].scrollbg then rules[role].scrollbg = opaque end
+            end
+        end
+    end
     -- A disclosure ("Technical details") is a quiet button whose text starts at the
     -- content edge it opens under.
     rules.disclosure_btn = {}

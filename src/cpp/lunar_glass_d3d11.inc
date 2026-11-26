@@ -213,7 +213,8 @@ enum { GLASS_FLOATING = 0, GLASS_CHROME = 1, GLASS_LIVE = 2, GLASS_FROST = 3 };
 struct GlassTiming {
     ID3D11Query *disjoint = nullptr; ID3D11Query *ts[GLASS_TS] = {};
     int n = 0; bool pending = false;
-    unsigned char opens[GLASS_TS] = {};   /* 0 closes a span; opens 1 a surface, 2 a copy, 3 a blur, 4 the probe load */
+    unsigned char opens[GLASS_TS] = {};   /* 0 closes a span; opens 1 a surface, 2 a copy, 3 a blur, 4 the probe load,
+                                             5 the scene target (lunar_scene_d3d11.inc) */
 };
 struct GlassGpu {
     bool tried = false, ready = false;
@@ -273,6 +274,8 @@ struct GlassGpu {
     float sample_glass[GLASS_SAMPLES] = {}, sample_copy[GLASS_SAMPLES] = {}, sample_frame[GLASS_SAMPLES] = {};
     float sample_copy_only[GLASS_SAMPLES] = {}, sample_blur[GLASS_SAMPLES] = {};
     float sample_load[GLASS_SAMPLES] = {};   /* the probe load: fixed work, so a clock gauge */
+    float sample_scene[GLASS_SAMPLES] = {};  /* the scene target's render and blur (core.ui.Scene) */
+    double gpu_scene_us_sum = 0; long long gpu_scene_frames = 0;
     int samples = 0;
 } gg;
 
@@ -311,16 +314,19 @@ void glass_timing_collect() {
         if (!ok) continue;   /* the disjoint query can land before its timestamps: next frame */
         t.pending = false;
         if (dj.Disjoint || dj.Frequency == 0 || t.n < 2) continue;
-        double us = 1e6 / (double)dj.Frequency, glass = 0, copy = 0, blur = 0, load = 0;
+        double us = 1e6 / (double)dj.Frequency, glass = 0, copy = 0, blur = 0, load = 0, scene = 0;
         for (int i = 0; i + 1 < t.n; i++) {
             double span = (double)(v[i + 1] - v[i]) * us;
             if (t.opens[i] == 4) { load += span; continue; }
+            if (t.opens[i] == 5) { scene += span; continue; }
             if (t.opens[i]) glass += span;
             if (t.opens[i] == 2) copy += span;
             if (t.opens[i] == 3) blur += span;
         }
         double frame = (double)(v[t.n - 1] - v[0]) * us - load;
         gg.gpu_copy_us_sum += copy; gg.gpu_blur_us_sum += blur;
+        if (scene > 0) { gg.gpu_scene_us_sum += scene; gg.gpu_scene_frames++; }
+        if (gg.samples < GLASS_SAMPLES) gg.sample_scene[gg.samples] = (float)scene;
         gg.gpu_glass_us_last = glass;
         if (gg.samples < GLASS_SAMPLES) {
             gg.sample_glass[gg.samples] = (float)glass; gg.sample_copy[gg.samples] = (float)(copy + blur);
@@ -847,7 +853,9 @@ void glass_probe_frame() {
 }
 
 /* -- the surface ------------------------------------------------------------------------ */
+ID3D11ShaderResourceView *scene_srv(int tex);
 ID3D11ShaderResourceView *texture_srv(int id) {
+    if (id < 0) return scene_srv(id);   /* the scene target (lunar_scene_d3d11.inc) */
     auto it = g.textures.find(id);
     return it == g.textures.end() ? nullptr : it->second.srv;
 }

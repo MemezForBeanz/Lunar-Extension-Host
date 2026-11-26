@@ -1,6 +1,7 @@
 -- Lunar: graphite, pearl and silver glass. Hue is reserved for state.
 local Theme = require("core.classes.Themes.Theme")
 local lunar = require("core.classes.Themes.lunar_rules")
+local space = require("core.classes.Themes.lunar_space")
 local rgb   = lunar.rgb
 
 local LunarLightTheme = Theme:subclass("LunarLightTheme")
@@ -33,17 +34,20 @@ function LunarLightTheme:initialize()
         font = "Segoe UI, 10",
         glass = true,
         glassDark = false,
-        -- Liquid Glass (core.ui.Glass): the same crescent as a pearl highlight.
-        glassBackdrop = "lunar-light",
+        -- The same space scene as the dark mode, by day (lunar_space.lua).
+        background = space.background(),
+        glassFrameTint = rgb("#F4F7FB"), glassFrameAlpha = 0.36,
+        glassVeilTint = rgb("#F8F9FA"), glassVeilAlpha = 0.72,
         glassChromeTint = rgb("#F4F7FB"), glassChromeAlpha = 0.36,
         glassFloatingTint = rgb("#F4F7FB"), glassFloatingAlpha = 0.22, glassLip = 8,
         glassTextWell = rgb("#EEF1F5"),
         glassWellHover = rgb("#E2E8EF"), glassWellSelected = rgb("#D1D9E3"),
         -- The 2 px bevel: an upper-left highlight fading 60% -> 10%, a lower inner shade 9%.
         glassRimHi = "255 255 255 153", glassRimLo = "255 255 255 26", glassRimInner = "0 0 0 23",
-        -- The worst pixel of the softened backdrop (see gen_glass_assets.py), for the audit.
-        glassSampleWorst = "201 211 224",
-        glassShadowAlpha = 0.17, glassSheetWide = { left = 104, top = 14, side = 12 }, glassSheetNarrow = { left = 80, top = 6, bottom = 4, side = 8 },
+        -- The scene's worst pixel under labels (lunar_space.SAMPLES), for the audit.
+        glassSampleWorst = space.SAMPLES.light.frame,
+        glassShadowAlpha = 0.17,
+        glassSheetWide = { top = 6, side = 10 }, glassSheetNarrow = { top = 4, bottom = 4, side = 8 },
         glassTransport = { wide = 18, narrow = 12, below = 8 },
         -- Primary action: an opaque graphite gradient.
         primaryTop = rgb("#404959"), primaryBottom = rgb("#1E2530"), primaryText = rgb("#F8FAFC"),

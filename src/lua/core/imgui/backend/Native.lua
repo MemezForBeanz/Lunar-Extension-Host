@@ -307,6 +307,37 @@ int lunar_ui_glass_copy(ImDrawList *dl, float x1, float y1, float x2, float y2, 
 		return C.lunar_ui_glass_copy(dl, x1, y1, x2, y2, kind or 0, lip or 0, radius or 0, soft and 1 or 0) ~= 0
 	end
 end
+-- Reactive backgrounds (core.ui.Scene): a private list rendered into the scene target, the
+-- target's ids, a scene-only present, and a turned sprite.
+if pcall(ffi.cdef, [[
+ImDrawList *lunar_ui_scene_begin(int w, int h, float *out);
+void lunar_ui_scene_end(int sprites);
+int lunar_ui_scene_valid(void);
+int lunar_ui_scene_present(void);
+int lunar_ui_image_quad(ImDrawList *dl, int tex, float x1, float y1, float x2, float y2,
+	float x3, float y3, float x4, float y4, uint32_t col);
+]]) and pcall(function() return C.lunar_ui_scene_begin, C.lunar_ui_scene_present, C.lunar_ui_image_quad end) then
+	B.SCENE_SHARP, B.SCENE_BLUR = -8, -9
+	local size_out2 = ffi.new("float[2]")
+	local saved
+	--- Draw on the scene list from here until scene_end; returns the target's size, or nil.
+	function B.scene_begin(w, h)
+		local list = C.lunar_ui_scene_begin(w, h, size_out2)
+		if list == nil then return nil end
+		saved = dl
+		dl = list
+		return size_out2[0], size_out2[1]
+	end
+	function B.scene_end(sprites)
+		C.lunar_ui_scene_end(sprites or 0)
+		if saved then dl = saved; saved = nil end
+	end
+	function B.scene_valid() return C.lunar_ui_scene_valid() ~= 0 end
+	function B.scene_present() return C.lunar_ui_scene_present() ~= 0 end
+	function B.image_quad(tex, x1, y1, x2, y2, x3, y3, x4, y4, col)
+		C.lunar_ui_image_quad(dl, tex, x1, y1, x2, y2, x3, y3, x4, y4, col or 0xFFFFFFFF)
+	end
+end
 function B.clip_push(x1, y1, x2, y2) C.lunar_ui_clip_push(dl, x1, y1, x2, y2) end
 function B.clip_pop() C.lunar_ui_clip_pop(dl) end
 

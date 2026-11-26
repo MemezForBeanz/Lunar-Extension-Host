@@ -4,6 +4,13 @@ local Null=require("core.imgui.backend.Null")
 local Draw=require("core.imgui.Draw")
 
 local function palette(name) return require("core.classes.Themes."..name):new():palette() end
+-- A Lunar palette on the baked-backdrop path (a glass theme without a reactive background).
+local function baked(name)
+    local p=palette(name)
+    p.background=nil
+    p.glassBackdrop=name=="LunarDarkTheme" and "lunar-dark" or "lunar-light"
+    return p
+end
 local function ops(B)
     local out={}
     for _,call in ipairs(B.lastFrame()) do out[call[1]]=(out[call[1]] or 0)+1 end
@@ -56,7 +63,7 @@ describe("Lunar glass",function()
 
     it("loads each mode once and never again on resize or repeated light/dark switches",function()
         local B=Null.new(); local dc=Draw.new(B)
-        local dark,light=palette("LunarDarkTheme"),palette("LunarLightTheme")
+        local dark,light=baked("LunarDarkTheme"),baked("LunarLightTheme")
         B.frame_begin(); dc:begin(1920,1080)
         Glass.paint(dc,0,0,1920,40,"chrome",dark)
         Glass.paint(dc,0,0,1920,40,"chrome",light)
@@ -188,8 +195,8 @@ describe("Lunar glass",function()
     it("maps the backdrop by cover scaling from the top-left and bends it through the rim",function()
         local B=Null.new(); local dc=Draw.new(B)
         B.frame_begin(); dc:begin(1100,800)
-        Glass.paint(dc,0,0,1100,800,"floor",palette("LunarDarkTheme"))
-        Glass.paint(dc,100,50,200,100,"chrome",palette("LunarDarkTheme"),0)
+        Glass.paint(dc,0,0,1100,800,"floor",baked("LunarDarkTheme"))
+        Glass.paint(dc,100,50,200,100,"chrome",baked("LunarDarkTheme"),0)
         B.frame_end()
         local floor,chrome
         for _,call in ipairs(B.lastFrame()) do
@@ -302,7 +309,15 @@ describe("Lunar glass",function()
 
     it("gives the work sheet, its bands and the transport capsule their materials",function()
         local rules=require("core.classes.Themes.LunarDarkTheme"):new():rules()
-        assert.equal("card",rules.workspace_sheet.glass); assert.equal(14,rules.workspace_sheet.radius)
+        -- over the reactive background the sheet is a veil of glass (core.ui.Scene)
+        assert.equal("veil",rules.workspace_sheet.glass); assert.equal(14,rules.workspace_sheet.radius)
+        assert.equal("veil",rules.page_surface.glass)
+        -- the shell's strips lie on the frame: one connected chrome, no separate pieces
+        for _,role in ipairs({"statusbar","titlebar_window","tool_rail","shellheader"}) do
+            assert.equal("chrome_content",rules[role].glass,role)
+        end
+        -- dense content sits on an opaque well, not the veil's colour
+        assert.are_not.equal(rules.workspace_sheet.bg,rules.flatlist.bg)
         assert.equal("none",rules.workspace_band.glass)
         assert.equal("chrome",rules.transport_capsule.glass)
         assert.equal(16,rules.palette_frame.radius)
@@ -312,23 +327,20 @@ describe("Lunar glass",function()
         assert.is_nil(carbonless.transport_capsule.glass)
     end)
 
-    it("insets the sheet wide and narrow and keeps its left edge as the rail changes",function()
+    it("insets the sheet wide and narrow beside the rail, whatever the rail's width",function()
         local Frame=require("core.ui.WorkspaceFrame")
         local Reactor=require("core.ui.ThemeReactor")
         local real=Reactor.palette
         Reactor.palette=function() return palette("LunarDarkTheme") end
         local iup={_IMGUI=true}
-        local width=48
-        Frame.setRail(function() return width end)
         Frame.setWidth(1920)
         local m=Frame.metrics(iup)
-        assert.same({band=12,left=56,top=14,right=12,bottom=12},m)
+        -- the sheet lies beside the rail: collapsing the rail gives its width back
+        assert.same({band=12,left=10,top=6,right=10,bottom=10},m)
         Frame.setWidth(1100)
         m=Frame.metrics(iup)
-        assert.same({band=12,left=32,top=6,right=8,bottom=4},m)
-        width=176
-        assert.equal(8,Frame.metrics(iup).left)
-        Frame.setWidth(1920); width=48
+        assert.same({band=12,left=8,top=4,right=8,bottom=4},m)
+        Frame.setWidth(1920)
         Reactor.palette=function() return palette("CarbonWhiteTheme") end
         assert.same({band=12,left=0,top=0,right=0,bottom=0},Frame.metrics(iup))
         Reactor.palette=real
@@ -349,7 +361,7 @@ describe("Lunar glass",function()
         end
 
         it("draws chrome as one shader surface: no baked sample, tint or rim",function()
-            local B=hardware(); local dc=Draw.new(B); local p=palette("LunarDarkTheme")
+            local B=hardware(); local dc=Draw.new(B); local p=baked("LunarDarkTheme")
             frame(B,dc,1920,1080,function() Glass.paint(dc,0,40,48,1000,"chrome",p,14) end)
             local n=ops(B)
             assert.equal(1,n.glass); assert.is_nil(n.image_rounded_uv); assert.is_nil(n.rim); assert.is_nil(n.rect_filled)

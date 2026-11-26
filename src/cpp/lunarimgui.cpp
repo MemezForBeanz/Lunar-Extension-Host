@@ -1039,8 +1039,10 @@ void release_overlay_target() {
 }
 
 void glass_release();
+void scene_release();
 void release_renderer_gpu() {
     release_frame_copy();
+    scene_release();
     glass_release();
     release_retired_textures();
     if (g.ctx) { g.ctx->ClearState(); g.ctx->Flush(); }
@@ -1087,6 +1089,7 @@ bool restore_textures() {
 }
 
 #include "lunar_glass_d3d11.inc"
+#include "lunar_scene_d3d11.inc"
 
 bool initialize_renderer_backends() {
     if (!ImGui::GetCurrentContext()) return false;
@@ -1643,6 +1646,7 @@ int l_close(lua_State *L) {
     for (auto &t : g.textures) if (t.second.srv) t.second.srv->Release();
     g.textures.clear();
     release_frame_copy();
+    scene_release();
     glass_release();
     release_retired_textures();
     clear_gdi_lines();
@@ -1722,6 +1726,14 @@ int l_renderer(lua_State *L) {
     lua_pushnumber(L, gg.gpu_frame_us_sum); lua_setfield(L, -2, "gpu_frame_us_sum");
     lua_pushnumber(L, gg.gpu_copy_us_sum); lua_setfield(L, -2, "glass_gpu_copy_us_sum");
     lua_pushnumber(L, gg.gpu_blur_us_sum); lua_setfield(L, -2, "glass_gpu_blur_us_sum");
+    lua_pushinteger(L, (lua_Integer)sg.renders); lua_setfield(L, -2, "scene_renders");
+    lua_pushinteger(L, (lua_Integer)sg.presents); lua_setfield(L, -2, "scene_presents");
+    lua_pushinteger(L, (lua_Integer)sg.refusals); lua_setfield(L, -2, "scene_refusals");
+    lua_pushinteger(L, (lua_Integer)sg.creations); lua_setfield(L, -2, "scene_creations");
+    lua_pushinteger(L, (lua_Integer)sg.sprites); lua_setfield(L, -2, "scene_sprites");
+    lua_pushnumber(L, sg.cpu_us_sum); lua_setfield(L, -2, "scene_present_cpu_us_sum");
+    lua_pushnumber(L, gg.gpu_scene_us_sum); lua_setfield(L, -2, "scene_gpu_us_sum");
+    lua_pushinteger(L, (lua_Integer)gg.gpu_scene_frames); lua_setfield(L, -2, "scene_gpu_frames");
     lua_pushinteger(L, g.last_vtx); lua_setfield(L, -2, "frame_vertices");
     lua_pushinteger(L, g.last_idx); lua_setfield(L, -2, "frame_indices");
     return 1;
@@ -2191,8 +2203,14 @@ int l_frame_end(lua_State *) {
     gg.origin = ImVec2(0, 0);
     /* a texture ImGui made, updated or dropped (the font atlas) can change what is under the glass */
     if (all->Textures) for (ImTextureData *t : *all->Textures) if (t->Status != ImTextureStatus_OK) g.texture_revision++;
-    if (glass) glass_plan(g.lists.empty() ? nullptr : g.lists[0]);
     glass_timing_begin();   /* LUNAR_GPU_TIMING only: every frame, so glass on and off compare */
+    /* the background scene (core.ui.Scene), when Lua re-emitted it: before the lists that
+       draw it and before the glass plan, whose hashes it invalidates */
+    if (sg.emitted) {
+        scene_render(all->Textures);
+        g.ctx->OMSetRenderTargets(1, &g.rtv, nullptr);
+    }
+    if (glass) glass_plan(g.lists.empty() ? nullptr : g.lists[0]);
     bool floating_ok = false;
     gg.rendering_main = true;
     if ((copy || (glass && !gg.fl.empty() && !gg.skip))
@@ -2231,6 +2249,10 @@ int l_frame_end(lua_State *) {
     for (Popup *p : popups) popup_render(p);
     span_now(span_t2);
     glass_frame_done(glass, floating_ok);   /* what a later frame may reuse */
+    /* a scene-only frame may present these lists again: nothing in them holds a copy of
+       this frame, and no other window shows it */
+    sg.reusable = !copy && gg.fl.empty() && gg.npts == 0 && overlays.empty() && !g.shot.pending;
+    for (Popup *p : popups) if (p->visible) sg.reusable = false;
     glass_probe_frame();    /* LUNAR_GPU_TIMING probe only: inside its own span, out of the others */
     glass_timing_end();
     gg.used = false; gg.fl.clear(); gg.npts = 0; gg.fl_strong = false; gg.fl_ok = false;
@@ -3021,6 +3043,12 @@ LUNAR_FFI int lunar_ui_image(ImDrawList *dl, int tex, float x1, float y1, float 
         dl->AddImage(ImTextureRef((ImTextureID)(intptr_t)g.frame_srv), ImVec2(x1, y1), ImVec2(x2, y2), ImVec2(u1, v1), ImVec2(u2, v2), col);
         return 1;
     }
+    if (tex == SCENE_SHARP || tex == SCENE_BLUR) {
+        ID3D11ShaderResourceView *srv = scene_srv(tex);
+        if (!srv) return 0;
+        dl->AddImage(ImTextureRef((ImTextureID)(intptr_t)srv), ImVec2(x1, y1), ImVec2(x2, y2), ImVec2(u1, v1), ImVec2(u2, v2), col);
+        return 1;
+    }
     auto it = g.textures.find(tex);
     if (it == g.textures.end()) return 0;
     if (!it->second.srv) return 0;
@@ -3093,6 +3121,10 @@ LUNAR_FFI int lunar_ui_image_rounded(ImDrawList *dl, int tex, float x1, float y1
 /* Glass (core.ui.Glass): one call per primitive whatever the surface's size or radius. */
 static ImTextureRef glass_tex(int tex) {
     if (tex == FRAME_TEXTURE) return g.frame_srv ? ImTextureRef((ImTextureID)(intptr_t)g.frame_srv) : ImTextureRef();
+    if (tex == SCENE_SHARP || tex == SCENE_BLUR) {
+        ID3D11ShaderResourceView *srv = scene_srv(tex);
+        return srv ? ImTextureRef((ImTextureID)(intptr_t)srv) : ImTextureRef();
+    }
     auto it = g.textures.find(tex);
     if (it == g.textures.end() || !it->second.srv) return ImTextureRef();
     return ImTextureRef((ImTextureID)(intptr_t)it->second.srv);
@@ -3210,6 +3242,70 @@ LUNAR_FFI int lunar_ui_glass(ImDrawList *dl, float x1, float y1, float x2, float
     if (gg.timing) dl->AddCallback(glass_cb_stamp, nullptr);
     dl->AddCallback(ImGui::GetPlatformIO().DrawCallback_ResetRenderState, nullptr);
     gg.surfaces++;
+    return 1;
+}
+/* core.ui.Scene (lunar_scene_d3d11.inc): the scene list for a w x h window, emptied; null
+   without a device. out[0], out[1]: the target's size (a sprite's uv there is px / size). */
+LUNAR_FFI ImDrawList *lunar_ui_scene_begin(int w, int h, float *out) {
+    if (!g.device || !g.ctx || w <= 0 || h <= 0 || sg.open) return nullptr;
+    if (!g.warp) glass_ensure();
+    if (!scene_levels(w, h)) return nullptr;
+    if (!sg.list) sg.list = IM_NEW(ImDrawList)(ImGui::GetDrawListSharedData());
+    sg.list->_ResetForNewFrame();
+    sg.list->PushTexture(ImGui::GetIO().Fonts->TexRef);
+    sg.list->PushClipRect(ImVec2(0, 0), ImVec2((float)w, (float)h), false);
+    sg.vw = w; sg.vh = h; sg.open = true;
+    if (out) { out[0] = (float)sg.tw; out[1] = (float)sg.th; }
+    return sg.list;
+}
+/* The list is complete: the next frame end (or scene_present) renders it. */
+LUNAR_FFI void lunar_ui_scene_end(int sprites) {
+    if (!sg.open) return;
+    sg.open = false; sg.emitted = true; sg.sprites = sprites;
+}
+/* 1 while the target holds a finished scene (a device reset or a grown window empties it). */
+LUNAR_FFI int lunar_ui_scene_valid(void) { return sg.valid && sg.lv[0].srv ? 1 : 0; }
+/* A frame whose only change is the scene: render it, draw the last frame's lists again and
+   present. 0 when that frame cannot be presented again (the caller draws a full frame). */
+LUNAR_FFI int lunar_ui_scene_present(void) {
+    ImDrawData *all = ImGui::GetCurrentContext() ? ImGui::GetDrawData() : nullptr;
+    RECT r = {};
+    if (g.hwnd) GetClientRect(g.hwnd, &r);
+    if (g.frame_open || !sg.reusable || !sg.emitted || !g.swap || !g.rtv || !g.ctx || g.resetting || !all || !all->Valid
+        || IsIconic(g.hwnd) || r.right != g.sc_w || r.bottom != g.sc_h) {
+        sg.refusals++;
+        return 0;
+    }
+    auto t0 = std::chrono::steady_clock::now();
+    glass_timing_begin();
+    if (!scene_render(nullptr)) { glass_timing_end(); sg.refusals++; return 0; }
+    const float black[4] = {0, 0, 0, 1};
+    g.ctx->OMSetRenderTargets(1, &g.rtv, nullptr);
+    g.ctx->ClearRenderTargetView(g.rtv, black);
+    ImVector<ImTextureData*> *textures = all->Textures;
+    all->Textures = nullptr;   /* already up to date: the frame that made these lists did it */
+    gg.origin = ImVec2(0, 0);
+    gg.rendering_main = true;
+    if (all->CmdLists.Size > 0) ImGui_ImplDX11_RenderDrawData(all);
+    gg.rendering_main = false;
+    all->Textures = textures;
+    glass_timing_end();
+    static int vsync = -1;
+    if (vsync < 0) { char v[8] = ""; GetEnvironmentVariableA("LUNAR_VSYNC", v, sizeof(v)); vsync = v[0] == '0' ? 0 : 1; }
+    HRESULT hr = g.swap->Present((UINT)vsync, 0);
+    sg.cpu_us_sum += std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
+    if (FAILED(hr)) { sg.reusable = false; PostMessageW(g.hwnd, WM_NULL, 0, 0); return 0; }
+    sg.presents++;
+    return 1;
+}
+/* A textured quad with four corners (a turned sprite), uv the whole texture. */
+LUNAR_FFI int lunar_ui_image_quad(ImDrawList *dl, int tex, float x1, float y1, float x2, float y2,
+                                  float x3, float y3, float x4, float y4, uint32_t col) {
+    if (!dl) return 0;
+    ImTextureRef ref = glass_tex(tex);
+    if (ref.GetTexID() == ImTextureID_Invalid) return 0;
+    dl->AddImageQuad(ref, ImVec2(x1, y1), ImVec2(x2, y2), ImVec2(x3, y3), ImVec2(x4, y4),
+        ImVec2(0, 0), ImVec2(1, 0), ImVec2(1, 1), ImVec2(0, 1), col);
     return 1;
 }
 LUNAR_FFI void lunar_ui_rim(ImDrawList *dl, float x1, float y1, float x2, float y2, float rounding,

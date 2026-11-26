@@ -1051,6 +1051,10 @@ function M.step(wait)
 	if wake_at and now >= wake_at then wake_at = nil; need_frame = true end
 	if wait and not need_frame and not animating then
 		local due = next_timer_due()
+		-- a reactive background (core.ui.Scene) drawing again on its own: a twinkle tick
+		local Scene = package.loaded["core.ui.Scene"]
+		local scene_due = Scene and Scene.due()
+		if scene_due and (not due or scene_due < due) then due = scene_due end
 		local t = 0.5
 		if due then t = math.max(0, math.min(t, due - M.now())) end
 		local woke
@@ -1059,7 +1063,11 @@ function M.step(wait)
 		if wake_at and M.now() >= wake_at then wake_at = nil; need_frame = true end
 		-- Nothing arrived and nothing changed: the window already shows this frame. (A
 		-- backend whose wait says nothing, like the Null one, always gets the frame.)
-		if woke == false and not need_frame and not animating then return DEFAULT end
+		if woke == false and not need_frame and not animating then
+			-- only the scene changed: it is drawn and presented without a frame of the UI,
+			-- unless the last frame cannot be shown again (then a full frame)
+			if not (scene_due and M.now() >= scene_due) or Scene.tick(B) then return DEFAULT end
+		end
 	end
 	M.frame()
 	return DEFAULT
@@ -1642,7 +1650,8 @@ local function paint(el, d)
 	-- Activity panel, a toast) is that surface already, so it adds no second lip or rim.
 	-- A card inside a card (the sheet's content box shares its role) would draw a second
 	-- rounded rim inside the first; it is the same sheet.
-	local nested = material and ((material.glass == "floating" and d.in_floating) or (material.glass == "card" and d.in_card))
+	local nested = material and ((material.glass == "floating" and d.in_floating)
+		or ((material.glass == "card" or material.glass == "veil") and d.in_card))
 	if not culled and material and not nested then
 		local Glass = require("core.ui.Glass")
 		local g = material.glass
@@ -1667,8 +1676,8 @@ local function paint(el, d)
 		local saved_under, saved_floating, saved_card = d.glass_under, d.in_floating, d.in_card
 		local g = material and material.glass
 		if g == "floating" then d.in_floating = true end
-		if g == "card" then d.in_card = true end
-		if g == "chrome" or g == "floating" or g == "floor" or g == "caps" then
+		if g == "card" or g == "veil" then d.in_card = true end
+		if g == "chrome" or g == "floating" or g == "floor" or g == "caps" or g == "veil" then
 			d.glass_under = Color.parse(material.bg)
 		elseif g == "card" then
 			d.glass_under = nil -- an opaque sheet: its children paint as usual
