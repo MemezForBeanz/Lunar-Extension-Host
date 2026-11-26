@@ -1732,6 +1732,7 @@ int l_renderer(lua_State *L) {
     lua_pushinteger(L, (lua_Integer)sg.refusals); lua_setfield(L, -2, "scene_refusals");
     lua_pushinteger(L, (lua_Integer)sg.creations); lua_setfield(L, -2, "scene_creations");
     lua_pushinteger(L, (lua_Integer)sg.sprites); lua_setfield(L, -2, "scene_sprites");
+    lua_pushinteger(L, (lua_Integer)sg.texture_swaps); lua_setfield(L, -2, "scene_texture_swaps");
     lua_pushnumber(L, sg.cpu_us_sum); lua_setfield(L, -2, "scene_present_cpu_us_sum");
     lua_pushnumber(L, gg.gpu_scene_us_sum); lua_setfield(L, -2, "scene_gpu_us_sum");
     lua_pushinteger(L, (lua_Integer)gg.gpu_scene_frames); lua_setfield(L, -2, "scene_gpu_frames");

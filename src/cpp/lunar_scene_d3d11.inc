@@ -42,9 +42,12 @@ struct SceneGpu {
     ID3D11DeviceContext1 *ctx1 = nullptr;   /* ClearView, to clear only the part in use */
     bool ctx1_asked = false;
     long long renders = 0, presents = 0, refusals = 0, creations = 0, sprites = 0;
+    long long texture_swaps = 0;   /* commands scene_diff found drawing another texture */
     double cpu_us_sum = 0;   /* render + present of scene-only frames, CPU side */
     /* the last rendered list, to find what the next render changes (scene_diff) */
     std::vector<ImDrawVert> prev_vtx; int prev_cmds = -1, prev_vw = 0, prev_vh = 0;
+    struct Cmd { ImTextureID tex; unsigned elems, vtx_off, idx_off; void *cb; };
+    std::vector<Cmd> prev_cmd;   /* each command's texture and index range, as last rendered */
 } sg;
 
 /* The scene's blur reaches this far from a change (1/8 level, two taps), px. */
@@ -71,13 +74,47 @@ inline bool scene_slight(const ImDrawVert *a, const ImDrawVert *b) {
    draws fills as gradients, images and turned images: one quad each), so the lists are
    compared quad by quad with what the copies last saw (sg.prev_vtx); a quad that moved, or
    whose colour drifted SCENE_COLOUR_STEP, marks its old and new boxes (widened by the
-   blur's reach) in gg.scene_dirty and becomes what they saw; lists that differ in shape
+   blur's reach) in gg.scene_dirty and becomes what they saw. A command drawing another
+   texture at the same geometry (an image swapped by a signal) marks the box of every quad
+   it draws. Lists that differ in shape (vertex or command count, a command's index range)
    mark everything. */
+inline void scene_mark(float x0, float y0, float x1, float y1) {
+    GlassRect r = {(int)std::floor(x0) - SCENE_REACH, (int)std::floor(y0) - SCENE_REACH,
+                   (int)std::ceil(x1) + SCENE_REACH, (int)std::ceil(y1) + SCENE_REACH};
+    /* a few hundred small boxes at most; past that, everything */
+    if (gg.scene_all || gg.scene_dirty.size() >= 512) gg.scene_all = true;
+    else gg.scene_dirty.push_back(r);
+}
 void scene_diff() {
     const ImDrawList *l = sg.list;
     int n = l ? l->VtxBuffer.Size : 0, cmds = l ? l->CmdBuffer.Size : 0;
     bool same = n == (int)sg.prev_vtx.size() && cmds == sg.prev_cmds && sg.vw == sg.prev_vw && sg.vh == sg.prev_vh
-        && n % 4 == 0;
+        && n % 4 == 0 && (int)sg.prev_cmd.size() == cmds;
+    for (int c = 0; same && c < cmds; c++) {
+        const ImDrawCmd &dc = l->CmdBuffer[c]; const SceneGpu::Cmd &pc = sg.prev_cmd[c];
+        same = dc.ElemCount == pc.elems && dc.VtxOffset == pc.vtx_off && dc.IdxOffset == pc.idx_off
+            && (void*)dc.UserCallback == pc.cb;
+    }
+    if (same) {
+        for (int c = 0; c < cmds; c++) {
+            const ImDrawCmd &dc = l->CmdBuffer[c]; SceneGpu::Cmd &pc = sg.prev_cmd[c];
+            ImTextureID tex = dc.UserCallback ? ImTextureID_Invalid : dc.GetTexID();
+            if (tex == pc.tex) continue;
+            pc.tex = tex;
+            sg.texture_swaps++;
+            const ImDrawIdx *ix = l->IdxBuffer.Data + dc.IdxOffset;
+            for (unsigned k = 0; k < dc.ElemCount; k += 6) {
+                float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+                for (unsigned j = k; j < k + 6 && j < dc.ElemCount; j++) {
+                    unsigned v = dc.VtxOffset + ix[j];
+                    if (v >= (unsigned)n) continue;
+                    const ImVec2 &p = l->VtxBuffer.Data[v].pos;
+                    x0 = std::min(x0, p.x); y0 = std::min(y0, p.y); x1 = std::max(x1, p.x); y1 = std::max(y1, p.y);
+                }
+                if (x0 <= x1) scene_mark(x0, y0, x1, y1);
+            }
+        }
+    }
     if (!same) gg.scene_all = true;
     else {
         ImDrawVert *a = sg.prev_vtx.data(); const ImDrawVert *b = l->VtxBuffer.Data;
@@ -89,18 +126,20 @@ void scene_diff() {
                 x0 = std::min({x0, a[i + k].pos.x, b[i + k].pos.x}); y0 = std::min({y0, a[i + k].pos.y, b[i + k].pos.y});
                 x1 = std::max({x1, a[i + k].pos.x, b[i + k].pos.x}); y1 = std::max({y1, a[i + k].pos.y, b[i + k].pos.y});
             }
-            GlassRect r = {(int)std::floor(x0) - SCENE_REACH, (int)std::floor(y0) - SCENE_REACH,
-                           (int)std::ceil(x1) + SCENE_REACH, (int)std::ceil(y1) + SCENE_REACH};
             memcpy(a + i, b + i, 4 * sizeof(ImDrawVert));
-            /* a few hundred small boxes at most; past that, everything */
-            if (gg.scene_all || gg.scene_dirty.size() >= 512) gg.scene_all = true;
-            else gg.scene_dirty.push_back(r);
+            scene_mark(x0, y0, x1, y1);
         }
         sg.prev_cmds = cmds; sg.prev_vw = sg.vw; sg.prev_vh = sg.vh;
         gg.scene_rev++;
         return;
     }
     sg.prev_vtx.assign(l ? l->VtxBuffer.Data : nullptr, l ? l->VtxBuffer.Data + n : nullptr);
+    sg.prev_cmd.resize(cmds);
+    for (int c = 0; c < cmds; c++) {
+        const ImDrawCmd &dc = l->CmdBuffer[c];
+        sg.prev_cmd[c] = {dc.UserCallback ? ImTextureID_Invalid : dc.GetTexID(), dc.ElemCount, dc.VtxOffset, dc.IdxOffset,
+                          (void*)dc.UserCallback};
+    }
     sg.prev_cmds = cmds; sg.prev_vw = sg.vw; sg.prev_vh = sg.vh;
     gg.scene_rev++;
 }

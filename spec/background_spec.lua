@@ -306,6 +306,25 @@ describe("reactive backgrounds",function()
         Scene.signal("battery",nil)
     end)
 
+    it("swaps a signal-chosen image at the same quad, uv and tint: only its texture differs",function()
+        -- the scene diff (lunar_scene_d3d11.inc) compares each command's texture for this case
+        local B=Null.new({scene=true}); local dc=Draw.new(B)
+        Scene.set("phase",0)
+        local p={background={id="sw",layers={{svg={signal="phase",set={"<svg id='a'/>","<svg id='b'/>"}},size=40,x=0.5,y=0.5}}}}
+        local function img()
+            for _,c in ipairs(B.scene_calls) do if c[1]=="image" then return c end end
+        end
+        frame(B,dc,p)
+        local a=img()
+        Scene.set("phase",1)
+        frame(B,dc,p)
+        local b=img()
+        Scene.set("phase",nil)
+        assert.is_not_nil(a); assert.is_not_nil(b)
+        assert.are_not.equal(a[2],b[2])
+        for i=3,#a do assert.equal(a[i],b[i]) end
+    end)
+
     it("draws the layers straight onto the floor without a scene target, static",function()
         local B=Null.new(); local dc=Draw.new(B)
         assert.is_true(frame(B,dc,static))
