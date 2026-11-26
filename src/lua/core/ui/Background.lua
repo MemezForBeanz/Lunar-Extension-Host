@@ -495,6 +495,7 @@ M.RESIZE_SETTLE = 0.15  -- static path (WARP, motion off): the last render stret
 local EASE_HZ = 60      -- a mode ease redraws at most this often
 local target            -- { tw, th } of the scene target, while one holds the scene
 local above_values      -- the signals the last floor read, for M.above
+local scene_B           -- the backend the scene target was last drawn on (M.cover redraws it)
 
 local function motion()
 	local Reactor = package.loaded["core.ui.ThemeReactor"]
@@ -602,7 +603,7 @@ end
 -- when a scene shows again: the theme left it (Lunar -> Carbon).
 function M.deactivate()
 	active, target, M._deps, last_values, last_emit = nil, nil, nil, {}, -1e9
-	above_values = nil
+	above_values, scene_B = nil, nil
 	pending_resize, listed, seen_size, M._target_size = false, nil, nil, nil
 	mode.from, mode.to, mode.dur, mode.tail, mode.framed = 0, 0, 0, false, false
 end
@@ -695,6 +696,7 @@ function M.floor(dc, x, y, w, h, p, live)
 			stats.stretched = (stats.stretched or 0) + 1
 		elseif changed or not target or not B.scene_valid() or resized then
 			pending_resize = false
+			scene_B = B
 			target = draw_target(B, scene, s, W, H)
 			if target then
 				last_values, last_emit = s, now
@@ -805,7 +807,6 @@ end
 -- will be (at the mode the sky is easing to). Wholly clear or wholly covered, it shows;
 -- partly covered, it fades out over COVER_FADE, and back in when that changes.
 M.COVER_FADE = 0.15  -- s
-M.COVER_STEP = 8     -- px between the points tested across a box
 
 -- The box (x0, y0, x1, y1) `layer` takes up with signals `s` in a W x H window.
 local function box_of(layer, s, W, H)
@@ -827,29 +828,40 @@ end
 M._box_of = box_of
 
 --- How much of box (x0, y0, x1, y1) `rects` ({ x0, y0, x1, y1 }, ...) cover: "clear",
--- "covered" or "partial", tested at points COVER_STEP apart across it (edges included).
+-- "covered" or "partial". Exact: the rects that overlap the box are cut to it, and the box
+-- is split along every edge they have; each cell is in one rect or none, so a gap of any
+-- width between two rects is found.
 function M.coverage(x0, y0, x1, y1, rects)
 	local hits = {}
 	for _, r in ipairs(rects) do
-		if r[1] <= x1 and r[3] >= x0 and r[2] <= y1 and r[4] >= y0 then hits[#hits + 1] = r end
+		local a, b, c, d = max(r[1], x0), max(r[2], y0), min(r[3], x1), min(r[4], y1)
+		if c > a and d > b then hits[#hits + 1] = { a, b, c, d } end
 	end
 	if #hits == 0 then return "clear" end
-	local nx = max(1, math.ceil((x1 - x0) / M.COVER_STEP))
-	local ny = max(1, math.ceil((y1 - y0) / M.COVER_STEP))
-	local inside, total = 0, 0
-	for j = 0, ny do
-		local y = y0 + (y1 - y0) * j / ny
-		for i = 0, nx do
-			local x = x0 + (x1 - x0) * i / nx
-			total = total + 1
-			for k = 1, #hits do
-				local r = hits[k]
-				if x >= r[1] and x <= r[3] and y >= r[2] and y <= r[4] then inside = inside + 1; break end
+	local function cuts(lo, hi, i, j)
+		local seen, out = { [lo] = true, [hi] = true }, { lo, hi }
+		for _, r in ipairs(hits) do
+			for _, v in ipairs({ r[i], r[j] }) do
+				if not seen[v] then seen[v] = true; out[#out + 1] = v end
 			end
 		end
+		table.sort(out)
+		return out
 	end
-	if inside == 0 then return "clear" end
-	return inside == total and "covered" or "partial"
+	local xs, ys = cuts(x0, x1, 1, 3), cuts(y0, y1, 2, 4)
+	for j = 1, #ys - 1 do
+		local y = (ys[j] + ys[j + 1]) / 2
+		for i = 1, #xs - 1 do
+			local x = (xs[i] + xs[i + 1]) / 2
+			local inside = false
+			for k = 1, #hits do
+				local r = hits[k]
+				if x > r[1] and x < r[3] and y > r[2] and y < r[4] then inside = true; break end
+			end
+			if not inside then return "partial" end
+		end
+	end
+	return "covered"
 end
 
 --- After a frame of the UI: `rects`, the opaque fills laid over the scene (screen px).
@@ -860,7 +872,7 @@ function M.cover(rects)
 	if W <= 0 or H <= 0 then return false end
 	local now = now_of()
 	local s = setmetatable({ mode = mode.to, width = W, height = H }, { __index = last_values })
-	local started = false
+	local started, instant = false, false
 	for _, layer in ipairs(active.layers) do
 		local wh = layer.whole
 		if wh then
@@ -872,6 +884,7 @@ function M.cover(rects)
 				-- the first layout it meets: no fade from what was never shown
 				wh.seen, wh.from, wh.to, wh.at, wh.dur = true, want, want, now, 0
 				started = started or want == 0
+				instant = instant or want == 0
 			elseif want ~= wh.to then
 				local cur = wh.to
 				if wh.dur > 0 and now < wh.at + wh.dur then
@@ -883,7 +896,20 @@ function M.cover(rects)
 				wh.from, wh.to, wh.at = cur, want, now
 				wh.dur = (on and animated) and M.COVER_FADE * scale or 0
 				started = true
+				instant = instant or wh.dur == 0
 			end
+		end
+	end
+	-- A change with no fade (the first layout, motion off) shows in the frame that found it:
+	-- the scene list this frame emitted before the layout was known is emitted again, and
+	-- the frame's end renders that one (static path: the next frame)
+	if instant and target and scene_B and scene_B.scene_begin then
+		local s2 = read(active, context(now, W, H))
+		local t = draw_target(scene_B, active, s2, W, H)
+		if t then
+			target, last_values, last_emit = t, s2, now
+			M._target_size = W .. "x" .. H
+			stats.emits = stats.emits + 1
 		end
 	end
 	if started then

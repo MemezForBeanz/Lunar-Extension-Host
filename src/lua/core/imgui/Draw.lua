@@ -645,11 +645,26 @@ function DC:replay(list, dx, dy, alpha)
 	dx, dy, alpha = dx or 0, dy or 0, alpha or 1
 	alpha = alpha * self.alpha
 	local args = {}
+	-- the recording's own clips (absolute, as recorded): a replayed fill covers the scene
+	-- only inside them, as it did when it was drawn
+	local clips = self.cover and {}
 	for _, cmd in ipairs(list) do
 		local op = cmd[1]
-		if op == "rect_filled" and self.cover then
-			local a = cmd[6] and alpha < 1 and Color.alpha(cmd[6], alpha) or cmd[6]
-			if a then cover(self, cmd[2] + dx, cmd[3] + dy, cmd[4] - cmd[2], cmd[5] - cmd[3], a) end
+		if clips then
+			if op == "clip_push" then
+				local t = clips[#clips]
+				local x1, y1, x2, y2 = cmd[2] + dx, cmd[3] + dy, cmd[4] + dx, cmd[5] + dy
+				if t then x1, y1, x2, y2 = math.max(x1, t[1]), math.max(y1, t[2]), math.min(x2, t[3]), math.min(y2, t[4]) end
+				clips[#clips + 1] = { x1, y1, x2, y2 }
+			elseif op == "clip_pop" then
+				clips[#clips] = nil
+			elseif op == "rect_filled" then
+				local a = cmd[6] and alpha < 1 and Color.alpha(cmd[6], alpha) or cmd[6]
+				local x1, y1, x2, y2 = cmd[2] + dx, cmd[3] + dy, cmd[4] + dx, cmd[5] + dy
+				local t = clips[#clips]
+				if t then x1, y1, x2, y2 = math.max(x1, t[1]), math.max(y1, t[2]), math.min(x2, t[3]), math.min(y2, t[4]) end
+				if a and x2 > x1 and y2 > y1 then cover(self, x1, y1, x2 - x1, y2 - y1, a) end
+			end
 		end
 		if dx == 0 and dy == 0 and alpha == 1 then
 			self:_emit(op, unpack(cmd, 2))

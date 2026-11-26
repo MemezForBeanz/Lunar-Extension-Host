@@ -53,6 +53,33 @@ describe("whole-or-hidden background layers",function()
         -- a gap between two panels
         assert.equal("partial",Scene.coverage(0,0,100,100,{{-10,-10,110,40},{-10,60,110,110}}))
         assert.equal("partial",Scene.coverage(0,0,100,100,{{50,50,200,200}}))
+        -- gaps of 2, 3 and 4 px between two rows of panels, anywhere across the box (a
+        -- sampling grid could step over them)
+        for gap=2,4 do
+            for y=1,95,7 do
+                assert.equal("partial",Scene.coverage(0,0,100,100,{{-10,-10,110,y},{-10,y+gap,110,110}}),
+                    "gap "..gap.." at "..y)
+                assert.equal("partial",Scene.coverage(0,0,100,100,{{-10,-10,y,110},{y+gap,-10,110,110}}),
+                    "column gap "..gap.." at "..y)
+            end
+        end
+        -- many rects tiling it with no gap
+        local tiles={}
+        for i=0,9 do tiles[#tiles+1]={i*10,-5,i*10+10,50}; tiles[#tiles+1]={-5,50,105,105} end
+        tiles[#tiles+1]={-5,-5,0,50}; tiles[#tiles+1]={100,-5,105,50}
+        assert.equal("covered",Scene.coverage(0,0,100,100,tiles))
+        -- only touching its edge: clear
+        assert.equal("clear",Scene.coverage(0,0,100,100,{{100,0,200,100},{-50,-50,0,150}}))
+    end)
+
+    it("hides a body behind a 2-4 px gap between two opaque panels",function()
+        for gap=2,4 do
+            Scene.clear(); Scene.reset()
+            local B=Null.new({scene=true}); local dc=Draw.new(B); local p=scene()
+            -- the body spans y 250..350; the gap falls between two 8 px rows of the old grid
+            frame(B,dc,p,{{500,200,200,99},{500,299+gap,200,100}})
+            assert.equal("partial",(Scene.coverState(2)),"gap "..gap)
+        end
     end)
 
     it("shows a body whole when nothing covers it and when a panel covers it all",function()
@@ -64,15 +91,52 @@ describe("whole-or-hidden background layers",function()
         local _,v=Scene.coverState(2); assert.equal(1,v)
     end)
 
-    it("hides a partly covered body from the first layout it meets, without a fade",function()
+    it("hides a partly covered body from the first layout it meets, in that first frame",function()
         local B=Null.new({scene=true}); local dc=Draw.new(B); local p=scene()
         -- a panel over its top half, another below: a gap across its middle
         frame(B,dc,p,{{500,200,200,90},{500,320,200,100}})
         assert.equal("partial",(Scene.coverState(2)))
         local _,v=Scene.coverState(2); assert.equal(0,v)
-        -- the next render leaves it out
+        -- the scene this first frame presents (its last emitted list) already leaves it out
+        assert.equal(0,body_alpha(B))
         frame(B,dc,p,{{500,200,200,90},{500,320,200,100}})
         assert.equal(0,body_alpha(B))
+    end)
+
+    it("shows a clear body in the first frame, emitting the scene once",function()
+        local B=Null.new({scene=true}); local dc=Draw.new(B); local p=scene()
+        frame(B,dc,p,{})
+        assert.equal(255,body_alpha(B))
+        assert.equal(1,B.scene_renders)
+    end)
+
+    it("counts a replayed recording's fills inside the recording's own clip, as drawn directly",function()
+        local function run(replayed)
+            Scene.clear(); Scene.reset()
+            local B=Null.new({scene=true}); local dc=Draw.new(B); local p=scene()
+            B.frame_begin(); dc:begin(800,600)
+            Scene.floor(dc,0,0,800,600,p,true)
+            local function paint()
+                -- a canvas 200 x 60 at (500, 200) whose fill overflows below its clip
+                dc:clip_push(500,200,200,60)
+                dc:fill(500,200,200,300,"#202020")
+                dc:clip_pop()
+            end
+            if replayed then
+                dc:record(); paint(); local list=dc:stop()
+                dc:replay(list)
+            else
+                paint()
+            end
+            local rects=dc.cover
+            Scene.cover(rects); B.frame_end()
+            return rects, (Scene.coverState(2))
+        end
+        local direct, ds = run(false)
+        local replay, rs = run(true)
+        assert.same(direct, replay)
+        assert.same({{500,200,700,260}}, direct)
+        assert.equal("partial", ds); assert.equal(ds, rs)
     end)
 
     it("fades out over COVER_FADE as a layout leaves it partly covered, and back in",function()
