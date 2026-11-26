@@ -162,7 +162,7 @@ through the transition and nothing is captured.
 | `none` | Instant | |
 
 On the ImGui strip a moving page comes to rest gently within the same duration
-(`PageTransitions.at`): the kind's frame runs over the first 85% (`SETTLE_SPAN`), and the
+(`PageTransitions.at`): the pages move over the first 85% (`SETTLE_SPAN`), and the
 arriving page is never nearer rest than a 90 px/s creep to the end (`SETTLE_SPEED`, joined
 over `SETTLE_SOFT` px), so its last few pixels, where its text lines up, take the last frames
 instead of one.

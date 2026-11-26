@@ -66,12 +66,16 @@ describe("page transition kinds", function()
 					assert.is_true(r - math.abs(dx(math.min(1, p + frame))) <= 3, "p " .. p)
 				end
 			end
-			-- the motion itself still runs on the kind's curve: mid-way it matches the frame
-			-- at the eased value the strip is given
+			-- opacity keeps the kind's curve over the whole duration; mid-way the offsets are
+			-- the kind's own, a little further on
 			local out, inn, q = PT.at(def, c, ease, 0.3, dur)
+			assert.equal(ease(0.3), q)
 			local out2, inn2 = def.frame(q, c)
-			assert.equal(out2.dx, out.dx)
-			assert.near(inn2.dx, inn.dx, 0.5)
+			assert.equal(inn2.alpha, inn.alpha)
+			local out3, inn3 = def.frame(ease(0.3 / PT.SETTLE_SPAN), c)
+			assert.equal(out3.dx, out.dx)
+			assert.near(inn3.dx, inn.dx, 0.5)
+			assert.is_true(math.abs(inn.dx) < math.abs(inn2.dx))
 		end
 		-- a kind that does not move stays still
 		local _, spec = PT.resolve(nil, "fade")
