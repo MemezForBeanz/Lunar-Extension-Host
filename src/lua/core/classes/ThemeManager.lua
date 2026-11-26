@@ -1677,6 +1677,10 @@ function ThemeManager:_paintTheme(theme, opts)
 	-- the work; cancel it since we're doing a full apply now.
 	self:_cancelPending()
 
+	-- widget colours land on the new theme at once (no ease across the switch)
+	local wmotion = package.loaded["core.imgui.motion"]
+	if wmotion and wmotion.snap then wmotion.snap() end
+
 	self._active = theme
 	self._current = theme_id
 
