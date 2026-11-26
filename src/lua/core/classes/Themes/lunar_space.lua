@@ -37,8 +37,9 @@ end
 
 -- The moon at phase `k` (0: a thin crescent, 1: full), lit on its right; the layer turns it
 -- toward the night sun. The unlit face is a faint earthshine disc, so the shadow is always
--- inside the disc and there is never a full disc and a crescent at once.
-local MOON_R = 74
+-- inside the disc and there is never a full disc and a crescent at once. Its glow stays
+-- inside the box (R + 28 of 128), so the layer's box is all it can show.
+local MOON_R = 84
 local function moon_phase(k)
 	local cx, cy, R = 128, 128, MOON_R
 	local lit = 0.12 + 0.88 * k                 -- the lit share of the face
@@ -51,12 +52,12 @@ local function moon_phase(k)
 		'<radialGradient id="m" cx="62%" cy="40%" r="70%"><stop offset="0" stop-color="#F6F8FB"/>',
 		'<stop offset="0.7" stop-color="#C6CCD6"/><stop offset="1" stop-color="#939AA8"/></radialGradient>',
 		glow("h", "#DCE4F2", 0.10 + 0.12 * k, 0.55), '</defs>',
-		('<circle cx="%d" cy="%d" r="%d" fill="url(#h)"/>'):format(cx, cy, R + 40),
+		('<circle cx="%d" cy="%d" r="%d" fill="url(#h)"/>'):format(cx, cy, R + 28),
 		('<circle cx="%d" cy="%d" r="%d" fill="#3A4458" fill-opacity="0.30"/>'):format(cx, cy, R),
 		('<path d="M %d %d A %d %d 0 0 1 %d %d %s Z" fill="url(#m)"/>'):format(cx, cy - R, R, R, cx, cy + R, term) }
 	-- craters on the lit face only
-	for _, cr in ipairs({ { 104, 104, 13, 0.40 }, { 150, 140, 17, 0.34 }, { 118, 160, 8, 0.36 }, { 160, 98, 6, 0.32 },
-		{ 170, 160, 7, 0.30 } }) do
+	for _, cr in ipairs({ { 102, 100, 15, 0.40 }, { 154, 142, 19, 0.34 }, { 118, 166, 9, 0.36 }, { 164, 94, 7, 0.32 },
+		{ 176, 164, 8, 0.30 } }) do
 		local dy = cr[2] - cy
 		local hw = math.sqrt(math.max(0, R * R - dy * dy))
 		if cr[1] - cr[3] * 0.5 > cx - c * hw then
@@ -96,8 +97,11 @@ local function galaxy()
 	return svg(320, 320, table.concat(out))
 end
 
--- The crescent's outline (the logo's) and its four-point star.
-local CRESCENT = 'M 112 22 A 92 92 0 1 0 112 218 A 78 84 0 1 1 112 22 Z'
+-- The crescent's outline (the logo's): the limb a near half circle (r 98), the inner edge a
+-- flatter arc (r 128), so the body is ~45 units thick at its middle. An arc's radii grow to
+-- fit its chord, so the inner arc must be the larger one: two near-equal radii leave a
+-- hairline. And its four-point star, in the hollow.
+local CRESCENT = 'M 112 22 A 98 98 0 1 0 112 218 A 128 128 0 0 1 112 22 Z'
 local STAR = 'M 150 70 L 154 84 L 168 88 L 154 92 L 150 106 L 146 92 L 132 88 L 146 84 Z'
 
 -- The glows' gradients (colour, alpha, mid), for the contrast audit's geometry.
@@ -113,17 +117,17 @@ M.SVG = {
 	haze = svg(512, 256, '<defs>' .. glow("g", unpack(G.haze)) .. '</defs>'
 		.. '<ellipse cx="256" cy="128" rx="256" ry="128" fill="url(#g)"/>'),
 	galaxy = galaxy(),
-	-- the sun: a soft disc, a faint corona and a wide glow; no rays
+	-- the sun: a soft disc, a faint corona and a glow, all inside the box; no rays
 	sun = svg(256, 256, '<defs>'
-		.. '<radialGradient id="w" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#FFE7A8" stop-opacity="0.35"/>'
+		.. '<radialGradient id="w" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#FFE7A8" stop-opacity="0.40"/>'
 		.. '<stop offset="1" stop-color="#FFE7A8" stop-opacity="0"/></radialGradient>'
-		.. '<radialGradient id="k" cx="50%" cy="50%" r="50%"><stop offset="0.45" stop-color="#FFF1C8" stop-opacity="0.32"/>'
+		.. '<radialGradient id="k" cx="50%" cy="50%" r="50%"><stop offset="0.55" stop-color="#FFF1C8" stop-opacity="0.36"/>'
 		.. '<stop offset="1" stop-color="#FFF1C8" stop-opacity="0"/></radialGradient>'
 		.. '<radialGradient id="c" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#FFFDF4"/>'
 		.. '<stop offset="0.72" stop-color="#FFF3CC"/><stop offset="0.88" stop-color="#FFE6A6" stop-opacity="0.95"/>'
 		.. '<stop offset="1" stop-color="#FFE29A" stop-opacity="0"/></radialGradient></defs>'
-		.. '<circle cx="128" cy="128" r="126" fill="url(#w)"/><circle cx="128" cy="128" r="72" fill="url(#k)"/>'
-		.. '<circle cx="128" cy="128" r="40" fill="url(#c)"/>'),
+		.. '<circle cx="128" cy="128" r="126" fill="url(#w)"/><circle cx="128" cy="128" r="104" fill="url(#k)"/>'
+		.. '<circle cx="128" cy="128" r="66" fill="url(#c)"/>'),
 	-- the sidebar's crescent (the logo's): lit along its limb, in a soft halo, beside a
 	-- small four-point star
 	crescent = svg(200, 240, '<defs>'
@@ -146,17 +150,26 @@ M.MOON_PHASES = {}
 for i = 0, 23 do M.MOON_PHASES[i + 1] = moon_phase(i / 23) end
 
 local S = M.SVG
--- The sun's path (fractions of the window): below the lower-right horizon at night, risen
--- by day to where the moon was (below the pages' header band, right of their content). The
--- visible sun follows it, and the crescent is lit from wherever it is on it.
-M.SUN = { night = { 0.97, 1.12 }, day = { 0.90, 0.46 }, range = { 0.2, 1 } }
-M.MOON = { x = 0.90, y = 0.46, size = 180, turn = 40 }
-local function sun_at(mode)
+-- Where the bodies sit: px from the window's right and top, so they keep their place in
+-- the pages (laid out from the top and the right) at any window size. A body is whole or
+-- hidden, never an arc in a gap between two panels: its box (art and glow, plus parallax)
+-- fits the band y 325..483 that the pages' right side shares: Media's hero card covers
+-- 250..483, the iLO editor 325 and down, Build Queue and Settings leave it open.
+M.BODY = { x = -192, y = 404, size = 152, parallax = 2 }
+-- The sun's path: from below the lower-right horizon at night (fractions of the window) to
+-- M.BODY by day, where the moon was. The visible sun follows it, and the crescent is lit
+-- from wherever it is on it.
+M.SUN = { night = { 0.97, 1.12 }, range = { 0.2, 1 } }
+M.MOON = { turn = 40 }
+--- The sun at `mode` in a W x H window, px.
+local function sun_at(mode, W, H)
+	W, H = W or 1920, H or 1080
 	local t = (mode - M.SUN.range[1]) / (M.SUN.range[2] - M.SUN.range[1])
 	t = t < 0 and 0 or (t > 1 and 1 or t)
 	t = t * t * (3 - 2 * t)
-	local n, d = M.SUN.night, M.SUN.day
-	return n[1] + (d[1] - n[1]) * t, n[2] + (d[2] - n[2]) * t
+	local nx, ny = M.SUN.night[1] * W, M.SUN.night[2] * H
+	local dx, dy = W + M.BODY.x, M.BODY.y
+	return nx + (dx - nx) * t, ny + (dy - ny) * t
 end
 M.sun_at = sun_at
 local CRESCENT_Y = -230
@@ -165,9 +178,9 @@ local CRESCENT_Y = -230
 local function toward_sun(rail_w)
 	return function(s)
 		local W, H = s.width or 1920, s.height or 1080
-		local sx, sy = sun_at(s.mode or 0)
+		local sx, sy = sun_at(s.mode or 0, W, H)
 		local cx, cy = rail_w / 2, H + CRESCENT_Y
-		return math.deg(math.atan2(sy * H - cy, sx * W - cx)) - 180
+		return math.deg(math.atan2(sy - cy, sx - cx)) - 180
 	end
 end
 -- In once the rail has finished extending: slides 32 px in and fades up as `rail_settled`
@@ -189,8 +202,8 @@ M.BODIES = { narrow = 1150, wide = 1400 }
 local function wide_only(opacity)
 	return { mul = { opacity, { signal = "width", from = 0, to = 1, range = { M.BODIES.narrow, M.BODIES.wide } } } }
 end
-local function sun_x(s) return (sun_at(s.mode or 0)) end
-local function sun_y(s) local _, y = sun_at(s.mode or 0); return y end
+local function sun_x(s) return (sun_at(s.mode or 0, s.width, s.height)) end
+local function sun_y(s) local _, y = sun_at(s.mode or 0, s.width, s.height); return y end
 local function by_mode(dark, light, range, ease)
 	return { signal = "mode", from = dark, to = light, range = range, ease = ease or "smooth" }
 end
@@ -247,21 +260,24 @@ function M.background(rail_w)
 				opacity = by_mode(M.BODY_STARS, 0, { 0, 0.5 }), frame = frame_band(rail_w), parallax = 9 },
 			-- a spiral galaxy, lower right, swaying a few degrees over a minute and a half; by day
 			-- a pale wisp
-			-- (only its core, a 46/160 disc, can pass the veil's bound: `hot`)
-			{ svg = S.galaxy, size = 420, raster = 1.1, x = 0.74, y = 0.78, parallax = 8, labels = false, hot = 0.32,
-				opacity = by_mode(0.90, 0.30), tint = by_mode("#FFFFFF", "#B8C8E8"),
+			-- (only its core, a disc 46/160 of its half side, can pass the veil's bound: `hot` is
+			-- that over the box's half diagonal)
+			{ svg = S.galaxy, size = 420, raster = 1.1, x = 0.74, y = 0.78, parallax = 8, labels = false, hot = 0.21,
+				opacity = by_mode(0.90, 0.80), tint = by_mode("#FFFFFF", "#7F95C2"),
 				rotation = { signal = "time", wave = "sine", period = 90, min = -3, max = 3 } },
 			-- the moon, right of the pages' content below their header band: it waxes from a
 			-- crescent to full as the sky brightens, then fades as the sun takes its place
-			{ svg = { signal = "mode", set = M.MOON_PHASES, range = { 0, 0.5 } }, size = M.MOON.size,
-				x = M.MOON.x, y = M.MOON.y, rotation = M.MOON.turn, parallax = 6, labels = false, hot = 0.62,
+			-- (its lit disc, R of the art's 128 half side, is what can pass the veil's bound)
+			{ svg = { signal = "mode", set = M.MOON_PHASES, range = { 0, 0.5 } }, size = M.BODY.size, unit = "px",
+				x = M.BODY.x, y = M.BODY.y, rotation = M.MOON.turn, parallax = M.BODY.parallax, labels = false, hot = 0.47,
 				opacity = wide_only(by_mode(1, 0, { 0.52, 0.72 })) },
 			-- the sun rises along its path (M.SUN) as the sky brightens
-			{ svg = S.sun, size = 300, x = sun_x, y = sun_y, parallax = 6, labels = false,
-				opacity = wide_only(by_mode(0, 1, { 0.40, 1 })), scale = by_mode(0.7, 1, { 0.4, 1 }), deps = { "mode", "width" } },
+			{ svg = S.sun, size = M.BODY.size, unit = "px", x = sun_x, y = sun_y, parallax = M.BODY.parallax, labels = false,
+				opacity = wide_only(by_mode(0, 1, { 0.40, 1 })), scale = by_mode(0.7, 1, { 0.4, 1 }),
+				deps = { "mode", "width", "height" } },
 			-- the extended sidebar's crescent, low in the rail; silver at night (dim enough for
 			-- the rail's labels), pearl by day
-			crescent(S.crescent, rail_w, by_mode(0.55, 0, { 0, 0.6 })),
+			crescent(S.crescent, rail_w, by_mode(0.85, 0, { 0, 0.6 })),
 			crescent(S.crescent_day, rail_w, by_mode(0, 0.92, { 0.4, 1 })),
 		},
 	}

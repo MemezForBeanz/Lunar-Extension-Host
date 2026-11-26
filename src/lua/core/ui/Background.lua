@@ -52,7 +52,9 @@ function M.set(name, value)
 end
 function M.get(name) return pushed[name] end
 
-local mode = { value = nil, from = 0, to = 0, at = 0, dur = 0 }
+-- `tail`: an ease ran and no full frame has been drawn since it ended (the frame's lag
+-- tint and the veil's bounds follow the sky only in full frames)
+local mode = { value = nil, from = 0, to = 0, at = 0, dur = 0, tail = false }
 local t0
 M.signal("time", { animated = true, read = function(ctx)
 	if ctx.static then return 0 end
@@ -497,8 +499,9 @@ local function follow(p, now)
 	local bg = p.background
 	local scene = scene_of(bg)
 	local want = p.glassDark == false and 1 or 0
-	if not active or active.bg.id == nil or active.bg.id ~= bg.id then
-		mode.value, mode.from, mode.to, mode.at, mode.dur = want, want, want, now, 0
+	-- one scene by M.shared's rule: the same table (with or without an id) or the same id
+	if not active or not M.shared({ background = active.bg }, p) then
+		mode.value, mode.from, mode.to, mode.at, mode.dur, mode.tail = want, want, want, now, 0, false
 		last_values = {}
 	elseif want ~= mode.to then
 		local on, director = motion()
@@ -510,6 +513,7 @@ local function follow(p, now)
 		mode.from, mode.to = cur, want
 		mode.at = now + (eases and M.MODE_DELAY * scale or 0)
 		mode.dur = eases and M.MODE_EASE * scale or 0
+		mode.tail = mode.dur > 0
 	end
 	active = scene
 	M._deps = scene.deps
@@ -567,7 +571,7 @@ end
 function M.deactivate()
 	active, target, M._deps, last_values, last_emit = nil, nil, nil, {}, -1e9
 	pending_resize, listed, seen_size, M._target_size = false, nil, nil, nil
-	mode.from, mode.to, mode.dur = 0, 0, 0
+	mode.from, mode.to, mode.dur, mode.tail = 0, 0, 0, false
 end
 
 -- Is the active scene still the palette's (the theme may have changed since it drew)?
@@ -591,6 +595,9 @@ function M.due()
 		-- an ease: from its start, at most EASE_HZ times a second
 		return max(mode.at, last_emit + 1 / EASE_HZ)
 	end
+	-- the ease is over: one full frame at or after its end, so the frame's tint and the
+	-- veil's bounds land on the final sky (a scene-only present would keep the last ones)
+	if mode.tail then return max(mode.at + mode.dur, last_emit + 1 / EASE_HZ) end
 	if pending_resize then
 		return animated and last_emit + 1 / M.RESIZE_HZ or last_resize + M.RESIZE_SETTLE
 	end
@@ -627,6 +634,8 @@ function M.floor(dc, x, y, w, h, p, live)
 	warm(B, scene)
 	local W, H = dc.window_w or w, dc.window_h or h
 	window.w, window.h = W, H
+	-- a full frame at or after the ease's end: the tail is drawn
+	if mode.tail and now >= mode.at + mode.dur then mode.tail = false end
 	local ctx = context(now, W, H)
 	local s, changed = read(scene, ctx)
 	if B.scene_begin and (dc.surface_id or 0) == 0 then
@@ -651,6 +660,9 @@ function M.floor(dc, x, y, w, h, p, live)
 			end
 		else
 			stats.skipped = stats.skipped + 1
+			-- the size came back to the target's within the hold (A -> B -> A): nothing is
+			-- stretched any more, so no redraw is owed
+			if not resized then pending_resize = false end
 		end
 		if target then
 			-- the target's rendered area (target.w x target.h) maps onto the window
@@ -696,7 +708,7 @@ end
 function M.tick(B)
 	if not current() or not target or not (B and B.scene_present) then return false end
 	local now = now_of()
-	if mode.dur > 0 and now < mode.at + mode.dur then return false end
+	if mode.dur > 0 and now < mode.at + mode.dur or mode.tail then return false end
 	animated = animated and (motion()) or false
 	local ctx = context(now, window.w, window.h)
 	local s, changed = read(active, ctx)

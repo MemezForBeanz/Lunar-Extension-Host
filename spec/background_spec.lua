@@ -126,6 +126,62 @@ describe("reactive backgrounds",function()
         assert.equal(2,B.scene_renders); assert.is_nil(Scene.due())
     end)
 
+    it("owes nothing after a resize that comes back within the hold (A -> B -> A)",function()
+        local B=Null.new({scene=true}); local dc=Draw.new(B)
+        frame(B,dc,static,800,600)
+        clock=clock+0.005; frame(B,dc,static,820,600)   -- stretched: a redraw is owed
+        assert.is_not_nil(Scene.due())
+        clock=clock+0.005; frame(B,dc,static,800,600)   -- back to the target's size
+        assert.is_nil(Scene.due())
+        for _=1,5 do clock=clock+0.5; frame(B,dc,static,800,600) end
+        assert.equal(1,B.scene_renders)
+        -- the static path (WARP) too
+        Scene.clear()
+        frame(B,dc,static,800,600,false)
+        clock=clock+0.01; frame(B,dc,static,840,600,false)
+        clock=clock+0.01; frame(B,dc,static,800,600,false)
+        assert.is_nil(Scene.due())
+    end)
+
+    it("eases mode for a shared scene table without an id, keeping pushed signals",function()
+        local B=Null.new({scene=true}); local dc=Draw.new(B)
+        local bg={layers={{kind="fill",top={signal="mode",from="#000000",to="#FFFFFF"},bottom="#000000"},
+            {svg="<svg/>",size=8,opacity={signal="rail",scale=1}}}}
+        local dark,light={glassDark=true,background=bg},{glassDark=false,background=bg}
+        Scene.set("rail",1)
+        frame(B,dc,dark); frame(B,dc,dark)
+        local renders=B.scene_renders
+        frame(B,dc,dark)
+        assert.equal(renders,B.scene_renders)   -- the same scene: nothing new to draw
+        frame(B,dc,light)
+        assert.equal(1,Scene.lag(clock))        -- an ease, not a jump to light
+        assert.near(clock+Scene.MODE_DELAY,Scene.due(),1e-9)
+        assert.equal(1,Scene.get("rail"))
+    end)
+
+    it("draws one full frame at or after a mode ease's end before scene-only presents",function()
+        local B=Null.new({scene=true}); local dc=Draw.new(B)
+        local layers={{kind="fill",top={signal="mode",from="#000000",to="#FFFFFF"},bottom="#000000"},
+            {kind="stars",count=5,twinkle={amount=1,share=1,period={2,2}}}}
+        local dark={glassDark=true,background={id="sky2",layers=layers}}
+        local light={glassDark=false,background={id="sky2",layers=layers}}
+        frame(B,dc,dark); frame(B,dc,light)
+        -- the last full frame of the ease, just before its end
+        clock=clock+Scene.MODE_DELAY+Scene.MODE_EASE-0.004
+        frame(B,dc,light)
+        assert.is_true(Scene.lag(clock)>0)
+        -- the deadline: the next wake is at or after the ease's end, and it is a full frame
+        local due=Scene.due()
+        assert.is_true(due>=clock)
+        clock=math.max(due,clock+0.005)
+        assert.equal(0,Scene.lag(clock))
+        assert.is_false(Scene.tick(B))
+        frame(B,dc,light)
+        -- then the twinkle goes back to scene-only presents
+        clock=Scene.due()
+        assert.is_true(Scene.tick(B))
+    end)
+
     it("uploads each element once and never again on resize, mode or rail changes",function()
         local B=Null.new({scene=true}); local dc=Draw.new(B)
         local p=require("core.classes.Themes.LunarDarkTheme"):new():palette()
@@ -314,8 +370,8 @@ describe("reactive backgrounds",function()
             local space=require("core.classes.Themes.lunar_space")
             for _,case in ipairs({{dark,0},{light,1}}) do
                 local _,f=crescent(case[1],1,400)
-                local sx,sy=space.sun_at(case[2])
-                local tx,ty=sx*1920-88,sy*1080-(1080-230)
+                local sx,sy=space.sun_at(case[2],1920,1080)
+                local tx,ty=sx-88,sy-(1080-230)
                 local dot=(f[1]*tx+f[2]*ty)/(math.sqrt(f[1]^2+f[2]^2)*math.sqrt(tx^2+ty^2))
                 assert.is_true(dot>0.99,"limb faces the sun")
             end
@@ -453,6 +509,23 @@ describe("reactive backgrounds",function()
             end
             assert.equal(1,moon.opacity({mode=0,width=1920})); assert.equal(0,moon.opacity({mode=0,width=1084}))
             assert.equal(1,sun.opacity({mode=1,width=1920})); assert.equal(0,sun.opacity({mode=1,width=1084}))
+        end)
+        it("keeps the moon and the sun whole in the band the pages' right panels share (y 325..483)",function()
+            local space=require("core.classes.Themes.lunar_space")
+            local scene=Scene._scene_of(space.background())
+            for _,size in ipairs({{1920,1080},{1500,940},{1600,900}}) do
+                for _,l in ipairs(scene.layers) do
+                    local body=(type(l.def.svg)=="table" and l.def.svg.set) or l.def.svg==space.SVG.sun
+                    if body then
+                        local s={mode=l.def.svg==space.SVG.sun and 1 or 0,width=size[1],height=size[2]}
+                        local x,y=l.x(s),l.y(s)
+                        if x<0 then x=size[1]+x end
+                        local r=l.def.size*l.scale(s)/2+math.abs(l.parallax(s))
+                        assert.is_true(y-r>=325 and y+r<=483,"body in the band at "..size[1])
+                        assert.near(size[1]-192,x,0.5)
+                    end
+                end
+            end
         end)
         it("derives Lunar's contrast samples from its layer table",function()
             local space=require("core.classes.Themes.lunar_space")
