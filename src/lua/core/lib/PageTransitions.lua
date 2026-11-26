@@ -165,12 +165,12 @@ end
 
 -- How a moving arriving page comes to rest. On its own the curve ends at a few hundred
 -- px/s, so the page's last few pixels cover its text's last offset in one or two frames,
--- the largest change of the whole switch. Instead the pages' movement runs over the first
--- SETTLE_SPAN of the duration, and the arriving page is never nearer rest than a creep
+-- the largest change of the whole switch. Instead the arriving page's movement runs over the
+-- first SETTLE_SPAN of the duration, and it is never nearer rest than a creep
 -- at SETTLE_SPEED to the end of the duration (joined smoothly, over SETTLE_SOFT px): its
--- last few pixels take the last few frames. Opacity and dimming keep the kind's curve over
--- the whole duration, which does not change.
-M.SETTLE_SPAN = 0.85   -- of the duration: the pages' movement runs over this much
+-- last few pixels take the last few frames. The leaving page, opacity and dimming keep the
+-- kind's curve over the whole duration, which does not change.
+M.SETTLE_SPAN = 0.85   -- of the duration: the arriving page's movement runs over this much
 M.SETTLE_SPEED = 90    -- px/s: the creep into place
 M.SETTLE_SOFT = 3      -- px: the join between the two
 
@@ -188,18 +188,17 @@ end
 
 --- Both pages at progress `p` (0..1 of the duration `dur` seconds) of `def` with easing
 -- `ease`: the outgoing and the incoming page's tables, and the eased value (the kind's
--- curve at `p`, which their opacity follows). Their offsets settle as SETTLE_SPAN says.
+-- curve at `p`). The incoming page's offsets settle as SETTLE_SPAN says.
 function M.at(def, ctx, ease, p, dur)
 	p = clamp01(p)
 	local q = ease(p)
 	local out, inn = def.frame(q, ctx)
 	if type(out) ~= "table" or type(inn) ~= "table" or p >= 1 then return out, inn, q end
-	local mout, minn = def.frame(ease(math.min(1, p / M.SETTLE_SPAN)), ctx)
+	local _, minn = def.frame(ease(math.min(1, p / M.SETTLE_SPAN)), ctx)
 	local _, inn0 = def.frame(0, ctx)
-	out, inn = copy(out), copy(inn)
+	inn = copy(inn)
 	local line = M.SETTLE_SPEED * (dur or 0) * (1 - p)
 	for _, k in ipairs({ "dx", "dy" }) do
-		if type(mout) == "table" then out[k] = mout[k] end
 		local v0 = type(inn0) == "table" and tonumber(inn0[k]) or 0
 		if v0 ~= 0 and type(minn) == "table" then
 			local v = math.abs(tonumber(minn[k]) or 0)

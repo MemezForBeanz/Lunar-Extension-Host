@@ -72,8 +72,8 @@ describe("page transition kinds", function()
 			assert.equal(ease(0.3), q)
 			local out2, inn2 = def.frame(q, c)
 			assert.equal(inn2.alpha, inn.alpha)
-			local out3, inn3 = def.frame(ease(0.3 / PT.SETTLE_SPAN), c)
-			assert.equal(out3.dx, out.dx)
+			local _, inn3 = def.frame(ease(0.3 / PT.SETTLE_SPAN), c)
+			assert.equal(out2.dx, out.dx)   -- the leaving page keeps the kind's curve
 			assert.near(inn3.dx, inn.dx, 0.5)
 			assert.is_true(math.abs(inn.dx) < math.abs(inn2.dx))
 		end
