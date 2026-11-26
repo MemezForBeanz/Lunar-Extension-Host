@@ -112,15 +112,125 @@ local function limb(id, stops)
 end
 local STAR = 'M 150 70 L 154 84 L 168 88 L 154 92 L 150 106 L 146 92 L 132 88 L 146 84 Z'
 
--- The glows' gradients (colour, alpha, mid), for the contrast audit's geometry.
-M.GLOW = { nebula_violet = { "#7457E0", 0.60, 0.40 }, nebula_teal = { "#2F8FA8", 0.50, 0.40 },
+-- The glows' gradients (colour, alpha, mid), for the contrast audit's geometry. A nebula's
+-- is the bound its art stays under (a spec checks it point by point).
+M.GLOW = { nebula_violet = { "#7457E0", 0.78, 0.60 }, nebula_teal = { "#2F8FA8", 0.72, 0.60 },
 	haze = { "#FFFFFF", 0.85, 0.50 } }
 local G = M.GLOW
+
+-- A nebula: no disc, but gas. Seven cloudlets drift along one flow, each a few dozen soft
+-- ellipses (power-law sizes, stretched along the cloudlet's own heading), over a faint
+-- broad bed, with long streaks trailing out, a few brighter knots and dark dust lanes
+-- across them; all fading towards the box's ellipse and dimmed in the core, where the
+-- clouds pile up. `cols`, darkest to lightest; NanoSVG has no filters, so the softness is
+-- each ellipse's own gradient (NEBULA_PROFILE, alpha by its radius).
+M.NEBULA_PROFILE = { { 0, 1 }, { 0.25, 0.7 }, { 0.5, 0.35 }, { 0.75, 0.1 }, { 1, 0 } }
+M.NEBULA = {
+	violet = { seed = 3, gain = 3.0, cols = { "#2E1F9E", "#4A2FD0", "#6B34D8", "#8E3CCB", "#B356D6", "#D79AF0" } },
+	teal = { seed = 13, gain = 2.2, cols = { "#10306A", "#16498F", "#1C62A8", "#257CBB", "#3E9BCF", "#86C8E8" } },
+}
+local NEB_W, NEB_H, NEB_CORE, DUST = 512, 400, 0.6, "#05060E"
+--- The ellipses of nebula `n` (M.NEBULA): { x, y, rx, ry, degrees, colour, opacity }.
+function M.nebulaBlobs(n)
+	local rnd, W, H, cols = rng(n.seed), NEB_W, NEB_H, n.cols
+	local cx, cy = W / 2, H / 2
+	local function gauss() return (rnd() + rnd() + rnd() - 1.5) / 1.5 end
+	local blobs, clouds = {}, {}
+	local flow = rnd() * 180
+	for k = 0, 6 do
+		local px = cx + gauss() * W * 0.24
+		local py = cy + gauss() * H * 0.24
+		clouds[#clouds + 1] = { px, py, flow + (rnd() - 0.5) * 70, k % #cols }
+	end
+	for _, c in ipairs(clouds) do
+		local spread = W * (0.09 + 0.07 * rnd())
+		local t = math.rad(c[3])
+		for _ = 1, 34 do
+			local rx = math.min(W * 0.16, W * 0.018 / math.max(0.08, rnd()) ^ 0.7)
+			local ry = rx * (0.22 + 0.35 * rnd())
+			local along = gauss() * spread * 1.8
+			local across = gauss() * spread * 0.6
+			local x = c[1] + along * math.cos(t) - across * math.sin(t)
+			local y = c[2] + along * math.sin(t) + across * math.cos(t)
+			local col = cols[1 + math.max(0, math.min(#cols - 2, c[4] + math.floor(rnd() * 3) - 1))]
+			local o = rx > W * 0.05 and 0.035 + 0.05 * rnd() or 0.02 + 0.035 * rnd()
+			blobs[#blobs + 1] = { x, y, rx, ry, c[3] + (rnd() - 0.5) * 25, col, o }
+		end
+	end
+	local bed = {}
+	for _ = 1, 8 do
+		local rx = W * (0.24 + 0.16 * rnd())
+		local x = cx + gauss() * W * 0.15
+		local y = cy + gauss() * H * 0.15
+		local ry = rx * (0.5 + 0.3 * rnd())
+		local deg = flow + (rnd() - 0.5) * 60
+		local col = cols[1 + math.floor(rnd() * 3)]
+		bed[#bed + 1] = { x, y, rx, ry, deg, col, 0.05 + 0.04 * rnd() }
+	end
+	for i = #bed, 1, -1 do table.insert(blobs, 1, bed[i]) end
+	for _ = 1, 90 do
+		local c = clouds[1 + math.floor(rnd() * #clouds)]
+		local t = math.rad(c[3])
+		local far = (0.12 + 0.22 * rnd()) * W
+		if rnd() >= 0.5 then far = -far end
+		local x = c[1] + far * math.cos(t) + gauss() * W * 0.04
+		local y = c[2] + far * math.sin(t) + gauss() * W * 0.04
+		local rx = W * (0.04 + 0.07 * rnd())
+		local ry = rx * (0.10 + 0.14 * rnd())
+		local deg = c[3] + (rnd() - 0.5) * 20
+		blobs[#blobs + 1] = { x, y, rx, ry, deg, cols[1 + math.max(0, c[4] - 1)], 0.04 + 0.06 * rnd() }
+	end
+	for _ = 1, 14 do
+		local c = clouds[1 + math.floor(rnd() * #clouds)]
+		local x = c[1] + gauss() * W * 0.08
+		local y = c[2] + gauss() * H * 0.08
+		local r = W * (0.006 + 0.012 * rnd())
+		blobs[#blobs + 1] = { x, y, r * 1.6, r, c[3], cols[#cols - 2], 0.06 + 0.07 * rnd() }
+	end
+	for _ = 1, 4 do
+		local c = clouds[1 + math.floor(rnd() * #clouds)]
+		local x = c[1] + gauss() * W * 0.05
+		local y = c[2] + gauss() * H * 0.05
+		local rx = W * (0.05 + 0.05 * rnd())
+		local ry = rx * (0.22 + 0.15 * rnd())
+		local deg = c[3] + (rnd() - 0.5) * 40
+		blobs[#blobs + 1] = { x, y, rx, ry, deg, DUST, 0.16 + 0.10 * rnd() }
+	end
+	for _, b in ipairs(blobs) do
+		local d = math.sqrt(((b[1] - cx) / cx) ^ 2 + ((b[2] - cy) / cy) ^ 2)
+		local env = math.max(0, 1 - d * d) ^ 0.9
+		local u = math.min(1, math.max(0, (d - 0.3) / 0.3))
+		env = env * (NEB_CORE + (1 - NEB_CORE) * u * u * (3 - 2 * u))
+		b[7] = math.min(1, b[7] * env * n.gain)
+	end
+	return blobs, W, H
+end
+local function nebula(n)
+	local blobs, W, H = M.nebulaBlobs(n)
+	local ids, defs, out = {}, { "<defs>" }, {}
+	for _, b in ipairs(blobs) do
+		local c = b[6]
+		if not ids[c] then
+			ids[c] = "n" .. (#defs)
+			local stops = {}
+			for _, st in ipairs(M.NEBULA_PROFILE) do
+				stops[#stops + 1] = ('<stop offset="%.2f" stop-color="%s" stop-opacity="%.2f"/>'):format(st[1], c, st[2])
+			end
+			defs[#defs + 1] = ('<radialGradient id="%s" cx="50%%" cy="50%%" r="50%%">%s</radialGradient>')
+				:format(ids[c], table.concat(stops))
+		end
+		if b[7] >= 0.002 then
+			out[#out + 1] = ('<ellipse cx="%.1f" cy="%.1f" rx="%.1f" ry="%.1f" transform="rotate(%.1f %.1f %.1f)" fill="url(#%s)" opacity="%.4f"/>')
+				:format(b[1], b[2], b[3], b[4], b[5], b[1], b[2], ids[c], b[7])
+		end
+	end
+	defs[#defs + 1] = "</defs>"
+	return svg(W, H, table.concat(defs) .. table.concat(out))
+end
+
 M.SVG = {
-	nebula_violet = svg(512, 400, '<defs>' .. glow("g", unpack(G.nebula_violet)) .. '</defs>'
-		.. '<ellipse cx="256" cy="200" rx="256" ry="200" fill="url(#g)"/>'),
-	nebula_teal = svg(512, 400, '<defs>' .. glow("g", unpack(G.nebula_teal)) .. '</defs>'
-		.. '<ellipse cx="256" cy="200" rx="256" ry="200" fill="url(#g)"/>'),
+	nebula_violet = nebula(M.NEBULA.violet),
+	nebula_teal = nebula(M.NEBULA.teal),
 	-- the day sky's haze: soft white banks
 	haze = svg(512, 256, '<defs>' .. glow("g", unpack(G.haze)) .. '</defs>'
 		.. '<ellipse cx="256" cy="128" rx="256" ry="128" fill="url(#g)"/>'),
@@ -253,10 +363,10 @@ function M.background(rail_w)
 			{ svg = S.haze, width = 700, height = 280, raster = 0.5, x = 0.70, y = 0.62, glow = G.haze,
 				opacity = by_mode(0, 0.55, { 0.45, 1 }), dy = by_mode(60, 0), parallax = 4 },
 			-- night nebulae fade with the dark
-			{ svg = S.nebula_violet, width = 1200, height = 900, raster = 0.35, x = 0.80, y = 0.36, glow = G.nebula_violet,
+			{ svg = S.nebula_violet, width = 1200, height = 900, raster = 0.5, x = 0.80, y = 0.36, glow = G.nebula_violet,
 				opacity = by_mode(0.75, 0, { 0, 0.55 }), parallax = 5,
 				scale = { signal = "time", wave = "sine", period = 40, min = 1, max = 1.04 } },
-			{ svg = S.nebula_teal, width = 1000, height = 760, raster = 0.4, x = 0.30, y = 0.78, glow = G.nebula_teal,
+			{ svg = S.nebula_teal, width = 1000, height = 760, raster = 0.5, x = 0.30, y = 0.78, glow = G.nebula_teal,
 				opacity = by_mode(0.55, 0, { 0, 0.55 }), parallax = 3 },
 			-- far stars: many, faint, slow twinkle, a little parallax
 			{ kind = "stars", count = 320, seed = 11, size = { 0.9, 2.0 },
