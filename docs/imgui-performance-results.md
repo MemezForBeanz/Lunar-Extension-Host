@@ -214,6 +214,33 @@ all of them (no overlay window is open). It is a missed vblank in the swap chain
 glass work on the CPU, and it happens with glass off too, so it is not fixed here; the
 glass-on counts are too few to tell the two apart.
 
+## Reactive backgrounds (the scene target)
+
+`core.ui.Background` draws a theme's background layers (docs/theming.md, "Reactive
+backgrounds") into a scene target (`src/cpp/lunar_scene_d3d11.inc`): one texture the size
+of the window class, made once, with its strong blur from the glass shaders. The floor draws
+it; chrome glass and the sheet's veil sample it. Each layer knows the signals it reads, so
+the target is rendered again only when one changed, and a frame whose only change is the
+scene (a twinkle tick) is a *scene-only present*: the scene list is rendered, the last
+frame's draw data is drawn again (in-window glass such as the Media transport copies at its
+own callback, as in a full frame) and presented, without a Lua frame of the UI. Floating
+glass in a later list, overlay or dialog windows and shots take a full frame instead.
+
+Measured on the Media page at 1920x1080, RTX 3070 Ti, `LUNAR_GPU_TIMING=1`, a light
+clock-holding load (`tools/bgprobe.lua`, 6 s per phase):
+
+| Phase | UI frames | Scene renders | Scene-only presents | CPU per present | GPU scene render + blur |
+|---|---|---|---|---|---|
+| static (motion off) | 4.8/s (the page's own timers) | 1 in 6 s | 0 | – | 39 us |
+| twinkle (stars at 24 fps cap) | 4.5/s (same timers) | 22/s | 117 in 6 s | 278 us | 40 us median, 48 us p99 |
+| pointer parallax (moves at 60 Hz) | 60/s (every move was already a frame) | 24/s | 0 | – | 47 us median, 57 us p99 |
+
+Nothing uploads after warm-up (every SVG of the scene is rasterized and uploaded once,
+when it first shows). A UI frame on that page costs a median 11-16 ms of CPU including
+its present; a scene-only present 0.28 ms. With reduced motion, hardware acceleration off
+or WARP the scene is static: one render per window size, mode or rail change. A live resize
+renders it at most 30 times a second (the last render stretches between).
+
 ## Controls and reproduction
 
 - Settings > Appearance > Advanced > Hardware acceleration (`hardware_acceleration`,

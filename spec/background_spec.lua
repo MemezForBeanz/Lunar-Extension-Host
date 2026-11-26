@@ -255,26 +255,50 @@ describe("reactive backgrounds",function()
             assert.equal(dark.background.id,light.background.id)
             assert.is_true(#dark.background.layers>=10)
         end)
-        local function crescent_alpha(p,rail,room)
+        -- the crescent: the turned quad centred on the extended rail (x 88); its alpha and
+        -- the direction its lit limb (the art's left, -x) faces
+        local function crescent(p,rail,room,mode_now)
             local B=Null.new({scene=true}); local dc=Draw.new(B)
             Scene.clear()
             Scene.set("rail",rail); Scene.set("rail_room",room)
             frame(B,dc,p,1920,1080)
-            -- the crescent: the image whose box centres on the extended rail (x 88)
-            local best=0
+            local best,facing=0,nil
             for _,c in ipairs(B.scene_calls) do
-                if c[1]=="image" and math.abs((c[3]+c[5])/2-88)<1 and c[5]-c[3]>100 then
-                    best=math.max(best,math.floor(c[11]/16777216))
+                if c[1]=="image_quad" then
+                    local cx=(c[3]+c[5]+c[7]+c[9])/4
+                    if math.abs(cx-88)<1 and math.abs(c[5]-c[3])+math.abs(c[6]-c[4])>100 then
+                        local a=math.floor(c[11]/16777216)
+                        if a>=best then
+                            best=a
+                            -- the art's left edge midpoint minus its centre: where the limb faces
+                            local lx,ly=(c[3]+c[9])/2,(c[4]+c[10])/2
+                            local cy=(c[4]+c[6]+c[8]+c[10])/4
+                            facing={lx-cx,ly-cy}
+                        end
+                    end
                 end
             end
-            return best
+            return best,facing
         end
+        local function crescent_alpha(p,rail,room) return (crescent(p,rail,room)) end
         it("shows the crescent only with the rail extended and room below its entries",function()
             for _,p in ipairs({dark,light}) do
                 assert.equal(0,crescent_alpha(p,0,400))
                 assert.is_true(crescent_alpha(p,1,400)>100)
                 assert.equal(0,crescent_alpha(p,1,200))   -- entries would reach it
             end
+        end)
+        it("lights the crescent from the sun: below the lower right at night, the upper right by day",function()
+            local space=require("core.classes.Themes.lunar_space")
+            for _,case in ipairs({{dark,0},{light,1}}) do
+                local _,f=crescent(case[1],1,400)
+                local sx,sy=space.sun_at(case[2])
+                local tx,ty=sx*1920-88,sy*1080-(1080-230)
+                local dot=(f[1]*tx+f[2]*ty)/(math.sqrt(f[1]^2+f[2]^2)*math.sqrt(tx^2+ty^2))
+                assert.is_true(dot>0.99,"limb faces the sun")
+            end
+            local _,night=crescent(dark,1,400); local _,day=crescent(light,1,400)
+            assert.is_true(night[2]>0 and day[2]<0)   -- lit from below at night, from above by day
         end)
         it("dims the night's stars enough for the frame's labels and lets day hide them",function()
             local B=Null.new({scene=true}); local dc=Draw.new(B)
