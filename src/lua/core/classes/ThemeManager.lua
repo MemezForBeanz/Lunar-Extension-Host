@@ -373,8 +373,9 @@ function ThemeManager:toggleMode()
 	return self:apply(other) ~= false
 end
 
---- Wrap every later theme change: `fn(paint)` must call `paint()` exactly once, before
--- it returns. `core.ui.ThemeTransition` covers the repaint and fades it in.
+--- Wrap every later theme change: `fn(paint, from, to)` must call `paint()` exactly once,
+-- before it returns (`from`, `to`: the Theme objects). `core.ui.ThemeTransition` covers the
+-- repaint and fades it in.
 -- @tparam function|nil fn
 function ThemeManager:setTransition(fn)
 	self._transition = fn
@@ -736,6 +737,7 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
         if r.focuscolor then attrs.FOCUSCOLOR = r.focuscolor end
         if r.focusinset then attrs.FOCUSINSETCOLOR = r.focusinset end
         if r.controlheight then attrs.CONTROLHEIGHT = tostring(r.controlheight) end
+        if cls == "flatbutton" then attrs.ICONSQUARE = r.iconsquare and "YES" or "NO" end
     end
 	if r.padding then
 		attrs.PADDING = r.padding
@@ -810,6 +812,8 @@ function ThemeManager:_attrsFromRule(cls, r, inactive)
 		if r.inactivefg then
 			attrs.FGCOLOR, attrs.TEXTHLCOLOR, attrs.TEXTPSCOLOR = r.inactivefg, r.inactivefg, r.inactivefg
 		end
+		-- the label exactly (the flat button does not fade it toward its fill again)
+		if r.inactivetext then attrs.TEXTINACTIVECOLOR = r.inactivetext end
 	end
 	return attrs
 end
@@ -1660,7 +1664,7 @@ function ThemeManager:apply(name, opts)
 	end
 
 	if self._transition and self._applied and not opts.force then
-		self._transition(function() self:_paintTheme(theme, opts) end)
+		self._transition(function() self:_paintTheme(theme, opts) end, self._theme_by_id[self._applied], theme)
 	else
 		self:_paintTheme(theme, opts)
 	end
@@ -1674,6 +1678,10 @@ function ThemeManager:_paintTheme(theme, opts)
 	-- A pending coalesced re-theme would otherwise run after this and clobber/redo
 	-- the work; cancel it since we're doing a full apply now.
 	self:_cancelPending()
+
+	-- widget colours land on the new theme at once (no ease across the switch)
+	local wmotion = package.loaded["core.imgui.motion"]
+	if wmotion and wmotion.snap then wmotion.snap() end
 
 	self._active = theme
 	self._current = theme_id

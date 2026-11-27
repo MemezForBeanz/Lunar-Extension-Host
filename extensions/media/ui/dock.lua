@@ -95,10 +95,11 @@ function M.new(ctx, opts)
 	local card = iup.flatframe({
 		iup.hbox({ left, middle, right, GAP = L.gap(5), ALIGNMENT = "ACENTER", MARGIN = L.gap(3) .. "x2",
 			EXPAND = "HORIZONTAL" }),
-		TITLE = "", THEMEROLE = "settingscard", MARGIN = "0x0", EXPAND = "HORIZONTAL",
+		TITLE = "", THEMEROLE = "transport_capsule", MARGIN = "0x0", EXPAND = "HORIZONTAL",
 	})
 	-- The window's frame leaves no room on the right, so the card keeps its own.
-	api.widget = iup.hbox({ card, iup.fill({ RASTERSIZE = "8x" }), MARGIN = "0x4", EXPAND = "HORIZONTAL" })
+	-- Space above and below comes from the host's dock (core.ui.WorkspaceFrame.dock).
+	api.widget = iup.hbox({ card, iup.fill({ RASTERSIZE = "8x" }), MARGIN = "0x0", EXPAND = "HORIZONTAL" })
 
 	local handle = ctx:addDock(api.widget, opts.owner)
 

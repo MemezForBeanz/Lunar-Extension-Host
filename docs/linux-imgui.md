@@ -49,7 +49,12 @@ replace physical mouse/keyboard and compositor integration testing.
 
 `scripts/imgui_linux_input.lua` separately checks real X11 pointer, button,
 arrow-key and text events using `xdotool`. CI runs this on a private Xvfb
-display. The implementation was also built on Alpine Linux 3.22 and exercised
+display. `scripts/sdl_cover_check.lua` checks, on the same display, that the
+background's whole-or-hidden bodies keep their vertices on the direct-draw floor
+and take their alpha on the present that finds a change (it fails when LuaJIT
+cannot resolve `lunar_ui_vtx_count` or `lunar_ui_vtx_color`); CI runs it too, and
+`luajit scripts/sdl_cover_check.lua --null` runs it on the headless backend. The
+implementation was also built on Alpine Linux 3.22 and exercised
 with Mesa under Xvfb and a headless Weston Wayland session, including the
 full-shell/org-pack probe on both display systems.
 

@@ -178,6 +178,8 @@ end
 -- profile folder); the neutral build shows none.
 local ICON_DIR = platform.path:join(APP_DIR, "assets", "Icons")
 Kit.setIconDir(ICON_DIR)
+-- The Lunar glass backdrops, baked offline (scripts/gen_glass_assets.py).
+require("core.ui.Glass").setAssetDir(platform.path:join(APP_DIR, "assets", "glass"))
 
 -- Window/taskbar icon: the name of the Win32 ICON RESOURCE in the executable, not
 -- an IupImage handle. assets/Lunar.rc declares `IUP ICON "lunar.ico"`,
@@ -512,18 +514,24 @@ local WORK_W, WORK_H, TASKBAR = STARTUP.work_w, STARTUP.work_h, STARTUP.taskbar
 -- panes take no space, so with nothing split this is exactly the single strip.
 local pane_grid = PaneGrid:new({ iup = iup, main = tabs, settings = settings_mgr })
 local tool_rail = ToolRail.new({
-	iup = iup, main = tabs, settings = settings_mgr,
+	iup = iup, main = tabs, settings = settings_mgr, motion = motion_director,
+	-- the reactive background's `rail` signal (the scene follows the rail's motion) and
+	-- `rail_settled` (the crescent: in once the rail has finished extending)
+	on_width = function(progress) require("core.ui.Background").set("rail", progress) end,
+	on_settled = function(k) require("core.ui.Background").set("rail_settled", k) end,
 	icon = function(name, size, role) return Kit.icon(iup, name, size, role or "neutral") end,
 	is_settings = function(page) return require("core.lib.handle").same(iup, page, settings_view:widget()) end,
 })
 -- Bands an extension keeps on screen across every tab, such as a player.
 local dock_slot = iup.vbox({ MARGIN = "0x0", GAP = "0", EXPAND = "HORIZONTAL" })
+local WorkspaceFrame = require("core.ui.WorkspaceFrame")
+local dock_box = WorkspaceFrame.dock(iup, dock_slot)
 host._dock_slot = dock_slot
 local terminal = require("core.ui.Terminal").new({ iup = iup, host = host, settings = settings_mgr,
 	extensions = ext_mgr, themes = theme_mgr, version = APP_VERSION })
 local workspace_body = iup.vbox({ pane_grid:widget(), terminal:widget(), MARGIN = "0x0", GAP = "0", EXPAND = "YES" })
 local workspace = iup.hbox({ tool_rail:widget(),
-	iup.vbox({ require("core.ui.WorkspaceFrame").wrap(iup, workspace_body), dock_slot,
+	iup.vbox({ WorkspaceFrame.wrap(iup, workspace_body), dock_box,
 		MARGIN = "0x0", GAP = "0", EXPAND = "YES" }),
 	MARGIN = "0x0", GAP = "0", EXPAND = "YES" })
 status_bar:onFocus(function()
@@ -600,9 +608,9 @@ local function recalc_shell_budget(client_h)
 	local status = status_bar:revealedHeight() or measured_height(status_bar:widget()) or 0
 	local bands = {
 		title = TitleBar.HEIGHT,
-		corners = 24,
+		corners = WorkspaceFrame.verticalChrome(iup),
 		status = status,
-		dock = measured_height(dock_slot) or 0,
+		dock = measured_height(dock_box) or 0,
 	}
 	local cap = ShellBudget.cap(client_h, bands)
 	shell_budget.bands, shell_budget.cap = bands, cap
@@ -633,6 +641,7 @@ view_layout:setBudget(function() recalc_shell_budget() end)
 
 function dlg:resize_cb(w, h)
 	title_bar:fit(w)
+	WorkspaceFrame.setWidth(w)
 	status_bar:fit(w)
 	recalc_shell_budget(h)
 	schedule_recenter()
@@ -1206,6 +1215,8 @@ tab_groups = TabGroups:new({
 tab_order:setGroups(tab_groups)
 -- The main strip's tabs are partitioned between the top and left toolbars.
 iup.SetAttribute(tabs, "SHOWTABS", "NO")
+-- its pages still change with the page transition, as 1.6.2's root tabs did
+iup.SetAttribute(tabs, "PAGETRANSITION", "YES")
 tab_order:setStandIn(tabs, title_bar:groupStrip(), "top", function() return title_bar:dropRect() end)
 tab_order:setStandIn(tabs, tool_rail:widget(), "left")
 title_bar:setOrder(tab_order)
@@ -1304,6 +1315,7 @@ end
 host._after_scopes = sync_title_bar
 	-- The band's height is only known after a layout pass, and the page's ceiling depends on it.
 	host._dock_changed = function()
+		WorkspaceFrame.refit()
 		iup.Refresh(dlg)
 		if recalc_shell_budget() then iup.Refresh(dlg) end
 	end
@@ -1513,7 +1525,18 @@ do
 		compositor = function() return require("core.lib.Compositor").forDialog(iup, dlg) end,
 		motion = motion_director,
 	})
-	theme_mgr:setTransition(function(paint) fade:run(paint) end)
+	-- Two palettes of one reactive scene (Lunar dark and light): no picture of the window
+	-- fades (a cross-fade of two UIs halves every label's contrast); the UI switches in one
+	-- frame, its frame and chrome holding their contrast while the sky eases after it
+	-- (core.ui.Background.frameAlpha).
+	theme_mgr:setTransition(function(paint, from, to)
+		local Background = require("core.ui.Background")
+		if from and to and Background.shared(from:palette(), to:palette()) then
+			fade:settle()
+			return paint()
+		end
+		fade:run(paint)
+	end)
 end
 
 if not settings_mgr:get("welcome_tour_completed")

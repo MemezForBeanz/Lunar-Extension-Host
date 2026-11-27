@@ -76,12 +76,50 @@ local function natural(e, st, L)
 			own(e, "IMAGE"), own(e, "TITLE"), nil, focus_room)
 	end
 	local bw = border_width(e)
+	-- ICONSQUARE (a theme's button roles): an icon-only button is square at its control
+	-- height, however wide its padding would make it
+	local ch = tonumber(attr(e, "CONTROLHEIGHT"))
+	local title = own(e, "TITLE")
+	if ch and own(e, "IMAGE") and (not title or title == "") and bool(attr(e, "ICONSQUARE")) then
+		local iw, ih = F.imageInfo(own(e, "IMAGE"))
+		-- square in both dimensions, even for an image larger than the control height
+		-- (an image at the control height fills it; only a larger one grows the square)
+		local side = math.max(ch, (iw or 0) + 2 * bw, (ih or 0) + 2 * bw)
+		return side, side
+	end
     if not own(e, "IMAGE") and own(e, "TITLE") then
         local hp = F.intint(attr(e, "PADDING"))
         w = w + math.max(0, int(attr(e, "TEXTRIGHTPADDING"), hp) - hp)
     end
 	return w + 2 * bw, tonumber(attr(e, "CONTROLHEIGHT")) or (h + 2 * bw)
 end
+
+-- Glass palettes ease the hover fill in and out over 110 ms (instant without motion).
+local HOVER_EASE = 0.11
+local function hover_mix(d, on)
+	local R = package.loaded["core.imgui.Runtime"]
+	local Reactor = package.loaded["core.ui.ThemeReactor"]
+	local p = Reactor and Reactor.palette()
+	if not (R and p and p.glass) then return on and 1 or 0 end
+	local manager = Reactor.themeManager()
+	local director = manager and manager._motion
+	if not (director and director:enabled()) then d.hl_k = nil; return on and 1 or 0 end
+	local now = R.now()
+	if d.hl_on == nil then
+		-- First paint: start where the button is, with nothing to ease.
+		d.hl_on, d.hl_from, d.hl_at = on, on and 1 or 0, now - HOVER_EASE
+	elseif d.hl_on ~= on then
+		d.hl_on, d.hl_from, d.hl_at = on, d.hl_k or (on and 0 or 1), now
+	end
+	local t = math.min(1, (now - (d.hl_at or now)) / HOVER_EASE)
+	local target = on and 1 or 0
+	local k = d.hl_from + (target - d.hl_from) * t
+	if t < 1 then R.animate() end
+	d.hl_k = k
+	return k
+end
+
+M._hover_mix = hover_mix
 
 local function draw(e, st, dc)
 	local d = data(st)
@@ -106,7 +144,16 @@ local function draw(e, st, dc)
 	end
 
 	local pressed_look = (d.pressed and d.highlighted) or (selected and not d.highlighted)
-	if pressed_look then
+	local ease = (not pressed_look) and hover_mix(d, d.highlighted == true) or nil
+	if ease and ease > 0 and ease < 1 and attr(e, "HLCOLOR") then
+		-- Part way between rest and hover: blend the fill, keep the rest look otherwise.
+		local Color = require("core.imgui.Color")
+		bgcolor = Color.mix(Color.parse(bgcolor), Color.parse(attr(e, "HLCOLOR")), ease)
+		if d.highlighted then
+			local c = attr(e, "TEXTHLCOLOR"); if c then fgcolor = c end
+			draw_border = true
+		end
+	elseif pressed_look then
 		local c = attr(e, "PSCOLOR")
 		if c then bgcolor = c end
 		c = attr(e, "TEXTPSCOLOR")
@@ -150,9 +197,17 @@ local function draw(e, st, dc)
 	local hp, vp = F.intint(attr(e, "PADDING"))
 	local ha, va = F.alignment(attr(e, "ALIGNMENT"), "ACENTER", "ACENTER")
 	local name, fade = F.imageName(e, "IMAGE", image, image_pressed, d.highlighted, active)
+	-- TEXTINACTIVECOLOR (this host's, from a theme's `inactivetext`): a disabled label in
+	-- exactly that colour, instead of FGCOLOR faded halfway to the fill (patch 0005), which
+	-- can leave it far below 4.5:1. The icon still fades.
+	local text_fg, text_active = fgcolor, active
+	if not active then
+		local c = own(e, "TEXTINACTIVECOLOR")
+		if c then text_fg, text_active = c, true end
+	end
 	F.icon(e, dc, x0, y0, inner, inner, cw - 2 * inner, ch - 2 * inner,
 		F.imagePosition(attr(e, "IMAGEPOSITION")), int(attr(e, "SPACING"), 2), ha, va, hp, vp,
-		name, fade, title, flags, fgcolor, bgcolor, active)
+		name, fade, title, flags, text_fg, bgcolor, text_active)
 
 	if fgimage then
 		local fname, ffade = F.imageName(e, "FRONTIMAGE", fgimage, image_pressed, d.highlighted, active)
@@ -168,9 +223,13 @@ local function draw(e, st, dc)
 		local fb = inner - 1
 		local radius = int(attr(e, "CORNERRADIUS"), 0)
 		if attr(e, "FOCUSCOLOR") then
+            -- a theme's ring follows the button's own corners (a square ring on a rounded
+            -- button read as a different control)
             local x, y, w, h = x0 + 2, y0 + 2, cw - 4, ch - 4
-            dc:rect(x, y, w, h, attr(e, "FOCUSCOLOR"), { thickness = 2 })
-            if attr(e, "FOCUSINSETCOLOR") then dc:rect(x + 2, y + 2, w - 4, h - 4, attr(e, "FOCUSINSETCOLOR"), { thickness = 1 }) end
+            dc:rect(x, y, w, h, attr(e, "FOCUSCOLOR"), { thickness = 2, radius = math.max(0, radius - 2) })
+            if attr(e, "FOCUSINSETCOLOR") then
+                dc:rect(x + 2, y + 2, w - 4, h - 4, attr(e, "FOCUSINSETCOLOR"), { thickness = 1, radius = math.max(0, radius - 4) })
+            end
         elseif radius > 0 then
 			F.roundBorder(dc, x0, y0, fb, cw - 1 - fb, fb, ch - 1 - fb, radius > fb and radius - fb or 1, 1, fgcolor, nil, active)
 		else

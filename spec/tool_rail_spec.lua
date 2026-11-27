@@ -106,4 +106,57 @@ describe("core.ui.ToolRail", function()
 			assert.equal("1", rail:widget().VALUEPOS)
 		end)
 	end)
+
+	describe("the extended state's own elements", function()
+		-- a motion director that runs each animation only when told
+		local function director()
+			local d = { running = {} }
+			function d:animate(spec)
+				for i = #self.running, 1, -1 do
+					if self.running[i].target == spec.target then
+						local old = table.remove(self.running, i)
+						if old.on_done then old.on_done(false) end
+					end
+				end
+				self.running[#self.running + 1] = spec
+				return spec
+			end
+			function d:cancel(scope)
+				for i = #self.running, 1, -1 do
+					if self.running[i].target == scope.target then
+						local old = table.remove(self.running, i)
+						if old.on_done then old.on_done(false) end
+					end
+				end
+			end
+			function d:finish()
+				local spec = table.remove(self.running, 1)
+				if spec.on_frame then spec.on_frame(spec.to, 1) end
+				if spec.on_done then spec.on_done(true) end
+				return spec
+			end
+			return d
+		end
+		it("settle in only after the rail has finished extending, and leave as it starts to collapse", function()
+			local rail, root, _, iup = fixture()
+			local motion, settled = director(), {}
+			rail._motion = motion
+			rail._on_settled = function(k) settled[#settled + 1] = k end
+			rail:toggle()                       -- extend
+			assert.same({ 0 }, settled)         -- nothing yet while the width moves
+			local width = motion:finish()
+			assert.equal(176, width.to)
+			local settle = motion.running[1]
+			assert.equal(ToolRail.SETTLE_MS, settle.duration)
+			motion:finish()
+			assert.equal(1, settled[#settled])
+			rail:toggle()                       -- collapse: gone at once
+			assert.equal(0, settled[#settled])
+			assert.equal(48, motion.running[1].to)
+		end)
+		it("reports the room below its entries from its layout", function()
+			local rail = fixture()
+			assert.equal("number", type(rail:room()))
+		end)
+	end)
 end)

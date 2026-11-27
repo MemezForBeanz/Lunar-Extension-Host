@@ -8,6 +8,7 @@
 #include "backends/imgui_impl_sdl3.h"
 #include "backends/imgui_impl_opengl3.h"
 #include "lunarimgui_abi.h"
+#include "lunar_glass_draw.h"
 extern "C" {
 #include <lua.h>
 #include <lauxlib.h>
@@ -33,6 +34,7 @@ struct Window {
     SDL_Surface *capture = nullptr;
     bool visible = false, close = false, drawn = false, positioned = false;
     bool overlay = false;
+    bool underlay = false; /* a glass dialog: the main window's lists render under its own */
     int owner = 0;
     uint64_t order = 0;
 };
@@ -78,6 +80,12 @@ void size(Window *w) { SDL_GetWindowSizeInPixels(w->native, &w->w, &w->h); }
 void ensure_gui() {
     if (ImGui::GetCurrentContext()) return;
     IMGUI_CHECKVERSION(); ImGui::CreateContext();
+    /* Rounded edges: anti-aliased fills and lines (ImGui's defaults, said here so nothing
+       turns them off), and arcs at half ImGui's default error, so corners of 17 px radius
+       and more get up to twice the segments instead of visible steps */
+    { ImGuiStyle &st = ImGui::GetStyle();
+      st.AntiAliasedFill = st.AntiAliasedLines = st.AntiAliasedLinesUseTex = true;
+      st.CircleTessellationMaxError = 0.15f; }
     auto &io = ImGui::GetIO(); io.IniFilename = nullptr; io.LogFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
@@ -312,6 +320,9 @@ void render(Window *w) {
     dd.DisplaySize=ImVec2((float)w->w,(float)w->h);dd.FramebufferScale=ImVec2(1,1);
     dd.Textures=&ImGui::GetPlatformIO().Textures;
     auto append=[&](ImDrawList *dl){if(!dl)return;dl->_PopUnusedDrawCmd();for(auto &cmd:dl->CmdBuffer){cmd.ClipRect.x=std::max(cmd.ClipRect.x,(float)w->x);cmd.ClipRect.y=std::max(cmd.ClipRect.y,(float)w->y);cmd.ClipRect.z=std::min(cmd.ClipRect.z,(float)(w->x+w->w));cmd.ClipRect.w=std::min(cmd.ClipRect.w,(float)(w->y+w->h));}if(dl->CmdBuffer.Size){dd.CmdLists.push_back(dl);dd.TotalVtxCount+=dl->VtxBuffer.Size;dd.TotalIdxCount+=dl->IdxBuffer.Size;}};
+    /* under a glass dialog: the main lists as they are (the viewport clips them), unclamped,
+       since the main window has already been rendered from the same lists */
+    if(w->id!=0&&w->underlay)for(auto dl:ImGui::GetDrawData()->CmdLists)if(dl->CmdBuffer.Size){dd.CmdLists.push_back(dl);dd.TotalVtxCount+=dl->VtxBuffer.Size;dd.TotalIdxCount+=dl->IdxBuffer.Size;}
     append(w->lists[0]);
     if(w->id==0)for(auto dl:ImGui::GetDrawData()->CmdLists)append(dl);
     append(w->lists[1]);
@@ -437,6 +448,9 @@ int l_window(lua_State *L) {
     if((op=="screen"||op=="full"||op=="dpi"||op=="capabilities")&&!SDL_WasInit(SDL_INIT_VIDEO)){
         if(SDL_Init(SDL_INIT_VIDEO)){const char *driver=SDL_GetCurrentVideoDriver();g.wayland=driver&&std::strcmp(driver,"wayland")==0;}
     }
+    /* the frame copy (core.ui.Glass) is a D3D11 host feature: glass falls back to its tint */
+    if(op=="frame_copy")return 0;
+    if(op=="popup_underlay"){auto p=window((int)luaL_checkinteger(L,2));if(p&&p->id!=0&&!p->overlay)p->underlay=lua_toboolean(L,3)!=0;return 0;}
     if(op=="popup_open"){
         SDL_GL_MakeCurrent(g.main.native,g.main.context);SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT,1);
         auto p=std::make_unique<Window>();p->id=g.next_window++;
@@ -523,14 +537,17 @@ int l_window(lua_State *L) {
 #define LUNAR_FFI extern "C" __attribute__((visibility("default")))
 LUNAR_FFI ImDrawList *lunar_ui_draw_list(int layer){return g.frame_open?list(0,layer):scratch_list();}
 LUNAR_FFI ImDrawList *lunar_ui_popup_list(int id,int layer){auto w=window(id);if(!g.frame_open||!w)return scratch_list();w->drawn=true;return list(id,layer);}
-LUNAR_FFI void lunar_ui_rect(ImDrawList *d,float a,float b,float c,float e,uint32_t color,float radius,float thick,int flags){d->AddRect({a,b},{c,e},color,radius,thick,(ImDrawFlags)flags);}
-LUNAR_FFI void lunar_ui_rect_filled(ImDrawList *d,float a,float b,float c,float e,uint32_t color,float radius,int flags){d->AddRectFilled({a,b},{c,e},color,radius,(ImDrawFlags)flags);}
+LUNAR_FFI void lunar_ui_rect(ImDrawList *d,float a,float b,float c,float e,uint32_t color,float radius,float thick,int flags){lunar_glass::FineArcs fine(d,(flags&lunar_glass::FINE_ARC)!=0);d->AddRect({a,b},{c,e},color,radius,thick,(ImDrawFlags)(flags&~lunar_glass::FINE_ARC));}
+LUNAR_FFI void lunar_ui_rect_filled(ImDrawList *d,float a,float b,float c,float e,uint32_t color,float radius,int flags){lunar_glass::FineArcs fine(d,(flags&lunar_glass::FINE_ARC)!=0);d->AddRectFilled({a,b},{c,e},color,radius,(ImDrawFlags)(flags&~lunar_glass::FINE_ARC));}
 LUNAR_FFI void lunar_ui_rect_gradient(ImDrawList *d,float a,float b,float c,float e,uint32_t c1,uint32_t c2,uint32_t c3,uint32_t c4){d->AddRectFilledMultiColor({a,b},{c,e},c1,c2,c3,c4);}
 LUNAR_FFI void lunar_ui_line(ImDrawList *d,float a,float b,float c,float e,uint32_t color,float thick){d->AddLine({a,b},{c,e},color,thick);}
 LUNAR_FFI void lunar_ui_circle(ImDrawList *d,float x,float y,float r,uint32_t color,float thick,int seg){if(thick<=0)d->AddCircleFilled({x,y},r,color,seg);else d->AddCircle({x,y},r,color,seg,thick);}
 LUNAR_FFI void lunar_ui_poly(ImDrawList *d,const float *xy,int n,uint32_t color,int fill,float thick){std::vector<ImVec2> p;for(int k=0;k<n;k++)p.emplace_back(xy[2*k],xy[2*k+1]);if(fill)d->AddConvexPolyFilled(p.data(),n,color);else d->AddPolyline(p.data(),n,color,thick,ImDrawFlags_Closed);}
 LUNAR_FFI void lunar_ui_text(ImDrawList *d,int face,float px,float x,float y,uint32_t color,const char *s,size_t n,float wrap,float x1,float y1,float x2,float y2,int){ImVec4 clip(x1,y1,x2,y2);d->AddText(font(face),px,{x,y},color,s,s+n,wrap,&clip);}
 LUNAR_FFI void lunar_ui_text_size(int face,float px,const char *s,size_t n,float wrap,float *out){auto sz=font(face)->CalcTextSizeA(px,FLT_MAX,wrap,s,s+n);out[0]=sz.x;out[1]=sz.y;}
+/* the list's vertex count; one colour for vertices [from, to) already on it (core.ui.Background) */
+LUNAR_FFI int lunar_ui_vtx_count(ImDrawList *d){return d?d->VtxBuffer.Size:0;}
+LUNAR_FFI void lunar_ui_vtx_color(ImDrawList *d,int from,int to,uint32_t color){if(!d)return;if(from<0)from=0;if(to>d->VtxBuffer.Size)to=d->VtxBuffer.Size;for(int i=from;i<to;i++)d->VtxBuffer[i].col=color;}
 LUNAR_FFI int lunar_ui_image(ImDrawList *d,int id,float x1,float y1,float x2,float y2,float u1,float v1,float u2,float v2,uint32_t color){auto t=g.textures.find(id);if(t==g.textures.end())return 0;d->AddImage((ImTextureID)t->second.gl,{x1,y1},{x2,y2},{u1,v1},{u2,v2},color);return 1;}
 LUNAR_FFI int lunar_ui_texture_bits(const unsigned char *p,int w,int h,int stride,int premultiplied){
     if(!p||w<=0||h<=0||w>32768||h>32768||stride<w*4)return 0;
@@ -539,7 +556,10 @@ LUNAR_FFI int lunar_ui_texture_bits(const unsigned char *p,int w,int h,int strid
     return upload(rgba.data(),w,h);
 }
 LUNAR_FFI void lunar_ui_texture_free(int id){free_texture(id);}
-LUNAR_FFI int lunar_ui_image_rounded(ImDrawList *d,int id,float x1,float y1,float x2,float y2,uint32_t color,float radius){auto t=g.textures.find(id);if(t==g.textures.end())return 0;d->AddImageRounded((ImTextureID)t->second.gl,{x1,y1},{x2,y2},{0,0},{1,1},color,radius);return 1;}
+LUNAR_FFI int lunar_ui_image_rounded(ImDrawList *d,int id,float x1,float y1,float x2,float y2,uint32_t color,float radius){auto t=g.textures.find(id);if(t==g.textures.end())return 0;lunar_glass::FineArcs fine(d,true);d->AddImageRounded((ImTextureID)t->second.gl,{x1,y1},{x2,y2},{0,0},{1,1},color,radius);return 1;}
+LUNAR_FFI int lunar_ui_image_rounded_uv(ImDrawList *d,int id,float x1,float y1,float x2,float y2,float u1,float v1,float u2,float v2,uint32_t color,float radius,int flags){auto t=g.textures.find(id);if(t==g.textures.end())return 0;lunar_glass::image_rounded_uv(d,(ImTextureID)t->second.gl,x1,y1,x2,y2,u1,v1,u2,v2,color,radius,flags);return 1;}
+LUNAR_FFI int lunar_ui_image_nine(ImDrawList *d,int id,float x1,float y1,float x2,float y2,float bx,float by,float ub,float vb,uint32_t color){auto t=g.textures.find(id);if(t==g.textures.end())return 0;lunar_glass::image_nine(d,(ImTextureID)t->second.gl,x1,y1,x2,y2,bx,by,ub,vb,color);return 1;}
+LUNAR_FFI void lunar_ui_rim(ImDrawList *d,float x1,float y1,float x2,float y2,float r,uint32_t hi,uint32_t lo,uint32_t inner,int flags,float thick){lunar_glass::rim(d,x1,y1,x2,y2,r,hi,lo,inner,flags,thick);}
 LUNAR_FFI void lunar_ui_clip_push(ImDrawList *d,float x1,float y1,float x2,float y2){d->PushClipRect({x1,y1},{x2,y2},true);}
 LUNAR_FFI void lunar_ui_clip_pop(ImDrawList *d){if(d->_ClipRectStack.Size>1)d->PopClipRect();}
 LUNAR_FFI ImFont *lunar_ui_face_font(int id){return font(id);}

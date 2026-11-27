@@ -198,7 +198,7 @@ local function grid_draw_cell(ih, dc, ox, oy, pos, x, y, p)
 	if not drawn then
 		-- no pixels (yet): the placeholder, rounded as the corner tiles round it, and the
 		-- title wrapped in the middle
-		dc:fill(ox + x, oy + y, w, h, p.placeholder, { radius = p.radius })
+		dc:fill(ox + x, oy + y, w, h, p.placeholder, { radius = p.radius, fine = true })
 		if title then -- wrapped text ignores vertical centring, so the box is placed by hand
 			U.text(dc, ox, oy, title, x + 8, y + idiv(h, 2) - d.charh - 2, w - 16, idiv(h, 2), p.secondary, p.font,
 				U.CENTER + U.WRAP + U.CLIP)

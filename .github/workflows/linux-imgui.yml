@@ -39,6 +39,21 @@ jobs:
           xvfb-run -a build/linux-imgui-dev/bin/lunar scripts/backend_conformance.lua /tmp/conformance.json
           cat /tmp/conformance.json
           xvfb-run -a build/linux-imgui-dev/bin/lunar scripts/imgui_linux_input.lua
+      - name: Direct-draw cover check
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          SDL_VIDEO_DRIVER: x11
+        run: |
+          set +e
+          # The SDL host has no scene target: a whole-or-hidden body is drawn straight onto the
+          # list and recoloured on the present that finds a change. Fails on a missing
+          # lunar_ui_vtx_count / lunar_ui_vtx_color export or any present at the wrong alpha.
+          rm -f /tmp/sdl_cover.status /tmp/sdl_cover_check.txt
+          xvfb-run -a sh -c 'timeout -k 5s 60s build/linux-imgui-dev/bin/lunar scripts/sdl_cover_check.lua /tmp/sdl_cover_check.txt; echo $? > /tmp/sdl_cover.status'
+          status=$(cat /tmp/sdl_cover.status 2>/dev/null || echo missing)
+          cat /tmp/sdl_cover_check.txt
+          echo "exit status: $status"
+          test "$status" = 0 && grep -q '^PASS:' /tmp/sdl_cover_check.txt
       - name: Full shell startup
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
@@ -62,3 +77,4 @@ jobs:
           path: |
             /tmp/conformance.json
             /tmp/lunar.log
+            /tmp/sdl_cover_check.txt

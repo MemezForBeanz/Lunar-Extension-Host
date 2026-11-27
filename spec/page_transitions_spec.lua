@@ -44,6 +44,93 @@ describe("page transition kinds", function()
 		assert.equal(-360, back.dx)
 	end)
 
+	it("settles the incoming page over the last frames, in the same duration", function()
+		local ease, dur = require("core.imgui.motion").timing(Tokens.ROLES.tab_transition)
+		local def = PT.get("push")
+		for _, forward in ipairs({ true, false }) do
+			local c = ctx(4000, forward)
+			local frame = 1 / (60 * dur)
+			local function dx(p) local _, inn = PT.at(def, c, ease, p, dur); return inn.dx end
+			assert.equal(360 * (forward and 1 or -1), dx(0))
+			assert.equal(0, dx(1))
+			-- at any phase: never back, within ~2 px of rest a frame before the end, and the
+			-- last frames each move a few px at most (a 1 px text offset is the step there)
+			local last = math.huge
+			for i = 0, 400 do
+				local p = i / 400
+				local r = math.abs(dx(p))
+				assert.is_true(r <= last + 1e-9, "p " .. p)
+				last = r
+				if p >= 1 - frame then assert.is_true(r <= 2.2, "p " .. p .. ": " .. r) end
+				if p >= 1 - 2 * frame and p < 1 then
+					assert.is_true(r - math.abs(dx(math.min(1, p + frame))) <= 3, "p " .. p)
+				end
+			end
+			-- opacity keeps the kind's curve over the whole duration; mid-way the offsets are
+			-- the kind's own, a little further on
+			local out, inn, q = PT.at(def, c, ease, 0.3, dur)
+			assert.equal(ease(0.3), q)
+			local out2, inn2 = def.frame(q, c)
+			assert.equal(inn2.alpha, inn.alpha)
+			local _, inn3 = def.frame(ease(0.3 / PT.SETTLE_SPAN), c)
+			assert.equal(out2.dx, out.dx)   -- the leaving page keeps the kind's curve
+			assert.near(inn3.dx, inn.dx, 0.5)
+			assert.is_true(math.abs(inn.dx) < math.abs(inn2.dx))
+		end
+		-- a kind that does not move stays still
+		local _, spec = PT.resolve(nil, "fade")
+		for _, p in ipairs({ 0, 0.5, 0.9, 0.99, 1 }) do
+			local _, inn = PT.at(PT.get("fade"), PT.context(spec, 1000, 600, true), ease, p, dur)
+			assert.equal(0, inn.dx); assert.equal(0, inn.dy)
+		end
+	end)
+
+	it("gives a registered kind its own signed offsets: an overshoot through zero survives", function()
+		local ease, dur = require("core.imgui.motion").timing(Tokens.ROLES.tab_transition)
+		-- dy = (1-t)(20-80t): +20 at the start, through zero at t 0.25, down to -20, back to 0;
+		-- dx: +24 -> -4 -> 0 (an overshoot past rest)
+		assert.is_true(PT.register("crosstest", { label = "Cross", frame = function(t)
+			local dx = t < 0.7 and 24 - 28 * t / 0.7 or -4 * (1 - t) / 0.3
+			return { alpha = 1 - t }, { dx = dx, dy = (1 - t) * (20 - 80 * t), alpha = t }
+		end }))
+		local def = PT.get("crosstest")
+		local c = ctx(1000)
+		local neg_dx, neg_dy = false, false
+		for i = 0, 200 do
+			local p = i / 200
+			local out, inn, q = PT.at(def, c, ease, p, dur)
+			local wout, winn = def.frame(ease(p), c)
+			assert.equal(ease(p), q)
+			assert.equal(winn.dx, inn.dx, "p " .. p)
+			assert.equal(winn.dy, inn.dy, "p " .. p)
+			assert.equal(winn.alpha, inn.alpha)
+			assert.equal(wout.alpha, out.alpha)
+			neg_dx = neg_dx or inn.dx < -1
+			neg_dy = neg_dy or inn.dy < -10
+		end
+		assert.is_true(neg_dx and neg_dy)   -- the overshoot is there
+		PT.unregister("crosstest")
+		-- the built-in rise and slide keep their own offsets too; only push settles
+		for _, name in ipairs({ "rise", "slide" }) do
+			local _, spec = PT.resolve(nil, name)
+			local k = PT.get(name)
+			local cc = PT.context(spec, 1000, 600, true)
+			for _, p in ipairs({ 0.2, 0.5, 0.9, 0.97 }) do
+				local _, inn = PT.at(k, cc, ease, p, dur)
+				local _, want = k.frame(ease(p), cc)
+				assert.equal(want.dx, inn.dx, name); assert.equal(want.dy, inn.dy, name)
+			end
+		end
+		-- a kind registered over the name "push" is an extension's: it is not settled either
+		local builtin = PT.get("push")
+		local own = { frame = builtin.frame }
+		PT.register("push", own)
+		local _, inn = PT.at(own, ctx(4000), ease, 0.97, dur)
+		local _, want = own.frame(ease(0.97), ctx(4000))
+		PT.register("push", builtin)
+		assert.equal(want.dx, inn.dx)
+	end)
+
 	it("rises the incoming page 16 px and fades the outgoing one out early", function()
 		local _, spec = PT.resolve(nil, "rise")
 		local out, inn = PT.get("rise").frame(0.5, PT.context(spec, 1000, 600, true))
@@ -93,6 +180,29 @@ describe("page transition kinds", function()
 		assert.is_true(PT.unregister("zoomtest"))
 		assert.is_nil(PT.get("zoomtest"))
 		assert.is_false(PT.unregister("push"))
+	end)
+
+	it("restores the built-in push when an extension that registered over it unregisters", function()
+		local builtin = PT.get("push")
+		local names = {}
+		for i, k in ipairs(PT.list()) do names[i] = k.name end
+		-- even a def that copies the built-in's `builtin` flag
+		local over = { builtin = true, label = "Mine", role = { duration = 90 },
+			frame = function(t) return { alpha = 1 - t }, { dy = 10 * (1 - t), alpha = t } end }
+		assert.is_true(PT.register("push", over))
+		assert.equal(over, (PT.resolve({}, nil)))
+		assert.is_true(PT.unregister("push"))
+		assert.equal(builtin, PT.get("push"))
+		local def, spec, name = PT.resolve({}, nil)
+		assert.equal(builtin, def); assert.equal("push", name)
+		assert.is_nil(def.role)   -- the built-in's own timing, not the extension's
+		assert.not_equal(90, spec.duration)
+		local after = {}
+		for i, k in ipairs(PT.list()) do after[i] = k.name end
+		assert.same(names, after)
+		-- the built-in itself still cannot be removed
+		assert.is_false(PT.unregister("push"))
+		assert.equal(builtin, PT.get("push"))
 	end)
 end)
 
@@ -191,6 +301,50 @@ describe("the ImGui tab strip plays the transition with the live pages", functio
 		assert.equal(a0, done["PAGE B"])
 	end)
 
+	it("fades the leaving page out when its backing draws nothing (a page over glass)", function()
+		local flattabs = require("core.imgui.widgets.flattabs")
+		local saved = flattabs._see_through
+		flattabs._see_through = function() return true end
+		local function alpha(name)
+			for _, c in ipairs(B.lastFrame()) do
+				if c[1] == "text" and c[7] == name then return math.floor(c[6] / 16777216) end
+			end
+		end
+		iup.SetAttribute(tabs, "VALUEPOS", "1")
+		B.advance(0.03); R.frame()
+		local early = alpha("PAGE A")
+		B.advance(0.06); R.frame()
+		local later = alpha("PAGE A")
+		flattabs._see_through = saved
+		assert.is_true(early ~= nil and early < 255, "the leaving page is fading")
+		assert.is_true(later == nil or later < early, "and keeps fading")
+		B.advance(0.5); R.frame()
+		assert.is_nil(alpha("PAGE A"))
+	end)
+
+	it("over glass, fades the leaving page on the arriving page's own curve", function()
+		local flattabs = require("core.imgui.widgets.flattabs")
+		local saved = flattabs._see_through
+		flattabs._see_through = function() return true end
+		local function alpha(name)
+			for _, c in ipairs(B.lastFrame()) do
+				if c[1] == "text" and c[7] == name then return math.floor(c[6] / 16777216) end
+			end
+			return 0
+		end
+		iup.SetAttribute(tabs, "VALUEPOS", "1")
+		local sums = {}
+		for _ = 1, 10 do
+			B.advance(0.016); R.frame()
+			sums[#sums + 1] = alpha("PAGE A") + alpha("PAGE B")
+		end
+		flattabs._see_through = saved
+		-- one fades out as the other fades in: no frame carries both changes
+		for i, s in ipairs(sums) do
+			assert.is_true(math.abs(s - 255) <= 2, "frame " .. i .. ": " .. s)
+		end
+	end)
+
 	it("switches at once with motion off, with kind none and with PAGETRANSITION=NO", function()
 		for _, setup in ipairs({
 			function() use("push", false) end,
@@ -206,6 +360,17 @@ describe("the ImGui tab strip plays the transition with the live pages", functio
 			assert.is_nil(at["PAGE A"])
 			assert.is_not_nil(at["PAGE B"])
 		end
+	end)
+
+	it("plays it on a strip whose tabs are drawn elsewhere only when it says PAGETRANSITION=YES", function()
+		iup.SetAttribute(tabs, "SHOWTABS", "NO"); R.frame()
+		iup.SetAttribute(tabs, "VALUEPOS", "1"); B.advance(0.08); R.frame()
+		assert.is_nil(drawn()["PAGE A"])   -- a stack, not tabs: instant
+		iup.SetAttribute(tabs, "VALUEPOS", "0"); B.advance(1); R.frame()
+		iup.SetAttribute(tabs, "PAGETRANSITION", "YES")
+		iup.SetAttribute(tabs, "VALUEPOS", "1"); B.advance(0.08); R.frame()
+		local mid = drawn()
+		assert.is_not_nil(mid["PAGE A"]); assert.is_not_nil(mid["PAGE B"])
 	end)
 
 	it("tells core.ui.TabTransition it draws its own", function()

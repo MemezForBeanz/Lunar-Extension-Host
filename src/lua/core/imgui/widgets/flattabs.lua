@@ -95,11 +95,13 @@ end
 -- Page transitions, drawn live (core.lib.PageTransitions): the strip paints the leaving
 -- page and the arriving one, moved and faded by the kind, for the transition's length;
 -- the switch itself (VALUE, callbacks, hit testing) has already happened. Only on a strip
--- that shows its tabs, that was on screen the frame before (nothing animates into place
--- as a dialog first appears), and without PAGETRANSITION=NO.
+-- that shows its tabs (or says PAGETRANSITION=YES: its tabs are drawn elsewhere, as the main
+-- window's are in the title bar and the rail), that was on screen the frame before (nothing
+-- animates into place as a dialog first appears), and without PAGETRANSITION=NO.
 function M.beginPageTransition(el, st, from, to, forward)
 	st.data.page_tr = nil
-	if not (from and to) or not yes(attr(el, "SHOWTABS")) then return end
+	local want = tostring(own(el, "PAGETRANSITION") or ""):upper()
+	if not (from and to) or not (yes(attr(el, "SHOWTABS")) or want == "YES") then return end
 	if tostring(attr(el, "PAGETRANSITION") or "YES"):upper() == "NO" then return end
 	local R = package.loaded["core.imgui.Runtime"]
 	if not (R and R.frameNo and st.data.painted_frame and st.data.painted_frame >= R.frameNo() - 1) then return end
@@ -397,6 +399,7 @@ local function draw(el, st, dc)
 				end
 			end
 			drawTabContent(el, st, dc, i - 1, x, y, w, h, color or attr(el, "FGCOLOR"))
+			if selected then st.data.focus_tab = { x, y, w, h } end
 			if selected and not dragged and attr(el, "TABSACTIVELINE") then indicator = { x, y, w, h, child } end
 			if yes(attr(el, "SHOWCLOSE")) then
 				local cx, cy = x + w - CLOSE_GAP - CLOSE_SIZE, y + (h - CLOSE_SIZE) / 2
@@ -412,6 +415,18 @@ local function draw(el, st, dc)
 			if dragged then dc:alpha_pop() end
 			offset = offset + (horizontal(el) and w or h)
 		end
+	end
+	-- Keyboard focus: a ring round the current tab in the tab's own shape (FOCUSFEEDBACK;
+	-- FOCUSCOLOR, else the foreground)
+	local R2 = package.loaded["core.imgui.Runtime"]
+	local ft = st.data.focus_tab
+	st.data.focus_tab = nil
+	if ft and R2 and R2.focused and R2.focused() == el and attr(el, "FOCUSFEEDBACK") ~= "NO" then
+		local radius = integer(attr(el, "CORNERRADIUS"), 0)
+		local x, y, w, h = ft[1], ft[2], ft[3], ft[4]
+		if t == "LEFT" then x, y, w, h = x + 6, y + 1, math.max(0, w - 12), math.max(0, h - 3) end
+		dc:rect(x + 1, y + 1, w - 2, h - 2, attr(el, "FOCUSCOLOR") or attr(el, "FORECOLOR") or attr(el, "FGCOLOR"),
+			{ thickness = 2, radius = math.max(0, radius - 1) })
 	end
 	-- The selected tab's line: slides and stretches from the old tab to the new one
 	-- (role tab_indicator); a tab that only moved (a resize) takes it along at once.
@@ -438,9 +453,17 @@ local function draw(el, st, dc)
 		local fill = selected and (attr(el, "TABSSELCOLOR") or attr(el, "BGCOLOR"))
 			or (st.data.extraHover == id and (attr(el, "EXTRAHIGHCOLOR" .. id) or attr(el, "HLCOLOR")))
 		fill = motion.color(st, "extra" .. id, fill or nil, "hover")
-		if active and fill then dc:fill(x, y, w, h, fill, { radius = integer(attr(el, "CORNERRADIUS"), 0) }) end
 		local iw, ih = Draw.imageSize(image)
-		if image then dc:image(image, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih, {}) end
+		-- An image-only button down a side strip draws as a square of its height (the
+		-- click target keeps the strip's breadth): its icon stays in the column where it
+		-- sits when the strip is narrow, rather than a strip-wide bar or a centred icon.
+		local fx, fw = x, w
+		if image and title == "" and not horizontal(el) and w > h then
+			fw = h
+			fx = x + math.floor((math.min(w, h + 12) - h) / 2)
+		end
+		if active and fill then dc:fill(fx, y, fw, h, fill, { radius = integer(attr(el, "CORNERRADIUS"), 0) }) end
+		if image then dc:image(image, fx + (fw - iw) / 2, y + (h - ih) / 2, iw, ih, {}) end
 		if title ~= "" then dc:text(title, x + 6, y + 4, w - 12, h - 8, color, font, { align = "center", valign = "center", ellipsis = true }) end
 	end
 	if yes(attr(el, "SHOWLINES")) then
@@ -481,6 +504,14 @@ local function place_pages(native)
 end
 local place = place_pages(false)
 
+-- Does a fill of `color` draw nothing here (inside a glass surface of that colour)?
+local function see_through(d, color)
+	local m = d.material
+	if m and not d.painting_material and d:_color(color) == d:_color(m.bg) then return true end
+	return d.glass_under ~= nil and Color.parse(color) == d.glass_under
+end
+M._see_through = see_through
+
 -- The pages: the current one, or both during a page transition.
 local function paintChildren(el, st, d, kids, R)
 	local tr = st.data.page_tr
@@ -495,7 +526,8 @@ local function paintChildren(el, st, d, kids, R)
 	end
 	local x, y, w, h = clientRect(el, st)
 	local ctx = PageTransitions.context(tr.spec, w, h, tr.forward)
-	local ok, out, inn = pcall(tr.def.frame, tr.ease(p < 0 and 0 or p), ctx)
+	-- the arriving page settles over the last frames (PageTransitions.at)
+	local ok, out, inn, q = pcall(PageTransitions.at, tr.def, ctx, tr.ease, p, tr.dur)
 	if not ok or type(out) ~= "table" or type(inn) ~= "table" then
 		st.data.page_tr = nil
 		for i = 1, #kids do R.paint(kids[i], d) end
@@ -504,19 +536,37 @@ local function paintChildren(el, st, d, kids, R)
 	d:clip_push(x, y, w, h)
 	local base = attr(el, "BGCOLOR") or Element.globals.DLGBGCOLOR or "0 0 0"
 	if tr.def.backdrop ~= false then d:fill(x, y, w, h, base) end
+	if tr.in_fades == nil then
+		local ok0, _, inn0 = pcall(tr.def.frame, 0, ctx)
+		tr.in_fades = ok0 and type(inn0) == "table" and (tonumber(inn0.alpha) or 1) < 1 or false
+	end
 	local function page(child, t, leaving)
 		local alpha = tonumber(t.alpha) or 1
+		local bg = Element.getAttribute(child, "BGCOLOR") or base
+		-- Over glass a page's own colour draws nothing (core.imgui.Draw: it would cover the
+		-- glass), so the arriving page cannot cover the leaving one: the leaving page fades
+		-- out as the arriving one fades in, on the same curve, so the two together change
+		-- the frame no faster than one opaque page covering the other. A kind whose
+		-- arriving page does not fade (slide, cover) clears the leaving one by halfway.
+		if leaving and M._see_through(d, bg) then
+			local gone = tr.in_fades and (tonumber(inn.alpha) or 1) or q / 0.5
+			alpha = alpha * (1 - (gone > 1 and 1 or gone))
+		end
 		if alpha <= 0 then return end
 		local dx, dy = round(tonumber(t.dx) or 0), round(tonumber(t.dy) or 0)
+		-- what covers the scene is the layout the switch lands on: the arriving page where
+		-- it will rest, the leaving one not at all (core.ui.Background.cover)
+		local saved = d.coverShift and d:coverShift(dx, dy, x, y, w, h, leaving)
 		d:offset_push(dx, dy)
 		d:alpha_push(alpha > 1 and 1 or alpha)
 		-- A page draws over the strip's background, so it has none of its own: give it
 		-- one here, moving and fading with it, so the arriving page covers the leaving one
 		-- as a solid sheet (the IUP build's snapshots are opaque the same way).
-		d:fill(x, y, w, h, Element.getAttribute(child, "BGCOLOR") or base)
+		d:fill(x, y, w, h, bg)
 		if leaving then R.paintHidden(child, d) else R.paint(child, d) end
 		d:alpha_pop()
 		d:offset_pop()
+		if saved then d:coverRestore(saved) end
 		local dim = tonumber(t.dim) or 0
 		if dim > 0 then d:fill(x + dx, y + dy, w, h, Color.pack(0, 0, 0, 255 * math.min(1, dim))) end
 	end
@@ -725,6 +775,14 @@ local def = {
 
 M.flattabs = Classes.define(def)
 M.tabs = Classes.define(setmetatable({ name = "tabs", place = place_pages(true) }, { __index = def }))
+
+--- Where the extra buttons are ({ x, y, w, h } by id, in the element's coordinates):
+-- core.ui.Glass shapes the rail's glass caps round them.
+function M.extraRects(el)
+	local st = Element.state(el)
+	if not st then return {} end
+	return extraRects(el, st)
+end
 
 -- Shared by the drag preview so it uses the exact header geometry and content.
 function M.headerRects(el)

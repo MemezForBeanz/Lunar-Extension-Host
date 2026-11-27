@@ -161,6 +161,14 @@ through the transition and nothing is captured.
 | `slide` | The new page slides in over the old one, which stays and dims | 240 ms, standard, productive |
 | `none` | Instant | |
 
+On the ImGui strip a moving page comes to rest gently within the same duration
+(`PageTransitions.at`): the arriving page moves over the first 85% (`SETTLE_SPAN`), and the
+arriving page is never nearer rest than a 90 px/s creep to the end (`SETTLE_SPEED`, joined
+over `SETTLE_SOFT` px), so its last few pixels, where its text lines up, take the last frames
+instead of one. This applies to the built-in `push` only: `rise`, `slide` and every kind an
+extension registers get the offsets their `frame` returns, signed and unchanged, on the
+kind's curve (a page may overshoot and come back).
+
 Who chooses, highest first: the user (Appearance > Tab transition, saved as
 `motion_tab_transition`; "Theme default" defers), then the theme
 (`tab_transition = { kind = "rise" }` in `Theme:motion()`; the theme's other
@@ -168,7 +176,10 @@ Who chooses, highest first: the user (Appearance > Tab transition, saved as
 for reduced motion, the switch is instant. A strip opts out with `PAGETRANSITION=NO`.
 
 An extension adds a kind (host API 5). It is listed in Appearance settings, a theme can
-name it, and it is removed when the extension unloads:
+name it, and it is removed when the extension unloads. `ctx:registerPageTransition` refuses a
+built-in name; a kind set over one with `PageTransitions.register` replaces it until
+`PageTransitions.unregister`, which puts the built-in back (the built-ins themselves cannot be
+removed):
 
 ```lua
 self:registerPageTransition("drop", {

@@ -520,7 +520,7 @@ function M:register(ctx)
 	local shell = rawget(_G, "LUNAR_DEV_SHELL")
 	if shell then
 		shell.pages = shell.pages or {}
-		shell.pages["Media"] = { states = { "home", "sheet", "filtered", "collection", "ledger", "shows", "title", "show", "source" }, show = self.library.go }
+		shell.pages["Media"] = { states = { "home", "sheet", "filtered", "collection", "ledger", "shows", "title", "show", "source", "home-nobanner" }, show = self.library.go }
 		shell.pages["Metadata"] = { states = { "selected" }, show = self.metadata_page.capture }
 		shell.pages["Sources"] = { states = os.getenv("LUNAR_CAPTURE_SOURCE_MANAGE_ONLY") and { "manage" } or { "disconnected", "connected", "manage" }, show = self.sources_page.capture }
 		if os.getenv("LUNAR_CAPTURE_SOURCE_MANAGE_ONLY") then shell.toolPages["Sources"] = nil end

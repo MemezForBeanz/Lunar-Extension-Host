@@ -106,6 +106,16 @@ function M.new(opts)
 
 	function B.frame_end() B.last = B.frame_calls end
 
+	-- A recorded call stands for its vertices: vtx_mark gives the list and its length, and
+	-- vtx_color recolours the images among calls (from, to].
+	function B.vtx_mark() return B.frame_calls, #B.frame_calls end
+	function B.vtx_color(list, from, to, col)
+		for i = from + 1, math.min(to, #list) do
+			local c = list[i]
+			if c[1] == "image" or c[1] == "image_quad" then c[11] = col end
+		end
+	end
+
 	--- The calls of the frame that was last ended.
 	function B.lastFrame() return B.last or {} end
 
@@ -116,8 +126,44 @@ function M.new(opts)
 	function B.circle(...) record("circle", ...) end
 	function B.poly(...) record("poly", ...) end
 	function B.text(...) record("text", ...) end
-	function B.image(...) record("image", ...) end
+	-- As ImDrawList::AddImage / AddImageQuad: a sprite of alpha 0 is dropped, no vertices
+	local function shown(col) return col == nil or math.floor(col / 16777216) % 256 ~= 0 end
+	function B.image(id, x1, y1, x2, y2, u1, v1, u2, v2, col)
+		if shown(col) then record("image", id, x1, y1, x2, y2, u1, v1, u2, v2, col) end
+	end
 	function B.image_rounded(...) record("image_rounded", ...) end
+	function B.image_rounded_uv(...) record("image_rounded_uv", ...) end
+	function B.image_nine(...) record("image_nine", ...) end
+	function B.rim(...) record("rim", ...) end
+	function B.glass(...) record("glass", ...); return true end
+	function B.glass_copy(...) record("glass_copy", ...); return true end
+	function B.image_quad(id, x1, y1, x2, y2, x3, y3, x4, y4, col)
+		if shown(col) then record("image_quad", id, x1, y1, x2, y2, x3, y3, x4, y4, col) end
+	end
+	-- The scene target (core.ui.Background), when built with { scene = true }: its calls go to
+	-- B.scene_calls, a render per scene_end, and scene_present succeeds unless
+	-- B.scene_refuse is set.
+	if opts.scene then
+		B.SCENE_SHARP, B.SCENE_BLUR = -8, -9
+		B.scene_renders, B.scene_presents, B.scene_is_valid = 0, 0, false
+		local saved
+		function B.scene_begin(w, h)
+			saved = B.frame_calls
+			B.scene_calls, B.frame_calls = {}, {}
+			B.scene_size = { w, h }
+			return math.ceil(w / 256) * 256, math.ceil(h / 256) * 256
+		end
+		function B.scene_end(sprites)
+			B.scene_calls, B.frame_calls = B.frame_calls, saved or B.frame_calls
+			B.scene_sprites, B.scene_renders, B.scene_is_valid = sprites, B.scene_renders + 1, true
+		end
+		function B.scene_valid() return B.scene_is_valid end
+		function B.scene_present()
+			if B.scene_refuse then return false end
+			B.scene_presents = B.scene_presents + 1
+			return true
+		end
+	end
 	function B.clip_push(...) record("clip_push", ...) end
 	function B.clip_pop(...) record("clip_pop", ...) end
 	function B.layer(...) record("layer", ...) end

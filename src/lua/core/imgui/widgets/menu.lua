@@ -17,7 +17,7 @@ local function colors(menu)
 	local rules = theme and theme.rules and theme:rules() or {}
 	local r = rules.contextmenu or rules.dropdown_list or {}
 	return {
-		palette = p,
+		palette = p, lip = r.lip,
 		bg = Element.own(menu, "BGCOLOR") or r.bg or p.layer02 or p.layer01 or p.surface or attr(menu, "BGCOLOR"),
 		fg = Element.own(menu, "FGCOLOR") or r.fg or p.text or attr(menu, "FGCOLOR"),
 		hover = Element.own(menu, "HLCOLOR") or r.selbg or r.hover or p.layerHover01 or p.surface2 or attr(menu, "HLCOLOR"),
@@ -43,9 +43,13 @@ end
 local function item_height(e, c)
 	return math.max(24, item_font(e, c):charsize())
 end
+-- How far items keep from the edge: glass menus keep their 8 px lip free of text.
+local function inset(c)
+	return c.palette.glass and (c.lip or c.palette.glassLip or 8) or 4
+end
 local function menu_size(menu)
 	local c = colors(menu)
-	local w, h = 36, 8
+	local w, h = 36, 2 * inset(c)
 	for _, item in ipairs(children(menu)) do
 		if attr(item, "SEPARATOR") == "YES" or Element.state(item).classname == "separator" then h = h + 8
 		else
@@ -67,18 +71,33 @@ local function activate(item, state)
 	local result = Element.call(item, "ACTION")
 	if result == iup.CLOSE then state.result = result end
 end
+-- Floating glass opens with a 150 ms fade and a 4 px lift (core.ui.Glass.entrance).
+local function entrance(state) return require("core.ui.Glass").entrance(state) end
+local LIFT = 4
+M._entrance = entrance
+local menu_body
 local function menu_draw(menu, state, dc)
-	local w, h = state.w, state.h
 	local c = colors(menu)
+	local k = c.palette.glass and entrance(state) or 1
+	if k >= 1 then return menu_body(menu, state, dc, c) end
+	dc:alpha_push(k); dc:offset_push(0, LIFT * (1 - k))
+	menu_body(menu, state, dc, c)
+	dc:offset_pop(); dc:alpha_pop()
+end
+function menu_body(menu, state, dc, c)
+	local w, h = state.w, state.h
 	local bg, fg = c.bg, c.fg
 	local radius = c.radius
-	if c.palette.glass then require("core.ui.Glass").paint(dc,state.x,state.y,w,h,"floating",c.palette,radius)
+	if c.palette.glass then require("core.ui.Glass").paint(dc,state.x,state.y,w,h,"floating",c.palette,radius,nil,inset(c),
+		require("core.ui.Glass").ease(state, dc.overlay_hovered == true), state)
 	else
 		dc:fill(state.x + 2, state.y + 3, w, h, "0 0 0 50", { radius = radius })
 		dc:fill(state.x, state.y, w, h, bg, { radius = radius })
 		dc:rect(state.x, state.y, w, h, c.border, { radius = radius })
 	end
-	local y = state.y + 4
+	local pad = inset(c)
+	local side = c.palette.glass and pad or 3
+	local y = state.y + pad
 	for i, item in ipairs(children(menu)) do
 		local ist = Element.state(item)
 		if ist.classname == "separator" or yes(attr(item, "SEPARATOR")) then
@@ -87,26 +106,26 @@ local function menu_draw(menu, state, dc)
 		else
 			local ih = item_height(item, c); local active = attr(item, "ACTIVE") ~= "NO"; local selected = state.selected == i
 			if selected and active then
-				dc:fill(state.x + 3, y, w - 6, ih, c.hover, { radius = 3 })
-				dc:fill(state.x + 5, y + 5, 2, math.max(1, ih - 10),
+				dc:fill(state.x + side, y, w - 2 * side, ih, c.hover, { radius = 3 })
+				dc:fill(state.x + side + 2, y + 5, 2, math.max(1, ih - 10),
 					c.marker)
 			end
 			local label, accel = title_parts(attr(item, "TITLE"))
 			local mark = yes(attr(item, "VALUE")) and "✓" or ""
 			local font = item_font(item, c)
 			local item_fg = active and (Element.own(item, "FGCOLOR") or (selected and c.selected_fg or fg)) or c.disabled
-			dc:text(mark, state.x + 10, y, 18, ih, item_fg, font, { valign = "center" })
+			dc:text(mark, state.x + side + 7, y, 18, ih, item_fg, font, { valign = "center" })
 			dc:text(label, state.x + 32, y, w - 76 - (accel and font:measure(accel) + 16 or 0), ih,
 				item_fg, font, { valign = "center", ellipsis = true })
 			if accel then dc:text(accel, state.x + w - 24 - font:measure(accel), y, font:measure(accel), ih, c.muted, font, { valign = "center", align = "right" }) end
-			if Element.state(item).classname == "submenu" then dc:text("›", state.x + w - 22, y, 16, ih, item_fg, font, { valign = "center", align = "right" }) end
+			if Element.state(item).classname == "submenu" then dc:text("›", state.x + w - 19 - side, y, 16, ih, item_fg, font, { valign = "center", align = "right" }) end
 			y = y + ih
 		end
 	end
 end
 local function menu_item_at(menu, state, ly)
 	local c = colors(menu)
-	local y = 4
+	local y = inset(c)
 	for i, item in ipairs(children(menu)) do
 		if Element.state(item).classname == "separator" or yes(attr(item, "SEPARATOR")) then y = y + 8
 		else

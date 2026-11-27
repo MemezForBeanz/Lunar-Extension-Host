@@ -112,12 +112,13 @@ function M.new(ctx, opts)
 		ALIGNMENT = "ALEFT:ATOP", RASTERSIZE = "1x44" })
 	local play = Kit.button(iup, { title = "Play", icon = "play--filled--alt", role = "primary_btn",
 		action = function() if current then opts.on_play(current) end end })
-	iup.SetAttribute(play, "RASTERSIZE", "132x40")
+	-- sized by its label and the theme's padding, 40 px tall
+	iup.SetAttribute(play, "RASTERSIZE", "x40")
 	local info = Kit.button(iup, { title = "Details", role = "actionbutton", action = function()
 		if not current then return end
 		if opts.secondary then opts.secondary.run(current) else opts.on_info(current) end
 	end })
-	iup.SetAttribute(info, "RASTERSIZE", (opts.secondary and "168" or "112") .. "x40")
+	iup.SetAttribute(info, "RASTERSIZE", "x40")
 
 	api.primary = play
 	api.secondary = info

@@ -70,7 +70,10 @@ local function draw(e, st, dc)
 	F.boxAttrib(e, dc, x0, y0, 0, cw - 1, 0, ch - 1, backcolor, nil, true)
 
 	local title_w, title_h = title_size(e, frame)
-	if frame ~= 0 then
+	-- A glass surface has its own rim (core.ui.Glass); a frame line too would double it.
+	local m = dc.material
+	local glass_rim = m and (m.glass == "floating" or m.glass == "chrome" or m.glass == "caps")
+	if frame ~= 0 and not glass_rim then
 		local frame_top = 0
 		if frame == 2 and title_h > 0 then frame_top = frame_width + math.floor(title_h / 2) end
 		F.borderAttrib(e, dc, x0, y0, 0, cw - 1, frame_top, ch - 1, frame_width, attr(e, "FRAMECOLOR"), nil, active)

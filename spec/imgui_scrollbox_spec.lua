@@ -31,6 +31,29 @@ describe("imgui scrollbox", function()
 		assert.are.equal("126", iup.GetAttribute(box, "POSY"))
 	end)
 
+	it("YIELD gives up leading space instead of a bar whose range is only that space", function()
+		local function yielding(h, yield)
+			local child = iup.fill{}
+			local box = iup.flatscrollbox{child, SCROLLBAR = "VERTICAL", YIELD = yield}
+			local st = Element.state(box); st.x, st.y, st.w, st.h = 0, 0, 100, h
+			local cs = Element.state(child)
+			local L = { currentSize = function(_, cw, ch) return cw, ch end, natural = function() return 40, 200 end,
+				charsize = function() return 8, 16 end, place = function(_, x, y, pw, ph) cs.x, cs.y, cs.w, cs.h = x, y, pw, ph end }
+			Classes.get("flatscrollbox").natural(box, st, L)
+			Classes.get("flatscrollbox").place(box, st, L)
+			return box, cs
+		end
+		-- 200 of content in 193: it overruns by 7, within the 8 it may give up
+		local box, cs = yielding(193, "8")
+		assert.are.equal("193", iup.GetAttribute(box, "DY"))
+		assert.is_true(tonumber(iup.GetAttribute(box, "YMAX")) <= 193)
+		assert.are.equal(-7, cs.y)
+		-- a genuine overflow still scrolls, from the top
+		box, cs = yielding(150, "8")
+		assert.are.equal("200", iup.GetAttribute(box, "YMAX"))
+		assert.are.equal(0, cs.y)
+	end)
+
 	it("FITCONTENT uses the child's minimum content rather than the viewport", function()
 		local child = iup.hbox{iup.canvas{RASTERSIZE = "200x20"}, iup.canvas{RASTERSIZE = "200x20"}}
 		local box = iup.flatscrollbox{child, FITCONTENT = "YES", SCROLLBAR = "BOTH"}

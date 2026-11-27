@@ -524,11 +524,49 @@ iup.MainLoop = function()
 			iup.Refresh(dlg)
 		elseif scene == 16 and not os.getenv("LUNAR_CAPTURE_CODE") then
 			local R,E=require("core.imgui.Runtime"),require("core.imgui.Element")
+			-- A dropdown really on screen: laid out at a usable size, not in a folded column.
 			local function find(h)
-				if class(h)=="dropbutton" and R.isVisible(h) then return h end
+				local st=E.state(h)
+				if class(h)=="dropbutton" and R.isVisible(h) and st and st.w>40 and st.h>10 then return h end
 				for _,c in ipairs(E.children(h)) do local result=find(c); if result then return result end end
 			end
 			shell._capture_dropdown=find(dlg)
+			if not shell._capture_dropdown then
+				-- A narrow window folds a page's configuration behind More; open it the way
+				-- More > Configure does, so a dropdown is on screen to show.
+				-- the page that holds a dropdown: the nearest ancestor of one with a Configure
+				-- button, on a page that is showing
+				local function is_configure(h) return class(h)=="flatbutton" and iup.GetAttribute(h,"TITLE")=="Configure" end
+				local button
+				local function scan(h)
+					if button then return end
+					if class(h)=="dropbutton" then
+						local a=E.state(h) and E.state(h).parent
+						while a do
+							local found={}
+							local function all(node)
+								if is_configure(node) then found[#found+1]=node end
+								for _,c in ipairs(E.children(node)) do all(c) end
+							end
+							all(a)
+							if #found>0 then
+								-- exactly one: the dropdown's own page, not a box of several pages
+								if #found==1 and R.isVisible(a) then button=found[1] end
+								break
+							end
+							a=E.state(a) and E.state(a).parent
+						end
+						return
+					end
+					for _,c in ipairs(E.children(h)) do scan(c) end
+				end
+				scan(dlg)
+				if button then
+					E.call(button,"FLAT_ACTION")
+					iup.Refresh(dlg); R.frame(); R.frame()
+					shell._capture_dropdown=find(dlg)
+				end
+			end
 			if shell._capture_dropdown then
 				local list=iup.GetHandle(iup.GetAttribute(shell._capture_dropdown,"DROPCHILD"))
 				if list then

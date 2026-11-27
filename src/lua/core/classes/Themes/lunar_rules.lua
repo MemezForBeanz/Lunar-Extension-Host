@@ -164,15 +164,15 @@ function M.build(p)
         tabs          = { bg = p.bg,     fg = p.text, font = p.font, border = border },
         -- The tab strip: a well one step DARKER than the app floor, so the
         -- selected tab -- filled with the page surface and rounded on top --
-        -- reads as a raised card the way Obsidian's active tab does. The
-        -- square dotted focus rectangle is suppressed: it redraws the card as
-        -- a sharp box and tabs are reachable by click and shortcut anyway.
+        -- reads as a raised card the way Obsidian's active tab does. Keyboard
+        -- focus is a rounded ring in the tab's own shape (flattabs), not IUP's
+        -- dotted square.
         flattabs      = {
             bg = layer1, fg = p.text, font = p.font,
             tabsbg = p.gradShellWell or shade(p.bg, -0.35), tabsfg = p.textMuted,
             border = border, borderwidth = 1,
             hover = hover, selbg = selected,
-            radius = R, focusfeedback = false, showlines = false,
+            radius = R, focuscolor = p.accent, showlines = false,
             tabspadding = "12x6",
         },
         -- The bar inside a group: the tool level, so it sits on the page itself and only
@@ -182,7 +182,7 @@ function M.build(p)
             tabsbg = layer1, tabsfg = p.textMuted,
             border = border, borderwidth = 1,
             hover = hover, selbg = selected,
-            radius = R, focusfeedback = false, showlines = false,
+            radius = R, focuscolor = p.accent, showlines = false,
             tabspadding = "12x6",
         },
         scrollbox     = { bg = layer1, fg = p.text, border = border },
@@ -391,6 +391,7 @@ function M.build(p)
         rules[role].inactivebg = elevated
         rules[role].inactiveborder = border
         rules[role].inactivefg = p.textMuted
+        rules[role].inactivetext = require("core.classes.Themes.fluent_rules").disabledText(p.textMuted, elevated)
     end
     -- U3 page-template roles: opaque work surfaces, shared by every tool.
     local page_bg = p.layer02 or p.surface or p.bg
@@ -402,6 +403,9 @@ function M.build(p)
         well = well, hover = hover, selected = selected, border = border, radius = R,
         font = p.font, small_font = sized(p.font, 9),
     })
+    -- The bottom dock's player card; glass palettes turn it into the inset transport capsule.
+    rules.transport_capsule = {}
+    for key, value in pairs(rules.settingscard) do rules.transport_capsule[key] = value end
     -- Fix shared switch semantics: the off track must differ from the primary fill.
     for _, role in ipairs({ "flattoggle", "flattoggle_noborder" }) do
         rules[role].switchoff = p.fieldBorder or switch_off
@@ -412,7 +416,13 @@ function M.build(p)
             rules[role].bg = surface
         end
         rules.settings_nav_group.fg = p.textMuted
-        rules.page_surface.radius = 12
+        -- The work sheet (core.ui.WorkspaceFrame): matte, 14 px corners, inset from the
+        -- chrome by the reveal so the backdrop shows around it on every page. Its corner
+        -- bands draw nothing, so the backdrop shows continuously round the rounded corners.
+        local sheet_radius = p.radiusSheet or 14
+        rules.workspace_sheet = { bg = surface, glass = "card", radius = sheet_radius }
+        rules.workspace_band = { bg = surface, glass = "none" }
+        rules.page_surface.radius = sheet_radius
         rules.page_surface.glass = "card"
         rules.page_surface.border = border
         rules.page_surface.borderwidth = 1
@@ -435,14 +445,66 @@ function M.build(p)
             rules[role].bg, rules[role].glass = p.layer01, "chrome"
             rules[role].gradcolor = nil
         end
+        -- The rail is two glass caps (round its entries and "+", round the chevron) with the
+        -- bare backdrop and its crescent between them.
+        rules.tool_rail.glass, rules.tool_rail.radius = "caps", 14
         rules.dialog.glass = "floor"
         -- The close button too: a solid fill on the frosted toast read as a grey square.
         rules.toast_title.glass, rules.toast_body.glass, rules.toast_close.glass = "content", "content", "content"
         rules.palette_prompt.glass, rules.palette_hint.glass = "content", "content"
-        rules.contextmenu = { radius = 12 }
+        local floating_radius = p.radiusFloating or 16
+        rules.contextmenu = { radius = floating_radius }
         rules.dropdown_list.padding, rules.dropdown_list.itemradius = ROW_PAD, R
         for _, role in ipairs({ "dropdown_list", "palette_frame", "toast_bg_info", "toast_bg_success", "toast_bg_warning", "toast_bg_error" }) do
-            rules[role].glass, rules[role].radius = "floating", 12
+            rules[role].glass, rules[role].radius = "floating", floating_radius
+            -- Dense text sits on the opaque well inside the lip; one rim, no frame line.
+            if p.glassTextWell then rules[role].bg = p.glassTextWell end
+        end
+        if p.glassTextWell then
+            local well_bg = p.glassTextWell
+            for _, role in ipairs({ "palette_text", "palette_prompt", "palette_hint", "palette_list", "palette_rows",
+                                    "toast_title", "toast_body", "toast_close" }) do
+                rules[role].bg = well_bg
+                if rules[role].scrollbg then rules[role].scrollbg = well_bg end
+                if rules[role].border == elevated then rules[role].border = well_bg end
+            end
+            rules.dropdown_list.scrollbg = well_bg
+            -- Interactive fills on the wells stay within the contrast the wells allow.
+            local wh, ws = p.glassWellHover or hover, p.glassWellSelected or selected
+            for _, role in ipairs({ "palette_list", "palette_rows", "dropdown_list" }) do
+                local r = rules[role]
+                r.selbg = ws
+                if r.hover then r.hover = wh end
+                if r.pressed then r.pressed = ws end
+            end
+        end
+        -- The see-through lip: wider on the big panels, narrow on a tooltip.
+        rules.palette_frame.lip = 10
+        -- The GPU glass splits colour a quarter px at the big panels' rims (the palette and
+        -- Activity); menus, dropdowns, toasts and tooltips, whose rims lie over text, none.
+        rules.palette_frame.chroma = 0.25
+        rules.dropdown_list.lip = 8
+        for _, kind in ipairs({ "info", "success", "warning", "error" }) do rules["toast_bg_" .. kind].lip = 8 end
+        rules.contextmenu.lip = 8
+        -- The inset transport: chrome glass, a capsule (half-height corners).
+        -- On the GPU it is live glass: the nearest artwork shows through it (core.ui.Glass).
+        rules.transport_capsule = { bg = p.layer01, border = p.layer01, borderwidth = 0, radius = 999,
+            glass = "chrome", live = true }
+        -- The search field is a capsule too.
+        rules.commandbar.radius, rules.commandbar_text.radius = 14, 14
+        -- One 14 px rounded fill in every state at every width: the field paints no square
+        -- of the title strip's colour behind its pill (the strip's glass shows there).
+        rules.commandbar.glass = "content"
+        -- The button fills the pill: painting its parent's colour as a square showed a dark
+        -- rectangle round the capsule, so it leaves the fill to the pill.
+        rules.commandbar_text.glass = "content"
+        -- Primary action: an opaque gradient, the one inverted-luminance element in its region.
+        if p.primaryTop then
+            local b = rules.primary_btn
+            b.bg, b.gradcolor, b.graddir = p.primaryTop, p.primaryBottom, "VERTICAL"
+            b.fg, b.hovertext, b.pressedtext = p.primaryText, p.primaryText, p.primaryText
+            b.hover, b.pressed = p.primaryHover, p.primaryPressed
+            b.border, b.borderwidth, b.showborder = p.primaryBottom, 0, false
         end
         rules.statusbar_button.bg = p.layer01
         rules.statusbar_text.fg = p.textMuted
@@ -455,12 +517,65 @@ function M.build(p)
         for _, role in ipairs({ "primary_btn", "actionbutton", "ghost_btn", "danger_btn", "warning_btn", "info_btn", "icon_btn", "dropbutton", "text" }) do
             rules[role].focuscolor = p.accent
             rules[role].controlheight = 32
+            -- an icon-only button is a 32 px square, not its padding's width
+            rules[role].iconsquare = true
+        end
+    end
+    if p.glass and p.background then
+        -- Over a reactive background (core.ui.Background) the title strip, rail and status bar are
+        -- not separate glass pieces: they lie on the frame, the scene under one tint, so
+        -- they read as one connected chrome round the sheet. The sheet and the page
+        -- surfaces are a veil of glass over the scene (docs/theming.md, "Panels over a
+        -- reactive background"): large structural panels let it through; dense content
+        -- (lists, tables, grids, editors, forms, the terminal) sits on an opaque well.
+        for _, role in ipairs({ "statusbar", "titlebar_window", "shellheader" }) do
+            rules[role].glass = "chrome_content"
+        end
+        rules.tool_rail.glass, rules.tool_rail.radius = "chrome_content", nil
+        -- one veil: the sheet; the page surfaces inside it show it (no second glass pass)
+        rules.workspace_sheet.glass = "veil"
+        rules.page_surface.glass = "content"
+        -- navigation rows rest on the veil (only their states fill)
+        for _, role in ipairs({ "settings_nav", "settings_nav_on", "settingsheader", "settingsrow" }) do
+            if rules[role] then rules[role].bg, rules[role].border = p.layer02, p.layer02 end
+        end
+        local opaque = p.glassContentWell or p.layer01
+        for _, role in ipairs({ "flatlist", "flatrows", "flatgrid", "list_plain", "well", "settingscard" }) do
+            if rules[role] then
+                rules[role].bg = opaque
+                if rules[role].scrollbg then rules[role].scrollbg = opaque end
+            end
+        end
+        -- One glass language for every interactive state (buttons, icon and toolbar
+        -- buttons, tabs, the rail, rows, settings navigation): hover and pressed/selected
+        -- are the same frosted chip (slate by night, cool pearl by day), mostly opaque so
+        -- labels keep 4.5:1 over the brightest star the frame can show, translucent enough
+        -- that it takes the colour of what it lies on; the same radius and the same 110 ms
+        -- ease. The primary action keeps its own opaque gradient (the one inverted element).
+        -- Fills that were the old opaque hover/selected greys (or the wells') become the pair.
+        local lift = p.glassStateHover or (p.glassDark and "44 52 64 150" or "196 210 228 100")
+        local press = p.glassStateSelected or (p.glassDark and "54 62 76 205" or "182 198 220 150")
+        local old_hover = { [tostring(hover)] = true, [tostring(p.glassWellHover)] = true }
+        local old_press = { [tostring(selected)] = true, [tostring(p.glassWellSelected)] = true,
+            [tostring(p.accentSoft)] = true }
+        for role, r in pairs(rules) do
+            if role ~= "primary_btn" and type(r) == "table" then
+                if r.hover and old_hover[tostring(r.hover)] then r.hover = lift end
+                if r.hover and old_press[tostring(r.hover)] then r.hover = press end
+                if r.pressed and (old_press[tostring(r.pressed)] or old_hover[tostring(r.pressed)]) then r.pressed = press end
+                if r.selbg and (old_press[tostring(r.selbg)] or old_hover[tostring(r.selbg)]) then r.selbg = press end
+                if r.itemradius then r.itemradius = R end
+            end
+        end
+        for _, role in ipairs({ "flattabs", "flattabs_sub", "titlebar_tabs", "tool_rail" }) do
+            if rules[role] then rules[role].radius = R end
         end
     end
     -- A disclosure ("Technical details") is a quiet button whose text starts at the
     -- content edge it opens under.
     rules.disclosure_btn = {}
     for key, value in pairs(rules.actionbutton) do rules.disclosure_btn[key] = value end
+    fluent.addWorkspaceRoles(rules)
     return rules
 end
 

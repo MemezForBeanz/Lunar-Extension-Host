@@ -55,6 +55,50 @@ local function shade(rgbstr, f)
 end
 M.shade = shade
 
+local function lin(v) v = v / 255; return v <= 0.04045 and v / 12.92 or ((v + 0.055) / 1.055) ^ 2.4 end
+local function lum(c)
+    local r, g, b = tostring(c):match("(%d+)%s+(%d+)%s+(%d+)")
+    return 0.2126 * lin(tonumber(r)) + 0.7152 * lin(tonumber(g)) + 0.0722 * lin(tonumber(b))
+end
+
+--- A disabled control's label: `fg` (the muted text) moved toward the control's fill `bg`
+-- as far as it can go while it keeps `want` (default 5):1 there, so it reads as
+-- disabled (quieter than muted text, beside a faded icon and a flat fill) and stays
+-- legible (5, not 4.5: a small label's anti-aliased strokes measure ~0.2 under its colour).
+-- The flat controls draw it as given (TEXTINACTIVECOLOR), not faded again.
+function M.disabledText(fg, bg, want)
+    want = want or 5
+    local fr, fgg, fb = tostring(fg):match("(%d+)%s+(%d+)%s+(%d+)")
+    local br, bgg, bb = tostring(bg):match("(%d+)%s+(%d+)%s+(%d+)")
+    if not (fr and br) then return fg end
+    local lb = lum(bg)
+    local function ratio(c)
+        local x = lum(c)
+        if x < lb then return (lb + 0.05) / (x + 0.05) end
+        return (x + 0.05) / (lb + 0.05)
+    end
+    local best = fg
+    if ratio(fg) < want then
+        -- the muted text itself is too faint there: away from the fill until it reads
+        local to = lb < 0.18 and 255 or 0
+        for i = 1, 100 do
+            local t = i / 100
+            local function ch(a) return math.floor(tonumber(a) * (1 - t) + to * t + 0.5) end
+            best = string.format("%d %d %d", ch(fr), ch(fgg), ch(fb))
+            if ratio(best) >= want then break end
+        end
+        return best
+    end
+    for i = 1, 50 do
+        local t = i / 100
+        local function ch(a, b) return math.floor(tonumber(a) * (1 - t) + tonumber(b) * t + 0.5) end
+        local c = string.format("%d %d %d", ch(fr, br), ch(fgg, bgg), ch(fb, bb))
+        if ratio(c) < want then break end
+        best = c
+    end
+    return best
+end
+
 -- Re-size a theme's IUP font string, keeping its family. See the equivalent in
 -- carbon_rules.lua for why headings derive from the palette font rather than
 -- naming a second typeface.
@@ -90,7 +134,20 @@ function M.addPlainRoles(rules, page)
     derive("dropbutton_quiet", "dropbutton", { bg = quiet, border = rules.actionbutton.border or quiet })
 end
 
+--- The workspace sheet and its corner bands (core.ui.WorkspaceFrame). Outside glass
+-- themes they are exactly the class rules they would otherwise fall back to.
+function M.addWorkspaceRoles(rules)
+    local function copy(from)
+        local rule = {}
+        for key, value in pairs(rules[from] or {}) do rule[key] = value end
+        return rule
+    end
+    rules.workspace_sheet = rules.workspace_sheet or copy("vbox")
+    rules.workspace_band = rules.workspace_band or copy("canvas")
+end
+
 function M.addShellRoles(rules, p)
+    M.addWorkspaceRoles(rules)
     local floor = p.layer02 or p.surface2 or p.surface or p.bg
     local well = p.layer01 or p.surface or p.bg
     local border = p.borderSubtle01 or p.border
@@ -101,6 +158,7 @@ function M.addShellRoles(rules, p)
     local defaults = {
         text_focus = { bg = well, fg = p.text, font = font, border = p.accent },
         settingscard = { bg = floor, border = border },
+        transport_capsule = { bg = floor, border = border },
         settings_name = { fg = p.text, font = font },
         settings_nav = { bg = floor, fg = p.textMuted, font = font, border = floor, borderwidth = 0, hover = hover },
         settings_nav_on = { bg = selected, fg = p.text, font = font, border = selected, borderwidth = 0 },
@@ -371,6 +429,7 @@ function M.build(p)
                             "danger_btn", "warning_btn", "info_btn", "link_btn", "icon_btn" }) do
         rules[role].inactivebg = p.layer01 or p.surface or p.bg
         rules[role].inactivefg = p.textMuted
+        rules[role].inactivetext = M.disabledText(p.textMuted, rules[role].inactivebg)
     end
     M.addShellRoles(rules, p)
     M.addPlainRoles(rules, p.surface or p.bg)

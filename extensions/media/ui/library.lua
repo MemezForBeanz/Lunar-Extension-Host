@@ -21,6 +21,9 @@ local M = {}
 
 local CELL = 148           -- the size a cell aims for; columns then share the width exactly
 local WIDE_CELL = 280      -- Continue watching: landscape cards, which also say how long is left
+-- ...or slightly smaller and closer, where that fits one card more (five across a 1920 px
+-- window whose page starts further in).
+local WIDE_TIGHT, WIDE_TIGHT_GUTTER = 270, 12
 local JUMP_SLOTS = 27      -- A to Z and #
 local PLAN_ROW = 48
 local JUMP_ROW = 22
@@ -97,9 +100,10 @@ local SORTS = {
 local LEDGER_KEYS = { [0] = "title", "year", "resolution", "codec", "dynamic", "audio", "size_gb" }
 
 --- Cells that fill `width` exactly: no part-cell at the edge, and no spare pixels in the gutters.
-local function fitted_cell(width, ideal)
-	local columns = math.max(1, math.floor((width + GUTTER) / (ideal + GUTTER)))
-	return math.floor((width - (columns - 1) * GUTTER) / columns)
+local function fitted_cell(width, ideal, gutter)
+	gutter = gutter or GUTTER
+	local columns = math.max(1, math.floor((width + gutter) / (ideal + gutter)))
+	return math.floor((width - (columns - 1) * gutter) / columns)
 end
 
 local function muted(iup, text)
@@ -307,7 +311,7 @@ function M.new(ctx, opts)
 		local art = extra.art or art_of
 		local grid = CellGrid.new(iup, {
 			count = #list_of(), value = cell_value(list_of(), extra.secondary), cell_width = extra.cell or CELL,
-			aspect = extra.aspect or "2:3", gutter = GUTTER, padding = 0,
+			aspect = extra.aspect or "2:3", gutter = extra.gutter or GUTTER, padding = 0,
 			shelf = extra.shelf, empty_title = extra.empty, empty_hint = extra.hint, role = "flatgrid_plain",
 			on_select = function(pos) choose(list_of()[pos]) end,
 			on_activate = function(pos)
@@ -764,12 +768,13 @@ function M.new(ctx, opts)
 	local tagline_row = iup.hbox({ sample_tagline, MARGIN = text_column .. "x0" })
 	local sample_note = iup.vbox({
 		tagline_row,
-		-- less link_btn's own 2 px pad, so its label starts on the same column
+		-- the pill's edge on the rows' own column (their selection chip's 6 px inset), so it
+		-- reads as one of the rail's entries, not text floating at the label column
 		iup.hbox({ iup.flatbutton({ TITLE = "Connect a server", THEMEROLE = "link_btn", CANFOCUS = "YES",
 			flat_action = function()
 				if opts.on_connect then opts.on_connect() end
 				return iup.DEFAULT
-			end }), MARGIN = (text_column - 2) .. "x0" }),
+			end }), MARGIN = "6x0" }),
 		GAP = L.gap(1), MARGIN = "0x0", ALIGNMENT = "ALEFT",
 	})
 	local function show_sample_note()
@@ -922,7 +927,8 @@ function M.new(ctx, opts)
 			go_source("collection", (model.collections or {})[1])
 			return
 		end
-		if state == "home" then
+		if state == "home" or state == "home-nobanner" then
+			if state == "home-nobanner" then reliability.dismiss() end
 			sources:select(1)
 			go_source("home")
 		elseif state == "sheet" then
@@ -994,7 +1000,13 @@ function M.new(ctx, opts)
 		last_width = width
 		sheet:setCellWidth(fitted_cell(width - 2 * RING - SCROLLBAR, ideal_cell))
 		local shelf_cell = fitted_cell(width - 3 * RING - SCROLLBAR, ideal_cell)
-		local wide_cell = fitted_cell(width - 3 * RING - SCROLLBAR, WIDE_CELL)
+		local wide_room = width - 3 * RING - SCROLLBAR
+		local wide_gutter = GUTTER
+		local function columns(ideal, gutter) return math.floor((wide_room + gutter) / (ideal + gutter)) end
+		if columns(WIDE_TIGHT, WIDE_TIGHT_GUTTER) > columns(WIDE_CELL, GUTTER) then wide_gutter = WIDE_TIGHT_GUTTER end
+		local wide_cell = wide_gutter == GUTTER and fitted_cell(wide_room, WIDE_CELL)
+			or fitted_cell(wide_room, WIDE_TIGHT, WIDE_TIGHT_GUTTER)
+		iup.SetAttribute(continue_shelf.widget, "GUTTER", tostring(wide_gutter))
 		recent_shelf:setCellWidth(shelf_cell)
 		continue_shelf:setCellWidth(wide_cell)
 		size_shelves(shelf_cell, wide_cell)

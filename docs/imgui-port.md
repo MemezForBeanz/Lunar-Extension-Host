@@ -234,13 +234,36 @@ modifiers it happened with. `Runtime` routes them one at a time, so a press and 
 in the same frame (a touchpad tap, a quick click), a click followed by the pointer
 leaving, or keys typed between clicks reach the widgets in order and at the right place.
 
-Rendering is Direct3D 11 on WARP, the software rasterizer that ships with Windows: the
-flat UI costs about 4 ms of CPU per full-window frame and no GPU driver is loaded (the
-OpenGL driver alone was ~40 MB of private memory). Measured with all ten extensions,
-idle: 49 MiB private on WARP, 81 MiB on the GPU, 44 MiB for IUP. WARP is the default
-(the GPU only if WARP cannot start); `LUNAR_RENDERER=hardware` uses the GPU, `auto` is
-hardware-first with WARP as the fallback, and `LUNAR_VSYNC=0` presents without waiting
-(frame timing). Device flags that stop the driver's worker threads bring WARP below IUP
+Rendering is Direct3D 11, on the GPU by default. Settings > Appearance > Advanced >
+**Hardware acceleration** (`hardware_acceleration`, default on) picks hardware first with
+WARP, the software rasterizer that ships with Windows, as the fallback; off picks WARP.
+A change applies at once, through the device reset path at the next frame.
+`LUNAR_RENDERER` overrides the setting: `hardware`, `auto` (hardware-first), `warp`, or
+`default` (WARP, the GPU only if WARP cannot start). `LUNAR_VSYNC=0` presents without
+waiting (frame timing). The GPU costs memory: measured with all ten extensions, idle,
+49 MiB private on WARP, 81 MiB on the GPU (about 30 MiB more, the driver), 44 MiB for
+IUP. On WARP the flat UI costs about 4 ms of CPU per full-window frame and no GPU driver
+is loaded (the OpenGL driver alone was ~40 MB of private memory).
+
+The Lunar theme's Liquid Glass follows the device (`core.ui.Glass`,
+`src/cpp/lunar_glass_d3d11.inc`). On a hardware device chrome and floating glass are a
+live pixel shader that refracts, blurs and lights what lies under it each frame (the
+Media transport shows the nearest artwork extended under it, a tooltip is frosted glass,
+and the rim's light turns toward a nearby pointer unless motion is reduced); on WARP,
+with hardware acceleration off, on SDL and with Carbon it is the baked backdrop path with
+no per-frame shader work. `renderer().glass` says which ("shader" or "baked"); a hardware
+device lost and re-made on WARP switches path at the next frame. Its cost, measured with
+`LUNAR_GPU_TIMING=1` (D3D11 timestamp queries), is in `docs/imgui-performance-results.md`.
+Stacked floating glass (a submenu over its menu, a dropdown over a dialog's glass) samples
+the main window's background layer, not the glass beneath it: the shared copy is taken
+once, after that layer, so the upper surface refracts the window under both. This is
+deliberate (one copy per frame; the opaque text wells keep both readable). A surface
+whose copy failed, whose texture is missing or whose constants would not map draws its
+rounded tint, never stale pixels or nothing; a rounded image whose mask constants would
+not map keeps its silhouette through a default-usage buffer. With `LUNAR_GPU_TIMING=1`,
+`window("glass_fail", "texture" | "map")` forces those paths for a capture, and
+`window("frame_spans_take")` returns the CPU's per-frame spans in `frame_end` (main lists, overlay windows, their staging readback,
+`Present`) for the warm light/dark switch study. Device flags that stop the driver's worker threads bring WARP below IUP
 (36 MiB) but make a full-window repaint ten times slower, so they are not used.
 
 Text is measured the way IUP's Windows driver measures it: a GDI font made with
@@ -467,6 +490,10 @@ as the flat scrollbar's size (IUP registers 15) were found.
 - **Video host**: `iup.videohost` owns a disabled native child window (`WINDOWID`, from map)
   that follows the element's rect and hides at frame end when no visible videohost placed it
   (a hidden tab or zbox page), so libmpv draws into it as on the IUP build.
+- **Scrollbox `YIELD`** (an emulator attribute, no IUP counterpart): px of leading space the
+  child may give up instead of scrolling. A child that overruns the view by no more than that
+  is shifted up and shows no bar (Settings' column, whose top spacer alone overran the pane at
+  1068x784); a real overflow scrolls as before.
 - **Patch audit**: `docs/imgui-patch-audit.md` maps every hunk of the fork's patches to its
   Lua port; `docs/imgui-scintilla.md` lists the Scintilla surface Lunar uses.
 

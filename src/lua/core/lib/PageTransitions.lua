@@ -85,6 +85,7 @@ M.OUTGOING_LEAD = 0.5  -- the outgoing page moves half as far as the incoming on
 M.FADE_SPAN = 0.85     -- the incoming page is opaque by 85% of the way
 
 local kinds, order = {}, {}
+local builtins = {}   -- name -> the host's own def (the end of this file)
 
 local function clamp01(v) if v < 0 then return 0 elseif v > 1 then return 1 end return v end
 
@@ -99,10 +100,12 @@ function M.register(name, def)
 	return true
 end
 
---- Remove a kind (an extension unloading). Built-in kinds stay.
+--- Remove a kind (an extension unloading). Built-in kinds stay: one an extension
+-- registered over is restored, in its place in the list.
 function M.unregister(name)
 	local def = kinds[name]
-	if not def or def.builtin then return false end
+	if not def or def == builtins[name] then return false end
+	if builtins[name] then kinds[name] = builtins[name]; return true end
 	kinds[name] = nil
 	for i = #order, 1, -1 do if order[i] == name then table.remove(order, i) end end
 	return true
@@ -163,7 +166,58 @@ function M.context(spec, w, h, forward)
 	return ctx
 end
 
-M.register("push", {
+-- How a moving arriving page comes to rest. On its own the curve ends at a few hundred
+-- px/s, so the page's last few pixels cover its text's last offset in one or two frames,
+-- the largest change of the whole switch. Instead the arriving page's movement runs over the
+-- first SETTLE_SPAN of the duration, and it is never nearer rest than a creep
+-- at SETTLE_SPEED to the end of the duration (joined smoothly, over SETTLE_SOFT px): its
+-- last few pixels take the last few frames. The leaving page, opacity and dimming keep the
+-- kind's curve over the whole duration, which does not change. Only the built-in push
+-- settles so (it was tuned for that one's straight approach); every other kind, an
+-- extension's above all, gets its own signed offsets on the kind's curve, overshoot and all.
+M.SETTLE_SPAN = 0.85   -- of the duration: the arriving page's movement runs over this much
+M.SETTLE_SPEED = 90    -- px/s: the creep into place
+M.SETTLE_SOFT = 3      -- px: the join between the two
+
+-- The larger of a and b (both >= 0), with a rounded corner `k` wide; 0 when both are.
+local function softmax(a, b, k)
+	local m = math.max(a, b)
+	return m + k * math.log(math.exp((a - m) / k) + math.exp((b - m) / k) - math.exp(-m / k))
+end
+
+local function copy(t)
+	local c = {}
+	for k, v in pairs(t) do c[k] = v end
+	return c
+end
+
+local push   -- the built-in push's def: the one kind that settles
+
+--- Both pages at progress `p` (0..1 of the duration `dur` seconds) of `def` with easing
+-- `ease`: the outgoing and the incoming page's tables, and the eased value (the kind's
+-- curve at `p`). The built-in push's incoming page settles as SETTLE_SPAN says.
+function M.at(def, ctx, ease, p, dur)
+	p = clamp01(p)
+	local q = ease(p)
+	local out, inn = def.frame(q, ctx)
+	if def ~= push or type(out) ~= "table" or type(inn) ~= "table" or p >= 1 then return out, inn, q end
+	local _, minn = def.frame(ease(math.min(1, p / M.SETTLE_SPAN)), ctx)
+	local _, inn0 = def.frame(0, ctx)
+	inn = copy(inn)
+	local line = M.SETTLE_SPEED * (dur or 0) * (1 - p)
+	for _, k in ipairs({ "dx", "dy" }) do
+		local v0 = type(inn0) == "table" and tonumber(inn0[k]) or 0
+		if v0 ~= 0 and type(minn) == "table" then
+			local v = math.abs(tonumber(minn[k]) or 0)
+			inn[k] = (v0 < 0 and -1 or 1) * softmax(v, math.min(line, math.abs(v0)), M.SETTLE_SOFT)
+		elseif type(minn) == "table" then
+			inn[k] = minn[k]
+		end
+	end
+	return out, inn, q
+end
+
+push = {
 	builtin = true, label = "Push",
 	frame = function(t, ctx)
 		local alpha = 1
@@ -171,7 +225,8 @@ M.register("push", {
 		return { dx = ctx.dir * ctx.travel * ctx.lead * t, dy = 0, alpha = 1 },
 			{ dx = -ctx.dir * ctx.travel * (1 - t), dy = 0, alpha = alpha }
 	end,
-})
+}
+M.register("push", push)
 
 M.register("fade", {
 	builtin = true, label = "Fade",
@@ -202,5 +257,6 @@ M.register("slide", {
 })
 
 M.register("none", { builtin = true, label = "None" })
+for name, def in pairs(kinds) do builtins[name] = def end
 
 return M

@@ -264,6 +264,89 @@ int lunar_ui_image_rounded(ImDrawList *dl, int tex, float x1, float y1, float x2
 		C.lunar_ui_image_rounded(dl, tex, x1, y1, x2, y2, col or 0xFFFFFFFF, rounding or 0)
 	end
 end
+-- Glass (core.ui.Glass): a rounded image with UV bounds, a nine-slice and the rim, one call each.
+if pcall(ffi.cdef, [[
+int lunar_ui_image_rounded_uv(ImDrawList *dl, int tex, float x1, float y1, float x2, float y2,
+	float u1, float v1, float u2, float v2, uint32_t col, float rounding, int flags);
+int lunar_ui_image_nine(ImDrawList *dl, int tex, float x1, float y1, float x2, float y2,
+	float bx, float by, float ub, float vb, uint32_t col);
+void lunar_ui_rim(ImDrawList *dl, float x1, float y1, float x2, float y2, float rounding,
+	uint32_t hi, uint32_t lo, uint32_t inner, int flags, float thick);
+]]) and pcall(function() return C.lunar_ui_image_rounded_uv, C.lunar_ui_image_nine, C.lunar_ui_rim end) then
+	function B.image_rounded_uv(tex, x1, y1, x2, y2, u1, v1, u2, v2, col, rounding, flags)
+		C.lunar_ui_image_rounded_uv(dl, tex, x1, y1, x2, y2, u1, v1, u2, v2, col or 0xFFFFFFFF, rounding or 0, flags or 0)
+	end
+	function B.image_nine(tex, x1, y1, x2, y2, bx, by, ub, vb, col)
+		C.lunar_ui_image_nine(dl, tex, x1, y1, x2, y2, bx, by, ub, vb, col or 0xFFFFFFFF)
+	end
+	function B.rim(x1, y1, x2, y2, rounding, hi, lo, inner, flags, thick)
+		C.lunar_ui_rim(dl, x1, y1, x2, y2, rounding or 0, hi or 0, lo or 0, inner or 0, flags or 0, thick or 1)
+	end
+end
+-- GPU glass (core.ui.Glass): a live shader surface, on a hardware device only.
+if pcall(ffi.cdef, [[
+int lunar_ui_glass_ready(void);
+int lunar_ui_glass(ImDrawList *dl, float x1, float y1, float x2, float y2, float radius, int kind,
+	uint32_t tint, uint32_t rim, uint32_t inner, float band, float thickness, float lift, uint32_t fade,
+	int sharp, int blur, float ku, float kv, uint32_t well, float lip, float chroma, float angle, float lum_max,
+	float lum_min, float rim_floor, float rim_blur, float blur_depth, int soft, float well_ease);
+int lunar_ui_glass_copy(ImDrawList *dl, float x1, float y1, float x2, float y2, int kind, float lip, float radius,
+	int soft);
+]]) and pcall(function() return C.lunar_ui_glass_ready, C.lunar_ui_glass, C.lunar_ui_glass_copy end) then
+	--- true while the live device draws glass with the shader (hardware, not WARP)
+	function B.glass_ready() return C.lunar_ui_glass_ready() ~= 0 end
+	function B.glass(x1, y1, x2, y2, radius, kind, tint, rim, inner, band, thickness, lift, fade, sharp, blur, ku, kv,
+	                 well, lip, chroma, angle, lum_max, lum_min, rim_floor, rim_blur, blur_depth, soft, well_ease)
+		return C.lunar_ui_glass(dl, x1, y1, x2, y2, radius or 0, kind or 0, tint or 0, rim or 0, inner or 0,
+			band or 8, thickness or 6, lift or 0, fade or 0xFFFFFFFF, sharp or 0, blur or 0, ku or 0, kv or 0,
+			well or 0, lip or 0, chroma or 0, angle or 0, lum_max or 1, lum_min or 0, rim_floor or 0,
+			rim_blur or 0.65, blur_depth or 3, soft and 1 or 0, well_ease or 0) ~= 0
+	end
+	--- a glass surface's copy point, before its shadow: it never samples its own shadow
+	function B.glass_copy(x1, y1, x2, y2, kind, lip, radius, soft)
+		return C.lunar_ui_glass_copy(dl, x1, y1, x2, y2, kind or 0, lip or 0, radius or 0, soft and 1 or 0) ~= 0
+	end
+end
+-- Reactive backgrounds (core.ui.Background): a private list rendered into the scene target, the
+-- target's ids, a scene-only present, and a turned sprite.
+if pcall(ffi.cdef, [[
+ImDrawList *lunar_ui_scene_begin(int w, int h, float *out);
+void lunar_ui_scene_end(int sprites);
+int lunar_ui_scene_valid(void);
+int lunar_ui_scene_present(void);
+int lunar_ui_image_quad(ImDrawList *dl, int tex, float x1, float y1, float x2, float y2,
+	float x3, float y3, float x4, float y4, uint32_t col);
+]]) and pcall(function() return C.lunar_ui_scene_begin, C.lunar_ui_scene_present, C.lunar_ui_image_quad end) then
+	B.SCENE_SHARP, B.SCENE_BLUR = -8, -9
+	local size_out2 = ffi.new("float[2]")
+	local saved
+	--- Draw on the scene list from here until scene_end; returns the target's size, or nil.
+	function B.scene_begin(w, h)
+		local list = C.lunar_ui_scene_begin(w, h, size_out2)
+		if list == nil then return nil end
+		saved = dl
+		dl = list
+		return size_out2[0], size_out2[1]
+	end
+	function B.scene_end(sprites)
+		C.lunar_ui_scene_end(sprites or 0)
+		if saved then dl = saved; saved = nil end
+	end
+	function B.scene_valid() return C.lunar_ui_scene_valid() ~= 0 end
+	function B.scene_present() return C.lunar_ui_scene_present() ~= 0 end
+	function B.image_quad(tex, x1, y1, x2, y2, x3, y3, x4, y4, col)
+		C.lunar_ui_image_quad(dl, tex, x1, y1, x2, y2, x3, y3, x4, y4, col or 0xFFFFFFFF)
+	end
+end
+-- A sprite's vertices, recoloured once the frame knows its opacity (core.ui.Background's
+-- direct-draw floor): vtx_mark gives the list and its vertex count now.
+if pcall(ffi.cdef, [[
+int lunar_ui_vtx_count(ImDrawList *dl);
+void lunar_ui_vtx_color(ImDrawList *dl, int from, int to, uint32_t col);
+]]) and pcall(function() return C.lunar_ui_vtx_count, C.lunar_ui_vtx_color end) then
+	function B.vtx_mark() return dl, C.lunar_ui_vtx_count(dl) end
+	function B.vtx_color(list, from, to, col) C.lunar_ui_vtx_color(list, from, to, col) end
+end
 function B.clip_push(x1, y1, x2, y2) C.lunar_ui_clip_push(dl, x1, y1, x2, y2) end
 function B.clip_pop() C.lunar_ui_clip_pop(dl) end
 

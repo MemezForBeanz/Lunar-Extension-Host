@@ -81,6 +81,12 @@ local function seconds(spec, distance)
 	return ms / 1000
 end
 
+-- Bumped by M.snap(): colours set before it jump to their targets.
+local epoch = 0
+--- A theme change: every colour eases no further, it is drawn at its new value at once
+-- (a hover or selection ease across a theme change would cross the contrast of both).
+function M.snap() epoch = epoch + 1 end
+
 local function tweens(st)
 	local t = st.data.motion
 	if not t then t = {}; st.data.motion = t end
@@ -184,8 +190,8 @@ function M.color(st, key, target, spec)
 	local to = target ~= nil and Color.parse(target) or nil
 	local t = tweens(st)
 	local a = t[key]
-	if not a then
-		t[key] = { v = to, to = to }
+	if not a or a.epoch ~= epoch then
+		t[key] = { v = to, to = to, epoch = epoch }
 		return to
 	end
 	if a.to ~= to then
